@@ -10,7 +10,9 @@ enum CSVExporter {
 
     static func makeCSV(from records: [DistilledRecord]) -> String {
         let formatter = ISO8601DateFormatter()
-        var lines = [header]
+        // Leading U+FEFF (UTF-8 BOM): without it Excel misreads non-Latin
+        // text (Korean, Japanese, ...) as a legacy encoding.
+        var lines = ["\u{FEFF}" + header]
         lines.reserveCapacity(records.count + 1)
         for record in records {
             lines.append(
