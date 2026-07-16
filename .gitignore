@@ -4,6 +4,9 @@
 # Office lock files
 ~$*.xlsx
 
+# Distillation exports (personal data — never commit)
+written-distillation-*.csv
+
 # Xcode user state
 xcuserdata/
 *.xcuserstate
