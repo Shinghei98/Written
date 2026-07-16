@@ -27,6 +27,15 @@ struct ContentView: View {
                         action: viewModel.distillAppleMusic
                     )
 
+                    SourceCardView(
+                        title: "Spotify",
+                        subtitle: "Top artists & tracks · Recently played · Follows · Playlists",
+                        systemImage: "waveform",
+                        tint: .green,
+                        status: viewModel.spotifyStatus,
+                        action: viewModel.distillSpotify
+                    )
+
                     exportSection
                 }
                 .padding()
@@ -59,7 +68,7 @@ struct ContentView: View {
             if viewModel.hasRecords {
                 ForEach(viewModel.recordCountBySource, id: \.source) { entry in
                     HStack {
-                        Text(entry.source == "youtube" ? "YouTube" : "Apple Music")
+                        Text(sourceDisplayName(entry.source))
                         Spacer()
                         Text("\(entry.count) records")
                             .foregroundStyle(.secondary)
@@ -85,6 +94,15 @@ struct ContentView: View {
         }
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func sourceDisplayName(_ source: String) -> String {
+        switch source {
+        case "youtube": return "YouTube"
+        case "apple_music": return "Apple Music"
+        case "spotify": return "Spotify"
+        default: return source
+        }
     }
 }
 

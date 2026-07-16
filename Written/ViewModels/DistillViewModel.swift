@@ -6,13 +6,15 @@ final class DistillViewModel: ObservableObject {
 
     @Published var youtubeStatus: SourceStatus = .idle
     @Published var appleMusicStatus: SourceStatus = .idle
+    @Published var spotifyStatus: SourceStatus = .idle
     @Published private(set) var records: [DistilledRecord] = []
 
     @Published var isExporterPresented = false
     @Published var exportDocument: CSVDocument?
     @Published var exportResultMessage: String?
 
-    private let googleOAuth = GoogleOAuthService()
+    private let googleOAuth = OAuthPKCEService(provider: .google)
+    private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
     var hasRecords: Bool { !records.isEmpty }
 
@@ -50,6 +52,21 @@ final class DistillViewModel: ObservableObject {
                 appleMusicStatus = .done(count: newRecords.count)
             } catch {
                 appleMusicStatus = .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
+    func distillSpotify() {
+        guard !spotifyStatus.isRunning else { return }
+        spotifyStatus = .running
+        Task {
+            do {
+                let distiller = SpotifyDistiller(oauth: spotifyOAuth)
+                let newRecords = try await distiller.distill()
+                replaceRecords(from: "spotify", with: newRecords)
+                spotifyStatus = .done(count: newRecords.count)
+            } catch {
+                spotifyStatus = .failed(message: error.localizedDescription)
             }
         }
     }

@@ -4,7 +4,7 @@ import Foundation
 /// subscriptions, liked videos, playlists (and their contents).
 struct YouTubeDistiller {
 
-    let oauth: GoogleOAuthService
+    let oauth: OAuthPKCEService
 
     private static let baseURL = "https://www.googleapis.com/youtube/v3"
 

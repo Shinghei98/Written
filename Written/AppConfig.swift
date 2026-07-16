@@ -27,6 +27,21 @@ enum AppConfig {
     /// Read-only YouTube scope: subscriptions, liked videos, playlists.
     static let youtubeScope = "https://www.googleapis.com/auth/youtube.readonly"
 
+    // MARK: Spotify OAuth
+
+    /// Client ID from the Spotify Developer Dashboard
+    /// (https://developer.spotify.com/dashboard → Create app).
+    /// Add the exact redirect URI below to the app's Redirect URIs there,
+    /// and enable the "iOS" platform with this app's bundle identifier.
+    static let spotifyClientID = "YOUR_SPOTIFY_CLIENT_ID"
+
+    static let spotifyRedirectScheme = "written"
+    static let spotifyRedirectURI = "written://spotify-callback"
+
+    /// Read-only scopes covering written_api.xlsx: top artists/tracks,
+    /// recently played, followed artists, playlists.
+    static let spotifyScope = "user-top-read user-read-recently-played user-follow-read playlist-read-private"
+
     // MARK: Distillation limits (MVP guardrails so a distill finishes quickly)
 
     /// Maximum pages fetched per paginated endpoint (50 items/page for YouTube,

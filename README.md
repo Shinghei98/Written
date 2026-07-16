@@ -13,7 +13,9 @@ This MVP is a single-page iPhone app that:
    contents, recently added, recently played, heavy rotation, personalized
    recommendations, and like/dislike ratings, via MusicKit (one-tap system
    permission, no login).
-3. Exports everything as a single normalized **CSV** through the in-app
+3. Distills **Spotify** — top artists and tracks, recently played tracks,
+   followed artists, playlists + contents, via one-tap Spotify OAuth (PKCE).
+4. Exports everything as a single normalized **CSV** through the in-app
    "Download CSV" button (system Files save sheet).
 
 ## Requirements
@@ -65,6 +67,22 @@ That's all — the redirect scheme is derived automatically from the client ID, 
 the app uses `ASWebAuthenticationSession`, which needs no URL-scheme entry in
 Info.plist and no Google SDK dependency.
 
+### 4. Spotify
+
+1. In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
+   **Create app**.
+2. Add `written://spotify-callback` under **Redirect URIs**, and under
+   **Which API/SDKs are you planning to use?** check *iOS* (enter the app's
+   bundle identifier).
+3. Copy the **Client ID** into `Written/AppConfig.swift`:
+
+   ```swift
+   static let spotifyClientID = "your32charclientid"
+   ```
+
+While the Spotify app is in *Development mode*, add your test accounts under
+**User Management** (up to 25 users); extended quota needs Spotify review.
+
 ## How the one-button experience works
 
 - **Apple Music**: tap *Distill* → the iOS media permission dialog appears once →
@@ -80,8 +98,8 @@ Info.plist and no Google SDK dependency.
 
 | column | meaning |
 |---|---|
-| `source` | `youtube` or `apple_music` |
-| `data_type` | `subscription`, `liked_video`, `playlist`, `playlist_item`, `library_song`, `library_album`, `library_artist`, `library_music_video`, `library_playlist`, `recently_added`, `recently_played`, `heavy_rotation`, `recommendation`, `rating` |
+| `source` | `youtube`, `apple_music`, or `spotify` |
+| `data_type` | YouTube: `subscription`, `liked_video`, `playlist`, `playlist_item` · Apple Music: `library_song`, `library_album`, `library_artist`, `library_music_video`, `library_playlist`, `playlist_item`, `recently_added`, `recently_played`, `heavy_rotation`, `recommendation`, `rating` · Spotify: `top_artist`, `top_track`, `recently_played`, `followed_artist`, `playlist`, `playlist_item` |
 | `item_id` | platform-native id of the item |
 | `name` | title of the video/song/album/channel/... |
 | `creator` | channel / artist / curator |
@@ -97,10 +115,11 @@ Written/
 ├── AppConfig.swift               # Google client ID + distillation limits
 ├── Models/DistilledRecord.swift  # unified record schema + source status
 ├── Services/
-│   ├── GoogleOAuthService.swift  # ASWebAuthenticationSession + PKCE, Keychain refresh
+│   ├── OAuthPKCEService.swift    # ASWebAuthenticationSession + PKCE (Google & Spotify), Keychain refresh
 │   ├── KeychainStore.swift
 │   ├── YouTubeDistiller.swift    # YouTube Data API v3 fetchers
 │   ├── AppleMusicDistiller.swift # MusicKit / Apple Music API fetchers
+│   ├── SpotifyDistiller.swift    # Spotify Web API fetchers
 │   └── CSVExporter.swift         # RFC 4180 CSV + FileDocument wrapper
 ├── ViewModels/DistillViewModel.swift
 └── Views/ContentView.swift       # the single MVP page

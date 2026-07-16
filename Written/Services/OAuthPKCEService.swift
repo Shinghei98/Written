@@ -2,27 +2,74 @@ import AuthenticationServices
 import CryptoKit
 import Foundation
 
-/// One-tap Google sign-in using ASWebAuthenticationSession + PKCE.
+/// Describes an OAuth 2.0 provider that supports the authorization-code + PKCE
+/// flow for native apps (no client secret). Google and Spotify both do.
+struct OAuthProvider {
+    let name: String
+    let authorizationURL: String
+    let tokenURL: String
+    let clientID: String
+    let redirectScheme: String
+    let redirectURI: String
+    let scope: String
+    /// Provider-specific additions to the authorization request
+    /// (e.g. Google's access_type=offline to get a refresh token).
+    let extraAuthParameters: [String: String]
+    /// Where the developer pastes the client ID, for the error message.
+    let configHint: String
+
+    var isConfigured: Bool { !clientID.hasPrefix("YOUR_") }
+
+    static var google: OAuthProvider {
+        OAuthProvider(
+            name: "Google",
+            authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+            tokenURL: "https://oauth2.googleapis.com/token",
+            clientID: AppConfig.googleClientID,
+            redirectScheme: AppConfig.googleRedirectScheme,
+            redirectURI: AppConfig.googleRedirectURI,
+            scope: AppConfig.youtubeScope,
+            extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
+            configHint: "AppConfig.googleClientID"
+        )
+    }
+
+    static var spotify: OAuthProvider {
+        OAuthProvider(
+            name: "Spotify",
+            authorizationURL: "https://accounts.spotify.com/authorize",
+            tokenURL: "https://accounts.spotify.com/api/token",
+            clientID: AppConfig.spotifyClientID,
+            redirectScheme: AppConfig.spotifyRedirectScheme,
+            redirectURI: AppConfig.spotifyRedirectURI,
+            scope: AppConfig.spotifyScope,
+            extraAuthParameters: [:],
+            configHint: "AppConfig.spotifyClientID"
+        )
+    }
+}
+
+/// One-tap sign-in using ASWebAuthenticationSession + PKCE.
 ///
-/// Friction profile: the user taps "Distill", the system Google sheet appears
-/// (already signed in via Safari cookies in most cases), they tap their account
-/// and "Allow" — no password typing. The refresh token is kept in the Keychain,
-/// so every later distill is zero-tap.
-final class GoogleOAuthService: NSObject {
+/// Friction profile: the user taps "Distill", the system browser sheet appears
+/// (sharing Safari's cookies, so usually already signed in), they tap "Allow" —
+/// no password typing in the common case. The refresh token is kept in the
+/// Keychain, so every later distill is zero-tap.
+final class OAuthPKCEService: NSObject {
 
     enum OAuthError: LocalizedError {
-        case notConfigured
+        case notConfigured(provider: String, hint: String)
         case cancelled
         case badResponse(String)
 
         var errorDescription: String? {
             switch self {
-            case .notConfigured:
-                return "Google client ID is not configured. Set AppConfig.googleClientID."
+            case .notConfigured(let provider, let hint):
+                return "\(provider) client ID is not configured. Set \(hint)."
             case .cancelled:
                 return "Sign-in was cancelled."
             case .badResponse(let detail):
-                return "Google sign-in failed: \(detail)"
+                return "Sign-in failed: \(detail)"
             }
         }
     }
@@ -39,24 +86,29 @@ final class GoogleOAuthService: NSObject {
         }
     }
 
-    private static let refreshTokenKey = "google_refresh_token"
+    private let provider: OAuthProvider
+    private var refreshTokenKey: String { "\(provider.name.lowercased())_refresh_token" }
 
     private var accessToken: String?
     private var accessTokenExpiry = Date.distantPast
     private var webAuthSession: ASWebAuthenticationSession?
 
+    init(provider: OAuthProvider) {
+        self.provider = provider
+    }
+
     /// Returns a valid access token, reusing/refreshing silently when possible
     /// and falling back to the interactive consent sheet only when required.
     @MainActor
     func validAccessToken() async throws -> String {
-        guard !AppConfig.googleClientID.hasPrefix("YOUR_CLIENT_ID") else {
-            throw OAuthError.notConfigured
+        guard provider.isConfigured else {
+            throw OAuthError.notConfigured(provider: provider.name, hint: provider.configHint)
         }
 
         if let token = accessToken, accessTokenExpiry > Date().addingTimeInterval(60) {
             return token
         }
-        if let refreshToken = KeychainStore.read(Self.refreshTokenKey),
+        if let refreshToken = KeychainStore.read(refreshTokenKey),
            let token = try? await refreshAccessToken(refreshToken: refreshToken) {
             return token
         }
@@ -66,7 +118,7 @@ final class GoogleOAuthService: NSObject {
     func signOut() {
         accessToken = nil
         accessTokenExpiry = .distantPast
-        KeychainStore.delete(Self.refreshTokenKey)
+        KeychainStore.delete(refreshTokenKey)
     }
 
     // MARK: - Interactive flow
@@ -76,22 +128,22 @@ final class GoogleOAuthService: NSObject {
         let verifier = Self.randomURLSafeString(bytes: 48)
         let challenge = Self.codeChallenge(for: verifier)
 
-        var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-        components.queryItems = [
-            URLQueryItem(name: "client_id", value: AppConfig.googleClientID),
-            URLQueryItem(name: "redirect_uri", value: AppConfig.googleRedirectURI),
+        var components = URLComponents(string: provider.authorizationURL)!
+        var queryItems = [
+            URLQueryItem(name: "client_id", value: provider.clientID),
+            URLQueryItem(name: "redirect_uri", value: provider.redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "scope", value: AppConfig.youtubeScope),
+            URLQueryItem(name: "scope", value: provider.scope),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "access_type", value: "offline"),
-            URLQueryItem(name: "prompt", value: "consent"),
         ]
+        queryItems += provider.extraAuthParameters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        components.queryItems = queryItems
 
         let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: components.url!,
-                callbackURLScheme: AppConfig.googleRedirectScheme
+                callbackURLScheme: provider.redirectScheme
             ) { url, error in
                 if let url {
                     continuation.resume(returning: url)
@@ -103,7 +155,7 @@ final class GoogleOAuthService: NSObject {
                 }
             }
             session.presentationContextProvider = self
-            // Reuse Safari's Google session so most users never type a password.
+            // Reuse Safari's session cookies so most users never type a password.
             session.prefersEphemeralWebBrowserSession = false
             self.webAuthSession = session
             session.start()
@@ -122,24 +174,24 @@ final class GoogleOAuthService: NSObject {
 
     private func exchangeCode(_ code: String, verifier: String) async throws -> String {
         try await requestToken(parameters: [
-            "client_id": AppConfig.googleClientID,
+            "client_id": provider.clientID,
             "code": code,
             "code_verifier": verifier,
             "grant_type": "authorization_code",
-            "redirect_uri": AppConfig.googleRedirectURI,
+            "redirect_uri": provider.redirectURI,
         ])
     }
 
     private func refreshAccessToken(refreshToken: String) async throws -> String {
         try await requestToken(parameters: [
-            "client_id": AppConfig.googleClientID,
+            "client_id": provider.clientID,
             "refresh_token": refreshToken,
             "grant_type": "refresh_token",
         ])
     }
 
     private func requestToken(parameters: [String: String]) async throws -> String {
-        var request = URLRequest(url: URL(string: "https://oauth2.googleapis.com/token")!)
+        var request = URLRequest(url: URL(string: provider.tokenURL)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = parameters
@@ -157,7 +209,7 @@ final class GoogleOAuthService: NSObject {
         accessToken = token.accessToken
         accessTokenExpiry = Date().addingTimeInterval(token.expiresIn)
         if let refresh = token.refreshToken {
-            KeychainStore.save(refresh, for: Self.refreshTokenKey)
+            KeychainStore.save(refresh, for: refreshTokenKey)
         }
         return token.accessToken
     }
@@ -176,7 +228,7 @@ final class GoogleOAuthService: NSObject {
     }
 }
 
-extension GoogleOAuthService: ASWebAuthenticationPresentationContextProviding {
+extension OAuthPKCEService: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
