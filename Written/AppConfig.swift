@@ -33,7 +33,7 @@ enum AppConfig {
     /// (https://developer.spotify.com/dashboard → Create app).
     /// Add the exact redirect URI below to the app's Redirect URIs there,
     /// and enable the "iOS" platform with this app's bundle identifier.
-    static let spotifyClientID = "YOUR_SPOTIFY_CLIENT_ID"
+    static let spotifyClientID = "3a0ed3c9d39c40c3bdc3c62b91f78e8b"
 
     static let spotifyRedirectScheme = "written"
     static let spotifyRedirectURI = "written://spotify-callback"
