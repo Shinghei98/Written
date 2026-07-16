@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Office lock files
+~$*.xlsx
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/

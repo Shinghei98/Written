@@ -1,0 +1,38 @@
+import Foundation
+
+/// Central configuration for Written's distillation sources.
+enum AppConfig {
+
+    // MARK: Google / YouTube OAuth
+
+    /// iOS OAuth client ID from Google Cloud Console
+    /// (APIs & Services → Credentials → Create Credentials → OAuth client ID → iOS).
+    /// Enable "YouTube Data API v3" for the project before creating the client.
+    ///
+    /// Replace the placeholder with your real client ID, e.g.
+    /// "1234567890-abc123def456.apps.googleusercontent.com"
+    static let googleClientID = "YOUR_CLIENT_ID.apps.googleusercontent.com"
+
+    /// Google iOS clients redirect to the reversed client ID as a custom URL scheme.
+    /// "1234-abc.apps.googleusercontent.com" → "com.googleusercontent.apps.1234-abc"
+    static var googleRedirectScheme: String {
+        let parts = googleClientID.components(separatedBy: ".")
+        return parts.reversed().joined(separator: ".")
+    }
+
+    static var googleRedirectURI: String {
+        "\(googleRedirectScheme):/oauthredirect"
+    }
+
+    /// Read-only YouTube scope: subscriptions, liked videos, playlists.
+    static let youtubeScope = "https://www.googleapis.com/auth/youtube.readonly"
+
+    // MARK: Distillation limits (MVP guardrails so a distill finishes quickly)
+
+    /// Maximum pages fetched per paginated endpoint (50 items/page for YouTube,
+    /// 100 items/page for most Apple Music endpoints).
+    static let maxPagesPerEndpoint = 10
+
+    /// Maximum playlists whose individual tracks are expanded.
+    static let maxPlaylistsExpanded = 15
+}
