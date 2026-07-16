@@ -11,7 +11,7 @@ enum AppConfig {
     ///
     /// Replace the placeholder with your real client ID, e.g.
     /// "1234567890-abc123def456.apps.googleusercontent.com"
-    static let googleClientID = "YOUR_CLIENT_ID.apps.googleusercontent.com"
+    static let googleClientID = "672788849005-kd5dkg6om726kf19gml7gn6qkikg13t4.apps.googleusercontent.com"
 
     /// Google iOS clients redirect to the reversed client ID as a custom URL scheme.
     /// "1234-abc.apps.googleusercontent.com" → "com.googleusercontent.apps.1234-abc"
