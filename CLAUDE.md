@@ -113,3 +113,35 @@ after a successful login almost always means the signed-in account isn't on it.
   can't be capped is a red flag.
 - Per-source failures are surfaced in that source's card (`SourceStatus.failed`)
   and never abort the other sources.
+
+## Iterating on the garden illustration
+
+The plant on "Grow your profile" (`Views/Tree/`) is hand-measured vector art with
+four stages, and refining it is the one task here where the *loop* costs more
+than the change. These rules exist because each was paid for once already.
+
+- **Drive stages from the launch line, never by patching the source.**
+  `xcrun simctl launch <device> com.written.datingapp -stage 3` seeds the screen
+  as though three modalities were connected; `-stages all` renders every
+  illustrated stage on one screen. One build serves all of them. Editing
+  `TreeSkeleton.make` to force a stage costs two builds per look and leaves the
+  tree dirty. See `Views/Tree/DebugLaunch.swift`.
+- **One build per batch of changes**, not per constant. Adjust every number you
+  believe is wrong, then look once.
+- **One cropped, downscaled screenshot per iteration.** A full-resolution
+  screenshot is ~1.5k tokens and answers no question a crop doesn't.
+- **Measure, don't eyeball.** When the question is a length, an angle or a
+  ratio, a script over the reference PNG costs ~50 tokens and gives a number;
+  reading the image gives an impression. The watering can was rebuilt three
+  times because it started from a mental archetype instead of a measurement.
+- **Reference measurements are already recorded** in the comments beside the
+  constants they set (`SeedlingArt.swift`, `WateringCanOverlay.swift`). Don't
+  re-derive them.
+- **Shared geometry affects every stage.** `leafTilt`, `leafletTilt`,
+  `LeafSpine` and the blade profile are used by all four. After changing one,
+  check the stages the change wasn't aimed at — a sign error in `leafletTilt`
+  silently distorted stages 2 and 3 while fixing stage 4. `-stages all` is
+  exactly this check.
+- Rapid screenshot bursts and headless boots crash `backboardd` in the
+  simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`, then
+  reopen — one more reason to take fewer screenshots.

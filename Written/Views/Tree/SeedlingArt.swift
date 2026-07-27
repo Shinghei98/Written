@@ -314,12 +314,33 @@ enum SeedlingArt {
             id: 0,
             stage: .shoot,
             attachment: 0.52,
-            reach: CGSize(width: 0.058, height: 0.076),
+            // Longer than the reference's own rachis, because the up-left
+            // leaflet has two constraints that pull against each other on a
+            // short one: branch late and its blade clears the stem but grows
+            // into the terminal leaflet; branch early and the reverse. The
+            // rachis carries the branch point out at 0.77 per unit of length,
+            // so lengthening it is what buys room for both at once.
+            reach: CGSize(width: 0.068, height: 0.088),
             // Swung down off the stem: its up-left leaflet was crossing the
-            // stem once the plant grew tall enough to sit behind it.
-            turn: 10,
+            // stem once the plant grew tall enough to sit behind it, and then
+            // reaching into the cotyledon above once its stalk was long enough
+            // to stand clear of the terminal leaflet. Turning the shoot moves
+            // the whole cluster out of that wedge at once — the leaflets keep
+            // the spacing they were given, since they rotate with it.
+            turn: 18,
             leaflets: [
-                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.78, stalkRun: CGSize(width: 0.005, height: -0.032)),
+                // Branches back from the tip, not just under it. At 0.78 on a
+                // stalk this short its blade base sat ~6 canvas units from the
+                // terminal leaflet's while both blades are ~25 wide, so the two
+                // grew into each other — plainly once `shootGrowth` scaled the
+                // pair up at stage 2. Same defect, same fix as the bough shoot's
+                // bud below. The stalk is what carries it clear: branching
+                // earlier still would walk the blade back into the stem, since
+                // the rachis is what holds it out, and the two blades together
+                // are ~20 units wide at the base. Running the stalk near-straight
+                // up for 0.074 stands the bases ~18 apart without moving the
+                // blade any closer to the stem.
+                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.66, stalkRun: CGSize(width: 0.004, height: -0.074)),
                 Leaflet(mirrored: true, axis: 50, scale: 0.26, along: 1, stalkRun: .zero),
                 Leaflet(mirrored: true, axis: 88, scale: 0.23, along: 0.34, stalkRun: CGSize(width: 0.040, height: 0.008))
             ]

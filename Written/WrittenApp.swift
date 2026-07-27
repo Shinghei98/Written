@@ -21,8 +21,22 @@ struct RootView: View {
     @State private var isEnteringPhone = false
 
     var body: some View {
+#if DEBUG
+        // `-stages all` swaps the whole app for the contact sheet; see `DebugLaunch`.
+        if DebugLaunch.showsAllStages {
+            StageSheet()
+        } else {
+            flow
+        }
+#else
+        flow
+#endif
+    }
+
+    @ViewBuilder
+    private var flow: some View {
         if isSignedIn {
-            GrowProfileView()
+            HomeView()
         } else {
             // Pushed rather than presented: sign-up is a forward step in a flow,
             // so it slides in from the trailing edge and can be swiped back,

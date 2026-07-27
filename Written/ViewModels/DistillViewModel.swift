@@ -21,6 +21,14 @@ final class DistillViewModel: ObservableObject {
     private let googleOAuth = OAuthPKCEService(provider: .google)
     private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
+    init() {
+#if DEBUG
+        // `-stage 3` on the launch line seeds the plant, so a stage can be
+        // looked at without patching the source and rebuilding. See `DebugLaunch`.
+        if let stage = DebugLaunch.forcedStage { applyPreview(connected: stage) }
+#endif
+    }
+
     var hasRecords: Bool { !records.isEmpty }
 
     var isDistilling: Bool {
@@ -151,42 +159,50 @@ final class DistillViewModel: ObservableObject {
         // connection — the can is tied to `isDistilling`, so a straight state
         // change would skip it.
         youtubeStatus = .running
+        let next = treeState.branches.count >= Self.previewStages ? 0 : treeState.branches.count + 1
         Task {
             try? await Task.sleep(nanoseconds: 1_800_000_000)
-
-            var branches = treeState.branches
-            if branches.count >= Self.previewStages {
-                branches = [:]
-                records.removeAll()
-            } else if let next = Modality.allCases.first(where: { branches[$0] == nil }) {
-                // A record per source, so the "Connected to …" bar has app marks
-                // to show. Without them the preview walks the stages but never
-                // exercises the thing the bar is for.
-                for source in next.sources {
-                    records.append(
-                        DistilledRecord(
-                            source: source,
-                            dataType: "preview",
-                            itemID: "preview",
-                            name: "Preview",
-                            creator: "",
-                            detail: "",
-                            extra: "",
-                            collectedAt: Date()
-                        )
-                    )
-                }
-                let step = Double(branches.count)
-                branches[next] = ModalityMetrics(
-                    volume: 60 + 45 * branches.count,
-                    diversity: min(0.9, 0.35 + 0.13 * step),
-                    dominantShare: max(0.15, 0.55 - 0.08 * step)
-                )
-            }
-            treeState = TreeState(branches: branches)
-            skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
+            applyPreview(connected: next)
             youtubeStatus = .idle
         }
+    }
+
+    /// Seeds the state as though the first `connected` modalities had been
+    /// distilled. Snaps — no faked delay, no watering — because the launch
+    /// argument exists to be screenshotted, not watched; the stepper above adds
+    /// the pretend distillation when the animation is the thing being looked at.
+    func applyPreview(connected: Int) {
+        var branches: [Modality: ModalityMetrics] = [:]
+        var seeded: [DistilledRecord] = []
+
+        for (step, modality) in Modality.allCases.prefix(max(0, connected)).enumerated() {
+            // A record per source, so the "Connected to …" bar has app marks to
+            // show. Without them the preview walks the stages but never
+            // exercises the thing the bar is for.
+            for source in modality.sources {
+                seeded.append(
+                    DistilledRecord(
+                        source: source,
+                        dataType: "preview",
+                        itemID: "preview",
+                        name: "Preview",
+                        creator: "",
+                        detail: "",
+                        extra: "",
+                        collectedAt: Date()
+                    )
+                )
+            }
+            branches[modality] = ModalityMetrics(
+                volume: 60 + 45 * step,
+                diversity: min(0.9, 0.35 + 0.13 * Double(step)),
+                dominantShare: max(0.15, 0.55 - 0.08 * Double(step))
+            )
+        }
+
+        records = seeded
+        treeState = TreeState(branches: branches)
+        skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
     }
 #endif
 

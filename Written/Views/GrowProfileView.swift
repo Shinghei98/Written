@@ -6,7 +6,12 @@ import SwiftUI
 /// varied that part of their footprint is — see `TreeMetrics` and
 /// `TreeSkeleton`. Connecting waters the tree and it redraws itself outward.
 struct GrowProfileView: View {
-    @StateObject private var viewModel = DistillViewModel()
+    /// Owned by `HomeView`, not by this screen: the dashboard reads the same
+    /// records, and the two have to be looking at one distillation.
+    @ObservedObject var viewModel: DistillViewModel
+
+    /// "View profile" — `HomeView` slides this screen away to the dashboard.
+    var onViewProfile: () -> Void = {}
 
     @State private var growth: Double = 0
     @State private var isWatering = false
@@ -48,9 +53,10 @@ struct GrowProfileView: View {
     /// Height held for the bars at the foot of the screen, filled or not.
     ///
     /// The tallest the stack gets is every modality but the last connected —
-    /// two slim bars at 44 and the 76pt invitation, plus the gaps. Reserving it
-    /// is what keeps the garden the same size from the first stage to the last.
-    private static let promptsReserve: CGFloat = 44 * 2 + 8 * 2 + 76
+    /// two slim bars at 44 and the 76pt invitation — plus "View profile", which
+    /// is there at every stage, and the gaps. Reserving it is what keeps the
+    /// garden the same size from the first stage to the last.
+    private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3
 
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
@@ -313,8 +319,44 @@ struct GrowProfileView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .id(next)
             }
+
+            viewProfile
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: viewModel.treeState)
+    }
+
+    /// The way out of the growing screen, under the bars.
+    ///
+    /// Shown from the start and dimmed, not hidden until it works: it says what
+    /// the connecting is *for*, and a button that appears out of nowhere on the
+    /// first connection would push the whole stack — and with it the plant — as
+    /// it arrived. It comes alive once the first app has been connected, since
+    /// until then there is no distillation for a profile to be built from.
+    private var viewProfile: some View {
+        let isReady = !viewModel.treeState.connectedModalities.isEmpty
+
+        return Button(action: onViewProfile) {
+            Text("View profile")
+        }
+        // Sized to its label rather than filling the row: the bars above are
+        // the screen's business and this is the way out of it, so it reads as
+        // a lighter thing than they are.
+        .buttonStyle(
+            PressShrinkButtonStyle(
+                fill: GardenPalette.card,
+                foreground: GardenPalette.ink,
+                border: GardenPalette.gold.opacity(isReady ? 0.35 : 0.15),
+                expands: false,
+                font: .system(size: 16, weight: .semibold),
+                horizontalPadding: 26,
+                minHeight: 48
+            )
+        )
+        // The style doesn't dim on its own, so `disabled` alone would leave a
+        // button that looks live and does nothing — same reasoning as the
+        // unavailable modality's button above.
+        .opacity(isReady ? 1 : 0.45)
+        .disabled(!isReady)
     }
 
     private func promptCard(for next: Modality) -> some View {
@@ -813,5 +855,5 @@ struct SourcePickerSheet: View {
 }
 
 #Preview {
-    GrowProfileView()
+    GrowProfileView(viewModel: DistillViewModel())
 }
