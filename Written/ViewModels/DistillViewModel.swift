@@ -13,10 +13,58 @@ final class DistillViewModel: ObservableObject {
     @Published var exportDocument: CSVDocument?
     @Published var exportResultMessage: String?
 
+    /// What the tree is grown from. Recomputed whenever records change, never
+    /// per frame.
+    @Published private(set) var treeState: TreeState = .empty
+    @Published private(set) var skeleton = TreeSkeleton.make(from: .empty, seed: DistillViewModel.treeSeed)
+
     private let googleOAuth = OAuthPKCEService(provider: .google)
     private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
     var hasRecords: Bool { !records.isEmpty }
+
+    var isDistilling: Bool {
+        youtubeStatus.isRunning || appleMusicStatus.isRunning || spotifyStatus.isRunning
+    }
+
+    func status(for source: String) -> SourceStatus {
+        switch source {
+        case "youtube": return youtubeStatus
+        case "apple_music": return appleMusicStatus
+        case "spotify": return spotifyStatus
+        default: return .idle
+        }
+    }
+
+    /// Entry point for the tree UI, which thinks in sources rather than methods.
+    func distill(source: String) {
+        switch source {
+        case "youtube": distillYouTube()
+        case "apple_music": distillAppleMusic()
+        case "spotify": distillSpotify()
+        default: break
+        }
+    }
+
+    /// Fixed per install, so a given person's tree keeps the same character
+    /// across launches instead of reshuffling every time it is drawn.
+    static let treeSeed: UInt64 = {
+        let key = "written.tree.seed"
+        if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber {
+            return stored.uint64Value
+        }
+        let seed = UInt64.random(in: 1...UInt64.max)
+        UserDefaults.standard.set(NSNumber(value: seed), forKey: key)
+        return seed
+    }()
+
+    /// The apps of a modality that actually returned records — what its
+    /// "Connected to …" bar shows marks for. Read off the records rather than
+    /// the statuses, so it survives a relaunch the same way the tree does.
+    func connectedSources(for modality: Modality) -> [String] {
+        let returned = Set(records.map(\.source))
+        return modality.sources.filter(returned.contains)
+    }
 
     var recordCountBySource: [(source: String, count: Int)] {
         Dictionary(grouping: records, by: \.source)
@@ -74,7 +122,73 @@ final class DistillViewModel: ObservableObject {
     private func replaceRecords(from source: String, with newRecords: [DistilledRecord]) {
         records.removeAll { $0.source == source }
         records += newRecords
+
+        // Re-distilling the same source with the same library produces an equal
+        // `TreeState`, so the tree won't re-animate for no reason.
+        treeState = TreeMetrics.state(from: records)
+        skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
     }
+
+#if DEBUG
+    /// TEMPORARY — debug only. Steps the tree through its stages without
+    /// connecting anything, so the growing animation can be watched end to end.
+    /// It drives the same published state a real distillation does, so the
+    /// watering, the dissolve and the redraw all run exactly as they would.
+    ///
+    /// Walks every `Modality`, not just the connectable ones, and wraps back to
+    /// bare soil after the last.
+    /// How far the preview stepper walks: the illustrated stages only. Past
+    /// them the plant is generated geometry, which is not what the stepper is
+    /// for — and connecting a fourth or fifth source is not a thing the app can
+    /// do yet either.
+    static let previewStages = SeedlingStage.allCases.count - 1
+
+    func advancePreviewStage() {
+        guard !isDistilling else { return }
+
+        // Runs through a pretend distillation rather than snapping the state,
+        // so the watering can appears and pours the way it does for a real
+        // connection — the can is tied to `isDistilling`, so a straight state
+        // change would skip it.
+        youtubeStatus = .running
+        Task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+
+            var branches = treeState.branches
+            if branches.count >= Self.previewStages {
+                branches = [:]
+                records.removeAll()
+            } else if let next = Modality.allCases.first(where: { branches[$0] == nil }) {
+                // A record per source, so the "Connected to …" bar has app marks
+                // to show. Without them the preview walks the stages but never
+                // exercises the thing the bar is for.
+                for source in next.sources {
+                    records.append(
+                        DistilledRecord(
+                            source: source,
+                            dataType: "preview",
+                            itemID: "preview",
+                            name: "Preview",
+                            creator: "",
+                            detail: "",
+                            extra: "",
+                            collectedAt: Date()
+                        )
+                    )
+                }
+                let step = Double(branches.count)
+                branches[next] = ModalityMetrics(
+                    volume: 60 + 45 * branches.count,
+                    diversity: min(0.9, 0.35 + 0.13 * step),
+                    dominantShare: max(0.15, 0.55 - 0.08 * step)
+                )
+            }
+            treeState = TreeState(branches: branches)
+            skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
+            youtubeStatus = .idle
+        }
+    }
+#endif
 
     // MARK: - Export
 
