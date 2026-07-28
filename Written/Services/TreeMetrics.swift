@@ -36,6 +36,48 @@ enum TreeMetrics {
         )
     }
 
+    /// The lifestyle branch, measured from the derived figures rather than from
+    /// records.
+    ///
+    /// Every other branch is sized by counting rows, and lifestyle used to be
+    /// too — it was the *largest*, because a year of HealthKit is a workout row
+    /// per session plus one per day plus one per hour, some nine thousand of
+    /// them. Those rows are now reduced to a handful of figures and discarded on
+    /// the device, so counting records would size the branch on the two that
+    /// remain (an age and a biological sex) and the branch would stop growing
+    /// altogether. That is not a smaller reading of the same thing; it is a
+    /// different question being answered by accident.
+    ///
+    /// `days` stands in for the volume the raw rows used to supply, which puts
+    /// lifestyle on roughly the same scale as media rather than dwarfing it.
+    static func lifestyleMetrics(
+        sports: [LifestyleHighlights.Sport],
+        chronotypeDays: Int?,
+        hasSignals: Bool
+    ) -> ModalityMetrics? {
+        let days = chronotypeDays ?? 0
+        guard hasSignals || !sports.isEmpty else { return nil }
+
+        var counts: [String: Int] = [:]
+        for sport in sports where sport.sessions > 0 {
+            counts["sport:\(sport.name.lowercased())"] = sport.sessions
+        }
+        // Someone with a chronotype and no recorded workouts still has a
+        // lifestyle worth drawing — a single facet, so the branch is present but
+        // plainly less varied than one with four sports on it. Honest rather
+        // than flattering.
+        if counts.isEmpty, days > 0 {
+            counts["rhythm"] = days
+        }
+        guard !counts.isEmpty else { return nil }
+
+        return ModalityMetrics(
+            volume: days + sports.reduce(0) { $0 + $1.sessions },
+            diversity: normalizedEntropy(of: counts),
+            dominantShare: dominantShare(of: counts)
+        )
+    }
+
     // MARK: - Facets
 
     /// Counts every creator and every genre mentioned. A record with three
@@ -48,7 +90,7 @@ enum TreeMetrics {
             if !creator.isEmpty {
                 counts["creator:\(creator.lowercased())", default: 0] += 1
             }
-            for genre in genres(in: record.extra) {
+            for genre in genres(of: record) {
                 counts["genre:\(genre)", default: 0] += 1
             }
         }
@@ -62,18 +104,13 @@ enum TreeMetrics {
         return counts
     }
 
-    /// `extra` is `key=value;key=value`, and genres are pipe-separated inside
-    /// their value — see `CLAUDE.md` and the Spotify/Apple Music distillers.
-    private static func genres(in extra: String) -> [String] {
-        for pair in extra.split(separator: ";") {
-            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2, parts[0] == "genres" else { continue }
-            return parts[1]
-                .split(separator: "|")
-                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-                .filter { !$0.isEmpty }
-        }
-        return []
+    /// Genres are pipe-separated inside their `extra` value — see `CLAUDE.md`
+    /// and `AppleMusicDistiller`.
+    private static func genres(of record: DistilledRecord) -> [String] {
+        (record.extraValue("genres") ?? "")
+            .split(separator: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
     }
 
     // MARK: - Measures

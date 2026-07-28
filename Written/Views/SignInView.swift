@@ -21,13 +21,28 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            SignInPalette.canvas.ignoresSafeArea()
+            GardenPalette.parchment.ignoresSafeArea()
 
             // Positioned off the screen rather than stacked above the buttons, so
             // growing the bottom stack never nudges the logo.
             GeometryReader { geometry in
                 AnimatedGIFView(name: "written_logo_slogan_animation")
                     .frame(width: min(340, geometry.size.width - 48))
+                    // The GIF is baked on its own near-white (252,252,252), which
+                    // used to be the page colour too, so its edge was invisible.
+                    // On parchment that rectangle shows, and it has to be blended
+                    // away rather than cropped — the animation moves.
+                    //
+                    // `.darken` keeps whichever of the two is darker per channel:
+                    // the GIF's white loses to parchment and vanishes, its black
+                    // strokes win and stay. `.multiply` was the obvious choice and
+                    // is subtly wrong here — 252 is not 255, so it left a residue
+                    // of (240,236,230) against parchment's (243,239,233), a
+                    // rectangle three units dark and still visible.
+                    //
+                    // Safe because the animation is purely black-on-white; there
+                    // is no colour in it for `.darken` to alter.
+                    .blendMode(.darken)
                     .position(x: geometry.size.width / 2, y: geometry.size.height * 0.30)
                     .accessibilityLabel("Written — let your love story be written")
             }
@@ -230,12 +245,24 @@ private struct GoogleGlyph: View {
 }
 
 enum SignInPalette {
-    /// Matches the GIF's own background so the animation has no visible edge.
+    /// The label colour on a dark fill — no longer a page background.
+    ///
+    /// Every screen now opens on `GardenPalette.parchment`, so the app is one
+    /// surface from sign-in to the garden. This near-white survives as the
+    /// colour of text sitting *on* ink, where parchment would read as dirty.
     static let canvas = Color(red: 252 / 255, green: 252 / 255, blue: 252 / 255)
     static let ink = Color(red: 0.07, green: 0.07, blue: 0.07)
     static let muted = Color(red: 0.42, green: 0.42, blue: 0.42)
     static let hairline = Color(red: 0.86, green: 0.86, blue: 0.86)
     static let field = Color(red: 0.93, green: 0.93, blue: 0.93)
+
+    /// The outline every input carries.
+    ///
+    /// Needed once the pages moved to parchment: `field` is (237,237,237) and
+    /// parchment is (243,239,233), six units apart, so a fill alone no longer
+    /// says where a field begins. Warm rather than the cool grey of `hairline`,
+    /// because it sits on parchment rather than on white.
+    static let fieldBorder = Color(red: 0.82, green: 0.80, blue: 0.76)
     static let error = Color(red: 0.91, green: 0.13, blue: 0.15)
     static let disabled = Color(red: 0.62, green: 0.61, blue: 0.59)
 }

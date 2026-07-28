@@ -20,12 +20,29 @@ struct YouTubeDistiller {
             let title: String?
             let description: String?
             let channelTitle: String?
+            /// The channel a *video* belongs to. Liked videos name their channel
+            /// but nothing else identifies it, so without this the dashboard has
+            /// to join likes to subscriptions on the title string — which breaks
+            /// the moment a channel is renamed.
+            let channelId: String?
             let publishedAt: String?
             let resourceId: ResourceID?
+            let thumbnails: Thumbnails?
         }
         struct ResourceID: Decodable {
             let channelId: String?
             let videoId: String?
+        }
+        /// `default` is a keyword, and the small size is 88px — too soft for a
+        /// 40pt tile at 3×. Medium and high are enough.
+        struct Thumbnails: Decodable {
+            let medium: Thumbnail?
+            let high: Thumbnail?
+
+            var url: String? { medium?.url ?? high?.url }
+        }
+        struct Thumbnail: Decodable {
+            let url: String?
         }
         struct ContentDetails: Decodable {
             let itemCount: Int?
@@ -54,7 +71,12 @@ struct YouTubeDistiller {
                 name: item.snippet?.title ?? "",
                 creator: item.snippet?.title ?? "",
                 detail: snippetPrefix(item.snippet?.description),
-                extra: "subscribed_at=\(item.snippet?.publishedAt ?? "")"
+                // The channel's own avatar, which is what a subscription's
+                // thumbnails are.
+                extra: joined([
+                    "subscribed_at=\(item.snippet?.publishedAt ?? "")",
+                    item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
+                ])
             )
         }
 
@@ -71,7 +93,14 @@ struct YouTubeDistiller {
                 name: item.snippet?.title ?? "",
                 creator: item.snippet?.channelTitle ?? "",
                 detail: snippetPrefix(item.snippet?.description),
-                extra: "published_at=\(item.snippet?.publishedAt ?? "")"
+                // `artwork` here is the video's still, not the channel's avatar
+                // — the only image this endpoint carries. It stands in for the
+                // channel the way an album cover stands in for an artist.
+                extra: joined([
+                    "published_at=\(item.snippet?.publishedAt ?? "")",
+                    item.snippet?.channelId.map { "channel_id=\($0)" },
+                    item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
+                ])
             )
         }
 
@@ -174,6 +203,13 @@ struct YouTubeDistiller {
             extra: extra,
             collectedAt: Date()
         )
+    }
+
+    /// `extra` pairs, skipping the ones the API didn't give us — an empty
+    /// `artwork=` is worse than no key at all, since readers treat a present
+    /// key as a value.
+    private func joined(_ pairs: [String?]) -> String {
+        pairs.compactMap { $0 }.joined(separator: ";")
     }
 
     private func snippetPrefix(_ text: String?) -> String {

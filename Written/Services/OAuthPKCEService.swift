@@ -3,7 +3,11 @@ import CryptoKit
 import Foundation
 
 /// Describes an OAuth 2.0 provider that supports the authorization-code + PKCE
-/// flow for native apps (no client secret). Google and Spotify both do.
+/// flow for native apps (no client secret).
+///
+/// Parameterised rather than hard-coded to Google, because a second provider is
+/// expected — this carried Spotify until that source was dropped. Add a `static
+/// var` here rather than another auth service.
 struct OAuthProvider {
     let name: String
     let authorizationURL: String
@@ -31,20 +35,6 @@ struct OAuthProvider {
             scope: AppConfig.youtubeScope,
             extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
             configHint: "AppConfig.googleClientID"
-        )
-    }
-
-    static var spotify: OAuthProvider {
-        OAuthProvider(
-            name: "Spotify",
-            authorizationURL: "https://accounts.spotify.com/authorize",
-            tokenURL: "https://accounts.spotify.com/api/token",
-            clientID: AppConfig.spotifyClientID,
-            redirectScheme: AppConfig.spotifyRedirectScheme,
-            redirectURI: AppConfig.spotifyRedirectURI,
-            scope: AppConfig.spotifyScope,
-            extraAuthParameters: [:],
-            configHint: "AppConfig.spotifyClientID"
         )
     }
 }
@@ -87,7 +77,18 @@ final class OAuthPKCEService: NSObject {
     }
 
     private let provider: OAuthProvider
-    private var refreshTokenKey: String { "\(provider.name.lowercased())_refresh_token" }
+    /// Scoped to the account, not just the provider.
+    ///
+    /// `google_refresh_token` on its own is a per-*device* key, so a token left
+    /// behind at sign-out was picked up by whoever signed in next — they'd find
+    /// YouTube already connected to someone else's channel. Sign-out used to
+    /// paper over that by disconnecting every provider, which threw away a
+    /// connection the owner would want back. Computed rather than stored: this
+    /// service outlives a sign-in, and a captured scope would read the previous
+    /// account's token.
+    private var refreshTokenKey: String {
+        AccountScope.key("\(provider.name.lowercased())_refresh_token")
+    }
 
     private var accessToken: String?
     private var accessTokenExpiry = Date.distantPast
@@ -95,6 +96,20 @@ final class OAuthPKCEService: NSObject {
 
     init(provider: OAuthProvider) {
         self.provider = provider
+    }
+
+    /// Forgets this provider's stored consent.
+    ///
+    /// Lives here rather than as a Keychain key deleted from somewhere else, and
+    /// that matters: the refresh token is keyed by *provider*, not by user, so
+    /// signing out without clearing it hands the next account the previous one's
+    /// connection — their next distillation would read a stranger's YouTube.
+    /// Only this type knows the key, so only this type can be relied on to
+    /// remove it, and a provider added later can't be silently missed.
+    func disconnect() {
+        KeychainStore.delete(refreshTokenKey)
+        accessToken = nil
+        accessTokenExpiry = .distantPast
     }
 
     /// Returns a valid access token, reusing/refreshing silently when possible

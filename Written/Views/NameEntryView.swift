@@ -19,7 +19,7 @@ struct NameEntryView: View {
 
     var body: some View {
         ZStack {
-            SignInPalette.canvas.ignoresSafeArea()
+            GardenPalette.parchment.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Text("What's your name?")
@@ -114,11 +114,13 @@ struct NameEntryView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             .background(SignInPalette.field, in: RoundedRectangle(cornerRadius: 20))
+            // Always outlined, red only when rejected — see `PhoneNumberView`.
             .overlay {
-                if errorMessage != nil {
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(SignInPalette.error, lineWidth: 1.5)
-                }
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(
+                        errorMessage != nil ? SignInPalette.error : SignInPalette.fieldBorder,
+                        lineWidth: errorMessage != nil ? 1.5 : 1
+                    )
             }
 
             if let errorMessage {

@@ -28,7 +28,7 @@ struct VerificationCodeView: View {
 
     var body: some View {
         ZStack {
-            SignInPalette.canvas.ignoresSafeArea()
+            GardenPalette.parchment.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 closeButton
@@ -172,6 +172,12 @@ private struct CodeBox: View {
         RoundedRectangle(cornerRadius: 20)
             .fill(SignInPalette.field)
             .frame(height: 74)
+            // Six boxes on parchment need an edge each, or they read as one
+            // wide band with gaps rather than as six places to type.
+            .overlay {
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(SignInPalette.fieldBorder, lineWidth: 1)
+            }
             .overlay {
                 if digit.isEmpty {
                     if isActive {

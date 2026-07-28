@@ -13,8 +13,9 @@ This MVP is a single-page iPhone app that:
    contents, recently added, recently played, heavy rotation, personalized
    recommendations, and like/dislike ratings, via MusicKit (one-tap system
    permission, no login).
-3. Distills **Spotify** — top artists and tracks, recently played tracks,
-   followed artists, playlists + contents, via one-tap Spotify OAuth (PKCE).
+3. Distills **Apple Health** — workouts and daily activity, reduced on the
+   device to a chronotype, sport levels, an hourly profile and a step average.
+   The raw samples are discarded and never uploaded.
 4. Exports everything as a single normalized **CSV** through the in-app
    "Download CSV" button (system Files save sheet).
 
@@ -49,7 +50,34 @@ No key file or token code is needed — MusicKit mints developer/user tokens
 automatically at runtime. The `NSAppleMusicUsageDescription` permission string is
 already configured in the target's build settings.
 
-### 3. YouTube (Google OAuth)
+### 3. Apple Health (HealthKit)
+
+Reads workouts and daily activity. Like MusicKit, the capability is granted by
+the App ID, not by code:
+
+1. Go to [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list).
+2. Select the app's App ID.
+3. Under **Capabilities**, enable **HealthKit**. Save.
+
+`Written.entitlements` already declares `com.apple.developer.healthkit`, and
+`NSHealthShareUsageDescription` is set in the target's build settings.
+
+**The entitlement is silently dropped when no Team is set.** Xcode filters
+capability-gated entitlements it can't back with a provisioning profile, so the
+built `.xcent` comes out empty and a *device* build cannot read Health. The
+simulator is more forgiving — the permission sheet appears and the API works
+without a team — so simulator testing is possible before the portal side is
+done. Check with:
+
+```
+codesign -d --entitlements - /path/to/Written.app   # should list healthkit
+```
+
+The simulator starts with an empty Health database. Add samples in the
+simulator's **Health** app (Browse → a category → Add Data) or a workout will
+never appear, and Written will report the distillation as empty.
+
+### 4. YouTube (Google OAuth)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project
    and enable **YouTube Data API v3** (*APIs & Services → Library*).
@@ -67,21 +95,66 @@ That's all — the redirect scheme is derived automatically from the client ID, 
 the app uses `ASWebAuthenticationSession`, which needs no URL-scheme entry in
 Info.plist and no Google SDK dependency.
 
-### 4. Spotify
+### 5. Spotify — removed, and why it should stay removed
 
-1. In the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard),
-   **Create app**.
-2. Add `written://spotify-callback` under **Redirect URIs**, and under
-   **Which API/SDKs are you planning to use?** check *iOS* (enter the app's
-   bundle identifier).
-3. Copy the **Client ID** into `Written/AppConfig.swift`:
+Spotify was a source and no longer is. Two independent reasons, either of which
+is sufficient:
 
-   ```swift
-   static let spotifyClientID = "your32charclientid"
-   ```
+**Their terms.** Spotify's Developer Terms forbid storing Spotify Content in a
+third-party database. Once Postgres became the source of truth, Spotify was the
+only source that could never be restored to a new device — a user who reinstalled
+would silently lose it, which is worse than not offering it.
 
-While the Spotify app is in *Development mode*, add your test accounts under
-**User Management** (up to 25 users); extended quota needs Spotify review.
+**Their quota.** Development mode allows **five** test users and requires the
+developer to hold Premium (both since 9 March 2026, down from 25 and from no
+subscription requirement). Extended quota has required, since March 2025, a
+registered business, **250,000 monthly active users**, availability in key
+markets and an already-launched service — and since 15 May 2025 Spotify accepts
+no applications from individuals at all. It is a wall rather than a queue: you
+need a quarter of a million users before you may use Spotify, and Spotify cannot
+help you reach them.
+
+**Apple Music is the music source the product depends on** — MusicKit has no cap,
+no allowlist and no application.
+
+### 6. TestFlight (internal testing)
+
+Steps 1–5 get the app onto *your* phone. This gets it onto other people's.
+
+1. **Check the membership is active.** A new enrolment can sit in "processing"
+   for 24–48h, and no identifier can be created until it clears. If
+   [developer.apple.com/account](https://developer.apple.com/account) shows no
+   *Identifiers* section, wait — everything below blocks on it.
+2. **Register the App ID** with **HealthKit** and **MusicKit** enabled (§2–§3),
+   then set the **Team** on the target so the entitlement survives packaging.
+3. **App Store Connect → Apps → +** — new iOS app on that bundle ID, with a name,
+   primary language and any unique SKU.
+4. **Allowlist every tester before inviting them** — Google Cloud → OAuth consent
+   screen → *Test users*. Google
+   apps are unverified, so an account that isn't listed gets a **403 after a
+   successful login**, which reads as a bug in Written rather than a missing
+   invitation.
+5. **Add testers** under *Users and Access*, then *TestFlight → Internal Testing*.
+   Up to 100, and internal builds skip Beta App Review entirely.
+6. **Archive**: destination *Any iOS Device* → *Product → Archive*, with the
+   scheme's Archive action on **Release** so the `#if DEBUG` launch flags, the
+   stage stepper and the debug sign-out button are compiled out.
+7. **Validate App** in the Organizer before distributing — it catches icon and
+   privacy-manifest problems locally rather than by email an hour later.
+8. **Distribute App → TestFlight Internal Only**. Processing takes ~5–15 minutes.
+
+Before uploading, run the entitlement check from §3 on the archived app — it must
+list `com.apple.developer.healthkit`. An empty dictionary means the team or the
+App ID capability is missing, and Health will fail on device with no error shown.
+
+**Put this in the build's "What to Test" notes**, because neither is discoverable:
+
+> The verification code isn't checked yet — no text is sent, so type any six
+> digits. Send me your Google account email first, or that
+> connections will fail with a permissions error.
+
+Internal testing needs no privacy policy URL. **External testing does**, and a
+HealthKit app cannot pass Beta App Review without one.
 
 ## How the one-button experience works
 
@@ -98,8 +171,8 @@ While the Spotify app is in *Development mode*, add your test accounts under
 
 | column | meaning |
 |---|---|
-| `source` | `youtube`, `apple_music`, or `spotify` |
-| `data_type` | YouTube: `subscription`, `liked_video`, `playlist`, `playlist_item` · Apple Music: `library_song`, `library_album`, `library_artist`, `library_music_video`, `library_playlist`, `playlist_item`, `recently_added`, `recently_played`, `heavy_rotation`, `recommendation`, `rating` · Spotify: `top_artist`, `top_track`, `recently_played`, `followed_artist`, `playlist`, `playlist_item` |
+| `source` | `youtube`, `apple_music`, `health`, `location`, or `user` |
+| `data_type` | YouTube: `subscription`, `liked_video`, `playlist`, `playlist_item` · Apple Music: `library_song`, `library_album`, `library_artist`, `library_music_video`, `library_playlist`, `playlist_item`, `recently_added`, `recently_played`, `heavy_rotation`, `recommendation`, `rating` · Health: `age`, `biological_sex` only — the raw `workout`, `activity_day` and `activity_hour` rows are derived from and then discarded |
 | `item_id` | platform-native id of the item |
 | `name` | title of the video/song/album/channel/... |
 | `creator` | channel / artist / curator |
@@ -115,11 +188,10 @@ Written/
 ├── AppConfig.swift               # Google client ID + distillation limits
 ├── Models/DistilledRecord.swift  # unified record schema + source status
 ├── Services/
-│   ├── OAuthPKCEService.swift    # ASWebAuthenticationSession + PKCE (Google & Spotify), Keychain refresh
+│   ├── OAuthPKCEService.swift    # ASWebAuthenticationSession + PKCE (Google), Keychain refresh
 │   ├── KeychainStore.swift
 │   ├── YouTubeDistiller.swift    # YouTube Data API v3 fetchers
 │   ├── AppleMusicDistiller.swift # MusicKit / Apple Music API fetchers
-│   ├── SpotifyDistiller.swift    # Spotify Web API fetchers
 │   └── CSVExporter.swift         # RFC 4180 CSV + FileDocument wrapper
 ├── ViewModels/DistillViewModel.swift
 └── Views/ContentView.swift       # the single MVP page

@@ -26,8 +26,8 @@ The current sources honor this as follows:
 | Source | Auth | Friction |
 |---|---|---|
 | YouTube | Google OAuth (PKCE, `ASWebAuthenticationSession`) | Sheet shares Safari cookies → tap account, tap Allow. Refresh token in Keychain ⇒ later distills zero-tap. |
-| Spotify | Spotify OAuth (PKCE, same service) | Same shape as Google. |
 | Apple Music | MusicKit | One system permission dialog, no login at all — uses the device's Apple Music account. |
+| Apple Health | HealthKit | One system sheet listing the four types read, no login. |
 
 ## Supported apps and what each yields
 
@@ -40,11 +40,42 @@ exposes; consult it before adding a source). Implemented today:
 - **Apple Music** (`AppleMusicDistiller`) — library songs/albums/artists/music
   videos, playlists + contents, recently added, recently played, heavy rotation,
   personalized recommendations, like/dislike ratings.
-- **Spotify** (`SpotifyDistiller`) — top artists and tracks, recently played,
-  followed artists, playlists + contents.
+- **Spotify was dropped** and should not be added back without a reason that
+  answers both of these. Its Developer Terms forbid storing Spotify Content in a
+  third-party database, so once Postgres became the source of truth it was the
+  one source that could never be restored to a new device. And it could never
+  have left development mode anyway: five test users, the developer must hold
+  Premium, and extended quota needs 250,000 monthly active users — closed to
+  individuals since May 2025. **Apple Music is the music source the product
+  depends on.**
+- **Apple Health** (`HealthKitDistiller`) — the spreadsheet's scope is "recorded
+  sport type/duration, activity intensity/duration", so: one record per workout
+  (sport, duration, energy, distance, recording app) and one per day (exercise
+  minutes, active calories, steps). Two windows, not one:
+  `AppConfig.healthWorkoutLookbackDays` and `healthActivityLookbackDays`, both a
+  year today. They are kept apart because the underlying asymmetry is real —
+  workouts are sparse, quantity samples are dense — so the activity window is
+  the dial to turn first if a distillation is ever genuinely slow. Note it was
+  turned once already, wrongly: a hang that looked like slowness was the
+  *authorization request* never returning, with no query having run at all. Only
+  the types actually read are requested — workouts, date of birth, biological
+  sex, exercise minutes, active energy, steps, and walking/running distance.
+  HealthKit authorizes per type, so asking for vitals we have no use for would
+  widen the sheet for nothing; equally, *reading* a type that was never
+  requested is what makes it answer `errorAuthorizationNotDetermined`, which is
+  how distance came to be queried for months without ever being returned. A **declined read looks
+  exactly like no data** — HealthKit never says which reads were refused — so an
+  empty distill is surfaced as a failure rather than silently growing a branch.
 
-Testability differs and this trips people up: **YouTube and Spotify work in the
-simulator** (they authenticate against a web account inside a browser sheet).
+HealthKit sits in between: the permission sheet and API **do work in the
+simulator**, but its database starts empty, so add samples in the simulator's
+Health app or every distill comes back empty. On device it needs HealthKit
+enabled on the App ID — and note that with no `DEVELOPMENT_TEAM` set, Xcode
+silently strips the entitlement at packaging (the built `.xcent` is empty), so a
+device build fails to read Health with no obvious cause.
+
+Testability differs and this trips people up: **YouTube works in the simulator**
+(it authenticates against a web account inside a browser sheet).
 **Apple Music requires a physical iPhone** signed into Apple Music, plus a paid
 developer team and MusicKit enabled on the App ID — MusicKit mints its developer
 token from the signing identity, so ad-hoc-signed simulator builds fail with
@@ -67,9 +98,95 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
 - `DistillViewModel` holds records in memory and replaces per-source on
   re-distill (`replaceRecords(from:with:)`) — distilling YouTube twice must not
   duplicate rows.
-- Data stays on-device until the user explicitly exports.
+- **Data no longer stays on-device.** It did until the Supabase backend went in;
+  the rule now is that everything leaving the device is on this list, and the
+  value of the list is that it stays short and complete.
+  - **Postgres, keyed to the account** — the distillation itself, via
+    `SyncService`, plus the profile, the ban list and derived health signals.
+    **Raw HealthKit rows are never uploaded**, and that is now enforced twice:
+    the device derives its signals and *discards* the raw workouts and activity
+    samples without writing them to disk, and `SyncService.localOnlySources`
+    refuses the source outright. Only the chronotype, sport levels, hourly
+    profile and step average travel. Row-level security is the whole
+    authorisation layer — see the migrations.
+  - **Lyrics providers** — `LyricsService` sends the top song's artist and title
+    to lrclib.net, then music.163.com if LRCLIB has no answer. One artist and one
+    title, no user id, no library, and cached so a song is asked once.
+- **The server is the source of truth; the device keeps a cache.** `RecordStore`
+  was the only copy for a while, which is why sync pushing without ever reading
+  back left a reinstall starting empty. `RestoreService.hydrate()` is the read
+  half: records, `source_connections`, the user object, health signals and bans.
+- **Nothing in Postgres is ever deleted, and only changes are stored.** The
+  device *replaces* a source's rows in memory so a re-distill doesn't duplicate
+  what the dashboard shows; the server *appends*. `append_source_records` stamps
+  every row of a run with one `distilled_at`, and a `before insert` trigger drops
+  any row identical to the newest version of itself — so re-distilling YouTube
+  five minutes later writes the one newly-liked video and nothing else. Two
+  things make that work and both are easy to break: the comparison is against the
+  **latest** version, not any historical one (or a value that changed and changed
+  back is silently lost), and it **excludes `collected_at` / `distilled_at` /
+  `updated_at`**, which differ on every pass and would make every row look
+  changed.
+- **Read through the `summary_*` views, never the tables.** They return the
+  latest row per item across all runs — a union, deliberately **not** a sum: a
+  HealthKit run reports sessions over a 365-day lookback and Apple Music reports
+  cumulative play counts, so adding two runs would roughly double every figure.
+  The views are `security_invoker = on`; without it a view runs as its owner and
+  bypasses RLS, which is the whole authorisation layer.
+- **Signing out erases the device**, and nothing is retained afterwards —
+  `signOutLocalState()` clears the cache, the ban list, the tree seed and the
+  OAuth tokens. A connection still outlives the session, but through Postgres
+  rather than the phone: signing back in restores the garden as it was. This
+  reverses an earlier decision that kept everything on sign-out, which was only
+  ever safe because `AccountScope` keys each store by account. That keying stays
+  as a second line of defence.
+- **Local state must be cleared before the session is dropped.** `AccountScope`
+  reads the stored user id to know which files and Keychain items belong to the
+  account; after `SupabaseAuth.signOut()` it resolves to `local` and would clear
+  the wrong ones. `HomeView` is the only place wired for this, and
+  `GrowProfileView` deliberately has no `onSignOut` so there is no second route
+  that could skip it.
+- `PrivacyInfo.xcprivacy` must agree with that list. It declared *nothing
+  collected* for a while after the backend landed, which is exactly the kind of
+  claim that ages into a rejection.
+- **A connection is a snapshot, not a subscription.** Nothing polls, nothing runs
+  in the background: a distillation happens the moment someone taps Connect and
+  `collectedAt` stamps every row. "Connected" in the UI therefore means *has been
+  connected* — a durable fact — which is why `RecordStore` persists it rather
+  than the app rediscovering it each launch.
 - Exports are git-ignored (`written-distillation-*.csv`) — they are personal
   data and must never enter history.
+
+## Launch routing: the first frame must already be the right screen
+
+`RootView` picks one of four screens — `signIn`, `name`, `photos`, `home` — from
+a single `Route`, never a set of booleans that can disagree. Two rules, each paid
+for once:
+
+- **Decide synchronously.** Anything the first frame depends on has to be
+  answerable without a network call. `SupabaseAuth.hasStoredSession` reads the
+  Keychain and `restoredStep` reads `UserDefaults`; both are instant. Deciding
+  from the Supabase token refresh instead meant the sign-in screen was drawn for
+  two to four seconds and then replaced — a flash of the wrong screen on every
+  launch for someone already signed in. `restoreSession` still runs and the
+  server still has the last word; it just corrects a route rather than choosing
+  the first one.
+- **Onboarding steps are routes, not covers.** A `fullScreenCover` has to draw
+  something underneath it, and the something was `SignInView` — so resuming on
+  the photo page reintroduced the very flash the point above removed. Anything
+  reachable *both* forwards from sign-up and by resuming a killed session belongs
+  in the `switch`.
+
+`restoredStep` mirrors two facts that live on the server (the name, and whether
+the photo page has been shown), which is what lets a force-quit resume on the
+page it happened on. Anything that moves them — `upsertProfile`, `loadProfile`,
+`markPhotoStepSeen` — must call `cacheOnboardingStep()`, and `signOut` must clear
+it along with `firstName` and `hasSeenPhotoStep`, or the next account inherits
+the last one's answers and is never asked its name.
+
+`-route name|photos|home|signIn` opens straight onto a screen (DEBUG only). The
+onboarding pages otherwise need a real Apple account, which the simulator cannot
+provide, so this is the only way to check them without a device.
 
 ## Encoding: every generated file must support every language
 
@@ -95,10 +212,8 @@ client IDs are not secrets (they ship in the binary; PKCE is what secures the
 flow). No client secret belongs in this app.
 
 Portal-side setup — Google Cloud (YouTube Data API v3 + iOS OAuth client + test
-users on the consent screen), Spotify dashboard (redirect URI
-`written://spotify-callback`, User Management for testers), Apple Developer
-(MusicKit on the App ID) — is documented step-by-step in `README.md`. Both
-Google and Spotify gate unverified apps to an explicit tester allowlist; a 403
+users on the consent screen), Apple Developer (MusicKit on the App ID) — is documented step-by-step in `README.md`. Both
+Google gates unverified apps to an explicit tester allowlist; a 403
 after a successful login almost always means the signed-in account isn't on it.
 
 ## Conventions
@@ -109,8 +224,16 @@ after a successful login almost always means the signed-in account isn't on it.
 - New OAuth sources: add an `OAuthProvider` case rather than writing another
   auth service; `OAuthPKCEService` is provider-parameterized.
 - Pagination is capped by `AppConfig.maxPagesPerEndpoint` /
-  `maxPlaylistsExpanded` so a distill finishes in seconds. A per-item fetch that
-  can't be capped is a red flag.
+  `maxPlaylistsExpanded` / `maxSongsRated` so a distill finishes in seconds. A
+  per-item fetch that can't be capped is a red flag — Apple Music's ratings pass
+  was exactly that, one round trip per hundred library songs with no ceiling.
+- **Independent fetches within a distiller run concurrently.** Apple Music has
+  nine top-level endpoints to YouTube's four, and awaiting them one after another
+  was the whole reason it felt slower to connect — not richer data, just a longer
+  chain of round trips. `AppleMusicDistiller.distill` is the shape to copy: one
+  `async let` per independent endpoint, then the passes that depend on their
+  results through `inParallel`, which keeps five requests in flight rather than
+  all of them (unbounded fan-out trades a slow distill for a rate-limited one).
 - Per-source failures are surfaced in that source's card (`SourceStatus.failed`)
   and never abort the other sources.
 
@@ -121,9 +244,12 @@ four stages, and refining it is the one task here where the *loop* costs more
 than the change. These rules exist because each was paid for once already.
 
 - **Drive stages from the launch line, never by patching the source.**
-  `xcrun simctl launch <device> com.written.datingapp -stage 3` seeds the screen
-  as though three modalities were connected; `-stages all` renders every
-  illustrated stage on one screen. One build serves all of them. Editing
+  `xcrun simctl launch <device> com.written.datingapp -route home -stage 3` seeds
+  the screen as though three modalities were connected; `-stages all` renders
+  every illustrated stage on one screen. **`-route home` is required unless the
+  simulator holds a session** — `-stage` only takes effect inside `HomeView`, and
+  without it the app opens on sign-in and the flag does nothing. One build serves
+  all of them. Editing
   `TreeSkeleton.make` to force a stage costs two builds per look and leaves the
   tree dirty. See `Views/Tree/DebugLaunch.swift`.
 - **One build per batch of changes**, not per constant. Adjust every number you
@@ -145,3 +271,78 @@ than the change. These rules exist because each was paid for once already.
 - Rapid screenshot bursts and headless boots crash `backboardd` in the
   simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`, then
   reopen — one more reason to take fewer screenshots.
+
+## Known gaps
+
+Real, deliberate, and unfinished as of 2026-07-28. Ordered by what would hurt
+soonest. Delete an entry when it stops being true rather than letting the list
+rot — a stale gap list is worse than none.
+
+**App Store privacy labels are not filled in.** The manifest now declares what
+is collected; App Store Connect's own questionnaire is a separate answer and
+still says nothing. So does the privacy policy, which Google's OAuth verification
+and external TestFlight both need anyway.
+
+**Account deletion has never been run end to end.** Both halves exist and are
+deployed — the app deletes its own `public.users` row through RLS, which cascades
+every table, then calls `supabase/functions/delete-account` to remove the
+`auth.users` record, which only `service_role` can do. Confirmed `ACTIVE` with
+`verify_jwt` on, but confirming the *function* is not confirming the *flow*: it
+has never actually deleted an account, because the only account to test with is
+the developer's. Redeploy with:
+
+    SUPABASE_ACCESS_TOKEN=<pat> npx supabase@latest functions deploy \
+        delete-account --project-ref fwnezkbesjoazlpaflbq
+
+**A restore has never been run on a device that didn't already have the data.**
+`RestoreService` is built and wired into launch, but the only way to know it
+works is a genuinely empty install — a fresh simulator or a reinstall — signing
+in and getting the garden back. Until that is done, "a new device starts empty"
+is fixed in code and unproven in practice.
+
+**Sync failures are invisible by design, and that has already cost time.**
+`SyncService.lastError` is recorded and never displayed. Deliberate — a failed
+upload must not interrupt the garden — but the next silent failure will look
+exactly like the last one: a table emptier than expected with nothing to say why.
+
+**Photos go nowhere.** `PhotoEntryView` picks, frames and displays correctly,
+then `onContinue` drops the media. Needs migration `0007`: a Storage bucket with
+RLS on `auth.uid()`, and a `photos` table for order, kind and the video crop
+rects. Video crops are stored as unit rectangles rather than baked in, because
+the file needs re-encoding for size before upload anyway — do both in one pass.
+
+**Some things can be set but never changed.** The name is captured during
+onboarding and has no edit path afterwards. This is the same shape of bug the
+biographics rows had, where a row only rendered once it had a value, so nobody
+could ever add one.
+
+**`health_sports` is empty and it is not yet known whether that is right.**
+Checked directly rather than inferred: 0 rows, against 1 in `health_signals`. So
+chronotype computed and sports didn't. The early return that used to make this
+ambiguous — `guard !sports.isEmpty else { return }` ahead of the insert — is gone,
+so from the next distillation an empty table means the device genuinely derived
+no sports. Settle it by checking whether the Health app has workouts at all.
+
+**The append/change-only path has never run from the app.** Migrations 0004-0006
+are applied and were exercised directly against the database — an unchanged
+553-row replay wrote 0 rows, a change wrote 1, and the summary took the newer
+value — but no distillation has gone through `append_source_records` from the
+phone. Distil Apple Music twice and confirm the second run writes only what moved.
+
+**Two credentials were exposed in a working session on 2026-07-28 and should be
+rotated.** Neither is in the repo; both are in a chat transcript, which is a place
+secrets get read long after anyone is thinking about them.
+
+- **The Supabase `jwt_secret`** — returned by `GET /v1/projects/<ref>/postgrest`
+  alongside the field actually being read. This is the one that matters: it signs
+  the project's JWTs, so anyone holding it can mint a token claiming any `sub` and
+  **row-level security will honour it**. RLS is the entire authorisation layer, so
+  the secret defeats it completely. Rotate in Dashboard → Settings → API → JWT
+  Settings. It invalidates every session and regenerates the `anon` key, so
+  `AppConfig.supabaseAnonKey` needs updating and the app rebuilding.
+- **A personal access token** (`sbp_…`), pasted to configure the Supabase MCP
+  server. Full Management API authority over the account — it can read the
+  `service_role` key. Rotate at supabase.com/dashboard/account/tokens and re-add
+  the MCP server with the new value.
+
+**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 5 today.

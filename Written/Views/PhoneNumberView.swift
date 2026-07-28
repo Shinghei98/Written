@@ -32,7 +32,7 @@ struct PhoneNumberView: View {
 
     var body: some View {
         ZStack {
-            SignInPalette.canvas.ignoresSafeArea()
+            GardenPalette.parchment.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 closeButton
@@ -158,6 +158,10 @@ struct PhoneNumberView: View {
                 .frame(height: 54)
                 .padding(.horizontal, 13)
                 .background(SignInPalette.field, in: RoundedRectangle(cornerRadius: 18))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(SignInPalette.fieldBorder, lineWidth: 1)
+                }
             }
             .buttonStyle(.plain)
 
@@ -171,11 +175,15 @@ struct PhoneNumberView: View {
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .padding(.horizontal, 16)
                     .background(SignInPalette.field, in: RoundedRectangle(cornerRadius: 18))
+                    // Always outlined, red only when rejected — the border is
+                    // what says "field" now that the fill barely differs from
+                    // the page, so it can't be the error state's own signal.
                     .overlay {
-                        if error != nil {
-                            RoundedRectangle(cornerRadius: 18)
-                                .strokeBorder(SignInPalette.error, lineWidth: 1.5)
-                        }
+                        RoundedRectangle(cornerRadius: 18)
+                            .strokeBorder(
+                                error != nil ? SignInPalette.error : SignInPalette.fieldBorder,
+                                lineWidth: error != nil ? 1.5 : 1
+                            )
                     }
 
                 if let error {
@@ -266,6 +274,12 @@ enum BrandFont {
 
     static func title(_ size: CGFloat) -> Font {
         .custom(name, size: size, relativeTo: .largeTitle)
+    }
+
+    /// The same face at body sizes, for screens that should be entirely in it
+    /// rather than Quicksand headings over a system-font page.
+    static func body(_ size: CGFloat) -> Font {
+        .custom(name, size: size, relativeTo: .body)
     }
 }
 

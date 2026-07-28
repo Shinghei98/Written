@@ -22,10 +22,18 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
     /// modality is declared for the shape of the tree but has no distiller yet.
     var sources: [String] {
         switch self {
-        case .music: return ["spotify", "apple_music"]
+        // Order matters: this array drives the rows in `SourcePickerSheet` and
+        // the marks in the "Connected to …" bars.
+        //
+        // Apple Music alone. Spotify sat beside it until the server became the
+        // source of truth: its Developer Terms forbid storing Spotify Content in
+        // a third-party database, so it was the one source whose data could
+        // never be restored to a new device — and it could never have left
+        // development mode anyway, which allows five testers against an extended
+        // quota needing 250,000 monthly active users.
+        case .music: return ["apple_music"]
         case .media: return ["youtube"]
-        // Apple HealthKit belongs here; nothing reads it yet.
-        case .lifestyle: return []
+        case .lifestyle: return ["health"]
         }
     }
 
@@ -59,7 +67,6 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         switch source {
         case "youtube": return "YouTube"
         case "apple_music": return "Apple Music"
-        case "spotify": return "Spotify"
         case "health": return "Apple Health"
         default: return source
         }
@@ -70,7 +77,6 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         switch source {
         case "youtube": return "play.rectangle.fill"
         case "apple_music": return "music.note"
-        case "spotify": return "waveform"
         case "health": return "heart.fill"
         default: return "app"
         }

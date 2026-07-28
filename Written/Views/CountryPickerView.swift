@@ -10,7 +10,7 @@ struct CountryPickerView: View {
 
     var body: some View {
         ZStack {
-            SignInPalette.canvas.ignoresSafeArea()
+            GardenPalette.parchment.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -21,8 +21,12 @@ struct CountryPickerView: View {
                             row(for: country)
                         }
 
+                        // The break between the featured countries and the full
+                        // list. `field` against white was a clear band; against
+                        // parchment the two are six units apart and the grouping
+                        // stopped reading, so it takes the border tone instead.
                         Rectangle()
-                            .fill(SignInPalette.field)
+                            .fill(SignInPalette.fieldBorder.opacity(0.45))
                             .frame(height: 20)
 
                         ForEach(Country.alphabetical) { country in

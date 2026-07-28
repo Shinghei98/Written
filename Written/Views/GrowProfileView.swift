@@ -10,13 +10,21 @@ struct GrowProfileView: View {
     /// records, and the two have to be looking at one distillation.
     @ObservedObject var viewModel: DistillViewModel
 
-    /// "View profile" — `HomeView` slides this screen away to the dashboard.
-    var onViewProfile: () -> Void = {}
+    /// "Dashboard" — `HomeView` slides this screen away to the dashboard.
+    var onViewDashboard: () -> Void = {}
+
+    /// Back to sign-in. Only the debug button in the header calls it today.
 
     @State private var growth: Double = 0
     @State private var isWatering = false
     @State private var hasDrawnOnce = false
-    @State private var isPickingSource = false
+    /// Which modality the source picker is open for, `nil` when it is closed.
+    ///
+    /// One piece of state rather than a boolean beside a modality: setting both
+    /// together raced the sheet's own content capture, so `-pick media` opened
+    /// on music. `.sheet(item:)` reads the modality *from* the thing that
+    /// presents it, and cannot disagree with itself.
+    @State private var pickedModality: Modality?
 
     /// The tree currently on screen, which lags the view model's by one
     /// watering: the new shape must not appear until the can has poured, or the
@@ -53,7 +61,7 @@ struct GrowProfileView: View {
     /// Height held for the bars at the foot of the screen, filled or not.
     ///
     /// The tallest the stack gets is every modality but the last connected —
-    /// two slim bars at 44 and the 76pt invitation — plus "View profile", which
+    /// two slim bars at 44 and the 76pt invitation — plus "View Dashboard", which
     /// is there at every stage, and the gaps. Reserving it is what keeps the
     /// garden the same size from the first stage to the last.
     private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3
@@ -90,6 +98,30 @@ struct GrowProfileView: View {
         .task(id: viewModel.treeState) {
             await growTree()
         }
+#if DEBUG
+        // `-distill 1` / `-connect <source>` on the launch line; see `DebugLaunch`.
+        .onAppear {
+            let delay = UInt64(DebugLaunch.distillDelay * 1_000_000_000)
+            if DebugLaunch.playsDistillation, DebugLaunch.firesOnce("distill") {
+                Task {
+                    try? await Task.sleep(nanoseconds: delay)
+                    viewModel.advancePreviewStage()
+                }
+            }
+            if let source = DebugLaunch.connectSource, DebugLaunch.firesOnce("connect") {
+                Task {
+                    try? await Task.sleep(nanoseconds: delay)
+                    viewModel.distill(source: source)
+                }
+            }
+            if let modality = DebugLaunch.pickTarget, DebugLaunch.firesOnce("pick") {
+                Task {
+                    try? await Task.sleep(nanoseconds: delay)
+                    pickedModality = modality
+                }
+            }
+        }
+#endif
         // The can goes on the moment the user connects, not when the records
         // come back, so it covers the whole wait — OAuth sheet included.
         .onChange(of: viewModel.isDistilling) { running in
@@ -131,13 +163,16 @@ struct GrowProfileView: View {
                 }
             }
         }
-        .sheet(isPresented: $isPickingSource) {
-            SourcePickerSheet(
-                modality: viewModel.treeState.nextModality ?? .music,
+        .sheet(item: $pickedModality) { modality in
+            // Built once so the detent and the content agree on how many rows
+            // there are — asking the sheet for 280pt regardless left a
+            // single-app modality in a half-empty card.
+            let sheet = SourcePickerSheet(
+                modality: modality,
                 viewModel: viewModel,
-                onClose: { isPickingSource = false }
+                onClose: { pickedModality = nil }
             )
-            .presentationDetents([.height(280)])
+            sheet.presentationDetents([.height(sheet.detentHeight)])
         }
         .fileExporter(
             isPresented: $viewModel.isExporterPresented,
@@ -200,6 +235,20 @@ struct GrowProfileView: View {
     }
 
     private var headerButtons: some View {
+        // Two rows, not one: a third control in the top row runs into "Grow
+        // your", and widening the headline's trailing inset to clear it breaks
+        // the title onto three lines. The second row sits beside "profile",
+        // which is short.
+        // The debug "Sign in" button that used to sit here is gone: sign-out is
+        // a real feature now, on the dashboard. Two exits clearing different
+        // amounts of state is how they drift, and this one cleared only the
+        // session — leaving the previous account's OAuth connections behind.
+        VStack(alignment: .trailing, spacing: 8) {
+            topButtons
+        }
+    }
+
+    private var topButtons: some View {
         HStack(spacing: 0) {
 #if DEBUG
             // TEMPORARY — debug builds only. Steps the plant through its
@@ -259,7 +308,7 @@ struct GrowProfileView: View {
                 // music note once connected rather than turning into whatever
                 // is offered next.
                 if displayedSkeleton.illustrated != nil {
-                    ModalityBadge(modality: .music)
+                    ModalityBadge(modality: .music, progress: badgeProgress(.music))
                         .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size)))
                         // Arrives once the plant has finished opening, not with
                         // it: the seedling is the thing to look at first, and
@@ -274,7 +323,7 @@ struct GrowProfileView: View {
                 if let stage = displayedSkeleton.illustrated {
                     ForEach(SeedlingArt.shoots(by: stage.extended)) { shoot in
                         if let modality = shootModality(shoot) {
-                            ModalityBadge(modality: modality)
+                            ModalityBadge(modality: modality, progress: badgeProgress(modality))
                                 .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size)))
                                 .scaleEffect(hasShootBadgeArrived[shoot.id] == true ? 1 : 0.72)
                                 .opacity(hasShootBadgeArrived[shoot.id] == true ? 1 : 0)
@@ -325,7 +374,7 @@ struct GrowProfileView: View {
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: viewModel.treeState)
     }
 
-    /// The way out of the growing screen, under the bars.
+    /// The way to the dashboard, under the bars.
     ///
     /// Shown from the start and dimmed, not hidden until it works: it says what
     /// the connecting is *for*, and a button that appears out of nowhere on the
@@ -335,8 +384,8 @@ struct GrowProfileView: View {
     private var viewProfile: some View {
         let isReady = !viewModel.treeState.connectedModalities.isEmpty
 
-        return Button(action: onViewProfile) {
-            Text("View profile")
+        return Button(action: onViewDashboard) {
+            Text("Dashboard")
         }
         // Sized to its label rather than filling the row: the bars above are
         // the screen's business and this is the way out of it, so it reads as
@@ -361,76 +410,155 @@ struct GrowProfileView: View {
 
     private func promptCard(for next: Modality) -> some View {
         let first = viewModel.treeState.isSeedling
+        let failure = viewModel.failureMessage(for: next)
 
-        return HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(first ? "Ready to grow?" : "Ready for more?")
-                    .lineLimit(1)
-                    // Beside a button as wide as "Connect Lifestyle" the line
-                    // can still run out of bar; shrink rather than truncate, or
-                    // the question mark is the first thing to go.
-                    .minimumScaleFactor(0.75)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(GardenPalette.ink)
-
-                // One `Text`, not two in a stack: `minimumScaleFactor` applies
-                // per view, so a stack shrinks each half on its own and drops
-                // words out of the first — "Continue… Lifestyle." — instead of
-                // scaling the line. Concatenated, it scales as one and keeps
-                // the modality's name in gold.
-                (
-                    Text(first ? "Start with " : "Continue with ")
-                        .foregroundColor(GardenPalette.muted)
-                    + Text(next.label + ".")
-                        .foregroundColor(GardenPalette.gold)
-                )
-                .font(.system(size: 15))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 0)
-
-            Button(action: { connect(next) }) {
-                HStack(spacing: 8) {
-                    if viewModel.isDistilling {
-                        ProgressView()
-                            .tint(GardenPalette.card)
-                    } else {
-                        Image(systemName: next.systemImage)
-                            .font(.system(size: 15))
-                    }
-                    Text("Connect \(next.label)")
+        // Tighter than it looks like it needs to be, and deliberately: at 14pt
+        // spacing the widest button — "Connect Lifestyle" — squeezed the text
+        // column until `minimumScaleFactor` engaged, so that one bar rendered
+        // its question a size smaller than music's and media's. The room comes
+        // back from here and from the button's own padding.
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // No `minimumScaleFactor` here or on the line below, and that
+                    // is the point: it let these two report a smaller minimum
+                    // width, so a wide button — "Connect Lifestyle" — was
+                    // satisfied by shrinking the question instead of compressing
+                    // itself, and that one bar rendered a size down from music's
+                    // and media's. With no give here, the button is what yields.
+                    Text(failure == nil ? (first ? "Ready to grow?" : "Ready for more?")
+                                        : "That didn't work")
                         .lineLimit(1)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(failure == nil ? GardenPalette.ink : Self.errorRed)
+
+                    // One `Text`, not two in a stack: `minimumScaleFactor`
+                    // applies per view, so a stack shrinks each half on its own
+                    // and drops words out of the first — "Continue… Lifestyle."
+                    // — instead of scaling the line. Concatenated, it scales as
+                    // one and keeps the modality's name in gold.
+                    (
+                        Text(first ? "Start with " : "Continue with ")
+                            .foregroundColor(GardenPalette.muted)
+                        + Text(next.label + ".")
+                            .foregroundColor(GardenPalette.gold)
+                    )
+                    .font(.system(size: 15))
+                    .lineLimit(1)
                 }
-                .fixedSize(horizontal: true, vertical: false)
-            }
-            .buttonStyle(
-                PressShrinkButtonStyle(
-                    fill: GardenPalette.gold,
-                    foreground: GardenPalette.card,
-                    expands: false,
-                    font: .system(size: 15, weight: .semibold),
-                    horizontalPadding: 14,
-                    minHeight: 48
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                Button(action: { connect(next) }) {
+                    HStack(spacing: 6) {
+                        if viewModel.isDistilling {
+                            ProgressView()
+                                .tint(GardenPalette.card)
+                        } else {
+                            Image(systemName: next.systemImage)
+                                .font(.system(size: 15))
+                        }
+                        // After a failure the ask is no longer "connect this",
+                        // it is "that didn't work, go again" — and the shorter
+                        // label leaves the message below more room.
+                        Text(failure == nil ? "Connect \(next.label)" : "Try again")
+                            .lineLimit(1)
+                            // If anything has to give on the longest modality
+                            // name, it is this label and not the headline beside
+                            // it: the three bars are read as a series, and a
+                            // question that changes size between them looks like
+                            // a mistake. A button that is a hair narrower does
+                            // not.
+                            .minimumScaleFactor(0.72)
+                    }
+                }
+                .buttonStyle(
+                    PressShrinkButtonStyle(
+                        fill: GardenPalette.gold,
+                        foreground: GardenPalette.card,
+                        expands: false,
+                        font: .system(size: 15, weight: .semibold),
+                        horizontalPadding: 10,
+                        minHeight: 48
+                    )
                 )
-            )
-            // Nothing reads Apple Health yet, so its bar takes its turn with the
-            // button dimmed rather than the flow ending a step early. The style
-            // doesn't dim on its own, so `disabled` alone would leave a button
-            // that looks live and does nothing.
-            .opacity(next.isAvailable ? 1 : 0.5)
-            .disabled(viewModel.isDistilling || !next.isAvailable)
+                // Nothing reads Apple Health yet, so its bar takes its turn with
+                // the button dimmed rather than the flow ending a step early. The
+                // style doesn't dim on its own, so `disabled` alone would leave a
+                // button that looks live and does nothing.
+                .opacity(next.isAvailable ? 1 : 0.5)
+                .disabled(viewModel.isDistilling || !next.isAvailable)
+            }
+
+            // Why the last attempt came to nothing. Full width rather than in
+            // the column beside the button: these messages name a Settings path,
+            // and a path that wraps to four lines in a 180pt column is one
+            // nobody follows.
+            //
+            // It grows the card, which nudges the garden up — accepted here
+            // where it isn't for the connected bars, because a failure is an
+            // exception rather than a step of the flow, and reserving the room
+            // permanently would cost the plant that height at every stage.
+            if let failure {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(failure)
+                        .font(.system(size: 13))
+                        .foregroundStyle(GardenPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // The way out, not just a description of the problem.
+                    //
+                    // Every permission this app asks for can be refused in a
+                    // place the app cannot reach — and a refused Apple Health
+                    // read is invisible to us, so the text can only ever say
+                    // "check Settings". Saying it and then making the reader
+                    // find Settings themselves is the difference between a
+                    // dead end and a fix. `openSettingsURLString` is the only
+                    // deep link Apple sanctions; it lands on Written's own
+                    // page, where Health sits one tap away.
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Open Settings")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(GardenPalette.gold)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .overlay {
+                            Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
-        .padding(.horizontal, 18)
+        // Tighter than the connected bars above it: this row carries two
+        // lines of text and the widest button, and the width has to come from
+        // somewhere that isn't the type size.
+        .padding(.horizontal, 12)
         .padding(.vertical, 14)
         .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 22))
         .overlay {
             RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1)
+                .strokeBorder(
+                    failure == nil ? GardenPalette.ink.opacity(0.06) : Self.errorRed.opacity(0.35),
+                    lineWidth: 1
+                )
         }
+        .animation(.easeOut(duration: 0.25), value: failure)
     }
+
+    /// The same red the birthday sheet rejects with, so a failure looks the same
+    /// wherever it appears.
+    private static let errorRed = Color(red: 0.72, green: 0.20, blue: 0.16)
 
     /// Beside the tip of the right-hand cotyledon, offset out and a little down
     /// so the badge clears the blade instead of sitting on it. The generated
@@ -460,6 +588,17 @@ struct GrowProfileView: View {
     /// The source a shoot stands for: the cotyledons are music, so the shoots
     /// carry the ones after it, in the order they unlock. A shoot with nothing
     /// left to offer carries nothing.
+    /// How far round its rim a badge's ring has gone.
+    ///
+    /// The running distillation is checked first: `treeState` gains the modality
+    /// the moment its records land, but the progress value is still walking its
+    /// last stretch to 1 while the banner fades out. Reading the connected state
+    /// first would snap that stretch shut.
+    private func badgeProgress(_ modality: Modality) -> Double {
+        if distillingModality == modality { return distillProgress }
+        return viewModel.treeState.branches[modality] != nil ? 1 : 0
+    }
+
     private func shootModality(_ shoot: SeedlingArt.Shoot) -> Modality? {
         let all = Modality.allCases
         let index = shoot.id + 1
@@ -468,14 +607,15 @@ struct GrowProfileView: View {
 
     // MARK: - Behaviour
 
+    /// Always the picker, even for a modality with one app.
+    ///
+    /// It used to shortcut straight to the distiller when there was only one
+    /// source, which made the three buttons behave differently from each other
+    /// — Music asked, Media and Lifestyle jumped. Naming the app before sending
+    /// someone to a system permission sheet is the more honest order, and it is
+    /// also where "no apps available on this device" can be said at all.
     private func connect(_ modality: Modality) {
-        // Music has two possible apps, so it asks; anything with a single source
-        // just goes.
-        if modality.sources.count > 1 {
-            isPickingSource = true
-        } else if let source = modality.sources.first {
-            viewModel.distill(source: source)
-        }
+        pickedModality = modality
     }
 
     private func growTree() async {
@@ -564,21 +704,31 @@ struct AppMark: View {
 
     var body: some View {
         switch source {
-        case "spotify": spotify
         case "youtube": youtube
         case "apple_music": appleMusic
+        case "health": health
         default: unknown
         }
     }
 
-    private var spotify: some View {
+    /// Apple Health's mark: a white tile with the pink-to-red heart.
+    private var health: some View {
         ZStack {
-            Circle().fill(Color(red: 0.114, green: 0.725, blue: 0.329))
-            // The three waves, widest at the top.
-            ForEach(0..<3, id: \.self) { ring in
-                SpotifyWave(ring: ring)
-                    .stroke(.white, style: StrokeStyle(lineWidth: diameter * 0.075, lineCap: .round))
-            }
+            RoundedRectangle(cornerRadius: diameter * 0.26)
+                .fill(.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: diameter * 0.26)
+                        .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
+                }
+            Image(systemName: "heart.fill")
+                .font(.system(size: diameter * 0.52))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color(red: 0.98, green: 0.31, blue: 0.45), Color(red: 0.92, green: 0.10, blue: 0.24)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         }
         .frame(width: diameter, height: diameter)
     }
@@ -616,30 +766,6 @@ struct AppMark: View {
         Circle()
             .fill(GardenPalette.gold.opacity(0.12))
             .frame(width: diameter, height: diameter)
-    }
-}
-
-/// One of Spotify's three arcs.
-private struct SpotifyWave: Shape {
-    let ring: Int
-
-    func path(in rect: CGRect) -> Path {
-        let d = min(rect.width, rect.height)
-        // Struck from below the middle so the arcs bulge upward, tightening as
-        // they rise — which is the shape of the mark.
-        let centre = CGPoint(x: rect.midX, y: rect.midY + d * 0.30)
-        let radius = d * (0.46 - CGFloat(ring) * 0.13)
-        let spread: Double = 46 - Double(ring) * 4
-
-        var path = Path()
-        path.addArc(
-            center: centre,
-            radius: radius,
-            startAngle: .degrees(180 + spread),
-            endAngle: .degrees(360 - spread),
-            clockwise: false
-        )
-        return path
     }
 }
 
@@ -765,10 +891,23 @@ private struct StepProgressBar: View {
 struct ModalityBadge: View {
     let modality: Modality
 
+    /// How far round the rim this source has got: 0 before it is connected, the
+    /// distillation's own progress while it runs, and 1 for good afterwards.
+    /// Fed by the same value as the banner's bar, so the ring steps and waits in
+    /// step with it rather than keeping its own time.
+    var progress: Double = 0
+
     /// One size for every badge, whichever part of the plant it marks. They are
     /// a set — a row of sources the user is working through — and sizing each
     /// to the leaf beside it made them read as a hierarchy instead.
     private let diameter: CGFloat = 48
+    private let ringWidth: CGFloat = 3
+
+    /// One flat gold, not a gradient: any variation around the rim reads as a
+    /// glint travelling as the badge bobs, which is the shimmer this is meant to
+    /// be free of. Brighter and more saturated than `GardenPalette.gold`, which
+    /// is a muted khaki — right for text on parchment, dull as a ring.
+    private static let ringGold = Color(red: 0.831, green: 0.667, blue: 0.212)
 
     @State private var isRaised = false
 
@@ -779,21 +918,52 @@ struct ModalityBadge: View {
             .frame(width: diameter, height: diameter)
             .background(GardenPalette.gold.opacity(0.07), in: Circle())
             .overlay {
+                // The unfilled track: already there as the badge's edge, so the
+                // ring has something to run along from the start.
                 Circle().strokeBorder(GardenPalette.gold.opacity(0.35), lineWidth: 1)
             }
+            .overlay { ring }
             .offset(y: isRaised ? -6 : 6)
             .onAppear {
                 withAnimation(.easeInOut(duration: 2.6).repeatForever()) { isRaised = true }
             }
     }
+
+    /// The gold arc along the badge's edge.
+    private var ring: some View {
+        Circle()
+            .trim(from: 0, to: min(max(progress, 0), 1))
+            .stroke(Self.ringGold, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+            // `trim` starts at 3 o'clock; the rim fills from 12, clockwise.
+            .rotationEffect(.degrees(-90))
+            // Half the stroke would otherwise hang outside the badge.
+            .padding(ringWidth / 2)
+    }
 }
 
-/// Which app should feed this branch. Only shown for modalities with more than
-/// one possible source — music today.
+/// Which app should feed this branch.
+///
+/// Shown for every modality, including the ones with a single app: three
+/// buttons on the same screen should behave the same way, and naming the app
+/// before a system permission sheet appears is the more honest order.
 struct SourcePickerSheet: View {
     let modality: Modality
     @ObservedObject var viewModel: DistillViewModel
     var onClose: () -> Void = {}
+
+    /// Only what this device can actually offer — see `SourceAvailability`,
+    /// which hides the two Apple frameworks where they cannot work rather than
+    /// hiding whatever app happens not to be installed.
+    private var sources: [String] { SourceAvailability.sources(for: modality) }
+
+    /// The height the sheet asks for: the header, plus a row each.
+    ///
+    /// Computed rather than fixed at 280, which was sized for music's two rows
+    /// and left a single-app modality sitting in a half-empty sheet.
+    var detentHeight: CGFloat {
+        let rows = CGFloat(max(sources.count, 1)) * 56
+        return 116 + rows + (sources.isEmpty ? 12 : 0)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -803,47 +973,20 @@ struct SourcePickerSheet: View {
                 .padding(.top, 22)
                 .padding(.bottom, 4)
 
-            Text("Either one grows the branch. Both grow it further.")
+            Text(subtitle)
                 .font(.system(size: 14))
                 .foregroundStyle(GardenPalette.muted)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 18)
 
-            ForEach(modality.sources, id: \.self) { source in
-                Button {
-                    viewModel.distill(source: source)
-                    onClose()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: source == "spotify" ? "waveform" : "music.note")
-                            .font(.system(size: 17))
-                            .foregroundStyle(GardenPalette.gold)
-                            .frame(width: 28)
-
-                        Text(Modality.displayName(forSource: source))
-                            .font(.system(size: 17))
-                            .foregroundStyle(GardenPalette.ink)
-
-                        Spacer()
-
-                        if case .done(let count) = viewModel.status(for: source) {
-                            Text("\(count)")
-                                .font(.system(size: 14))
-                                .foregroundStyle(GardenPalette.muted)
-                        }
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(GardenPalette.muted)
-                    }
-                    .padding(.horizontal, 22)
-                    .frame(height: 56)
-                    .contentShape(Rectangle())
+            if sources.isEmpty {
+                emptyState
+            } else {
+                ForEach(sources, id: \.self) { source in
+                    row(for: source)
+                    Divider().padding(.leading, 62)
                 }
-                .buttonStyle(.plain)
-
-                Divider().padding(.leading, 62)
             }
 
             Spacer(minLength: 0)
@@ -851,6 +994,77 @@ struct SourcePickerSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(GardenPalette.parchment)
         .preferredColorScheme(.light)
+    }
+
+    /// Says how many choices there are, because the answer changes the sentence:
+    /// "either one" is nonsense above a single row.
+    private var subtitle: String {
+        switch sources.count {
+        case 0: return "Nothing here can be connected from this device."
+        case 1: return "One tap, and the branch starts growing."
+        default: return "Either one grows the branch. Both grow it further."
+        }
+    }
+
+    /// Resolved at runtime rather than hard-coded, the same way
+    /// `DashboardView.symbol(forSex:)` does it: a name that doesn't exist on
+    /// the running OS draws *nothing*, silently, which is how this state first
+    /// rendered with a hole where its icon should be.
+    private static let emptySymbol: String = {
+        ["iphone.slash", "app.dashed", "questionmark.app"]
+            .first { UIImage(systemName: $0) != nil } ?? "exclamationmark.triangle"
+    }()
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: Self.emptySymbol)
+                .font(.system(size: 22))
+                .foregroundStyle(GardenPalette.muted.opacity(0.7))
+
+            Text("No apps available on this device")
+                .font(.system(size: 15))
+                .foregroundStyle(GardenPalette.muted)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 18)
+    }
+
+    private func row(for source: String) -> some View {
+        Button {
+            viewModel.distill(source: source)
+            onClose()
+        } label: {
+            HStack(spacing: 12) {
+                // `Modality.icon(forSource:)` rather than a local guess — it
+                // already knows every source's mark, and the badges on the plant
+                // draw from the same place, so an app looks the same everywhere.
+                Image(systemName: Modality.icon(forSource: source))
+                    .font(.system(size: 17))
+                    .foregroundStyle(GardenPalette.gold)
+                    .frame(width: 28)
+
+                Text(Modality.displayName(forSource: source))
+                    .font(.system(size: 17))
+                    .foregroundStyle(GardenPalette.ink)
+
+                Spacer()
+
+                if case .done(let count) = viewModel.status(for: source) {
+                    Text("\(count)")
+                        .font(.system(size: 14))
+                        .foregroundStyle(GardenPalette.muted)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(GardenPalette.muted)
+            }
+            .padding(.horizontal, 22)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXFileReference section */
+		A10000052E100005 /* Written.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Written.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A10000012E100001 /* Written */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -119,10 +123,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXFileReference section */
-		A10000052E100005 /* Written.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Written.app; sourceTree = BUILT_PRODUCTS_DIR; };
-/* End PBXFileReference section */
 
 /* Begin XCBuildConfiguration section */
 		A100000C2E10000C /* Debug */ = {
@@ -248,16 +248,21 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit export.";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -276,16 +281,21 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit export.";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

@@ -16,6 +16,21 @@ import SwiftUI
 /// xcrun simctl launch <device> com.written.datingapp -stages all
 /// ```
 enum DebugLaunch {
+
+    /// Launch arguments describe the *launch*, not every appearance of a view.
+    ///
+    /// Views get rebuilt: signing out and back in makes a fresh `HomeView`, and
+    /// its `onAppear` would read `-screen dashboard` a second time and slide
+    /// away to the dashboard again — the garden flashing past on every sign-in.
+    /// Each flag fires once per process.
+    @MainActor private static var fired: Set<String> = []
+
+    @MainActor
+    static func firesOnce(_ flag: String) -> Bool {
+        guard !fired.contains(flag) else { return false }
+        fired.insert(flag)
+        return true
+    }
     /// `-stage N` → the screen as though the first N modalities were connected.
     /// 0 is bare soil, 3 the full plant.
     static var forcedStage: Int? {
@@ -29,15 +44,83 @@ enum DebugLaunch {
     }
 
     /// `-screen dashboard` → plays the move to the dashboard shortly after
-    /// launch. It is otherwise only reachable by tapping "View profile", and
+    /// launch. It is otherwise only reachable by tapping "View Dashboard", and
     /// `simctl` cannot tap; screenshotting during the delay and after it covers
     /// both the transition and the screen it lands on.
     static var opensDashboard: Bool {
-        UserDefaults.standard.string(forKey: "screen") == "dashboard"
+        ["dashboard", "profiles"].contains(UserDefaults.standard.string(forKey: "screen") ?? "")
+    }
+
+    /// `-screen profiles` → carries on past the dashboard to the profile
+    /// previews, which are otherwise two taps in.
+    static var opensProfiles: Bool {
+        UserDefaults.standard.string(forKey: "screen") == "profiles"
     }
 
     /// How long the garden holds before it leaves, under `-screen dashboard`.
     static let dashboardDelay: Double = 1.2
+
+    /// `-distill 1` → runs the preview distillation shortly after launch, so the
+    /// choreography that only happens while one is running — the banner, the
+    /// watering can, the badges' progress rings — can be screenshotted. It is
+    /// the `↻` stepper's work, and `simctl` cannot tap it.
+    static var playsDistillation: Bool {
+        UserDefaults.standard.string(forKey: "distill") == "1"
+    }
+
+    /// Long enough for the plant to have settled first.
+    static let distillDelay: Double = 2.5
+
+    /// `-connect health` → run a *real* distillation of that source shortly
+    /// after launch, permission sheet and all. `-distill` fakes one; this is the
+    /// genuine path, for sources whose sheet can't be tapped from `simctl`.
+    static var connectSource: String? {
+        UserDefaults.standard.string(forKey: "connect")
+    }
+
+    /// `-edit artist` / `-edit channel` / `-edit sport` → open the dashboard with
+    /// one entry of that kind already wobbling. `simctl` can send no long press,
+    /// so this is the only way to screenshot the editing state.
+    static var editTarget: String? {
+        UserDefaults.standard.string(forKey: "edit")
+    }
+
+    /// `-pick music` / `-pick media` / `-pick lifestyle` → open that modality's
+    /// source picker shortly after launch. The sheet is only reachable through
+    /// a "Connect …" button, and `simctl` can send no tap.
+    static var pickTarget: Modality? {
+        switch UserDefaults.standard.string(forKey: "pick") {
+        case "music": return .music
+        case "media": return .media
+        case "lifestyle": return .lifestyle
+        default: return nil
+        }
+    }
+
+    /// `-route name` / `-route photos` / `-route home` → open straight on that
+    /// screen, standing in for a session that was force-quit there.
+    ///
+    /// The onboarding pages are otherwise only reachable by signing in with a
+    /// real Apple account, which the simulator cannot do — so without this the
+    /// "resume where you quit" routing could only ever be checked on a device.
+    static var forcedRoute: String? {
+        UserDefaults.standard.string(forKey: "route")
+    }
+
+    /// `-loading video` / `-loading photo` → hold the photo page in its loading
+    /// state. Reaching it for real means choosing something in `PhotosPicker`,
+    /// which `simctl` cannot tap, and the state is transient besides.
+    static var pickLoading: String? {
+        UserDefaults.standard.string(forKey: "loading")
+    }
+
+    /// `-scroll media` → open the dashboard already scrolled to that card.
+    /// Cards below the fold are otherwise unscreenshottable: `simctl` can send
+    /// no swipe, and the alternative — reordering the page for one look — is
+    /// the source-patching this harness exists to avoid.
+    static var scrollTarget: String? {
+        UserDefaults.standard.string(forKey: "scroll")
+    }
 }
 
 /// All four illustrated stages on one screen, 2×2.

@@ -26,72 +26,105 @@ struct AppleMusicDistiller {
         guard status == .authorized else { throw MusicError.notAuthorized }
 
         var records: [DistilledRecord] = []
-        var librarySongIDs: [String] = []
 
-        // 1. Library songs (also collect ids for the ratings pass).
-        let songs = try await fetchAllPages(path: "/v1/me/library/songs?limit=100")
-        librarySongIDs = songs.compactMap { $0["id"] as? String }
+        // Apple Music has far more endpoints than the other sources — nine here
+        // against YouTube's four — and run one after another that difference is
+        // the whole reason this connect felt so much slower. It was never that
+        // the data is richer; it is that a sequential distill pays a round trip
+        // per family and then a *second* one per playlist and per hundred songs.
+        //
+        // Phase one: everything that depends on nothing. `async let` starts all
+        // nine immediately and the awaits below collect them.
+        async let songsTask = fetchAllPages(path: "/v1/me/library/songs?limit=100")
+        async let albumsTask = try? fetchAllPages(path: "/v1/me/library/albums?limit=100")
+        async let artistsTask = try? fetchAllPages(path: "/v1/me/library/artists?limit=100")
+        async let videosTask = try? fetchAllPages(path: "/v1/me/library/music-videos?limit=100")
+        async let playlistsTask = fetchAllPages(path: "/v1/me/library/playlists?limit=100")
+        async let recentlyAddedTask = try? fetchAllPages(path: "/v1/me/library/recently-added?limit=25")
+        async let recentlyPlayedTask = try? fetchAllPages(path: "/v1/me/recent/played/tracks?limit=30")
+        async let heavyRotationTask = try? fetchAllPages(path: "/v1/me/history/heavy-rotation?limit=10")
+        async let recommendationsTask = try? fetchAllPages(path: "/v1/me/recommendations?limit=30")
+
+        // 1. Library songs (also the id list the ratings pass works from).
+        let songs = try await songsTask
+        let librarySongIDs = songs.compactMap { $0["id"] as? String }
         records += songs.map { makeRecord(dataType: "library_song", resource: $0) }
 
         // 2–4. Library albums, artists, music videos.
-        records += (try await fetchAllPages(path: "/v1/me/library/albums?limit=100"))
-            .map { makeRecord(dataType: "library_album", resource: $0) }
-        records += (try await fetchAllPages(path: "/v1/me/library/artists?limit=100"))
-            .map { makeRecord(dataType: "library_artist", resource: $0) }
-        if let videos = try? await fetchAllPages(path: "/v1/me/library/music-videos?limit=100") {
-            records += videos.map { makeRecord(dataType: "library_music_video", resource: $0) }
-        }
+        records += (await albumsTask ?? []).map { makeRecord(dataType: "library_album", resource: $0) }
+        records += (await artistsTask ?? []).map { makeRecord(dataType: "library_artist", resource: $0) }
+        records += (await videosTask ?? []).map { makeRecord(dataType: "library_music_video", resource: $0) }
 
-        // 5. Playlists, then the tracks inside each.
-        let playlists = try await fetchAllPages(path: "/v1/me/library/playlists?limit=100")
+        // 5. Playlists themselves; their tracks come in phase two.
+        let playlists = try await playlistsTask
         records += playlists.map { makeRecord(dataType: "library_playlist", resource: $0) }
 
-        for playlist in playlists.prefix(AppConfig.maxPlaylistsExpanded) {
-            guard let playlistID = playlist["id"] as? String else { continue }
-            let playlistName = attribute("name", of: playlist)
-            // Best effort: empty playlists return 404, which must not sink the distill.
+        // 6–8. Recently added (max 25 per page), recently played (max 30),
+        // heavy rotation — the strongest current-taste signal.
+        records += (await recentlyAddedTask ?? []).map { makeRecord(dataType: "recently_added", resource: $0) }
+        records += (await recentlyPlayedTask ?? []).map { makeRecord(dataType: "recently_played", resource: $0) }
+        records += (await heavyRotationTask ?? []).map { makeRecord(dataType: "heavy_rotation", resource: $0) }
+
+        // 9. Personalized recommendations. No extra requests: the items are
+        // already inside `relationships.contents` on what came back.
+        for recommendation in await recommendationsTask ?? [] {
+            let reason = attribute("title", of: recommendation)
+            let contents = ((recommendation["relationships"] as? [String: Any])?["contents"] as? [String: Any])?["data"] as? [[String: Any]] ?? []
+            records += contents.map {
+                makeRecord(dataType: "recommendation", resource: $0, detailOverride: "shelf=\(reason)")
+            }
+        }
+
+        // Phase two: the two passes that need phase one's answers first. Both
+        // were loops of sequential round trips, and the ratings one grows with
+        // the size of the library — the "per-item fetch that can't be capped"
+        // CLAUDE.md warns about, in the one distiller nobody could test.
+        async let playlistItems = playlistTracks(in: playlists)
+        async let ratings = ratings(forSongIDs: librarySongIDs)
+        records += await playlistItems
+        records += await ratings
+
+        return records
+    }
+
+    /// A playlist reduced to what expanding it needs. A named type rather than
+    /// a tuple because Swift no longer splats one into a closure's parameters.
+    private struct PlaylistRef: Sendable {
+        let id: String
+        let name: String
+    }
+
+    /// The tracks inside each playlist, several at a time.
+    private func playlistTracks(in playlists: [[String: Any]]) async -> [DistilledRecord] {
+        let wanted = playlists.prefix(AppConfig.maxPlaylistsExpanded).compactMap { playlist -> PlaylistRef? in
+            guard let id = playlist["id"] as? String else { return nil }
+            return PlaylistRef(id: id, name: attribute("name", of: playlist))
+        }
+
+        return await inParallel(over: Array(wanted)) { playlist in
+            // Best effort: an empty playlist returns 404, which must not sink
+            // the whole distillation.
             guard let tracks = try? await fetchAllPages(
-                path: "/v1/me/library/playlists/\(playlistID)/tracks?limit=100"
-            ) else { continue }
-            records += tracks.map {
-                makeRecord(dataType: "playlist_item", resource: $0, detailOverride: "playlist=\(playlistName)")
+                path: "/v1/me/library/playlists/\(playlist.id)/tracks?limit=100"
+            ) else { return [] }
+            return tracks.map {
+                makeRecord(dataType: "playlist_item", resource: $0, detailOverride: "playlist=\(playlist.name)")
             }
         }
+    }
 
-        // 6. Recently added (endpoint max limit is 25 per page).
-        if let recentlyAdded = try? await fetchAllPages(path: "/v1/me/library/recently-added?limit=25") {
-            records += recentlyAdded.map { makeRecord(dataType: "recently_added", resource: $0) }
-        }
-
-        // 7. Recently played tracks (endpoint max limit is 30).
-        if let recentlyPlayed = try? await fetchAllPages(path: "/v1/me/recent/played/tracks?limit=30") {
-            records += recentlyPlayed.map { makeRecord(dataType: "recently_played", resource: $0) }
-        }
-
-        // 8. Heavy rotation — strongest current-taste signal.
-        if let heavyRotation = try? await fetchAllPages(path: "/v1/me/history/heavy-rotation?limit=10") {
-            records += heavyRotation.map { makeRecord(dataType: "heavy_rotation", resource: $0) }
-        }
-
-        // 9. Personalized recommendations (items live in relationships.contents).
-        if let recommendations = try? await fetchAllPages(path: "/v1/me/recommendations?limit=30") {
-            for recommendation in recommendations {
-                let reason = attribute("title", of: recommendation)
-                let contents = ((recommendation["relationships"] as? [String: Any])?["contents"] as? [String: Any])?["data"] as? [[String: Any]] ?? []
-                records += contents.map {
-                    makeRecord(dataType: "recommendation", resource: $0, detailOverride: "shelf=\(reason)")
-                }
-            }
-        }
-
-        // 10. Like/dislike ratings for library songs, in id batches (best effort;
-        // the endpoint only returns entries for songs the user actually rated).
-        for batch in librarySongIDs.chunked(into: 100) {
-            let ids = batch.joined(separator: ",")
+    /// Like/dislike ratings, in batches of a hundred ids.
+    ///
+    /// The endpoint answers only for songs the user actually rated, so most
+    /// batches come back nearly empty — which is exactly why running them one
+    /// after another was such poor value for the time it cost.
+    private func ratings(forSongIDs ids: [String]) async -> [DistilledRecord] {
+        let capped = Array(ids.prefix(AppConfig.maxSongsRated))
+        return await inParallel(over: capped.chunked(into: 100)) { batch in
             guard let rated = try? await fetchAllPages(
-                path: "/v1/me/ratings/library-songs?ids=\(ids)"
-            ) else { continue }
-            records += rated.map { resource in
+                path: "/v1/me/ratings/library-songs?ids=\(batch.joined(separator: ","))"
+            ) else { return [] }
+            return rated.map { resource in
                 let value = (resource["attributes"] as? [String: Any])?["value"] as? Int ?? 0
                 return DistilledRecord(
                     source: "apple_music",
@@ -105,8 +138,41 @@ struct AppleMusicDistiller {
                 )
             }
         }
+    }
 
-        return records
+    /// Runs `work` over `items` with a few in flight at once.
+    ///
+    /// Bounded rather than all-at-once: a large library is dozens of rating
+    /// batches, and firing them simultaneously trades a slow distill for a
+    /// rate-limited one.
+    private func inParallel<Item: Sendable>(
+        over items: [Item],
+        limit: Int = 5,
+        _ work: @escaping @Sendable (Item) async -> [DistilledRecord]
+    ) async -> [DistilledRecord] {
+        guard !items.isEmpty else { return [] }
+
+        return await withTaskGroup(of: [DistilledRecord].self) { group in
+            var index = 0
+            var collected: [DistilledRecord] = []
+
+            while index < min(limit, items.count) {
+                let item = items[index]
+                group.addTask { await work(item) }
+                index += 1
+            }
+
+            // One new task for each that finishes, so `limit` stay in flight.
+            while let batch = await group.next() {
+                collected += batch
+                if index < items.count {
+                    let item = items[index]
+                    group.addTask { await work(item) }
+                    index += 1
+                }
+            }
+            return collected
+        }
     }
 
     // MARK: - Fetching
@@ -162,6 +228,9 @@ struct AppleMusicDistiller {
             if let playCount = attributes["playCount"] as? Int {
                 extras.append("play_count=\(playCount)")
             }
+            if let cover = artworkURL(in: attributes) {
+                extras.append("artwork=\(cover)")
+            }
         }
 
         return DistilledRecord(
@@ -174,6 +243,17 @@ struct AppleMusicDistiller {
             extra: extras.joined(separator: ";"),
             collectedAt: Date()
         )
+    }
+
+    /// Apple hands back a *template*, not a URL: `.../{w}x{h}bb.jpg`. Stored as
+    /// it comes it would 404 — the size has to be filled in first. 300px covers
+    /// the dashboard's largest tile without pulling artwork at poster size.
+    private func artworkURL(in attributes: [String: Any]) -> String? {
+        guard let template = (attributes["artwork"] as? [String: Any])?["url"] as? String,
+              !template.isEmpty else { return nil }
+        return template
+            .replacingOccurrences(of: "{w}", with: "300")
+            .replacingOccurrences(of: "{h}", with: "300")
     }
 
     private func attribute(_ key: String, of resource: [String: Any]) -> String {
