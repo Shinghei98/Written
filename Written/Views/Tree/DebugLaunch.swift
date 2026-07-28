@@ -32,13 +32,13 @@ enum DebugLaunch {
         return true
     }
     /// `-stage N` → the screen as though the first N modalities were connected.
-    /// 0 is bare soil, 3 the full plant.
+    /// 0 is the bare sprout, 4 the full plant.
     static var forcedStage: Int? {
         UserDefaults.standard.string(forKey: "stage").flatMap(Int.init)
     }
 
     /// `-stages all` → every illustrated stage at once, so comparing against
-    /// the reference art costs one launch and one screenshot instead of four.
+    /// the reference art costs one launch and one screenshot instead of five.
     static var showsAllStages: Bool {
         UserDefaults.standard.string(forKey: "stages") == "all"
     }
@@ -123,10 +123,10 @@ enum DebugLaunch {
     }
 }
 
-/// All four illustrated stages on one screen, 2×2.
+/// Every illustrated stage on one screen, two to a row.
 ///
-/// Not a row of four: at a quarter of the width each panel is too small to
-/// judge a petiole angle on, which is the whole reason for looking.
+/// Not a single row: at a fifth of the width each panel is too small to judge a
+/// petiole angle on, which is the whole reason for looking.
 struct StageSheet: View {
     private let stages = SeedlingStage.allCases
 
@@ -137,14 +137,25 @@ struct StageSheet: View {
             // `maxWidth: .infinity` frame proposes it an infinite width, which
             // collapses the whole sheet to nothing.
             let width = geometry.size.width / 2
-            let height = width / SeedlingView.aspectRatio
+            let height = min(width / SeedlingView.aspectRatio,
+                             (geometry.size.height - 40) / CGFloat((stages.count + 1) / 2))
 
-            VStack(spacing: 20) {
-                ForEach(0..<2, id: \.self) { row in
+            // Rows derived rather than fixed at two: the sheet was hardcoded to
+            // a 2x2 for four stages, so adding a fifth would have dropped it
+            // silently — the one failure this harness cannot afford, since its
+            // whole job is showing what a change did.
+            let rows = (stages.count + 1) / 2
+            VStack(spacing: 14) {
+                ForEach(0..<rows, id: \.self) { row in
                     HStack(spacing: 0) {
                         ForEach(0..<2, id: \.self) { column in
-                            panel(stages[row * 2 + column])
-                                .frame(width: width, height: height)
+                            let index = row * 2 + column
+                            if index < stages.count {
+                                panel(stages[index])
+                                    .frame(width: width, height: height)
+                            } else {
+                                Color.clear.frame(width: width, height: height)
+                            }
                         }
                     }
                 }

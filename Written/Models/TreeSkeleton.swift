@@ -79,13 +79,12 @@ struct TreeSkeleton: Equatable {
         case 0: return illustrated(.sprout, rng: &rng)
         case 1: return illustrated(.shoot, rng: &rng)
         case 2: return illustrated(.branch, rng: &rng)
-        // Three *and* four. The illustration stops at the bough, so connecting
-        // a fourth doesn't grow the plant again — it lights the badge on the
-        // bough, which was always drawn with a bud at its tip and nothing
-        // behind it. Falling through to generated geometry here would swap the
-        // hand-drawn plant for a procedural one the moment someone connected
-        // their calendar, which reads as the drawing breaking.
-        case 3, 4: return illustrated(.bough, rng: &rng)
+        case 3: return illustrated(.bough, rng: &rng)
+        // Four is drawn too, now that there is art for it. It briefly shared the
+        // bough — there was no fifth stage, and falling through to generated
+        // geometry would have swapped the hand-drawn plant for a procedural one
+        // the moment someone connected their calendar.
+        case 4: return illustrated(.canopy, rng: &rng)
         default: break
         }
 

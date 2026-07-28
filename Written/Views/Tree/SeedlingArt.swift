@@ -24,6 +24,9 @@ enum SeedlingStage: Int, CaseIterable {
     /// Three connected: taller still, and a third shoot high on the left with
     /// one open leaf and a bud at its tip — the newest growth, not yet out.
     case bough = 3
+    /// Four connected — every modality. Taller again, and a fourth shoot on the
+    /// right above the bough, so the sides keep alternating up the stem.
+    case canopy = 4
 
     /// How far along the stem's extension this stage sits. The geometry is
     /// driven by this number rather than by the case, so the plant can be
@@ -43,7 +46,12 @@ enum SeedlingArt {
     /// plant is 0.71 stem to 0.29 leaves, where ours had been nearer half and
     /// half. The plant has to get *taller*, not just wider, and that means the
     /// fork keeps climbing.
-    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235]
+    /// Phase 5 continues it. Measured off the reference the same way: its stem
+    /// runs from a soil line at 0.78 to a fork at 0.21, so the fork sits 0.269
+    /// of the way down from the top of the space above the soil. Against our own
+    /// foot at 0.705 that is 0.190 — where the previous step landed at 0.333 of
+    /// the same measure. The plant grows by getting taller before it gets wider.
+    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235, 0.190]
 
     /// The fork partway through that climb. Everything above it — petioles,
     /// blades, every shoot's attachment point — is placed off this, so they all
@@ -393,6 +401,33 @@ enum SeedlingArt {
                 // it starts; ours is not, and a bud leaving the rachis at the
                 // tip comes out *inside* the leaf's base and crosses it.
                 Leaflet(mirrored: false, axis: 4, scale: 0.065, along: 0.58, stalkRun: CGSize(width: 0.005, height: -0.040))
+            ]
+        ),
+        Shoot(
+            id: 3,
+            stage: .canopy,
+            // Higher than the bough and on the other side, which is what the
+            // stem has been doing all the way up: 0.34 left, 0.52 right, 0.70
+            // left, so 0.80 right. Not higher still — the reference puts its
+            // topmost shoot nearly under the fork, but its cotyledons leave the
+            // fork much flatter than ours do, and at 0.86 the blade runs into
+            // the left cotyledon's underside.
+            attachment: 0.80,
+            // A shade longer than the bough's, because it reaches across the
+            // side the right cotyledon already occupies and a short rachis
+            // leaves the blade sitting under it rather than clear of it.
+            reach: CGSize(width: 0.082, height: 0.099),
+            turn: 0,
+            leaflets: [
+                // Terminal, so rachis and midrib read as one stroke — the same
+                // reason the bough's leaf is terminal rather than hung off the
+                // side.
+                Leaflet(mirrored: true, axis: 48, scale: 0.27, along: 1, stalkRun: .zero),
+                // An open pair rather than another bud. The bough's bud is the
+                // newest growth at *its* stage; by this one it has had a stage
+                // to open, and a second unopened bud directly above the first
+                // would read as the plant having stalled.
+                Leaflet(mirrored: true, axis: 86, scale: 0.21, along: 0.36, stalkRun: CGSize(width: 0.038, height: 0.008))
             ]
         )
     ]

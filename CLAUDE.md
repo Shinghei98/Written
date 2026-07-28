@@ -257,16 +257,22 @@ after a successful login almost always means the signed-in account isn't on it.
 
 ## Iterating on the garden illustration
 
-**The illustration stops at the bough, and four modalities now share it.**
-`TreeSkeleton.make` maps 0-2 connected to sprout/shoot/branch and **both 3 and 4**
-to bough, so connecting the fourth doesn't grow the plant again — it lights the
-badge on the third shoot, which was always drawn with a bud at its tip and
-nothing behind it. Letting 4 fall through to the generated tree would swap the
-hand-drawn plant for a procedural one mid-onboarding, which reads as the drawing
-breaking. The bough's badge sits *above* its shoot rather than beside it
-(`shootBadge`), and needs full outward travel: tucking it toward the stem puts it
-on the cotyledon blade, because the cotyledons reach further out at that height
-than the shoot does.
+**Five illustrated stages, one per connected modality plus bare soil.**
+`TreeSkeleton.make` maps 0-4 to sprout/shoot/branch/bough/canopy; beyond that the
+generated tree takes over. Four briefly shared the bough, before there was art
+for it — worth knowing because falling through to generated geometry at 4 is what
+that avoided, and it reads as the drawing breaking rather than as growth.
+
+Two things about the fourth badge. It sits *above* its shoot rather than beside
+it (`shootBadge`), and it needs **full** outward travel: tucking it toward the
+stem, which seems right with no neighbouring badge to clear, puts it on the
+cotyledon blade — the cotyledons reach further out at that height than the shoot
+does. And shoots alternate sides going up (0.34 left, 0.52 right, 0.70 left, 0.80
+right), so a new one belongs on the side the last one wasn't.
+
+`StageSheet` derives its row count rather than hardcoding 2×2. It was fixed at
+four panels, so a fifth stage would have been dropped silently — the one failure
+this harness cannot afford, since its whole job is showing what a change did.
 
 The plant on "Grow your profile" (`Views/Tree/`) is hand-measured vector art with
 four stages, and refining it is the one task here where the *loop* costs more
