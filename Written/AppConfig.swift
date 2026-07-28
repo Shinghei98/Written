@@ -68,6 +68,23 @@ enum AppConfig {
     /// heavy rotation and play counts, so the tail is worth little.
     static let maxSongsRated = 1_000
 
+    // MARK: Apple Calendar
+
+    /// How far back events are read. A year covers the seasonal shape of
+    /// someone's life — a festival every August, a season ticket — which is the
+    /// same reason the Health windows are a year.
+    static let calendarLookbackDays = 365
+
+    /// And how far forward. Shorter deliberately: what someone has *committed
+    /// to* is a strong signal and a booked gig usually sits weeks out, but a
+    /// calendar also carries repeating entries scheduled years ahead, and those
+    /// say nothing about the next few months.
+    static let calendarLookaheadDays = 180
+
+    /// Ceiling on events kept, so a shared work calendar with a decade of
+    /// meetings can't turn one distillation into a hundred thousand rows.
+    static let maxCalendarEvents = 3_000
+
     // MARK: Apple Health
 
     /// How far back HealthKit is read. A year covers seasonal habits — someone

@@ -79,7 +79,13 @@ struct TreeSkeleton: Equatable {
         case 0: return illustrated(.sprout, rng: &rng)
         case 1: return illustrated(.shoot, rng: &rng)
         case 2: return illustrated(.branch, rng: &rng)
-        case 3: return illustrated(.bough, rng: &rng)
+        // Three *and* four. The illustration stops at the bough, so connecting
+        // a fourth doesn't grow the plant again — it lights the badge on the
+        // bough, which was always drawn with a bud at its tip and nothing
+        // behind it. Falling through to generated geometry here would swap the
+        // hand-drawn plant for a procedural one the moment someone connected
+        // their calendar, which reads as the drawing breaking.
+        case 3, 4: return illustrated(.bough, rng: &rng)
         default: break
         }
 
@@ -310,6 +316,11 @@ struct TreeSkeleton: Equatable {
         case .music: return -0.55
         case .media: return 0.50
         case .lifestyle: return -0.95
+        // Furthest right, so the four sectors fan out from music on the left to
+        // plans on the right rather than doubling up on a side. Only reachable
+        // once the generated tree is — five modalities — since four still draws
+        // the illustration.
+        case .plans: return 0.95
         }
     }
 

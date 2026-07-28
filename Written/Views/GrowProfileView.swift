@@ -579,11 +579,32 @@ struct GrowProfileView: View {
     private func shootBadge(_ shoot: SeedlingArt.Shoot, in rect: CGRect) -> CGPoint {
         let extent = SeedlingArt.shootExtent(of: shoot, extended: leafLift)
         let outward: CGFloat = shoot.reach.width < 0 ? -0.082 : 0.082
+
+        // The topmost shoot carries its badge *above* rather than beside it:
+        // this is the newest growth, drawn with a bud at its tip, and a badge
+        // over the bud says what that bud is for.
+        //
+        // Full outward travel, not less. Tucking it in toward the stem — which
+        // seemed right, since there is no neighbouring badge to clear — put it
+        // squarely on the cotyledon blade, because the cotyledons reach further
+        // out at this height than the shoot does.
+        if shoot.id == Self.boughShootID {
+            return TreeGeometry.illustration(
+                CGPoint(x: extent.x + outward * 1.15, y: extent.y - 0.082),
+                in: rect
+            )
+        }
+
         return TreeGeometry.illustration(
             CGPoint(x: extent.x + outward, y: extent.y + 0.010),
             in: rect
         )
     }
+
+    /// The third and last shoot, added at `.bough`. Named rather than written
+    /// as `2` at the one place it is used, because it is a fact about the
+    /// drawing rather than an arbitrary index.
+    private static let boughShootID = 2
 
     /// The source a shoot stands for: the cotyledons are music, so the shoots
     /// carry the ones after it, in the order they unlock. A shoot with nothing
@@ -707,6 +728,7 @@ struct AppMark: View {
         case "youtube": youtube
         case "apple_music": appleMusic
         case "health": health
+        case "apple_calendar": calendar
         default: unknown
         }
     }
@@ -732,6 +754,34 @@ struct AppMark: View {
         }
         .frame(width: diameter, height: diameter)
     }
+
+    /// Apple Calendar's mark: a white tile with a red header and today's date,
+    /// which is what the real icon shows.
+    private var calendar: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: diameter * 0.26)
+                .fill(.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: diameter * 0.26)
+                        .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
+                }
+            VStack(spacing: 0) {
+                Text(Self.weekday)
+                    .font(.system(size: diameter * 0.20, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.98, green: 0.23, blue: 0.19))
+                Text(Self.day)
+                    .font(.system(size: diameter * 0.40, weight: .regular))
+                    .foregroundStyle(GardenPalette.ink)
+            }
+        }
+        .frame(width: diameter, height: diameter)
+    }
+
+    /// Read once per launch rather than per render: this is drawn inside a
+    /// `body`, and formatting a date there would redo the work on every scroll
+    /// tick for a value that changes at most once a day.
+    private static let weekday = Date().formatted(.dateTime.weekday(.abbreviated)).uppercased()
+    private static let day = Date().formatted(.dateTime.day())
 
     private var youtube: some View {
         ZStack {

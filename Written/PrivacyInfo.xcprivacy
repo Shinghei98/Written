@@ -110,7 +110,17 @@
 			</array>
 		</dict>
 
-		<!-- Age and gender, typed by the user on the biographics rows. -->
+		<!-- Age and gender typed on the biographics rows, and calendar events:
+		     titles, locations, organisers and dates. One entry because Apple has
+		     no calendar-specific type and a second "other" dict would be the same
+		     declaration twice.
+
+		     The calendar half is the only thing here carrying *other people's*
+		     information — an event called "Dinner with Sam at 14 Elm St" names
+		     someone who never agreed to anything. Events are kept whole rather
+		     than reduced to counts, the way HealthKit is, because the titles are
+		     the signal: a booking Eventbrite or Ticketmaster wrote into the
+		     calendar is the strongest interest claim this app can see. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDataTypes</string>

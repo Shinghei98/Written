@@ -28,6 +28,7 @@ The current sources honor this as follows:
 | YouTube | Google OAuth (PKCE, `ASWebAuthenticationSession`) | Sheet shares Safari cookies → tap account, tap Allow. Refresh token in Keychain ⇒ later distills zero-tap. |
 | Apple Music | MusicKit | One system permission dialog, no login at all — uses the device's Apple Music account. |
 | Apple Health | HealthKit | One system sheet listing the four types read, no login. |
+| Apple Calendar | EventKit | One system sheet, no login. Works in the simulator, unlike MusicKit. |
 
 ## Supported apps and what each yields
 
@@ -48,6 +49,23 @@ exposes; consult it before adding a source). Implemented today:
   Premium, and extended quota needs 250,000 monthly active users — closed to
   individuals since May 2025. **Apple Music is the music source the product
   depends on.**
+- **Apple Calendar** (`CalendarDistiller`) — **the first source not in
+  `written_api.xlsx`.** The reasoning is that a calendar collects two things
+  nothing else reaches: bookings that ticketing sites write in by themselves
+  (Eventbrite, Ticketmaster, Dice), which is a far stronger claim than a followed
+  artist because it cost money and a Saturday; and what people type for
+  themselves, which is behaviour rather than inference. `url` and `organizer` are
+  kept precisely because they are what tells a booked event from a typed one —
+  see `booked=1` in `extra`.
+  **Events are stored whole and synced**, unlike HealthKit, because the titles
+  *are* the signal. That is a deliberate trade and it puts other people's names
+  and locations in the database; `PrivacyInfo.xcprivacy` says so. Windows are
+  `AppConfig.calendarLookbackDays` / `calendarLookaheadDays` — both directions,
+  because a ticket bought today for November only exists ahead of now — capped by
+  `maxCalendarEvents`. Two traps: `predicateForEvents` silently returns nothing
+  across more than four years, so the fetch is chunked by year; and on iOS 17+
+  the old `requestAccess(to:)` grants *write-only*, which reads nothing and looks
+  exactly like an empty calendar, so `requestFullAccessToEvents` is required.
 - **Apple Health** (`HealthKitDistiller`) — the spreadsheet's scope is "recorded
   sport type/duration, activity intensity/duration", so: one record per workout
   (sport, duration, energy, distance, recording app) and one per day (exercise
@@ -238,6 +256,17 @@ after a successful login almost always means the signed-in account isn't on it.
   and never abort the other sources.
 
 ## Iterating on the garden illustration
+
+**The illustration stops at the bough, and four modalities now share it.**
+`TreeSkeleton.make` maps 0-2 connected to sprout/shoot/branch and **both 3 and 4**
+to bough, so connecting the fourth doesn't grow the plant again — it lights the
+badge on the third shoot, which was always drawn with a bud at its tip and
+nothing behind it. Letting 4 fall through to the generated tree would swap the
+hand-drawn plant for a procedural one mid-onboarding, which reads as the drawing
+breaking. The bough's badge sits *above* its shoot rather than beside it
+(`shootBadge`), and needs full outward travel: tucking it toward the stem puts it
+on the cotyledon blade, because the cotyledons reach further out at that height
+than the shoot does.
 
 The plant on "Grow your profile" (`Views/Tree/`) is hand-measured vector art with
 four stages, and refining it is the one task here where the *loop* costs more

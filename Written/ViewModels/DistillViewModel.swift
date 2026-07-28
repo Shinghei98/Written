@@ -8,6 +8,7 @@ final class DistillViewModel: ObservableObject {
     @Published var youtubeStatus: SourceStatus = .idle
     @Published var appleMusicStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
+    @Published var calendarStatus: SourceStatus = .idle
     @Published private(set) var records: [DistilledRecord] = []
 
     @Published var isExporterPresented = false
@@ -92,7 +93,7 @@ final class DistillViewModel: ObservableObject {
 
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
-            || healthStatus.isRunning
+            || healthStatus.isRunning || calendarStatus.isRunning
     }
 
     func status(for source: String) -> SourceStatus {
@@ -100,6 +101,7 @@ final class DistillViewModel: ObservableObject {
         case "youtube": return youtubeStatus
         case "apple_music": return appleMusicStatus
         case "health": return healthStatus
+        case "apple_calendar": return calendarStatus
         default: return .idle
         }
     }
@@ -110,6 +112,7 @@ final class DistillViewModel: ObservableObject {
         case "youtube": distillYouTube()
         case "apple_music": distillAppleMusic()
         case "health": distillHealth()
+        case "apple_calendar": distillCalendar()
         default: break
         }
     }
@@ -426,6 +429,33 @@ final class DistillViewModel: ObservableObject {
         guard birthYear != nil || sex != nil else { return }
         Task.detached(priority: .utility) {
             await SyncService.shared.pushUserObject(birthYear: birthYear, sex: sex)
+        }
+    }
+
+    /// Apple Calendar: the events someone keeps, and the calendars they sit in.
+    ///
+    /// Unlike Health, the rows are kept and synced — the titles are the signal
+    /// here rather than something to reduce to a count. See `CalendarDistiller`
+    /// for what that means for other people's names.
+    func distillCalendar() {
+        guard !calendarStatus.isRunning else { return }
+        calendarStatus = .running
+        Task {
+            do {
+                let newRecords = try await CalendarDistiller().distill()
+                // A granted permission over an empty calendar returns the
+                // calendars and no events, which is a real answer but not a
+                // useful one — and it looks identical to a permission that was
+                // declined, the way an empty HealthKit read does.
+                guard newRecords.contains(where: { $0.dataType == "event" }) else {
+                    calendarStatus = .failed(message: CalendarDistiller.CalendarError.noData.localizedDescription)
+                    return
+                }
+                replaceRecords(from: "apple_calendar", with: newRecords)
+                calendarStatus = .done(count: newRecords.count)
+            } catch {
+                calendarStatus = .failed(message: error.localizedDescription)
+            }
         }
     }
 
@@ -830,6 +860,27 @@ final class DistillViewModel: ObservableObject {
     /// records distilled before the distillers kept image URLs will show.
     private func previewRecords(for source: String) -> [DistilledRecord] {
         let now = Date()
+
+        if source == "apple_calendar" {
+            // Two booked and two typed, because telling those apart is the whole
+            // point of the source: `booked=1` is set from a `url`, which
+            // ticketing sites write back and a person typing an entry does not.
+            let events: [(String, String, Bool, Int)] = [
+                ("Laufey — The Bewitched Tour", "The Pageant", true, 7),
+                ("St. Louis CITY SC vs Austin FC", "Energizer Park", true, 1),
+                ("Climbing with Sam", "Upper Limits", false, 3),
+                ("Book club", "", false, 4)
+            ]
+            return events.enumerated().map { index, event in
+                let (title, place, booked, weekday) = event
+                var extra = "calendar=Personal;weekday=\(weekday);weekend=\(weekday == 1 || weekday == 7 ? 1 : 0);hour=19"
+                if booked { extra += ";booked=1;url=https://example.com/tickets/\(index)" }
+                return DistilledRecord(
+                    source: "apple_calendar", dataType: "event", itemID: "preview_event_\(index)",
+                    name: title, creator: "", detail: place, extra: extra, collectedAt: now
+                )
+            }
+        }
 
         if source == "youtube" {
             // Subscriptions and likes, since the media card ranks one against

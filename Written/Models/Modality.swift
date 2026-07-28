@@ -7,14 +7,17 @@ import Foundation
 /// first branch. That same order is the order branches unlock in, so
 /// `Modality.allCases` is the onboarding sequence.
 ///
-/// There are three because the illustration has four stages: bare soil plus one
-/// per connected modality. A modality with no distiller behind it yet is still
-/// declared here — the user should be able to see what is coming — and
-/// `isAvailable` is what says whether it can actually be connected.
+/// Four, against an illustration with four stages — bare soil plus one per
+/// connected modality — so the fourth does not grow the plant again. It lights
+/// the badge on the bough instead, the shoot that was already drawn with a bud
+/// at its tip and had no app behind it. A modality with no distiller behind it
+/// yet is still declared here — the user should be able to see what is coming —
+/// and `isAvailable` is what says whether it can actually be connected.
 enum Modality: Int, CaseIterable, Identifiable, Hashable {
     case music
     case media
     case lifestyle
+    case plans
 
     var id: Int { rawValue }
 
@@ -33,6 +36,11 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // quota needing 250,000 monthly active users.
         case .music: return ["apple_music"]
         case .media: return ["youtube"]
+        // Not in `written_api.xlsx` — the first source that isn't. A calendar
+        // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
+        // and Dice all write the booking straight in, so an event someone paid
+        // to attend arrives without them doing anything. See `CalendarDistiller`.
+        case .plans: return ["apple_calendar"]
         case .lifestyle: return ["health"]
         }
     }
@@ -42,6 +50,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case .music: return "Music"
         case .media: return "Media"
         case .lifestyle: return "Lifestyle"
+        case .plans: return "Plans"
         }
     }
 
@@ -50,6 +59,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case .music: return "music.note"
         case .media: return "play.rectangle"
         case .lifestyle: return "heart"
+        case .plans: return "calendar"
         }
     }
 
@@ -68,6 +78,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "youtube": return "YouTube"
         case "apple_music": return "Apple Music"
         case "health": return "Apple Health"
+        case "apple_calendar": return "Apple Calendar"
         default: return source
         }
     }
@@ -78,6 +89,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "youtube": return "play.rectangle.fill"
         case "apple_music": return "music.note"
         case "health": return "heart.fill"
+        case "apple_calendar": return "calendar"
         default: return "app"
         }
     }

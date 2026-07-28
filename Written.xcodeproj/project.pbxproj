@@ -256,6 +256,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar to see the events you go to \u2014 gigs, classes, the things you book \u2014 so your profile reflects how you actually spend your time.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
@@ -289,6 +290,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar to see the events you go to \u2014 gigs, classes, the things you book \u2014 so your profile reflects how you actually spend your time.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
