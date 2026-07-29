@@ -45,7 +45,13 @@ struct ShareLinkSheet: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 
-                field("Say something about it", text: $message)
+                // Says so, rather than only behaving so. Nothing about this
+                // field was ever required — the Confirm button is gated on the
+                // link alone, the column is left out when it is empty, and the
+                // card closes cleanly with no caption — but a placeholder
+                // phrased as an instruction reads as one, and people fill in
+                // fields they think they have to.
+                field("Say something about it — optional", text: $message)
 
                 if let failure {
                     Text(failure)

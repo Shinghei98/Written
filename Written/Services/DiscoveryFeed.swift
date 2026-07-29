@@ -26,13 +26,27 @@ struct DiscoveryFeed {
     /// a single struct with half its fields empty.
     enum Item: Identifiable, Equatable {
         case profile(Profile)
-        case shared(SharedPostService.Post)
+        /// The appearance number is not decoration. A shared post recurs in the
+        /// feed exactly as a person does, so its id has to be unique per
+        /// *appearance* for the same reason `Profile.id` is.
+        ///
+        /// Without it, one shared post cycling every fourth slot hands `ForEach`
+        /// the same id several times over. Duplicate ids there are undefined
+        /// behaviour, and what they did here was hang the app outright — with a
+        /// single row in the table, which is the smallest case that can produce
+        /// them.
+        case shared(SharedPostService.Post, appearance: Int)
 
         var id: String {
             switch self {
             case .profile(let profile): return "p:" + profile.id
-            case .shared(let post): return "s:" + post.id
+            case .shared(let post, let appearance): return "s:\(post.id)#\(appearance)"
             }
+        }
+
+        var post: SharedPostService.Post? {
+            if case .shared(let post, _) = self { return post }
+            return nil
         }
     }
 
@@ -109,7 +123,7 @@ struct DiscoveryFeed {
             let post = posts[postCursor % posts.count]
             postCursor += 1
             emitted += 1
-            return .shared(post)
+            return .shared(post, appearance: emitted)
         }
         return next().map(Item.profile)
     }

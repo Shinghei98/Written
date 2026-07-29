@@ -8,17 +8,31 @@ import SwiftUI
 struct SharedPostCard: View {
     let post: SharedPostService.Post
     let containerWidth: CGFloat
+    /// Whether this is the card in the middle of the screen. See
+    /// `DiscoveryView.activeShare`.
+    var isActive = false
+
+    /// Sound is off until asked for, and asking is per card rather than for the
+    /// feed: unmuting one video should not mean the next one arrives talking.
+    @State private var isMuted = true
+    /// The player said it cannot show this one. Some uploaders disable
+    /// embedding, which is a real answer rather than a fault — so the card says
+    /// so and offers the way to watch it, instead of showing YouTube's grey
+    /// panel and a numeric code inside a parchment frame.
+    @State private var isUnavailable = false
 
     private static let horizontalPadding: CGFloat = 20
 
-    /// 16:9 rather than the 4:5 a photograph gets.
+    /// The same 4:5 a photograph gets — an Instagram post's shape, from the one
+    /// constant that defines it.
     ///
-    /// A video letterboxed into a portrait frame is two thick black bars and a
-    /// small picture — the frame would be honouring the card's rhythm at the
-    /// expense of the thing the card is for. The row of cards is already varied
-    /// in height, since a caption can run to two lines.
+    /// This was 16:9 on the argument that a landscape video letterboxed into a
+    /// portrait frame wastes half of it. True, and beside the point: the feed is
+    /// a column of posts and a video is one of them, so it takes a post's shape.
+    /// A 16:9 video will sit in the middle of this frame with space above and
+    /// below, which is what Instagram does with one too.
     private var mediaHeight: CGFloat {
-        (containerWidth - Self.horizontalPadding * 2) * 9 / 16
+        (containerWidth - Self.horizontalPadding * 2) / ExampleProfileCard.photoAspect
     }
 
     var body: some View {
@@ -70,22 +84,79 @@ struct SharedPostCard: View {
 
     @ViewBuilder
     private var media: some View {
-        if let url = post.provider.embed(post.videoID) {
-            EmbedWebView(url: url)
+        if isUnavailable {
+            unavailable
+        } else if post.provider == .youtube {
+            ZStack(alignment: .bottomTrailing) {
+                EmbedWebView(
+                    videoID: post.videoID,
+                    isPlaying: isActive,
+                    isMuted: isMuted,
+                    onUnavailable: { isUnavailable = true }
+                )
                 .frame(height: mediaHeight)
-        } else {
-            // A row whose provider or id cannot make a URL. It should be
-            // impossible — the id is validated before anything is stored — but
-            // a card that renders nothing at all would be a hole in the feed
-            // with no explanation.
-            ZStack {
-                GardenPalette.ink.opacity(0.06)
-                Text("This video can't be shown")
-                    .font(.system(size: 13))
-                    .foregroundStyle(GardenPalette.muted)
+                    // Black behind it, not parchment: a 16:9 video in a 4:5
+                    // frame leaves a band above and below, and warm paper either
+                    // side of a video reads as a layout mistake where black
+                    // reads as the letterboxing it is.
+                    .background(Color.black)
+
+                muteButton
             }
-            .frame(height: mediaHeight)
+            // The card decides what plays, so the player has no controls of its
+            // own — which leaves the tap free to mean the one thing a muted
+            // autoplaying video needs it to.
+            .contentShape(Rectangle())
+            .onTapGesture { isMuted.toggle() }
+        } else {
+            // A provider the app does not know how to render. It should be
+            // impossible today, since there is one, but a card that draws
+            // nothing at all would be a hole in the feed with no explanation.
+            unavailable
         }
+    }
+
+    /// Can't be played here — with the way to play it anyway.
+    ///
+    /// A dead end would be the wrong answer: the video exists, somebody wanted
+    /// to show it, and only the embedding is refused.
+    private var unavailable: some View {
+        ZStack {
+            GardenPalette.ink.opacity(0.06)
+            VStack(spacing: 10) {
+                Image(systemName: "play.slash")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundColor(GardenPalette.muted)
+                Text("This one can't be played here")
+                    .font(.system(size: 13))
+                    .foregroundColor(GardenPalette.muted)
+                if let watch = URL(string: "https://www.youtube.com/watch?v=\(post.videoID)") {
+                    Link(destination: watch) {
+                        Text("Watch on YouTube")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(GardenPalette.gold)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .overlay { Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1) }
+                    }
+                }
+            }
+        }
+        .frame(height: mediaHeight)
+    }
+
+    /// Says what tapping will do, and shows the current state. Small and in the
+    /// corner: it is a hint about the card rather than a control the eye should
+    /// land on first.
+    private var muteButton: some View {
+        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(.white)
+            .frame(width: 30, height: 30)
+            .background(Color.black.opacity(0.45), in: Circle())
+            .padding(12)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// Decorative, exactly as on the other cards: none of these do anything, so

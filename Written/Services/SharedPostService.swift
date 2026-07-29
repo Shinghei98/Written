@@ -13,27 +13,18 @@ actor SharedPostService {
 
     /// Where a shared video came from.
     ///
-    /// An enum and a URL builder rather than a branch scattered through the
-    /// feed, so Instagram is one case and one line when a Meta token exists.
-    /// Its official `instagram_oembed` needs `oembed_read` behind App Review,
-    /// and that token is a real secret — unlike the OAuth client IDs in
-    /// `AppConfig`, it cannot ship in the binary and will need an edge function
-    /// to proxy.
+    /// One case today. It held a URL builder until the player moved to
+    /// YouTube's IFrame API — the embed address is now written inside
+    /// `EmbedWebView`'s page, because autoplay needs a player that can be
+    /// *told* things and a bare `<iframe>` URL cannot be.
+    ///
+    /// Instagram is a second case here plus a second branch in the card's
+    /// media, since it will not use the same API. Its official
+    /// `instagram_oembed` needs `oembed_read` behind App Review, and that token
+    /// is a real secret — unlike the OAuth client IDs in `AppConfig` it cannot
+    /// ship in the binary, and will need an edge function to proxy.
     enum Provider: String {
         case youtube
-
-        /// The page to load in the web view.
-        ///
-        /// `playsinline` keeps it in the card on iPhone, where a tapped video
-        /// otherwise takes over the whole screen; `rel=0` stops the end screen
-        /// offering someone else's videos, which in a feed reads as the app
-        /// handing the reader off.
-        func embed(_ videoID: String) -> URL? {
-            switch self {
-            case .youtube:
-                return URL(string: "https://www.youtube-nocookie.com/embed/\(videoID)?playsinline=1&rel=0")
-            }
-        }
     }
 
     struct Post: Identifiable, Equatable {

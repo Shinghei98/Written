@@ -17,6 +17,14 @@ struct DiscoveryView: View {
     @StateObject private var model = DiscoveryModel()
     @State private var isSharing = false
 
+    /// Which shared video is nearest the middle of the screen, and so the one
+    /// that plays. Nil when none is close enough to count.
+    ///
+    /// One at a time, deliberately: several players running at once is several
+    /// video decoders and, the moment anything is unmuted, several sound
+    /// sources. It is also what Instagram does, and for the same reason.
+    @State private var activeShare: String?
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -25,7 +33,10 @@ struct DiscoveryView: View {
                 if model.items.isEmpty {
                     empty
                 } else {
-                    feed(width: geometry.size.width)
+                    feed(
+                        width: geometry.size.width,
+                        viewportCentre: geometry.frame(in: .global).midY
+                    )
                 }
 
                 shareButton
@@ -49,7 +60,7 @@ struct DiscoveryView: View {
         .task { await model.load() }
     }
 
-    private func feed(width: CGFloat) -> some View {
+    private func feed(width: CGFloat, viewportCentre: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 14) {
                 ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
@@ -57,8 +68,25 @@ struct DiscoveryView: View {
                         switch item {
                         case .profile(let profile):
                             DiscoveryCard(profile: profile, containerWidth: width)
-                        case .shared(let post):
-                            SharedPostCard(post: post, containerWidth: width)
+                        case .shared(let post, _):
+                            SharedPostCard(
+                                post: post,
+                                containerWidth: width,
+                                isActive: activeShare == post.id
+                            )
+                            // Reports where it is, so the feed can work out
+                            // which one is centred. Only the shared cards do
+                            // this — a profile has nothing to start or stop, and
+                            // measuring them all would be several times the
+                            // preference traffic for nothing.
+                            .background(
+                                GeometryReader { card in
+                                    Color.clear.preference(
+                                        key: CardCentresKey.self,
+                                        value: [post.id: card.frame(in: .global).midY]
+                                    )
+                                }
+                            )
                         }
                     }
                         // Safe here in a way it was not before. A `LazyVStack`
@@ -74,7 +102,24 @@ struct DiscoveryView: View {
             // The tab bar floats over the bottom of every page.
             .padding(.bottom, MainTabBar.overlayHeight)
         }
+        .onPreferenceChange(CardCentresKey.self) { centres in
+            // The nearest to the middle, and only if it is genuinely near it. A
+            // plain "closest" would keep the last video playing while it sat off
+            // the top of the screen, because it would still be the closest of
+            // the ones being measured.
+            let nearest = centres
+                .filter { abs($0.value - viewportCentre) < Self.playbackReach }
+                .min { abs($0.value - viewportCentre) < abs($1.value - viewportCentre) }
+            if activeShare != nearest?.key { activeShare = nearest?.key }
+        }
     }
+
+    /// How far from the middle a card can be and still be the one playing.
+    ///
+    /// Generous enough that scrolling between two videos does not leave a gap
+    /// with neither running, tight enough that one off the edge of the screen
+    /// stops.
+    private static let playbackReach: CGFloat = 260
 
     /// Above the tab bar and clear of it, in the corner rather than in the
     /// flow: the feed is the screen's subject and this is a way to add to it,
@@ -146,7 +191,9 @@ final class DiscoveryModel: ObservableObject {
     /// Puts a just-shared video at the top, rather than waiting for a reload to
     /// discover it. Sharing something and not seeing it reads as a failure.
     func prepend(_ post: SharedPostService.Post) {
-        items.insert(.shared(post), at: 0)
+        // Appearance 0: nothing the feed generates uses it, so a freshly shared
+        // post cannot collide with the same post arriving in the rotation later.
+        items.insert(.shared(post, appearance: 0), at: 0)
     }
 
     /// Grows the feed as the reader nears its end. The rotation rules already
@@ -318,5 +365,18 @@ struct DiscoveryCard: View {
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 16)
+    }
+}
+
+
+/// Where each shared card sits, so the feed can tell which one is centred.
+///
+/// Keyed by post id rather than by index: the list grows as the reader goes on,
+/// and an index would point at a different card after every extension.
+struct CardCentresKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
