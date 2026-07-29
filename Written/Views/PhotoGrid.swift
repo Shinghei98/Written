@@ -26,7 +26,17 @@ struct PhotoGrid: View {
     var columns: Int = 2
     var cornerRadius: CGFloat = 24
 
-    @State private var picking: [PhotosPickerItem?] = Array(repeating: nil, count: 6)
+    /// Which slot is choosing, and what it chose.
+    ///
+    /// A single presented picker rather than one `PhotosPicker` button per
+    /// slot. The button form swallowed the long press: a `PhotosPicker` *is* a
+    /// button, and its own tap handling wins over any gesture attached around
+    /// it, so the slots could never be armed for removal. Presenting it from a
+    /// plain view leaves the gestures to the slot, which is what makes both a
+    /// tap and a hold possible on the same thing.
+    @State private var pickingIndex: Int?
+    @State private var isPresentingPicker = false
+    @State private var picked: PhotosPickerItem?
     @State private var isLoadingPick = false
     @State private var loadingIsVideo = false
     @State private var cropping: Crop?
@@ -62,12 +72,28 @@ struct PhotoGrid: View {
         // A tap anywhere puts the armed slot away. Simultaneous, so it does not
         // swallow the tap that opens a picker — the dashboard's own entries are
         // disarmed the same way.
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                guard editing != nil else { return }
-                withAnimation(.easeOut(duration: 0.18)) { editing = nil }
-            }
+        .photosPicker(
+            isPresented: $isPresentingPicker,
+            selection: $picked,
+            matching: .any(of: [.images, .videos])
         )
+        .onChange(of: picked) { item in
+            guard let item, let index = pickingIndex else { return }
+            // Cleared straight away: choosing the same photograph twice in a row
+            // is otherwise a no-op the binding never reports.
+            picked = nil
+            loadingIsVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
+            isLoadingPick = true
+            Task {
+                let source = await Self.load(item)
+                isLoadingPick = false
+                guard let source else { return }
+                // Both kinds get framed. What differs is what the framing
+                // produces: a cropped file for a photo, a remembered rectangle
+                // for a video.
+                cropping = Crop(index: index, source: source)
+            }
+        }
         .overlay { if isLoadingPick { loadingPick } }
         .animation(.easeOut(duration: 0.15), value: isLoadingPick)
 #if DEBUG
@@ -83,12 +109,7 @@ struct PhotoGrid: View {
             CropView(
                 image: crop.source.thumbnail,
                 isVideo: crop.source.isVideo,
-                onCancel: {
-                    // Clearing the picker too, or choosing the same photo again
-                    // would be a no-op the binding never notices.
-                    picking[crop.index] = nil
-                    cropping = nil
-                },
+                onCancel: { cropping = nil },
                 onCrop: { framed, rect in
                     if crop.source.isVideo {
                         // The file is untouched; the rectangle is the crop, and
@@ -109,75 +130,54 @@ struct PhotoGrid: View {
     }
 
     private func slot(_ index: Int) -> some View {
-        PhotosPicker(
-            selection: Binding(
-                get: { picking[index] },
-                set: { newItem in
-                    picking[index] = newItem
-                    guard let newItem else { return }
-                    loadingIsVideo = newItem.supportedContentTypes.contains { $0.conforms(to: .movie) }
-                    isLoadingPick = true
-                    Task {
-                        let picked = await Self.load(newItem)
-                        guard let picked else {
-                            // Clearing the selection too, or picking the same
-                            // item again after a failure would be a no-op the
-                            // binding never notices.
-                            picking[index] = nil
-                            isLoadingPick = false
-                            return
-                        }
-                        // Both kinds get framed. What differs is what the
-                        // framing produces: a cropped file for a photo, a
-                        // remembered rectangle for a video.
-                        //
-                        // Presented before the wait is taken down, so the crop
-                        // screen rises over it — the other order shows the grid,
-                        // hole and all, for the frames in between.
-                        cropping = Crop(index: index, source: picked)
-                        isLoadingPick = false
-                    }
-                }
-            ),
-            matching: .any(of: [.images, .videos])
-        ) {
-            ZStack {
-                if let picked = media[index] {
-                    Image(uiImage: picked.thumbnail)
-                        .resizable()
-                        .scaledToFill()
+        ZStack {
+            if let media = media[index] {
+                Image(uiImage: media.thumbnail)
+                    .resizable()
+                    .scaledToFill()
 
-                    if picked.isVideo {
-                        // Otherwise a video is indistinguishable from a still,
-                        // since what's drawn *is* a still — its first frame.
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 15))
-                            .foregroundStyle(.white)
-                            .padding(9)
-                            .background(.black.opacity(0.45), in: Circle())
-                    }
-                } else {
-                    empty(prompt: index < prompts.count ? prompts[index] : "")
+                if media.isVideo {
+                    // Otherwise a video is indistinguishable from a still,
+                    // since what's drawn *is* a still — its first frame.
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .padding(9)
+                        .background(.black.opacity(0.45), in: Circle())
                 }
-            }
-            .frame(maxWidth: .infinity)
-            // The shape a post is actually shown at, from the one place that
-            // defines it — the same constant `CropView` frames to. A slot that
-            // is nearly-but-not-quite the post ratio promises a composition it
-            // then doesn't deliver.
-            .aspectRatio(ExampleProfileCard.photoAspect, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(
-                        GardenPalette.ink.opacity(media[index] == nil ? 0.18 : 0),
-                        // Dashed while empty: a slot you could fill, rather than
-                        // a card that is missing something.
-                        style: StrokeStyle(lineWidth: 1, dash: media[index] == nil ? [5, 4] : [])
-                    )
+            } else {
+                empty(prompt: index < prompts.count ? prompts[index] : "")
             }
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        // The shape a post is actually shown at, from the one place that
+        // defines it — the same constant `CropView` frames to. A slot that is
+        // nearly-but-not-quite the post ratio promises a composition it then
+        // doesn't deliver.
+        .aspectRatio(ExampleProfileCard.photoAspect, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(
+                    GardenPalette.ink.opacity(media[index] == nil ? 0.18 : 0),
+                    // Dashed while empty: a slot you could fill, rather than a
+                    // card that is missing something.
+                    style: StrokeStyle(lineWidth: 1, dash: media[index] == nil ? [5, 4] : [])
+                )
+        }
+        // Before the gestures, so the whole slot answers to them rather than
+        // only the parts with something drawn in them.
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .onTapGesture {
+            // A tap while something is armed puts it away rather than opening a
+            // picker — the same thing tapping outside an armed row does.
+            if editing != nil {
+                withAnimation(.easeOut(duration: 0.18)) { editing = nil }
+                return
+            }
+            pickingIndex = index
+            isPresentingPicker = true
+        }
         // Only a filled slot can be removed, and only a filled slot wobbles —
         // an empty one has nothing to take away, and a cross over a dashed
         // outline would be offering to delete a hole.
@@ -186,9 +186,6 @@ struct PhotoGrid: View {
                 media[index] = nil
                 editing = nil
             }
-            // Or choosing the same photo again would be a no-op the binding
-            // never notices — the same reason the crop's cancel clears it.
-            picking[index] = nil
         }
         .editableOnLongPress(media[index] == nil ? .constant(nil) : $editing, key: key(index))
     }
