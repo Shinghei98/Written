@@ -15,6 +15,14 @@ struct HomeView: View {
     /// Back to sign-in, for `RootView`. Reached from the garden's debug header.
     var onSignOut: () -> Void = {}
 
+    /// "Explore" on the profile preview — the end of onboarding, and the move
+    /// into the rest of the app. Handled by `AppShell`, which owns the tabs.
+    var onExplore: () -> Void = {}
+
+    /// True while the garden's pull-up is being dragged, so the shell can take
+    /// the tab bar out of the way of a gesture that starts on top of it.
+    var onGesture: (Bool) -> Void = { _ in }
+
     /// One distillation, two screens: the view model is owned here so the
     /// dashboard reads exactly what the garden grew.
     @StateObject private var viewModel = DistillViewModel()
@@ -43,10 +51,14 @@ struct HomeView: View {
                 + 40
 
             ZStack {
-                ProfilePreviewView(viewModel: viewModel) {
-                    withAnimation(Self.returning) { dashboardLift = 0 }
-                    isShowingProfiles = false
-                }
+                ProfilePreviewView(
+                    viewModel: viewModel,
+                    onBack: {
+                        withAnimation(Self.returning) { dashboardLift = 0 }
+                        isShowingProfiles = false
+                    },
+                    onExplore: onExplore
+                )
 
                 DashboardView(
                     viewModel: viewModel,
@@ -75,7 +87,22 @@ struct HomeView: View {
                 // the session while leaving the distillation on disk.
                 GrowProfileView(
                     viewModel: viewModel,
-                    onViewDashboard: { open(travel) }
+                    // The drag moves this view directly, so what appears behind
+                    // it is the dashboard already sitting there in the stack —
+                    // the gesture uncovers the real screen rather than opening a
+                    // gap over a placeholder and jumping at the end.
+                    //
+                    // Unanimated on purpose: an animation here would interpolate
+                    // toward each drag position and lag the finger.
+                    onRevealDrag: { lift = -$0; onGesture(true) },
+                    onRevealEnd: { committed in
+                        onGesture(false)
+                        guard committed else {
+                            withAnimation(Self.returning) { lift = 0 }
+                            return
+                        }
+                        open(travel)
+                    }
                 )
                 // The garden rides the dashboard's exit too: it sits above it in
                 // the stack, so without this it would be left hanging over the

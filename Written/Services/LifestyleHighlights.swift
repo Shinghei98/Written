@@ -5,7 +5,11 @@ import Foundation
 enum LifestyleHighlights {
 
     /// When this person's day starts, and how reliably.
-    struct Chronotype {
+    ///
+    /// `Codable` for `LifestyleStore` only. These four numbers are all that is
+    /// kept of a year of Health data — the workouts and samples they were
+    /// computed from are discarded, never written down.
+    struct Chronotype: Codable {
         /// Minutes past midnight, median across the days we have.
         let medianWakeMinutes: Int
         /// Median absolute deviation, in minutes. A consistent 07:00 riser and
@@ -52,7 +56,7 @@ enum LifestyleHighlights {
         case night
     }
 
-    struct Sport: Identifiable, Hashable {
+    struct Sport: Identifiable, Hashable, Codable {
         var id: String { name }
         let name: String
         let sessions: Int

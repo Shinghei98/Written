@@ -43,15 +43,11 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "stages") == "all"
     }
 
-    /// `-reveal 1` → the garden with its page already ridden up, uncovering the
-    /// Dashboard button.
-    ///
-    /// Same reason as everything else here: the reveal is a drag, `simctl` has
-    /// no way to drag, and this machine has neither `idb` nor `fbsimctl`. Without
-    /// it the raised layout can be reasoned about and not looked at, which is
-    /// how the badge that turned out to be sitting on a leaf got shipped.
-    static var startsRevealed: Bool {
-        UserDefaults.standard.string(forKey: "reveal") == "1"
+    /// `-tab explore` / `-tab wish` / `-tab chat` / `-tab settings` → open the
+    /// shell on that tab. The bar can only be reached by tapping, and `simctl`
+    /// cannot tap, so without this every tab but Distill is unscreenshottable.
+    static var forcedTab: String? {
+        UserDefaults.standard.string(forKey: "tab")
     }
 
     /// `-screen dashboard` → plays the move to the dashboard shortly after

@@ -10,8 +10,16 @@ struct GrowProfileView: View {
     /// records, and the two have to be looking at one distillation.
     @ObservedObject var viewModel: DistillViewModel
 
-    /// "Dashboard" — `HomeView` slides this screen away to the dashboard.
-    var onViewDashboard: () -> Void = {}
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// How far the page has been dragged up, in points, as it happens.
+    /// `HomeView` turns this into its own lift, so the dashboard beneath is
+    /// uncovered by the drag rather than after it.
+    var onRevealDrag: (CGFloat) -> Void = { _ in }
+
+    /// The finger left the screen: `true` to go through to the dashboard,
+    /// `false` to settle back onto the garden.
+    var onRevealEnd: (Bool) -> Void = { _ in }
 
     /// Back to sign-in. Only the debug button in the header calls it today.
 
@@ -53,18 +61,17 @@ struct GrowProfileView: View {
     @State private var distillProgress: Double = 0
     @State private var progressWalk: Task<Void, Never>?
 
-    /// How far the page has ridden up, in points. The single source of truth for
-    /// the reveal: the button's opacity is read off it, so a drag that stops
-    /// half way leaves the button half faded rather than the two disagreeing.
-    @State private var revealed: CGFloat = 0
     /// How far the arrow is lifted, in points. Driven a hop at a time by
     /// `startBobbing`.
     @State private var arrowLift: CGFloat = 0
     @State private var bobbing: Task<Void, Never>?
-    /// Where the page stood when the current drag began. Nil between drags.
-    @State private var dragStart: CGFloat?
-    /// The home indicator's inset, filled in by a probe in `body`.
-    @State private var bottomInset: CGFloat = 0
+    /// Whether a reveal drag is in flight.
+    ///
+    /// A flag rather than the live offset. Storing the offset here meant a
+    /// `@State` write on every touch event, so each frame rebuilt this view *and*
+    /// `HomeView` — and the offset is not needed locally anyway, since
+    /// `HomeView` owns the movement.
+    @State private var isDragging = false
 
     /// How the head moves along the bar: one pace between dots, and a wait on
     /// the dot it reaches.
@@ -128,38 +135,46 @@ struct GrowProfileView: View {
     /// this twice over and still leaves the rows better off than before.
     private static let handleHeight: CGFloat = 28
 
-    /// The Dashboard button's own height, which is now the entire reason the
-    /// page moves at all.
-    private static let dashboardHeight: CGFloat = 48
-
-    /// How far the page rides up: the button and the inset under it, and not one
-    /// point more.
+    /// Where a refused permission is actually turned back on, per source.
     ///
-    /// Measured rather than written down. The button sits at the very bottom
-    /// with no padding above or below it, so the travel is its height plus
-    /// whatever the home indicator claims — a device fact, not a constant.
-    /// Hardcoding 104 opened the page further than the button needed here, and
-    /// would have opened too little on a phone with no inset at all.
-    private var travel: CGFloat { bottomInset + Self.dashboardHeight }
-
-    /// The home indicator's inset, taken from the window.
+    /// `x-apple-health://` is a public scheme and opens the Health app, which
+    /// owns the read toggles under Profile › Apps › Written. It is not an exact
+    /// deep link — nothing sanctioned is — but it lands in the app that holds
+    /// the switch, which Settings › Written does not. The `prefs:root=` URLs
+    /// that would land exactly are private API and a documented rejection
+    /// reason, so they are not an option.
     ///
-    /// Not from a `GeometryReader`. Two were tried: one that respects the safe
-    /// area reports zero because the inset has already been applied to it, and
-    /// one that ignores the safe area reports zero here too — measured, the
-    /// travel came out 48 both times instead of 82, stopping the page half over
-    /// the button. The window is the thing that actually knows.
-    private static var homeIndicatorInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .safeAreaInsets.bottom ?? 0
+    /// Falls back to Settings if Health cannot be opened, which is what happens
+    /// on an iPad or anywhere Health is not installed.
+    private static func openPermissions(for modality: Modality) -> () -> Void {
+        {
+            let health = URL(string: "x-apple-health://")
+            if modality.opensHealthApp, let health, UIApplication.shared.canOpenURL(health) {
+                UIApplication.shared.open(health)
+                return
+            }
+            if let settings = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(settings)
+            }
+        }
     }
 
-    /// What the stack is drawn and scrolled inside, once the strip is taken out.
+    /// Bumped when the app comes back to the front, so a permission changed
+    /// while it was away is re-read. See `promptCard`.
+    @State private var permissionTick = 0
+
+    /// How far the page must be dragged before letting go goes through to the
+    /// dashboard rather than settling back.
+    ///
+    /// A fixed distance, not a fraction of the screen: this is a commit
+    /// threshold for a gesture, and a thumb's idea of "I meant that" does not
+    /// scale with the phone.
+    private static let commitDistance: CGFloat = 110
+
+    /// What the stack is drawn and scrolled inside, once the arrow's strip and
+    /// the tab bar's clearance are taken out.
     private static let promptsDrawn: CGFloat =
-        promptsReserve - handleHeight + promptsOverdraw
+        promptsReserve - handleHeight - MainTabBar.overlayHeight + promptsOverdraw
 
     /// Whether the page can be pulled up at all. The Dashboard is the way into
     /// what the distillation produced, so there has to *be* a distillation:
@@ -172,24 +187,11 @@ struct GrowProfileView: View {
     private var isCovering: Bool { isWatering }
 
     var body: some View {
-        // For the bottom inset, which decides the travel. Read here rather than
-        // assumed, so the page opens exactly as far as the button needs on any
-        // phone.
+        // No full-screen background of its own. What is underneath this page is
+        // the dashboard — `HomeView` mounts it below in the same stack — so
+        // anything filling the screen here would cover the very thing the drag
+        // is uncovering. The page's own `PageShape` is the only fill.
         ZStack(alignment: .bottom) {
-                // Not parchment: this is what shows in the strip under the page
-                // once it lifts, and it has to look like a different surface.
-                GardenPalette.underpage.ignoresSafeArea()
-
-                // Underneath the page, uncovered as it rides up. Drawn first and
-                // covered by the page's own background until then, so there is
-                // one button rather than one hidden and another shown.
-                //
-                // No padding of its own, above or below. It sits inside the safe
-                // area, so the home indicator's inset is the only thing under it
-                // and the page travels exactly far enough to clear both.
-                viewProfile
-                    .opacity(revealed / max(travel, 1))
-
                 VStack(spacing: 0) {
                 header
                 Spacer(minLength: 8)
@@ -209,19 +211,30 @@ struct GrowProfileView: View {
                     // the content can never exceed this, so the garden's size is
                     // now the same by construction rather than by arithmetic
                     // that has to be redone every time a modality is added.
-                    .frame(height: Self.promptsReserve - Self.handleHeight, alignment: .bottom)
+                    .frame(
+                        height: Self.promptsReserve - Self.handleHeight - MainTabBar.overlayHeight,
+                        alignment: .bottom
+                    )
                     .padding(.horizontal, 16)
                     // As low as it goes: bottom-aligned in a strip that also
                     // carries the 12 points that used to be the page's bottom
                     // padding, so the arrow drops to the safe-area edge without
                     // the totals changing.
-                    revealHandle(travel: travel)
+                    revealHandle
                         .frame(height: Self.handleHeight + 12, alignment: .bottom)
+                    // The tab bar floats over this strip. Taken *out* of the
+                    // reserve above rather than added under it, so the three
+                    // heights still sum to what they always did and the plant
+                    // does not move — the same trade the arrow's strip made.
+                    //
+                    // It costs the connected rows their bottom 86 points, which
+                    // is the price of a bar that is present on every screen.
+                    Color.clear.frame(height: MainTabBar.overlayHeight)
                 }
-                // Opaque, or the button below shows through the page instead of
-                // from under it — and carried into the bottom inset so the
-                // page's edge is the screen's edge when it is down, rather than
-                // a seam floating above the home indicator.
+                // Opaque, so the dashboard shows from under the page's edge
+                // rather than through it — and carried into the bottom inset so
+                // that edge is the screen's edge when the page is down, rather
+                // than a seam floating above the home indicator.
                 .background(
                     PageShape()
                         .fill(GardenPalette.parchment)
@@ -234,33 +247,23 @@ struct GrowProfileView: View {
                         // the root to get at the inset.
                         .ignoresSafeArea(edges: .bottom)
                 )
-                .offset(y: -revealed)
+                // No offset of its own: `HomeView` moves this whole view, which
+                // is what lets the drag reveal the real dashboard rather than a
+                // gap the garden has opened above a colour.
+                //
                 // Simultaneous rather than exclusive: the stack above is a
                 // scroll view and would otherwise swallow every upward drag
                 // before this saw it.
-                .simultaneousGesture(revealDrag(travel: travel))
+                .simultaneousGesture(revealDrag)
             }
-            // Losing the last connection has to put the page back down, or it
-            // stays up over a button that is no longer reachable.
-            .onChange(of: canReveal) { can in
-                guard !can else { return }
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) { revealed = 0 }
-            }
-        // One `onAppear`, not two. The debug reveal reads `travel`, which reads
-        // `bottomInset` — and as separate modifiers the reveal fired first, took
-        // the inset as zero and opened the page 48 points instead of 82.
-        // Ordering between sibling `onAppear`s is not something to bet a layout
-        // on.
-        .onAppear {
-            bottomInset = Self.homeIndicatorInset
-#if DEBUG
-            // `-reveal 1` on the launch line; see `DebugLaunch`.
-            if DebugLaunch.startsRevealed, DebugLaunch.firesOnce("reveal") {
-                revealed = travel
-            }
-#endif
-        }
         .preferredColorScheme(.light)
+        // Coming back from Settings or Health with a permission just granted.
+        // The status is read synchronously while building the card and nothing
+        // publishes a change, so without this the warning outlives the problem.
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            permissionTick += 1
+        }
         // Fires once on appear, then again whenever a distillation changes the
         // shape of the tree.
         .task(id: viewModel.treeState) {
@@ -558,6 +561,13 @@ struct GrowProfileView: View {
             // changed. This is what buys the extra rows without the plant
             // moving — at four connected the invitation is gone, leaving 232
             // points of rows, which is 4.46 of the 52-point pitch.
+            // No bounce while the content fits, which today it always does — the
+            // stack tops out at 232 points against a 260-point viewport. Left
+            // bouncing, it ran *at the same time* as the page drag on top of it
+            // (they are simultaneous gestures), so the rows sprang around under
+            // a page that was itself moving. Scrolling still works the moment
+            // there is something to scroll.
+            .modifier(NoIdleBounce())
             .frame(height: Self.promptsDrawn)
             .mask(
                 LinearGradient(
@@ -595,15 +605,10 @@ struct GrowProfileView: View {
     /// `allowsHitTesting(false)` rather than merely having no action, or it
     /// would swallow the drag that starts on top of it, which is exactly where
     /// a user aiming at the arrow will start one.
-    private func revealHandle(travel: CGFloat) -> some View {
+    private var revealHandle: some View {
         Image(systemName: "chevron.up")
             .font(.system(size: 15, weight: .semibold))
             .foregroundColor(GardenPalette.gold)
-            // Turned by how far the page has actually come, not by whether it
-            // has moved at all. Flipping on `revealed > 0` snapped the arrow
-            // over on the first pixel of a drag, which reads as the arrow
-            // reacting to the page rather than travelling with it.
-            .rotationEffect(.degrees(180 * Double(revealed / max(travel, 1))))
             .offset(y: arrowLift)
             .opacity(canReveal ? 1 : 0)
             .animation(.easeInOut(duration: 0.35), value: canReveal)
@@ -625,7 +630,7 @@ struct GrowProfileView: View {
             while !Task.isCancelled {
                 // Nothing to advertise, or the page is already up: idle rather
                 // than exit, since either can change without this restarting.
-                guard canReveal, revealed == 0 else {
+                guard canReveal, !isDragging else {
                     try? await Task.sleep(nanoseconds: 400_000_000)
                     continue
                 }
@@ -642,85 +647,48 @@ struct GrowProfileView: View {
 
     /// Dragging the page itself, which is the gesture the arrow is advertising.
     ///
-    /// Clamped rather than rubber-banded at both ends: there is one screen above
-    /// and one below, and letting it pull past either implies a third.
-    private func revealDrag(travel: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 4)
+    /// **Measured in `.global`, and it has to be.** `HomeView` moves this whole
+    /// view in response to what this reports, and a `DragGesture` measures its
+    /// translation against the view it is attached to — so in the default local
+    /// space the page moving under the finger changed the frame the translation
+    /// was measured in, which changed the translation, which moved the page
+    /// again. That is a feedback loop, and on device it read as the page
+    /// shaking. The global space does not move when the page does.
+    private var revealDrag: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .onChanged { value in
                 guard canReveal else { return }
-                // Where the page was when the finger went down, captured once.
-                //
-                // This used to be re-derived every event as "whichever end
-                // `revealed` is nearer", and that is what made the page stick.
-                // Crossing the halfway mark flipped the base from 0 to the full
-                // travel mid-drag, so the page jumped a whole screen-worth and
-                // then fought the finger — and coming back down it snapped shut
-                // the moment it passed the middle, which is why it was hard to
-                // pull down at all. The origin of a drag cannot depend on where
-                // the drag has got to.
-                let start = dragStart ?? revealed
-                if dragStart == nil { dragStart = revealed }
-                revealed = min(travel, max(0, start - value.translation.height))
+                // Clamped at zero: the dashboard is above this page and there is
+                // nothing below it, so pulling down does nothing rather than
+                // implying a third screen.
+                if !isDragging { isDragging = true }
+                onRevealDrag(max(0, -value.translation.height))
             }
             .onEnded { value in
-                let start = dragStart ?? revealed
-                dragStart = nil
-                guard canReveal else { return }
-                // Where the finger was headed, so a short flick settles the same
-                // way a long drag does. Taken from the *start* of the gesture
-                // for the same reason as above.
-                let projected = min(travel, max(0, start - value.predictedEndTranslation.height))
-                withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.86)) {
-                    revealed = projected > travel / 2 ? travel : 0
-                }
+                guard canReveal, isDragging else { return }
+                isDragging = false
+                // Where the finger was going, not just where it stopped, so a
+                // short flick commits the same way a long slow pull does.
+                let projected = max(0, -value.predictedEndTranslation.height)
+                onRevealEnd(projected >= Self.commitDistance)
             }
     }
 
-    /// The way to the dashboard, under the bars.
-    ///
-    /// Shown from the start and dimmed, not hidden until it works: it says what
-    /// the connecting is *for*, and a button that appears out of nowhere on the
-    /// first connection would push the whole stack — and with it the plant — as
-    /// it arrived. It comes alive once the first app has been connected, since
-    /// until then there is no distillation for a profile to be built from.
-    private var viewProfile: some View {
-        let isReady = !viewModel.treeState.connectedModalities.isEmpty
-
-        return Button {
-            // Put the page down on the way out, so coming back finds it closed
-            // over the button rather than still held open on a screen the user
-            // has already left and returned from. Unanimated on purpose — the
-            // move to the dashboard covers it, and animating it here means
-            // watching the garden drop as the dashboard slides in.
-            revealed = 0
-            onViewDashboard()
-        } label: {
-            Text("Dashboard")
-        }
-        // Sized to its label rather than filling the row: the bars above are
-        // the screen's business and this is the way out of it, so it reads as
-        // a lighter thing than they are.
-        .buttonStyle(
-            PressShrinkButtonStyle(
-                fill: GardenPalette.card,
-                foreground: GardenPalette.ink,
-                border: GardenPalette.gold.opacity(isReady ? 0.35 : 0.15),
-                expands: false,
-                font: .system(size: 16, weight: .semibold),
-                horizontalPadding: 26,
-                minHeight: 48
-            )
-        )
-        // The style doesn't dim on its own, so `disabled` alone would leave a
-        // button that looks live and does nothing — same reasoning as the
-        // unavailable modality's button above.
-        .opacity(isReady ? 1 : 0.45)
-        .disabled(!isReady)
-    }
 
     private func promptCard(for next: Modality) -> some View {
         let first = viewModel.treeState.isSeedling
-        let failure = viewModel.failureMessage(for: next)
+        // What went wrong last time, or — where it can be known without asking —
+        // what will go wrong this time. The same card, message and button serve
+        // both: a permission that is off is the same problem whether it is
+        // discovered before the attempt or after it.
+        //
+        // Read for the dependency, not the value. `blockedMessage` calls
+        // `EKEventStore.authorizationStatus` synchronously and nothing publishes
+        // a change, so SwiftUI has no reason to rebuild this card when the user
+        // comes back from Settings — the warning would outlive the problem.
+        // Touching a `@State` that moves on `scenePhase` gives it one.
+        _ = permissionTick
+        let failure = viewModel.failureMessage(for: next) ?? viewModel.blockedMessage(for: next)
 
         // Tighter than it looks like it needs to be, and deliberately: at 14pt
         // spacing the widest button — "Connect Lifestyle" — squeezed the text
@@ -821,22 +789,22 @@ struct GrowProfileView: View {
                     // The way out, not just a description of the problem.
                     //
                     // Every permission this app asks for can be refused in a
-                    // place the app cannot reach — and a refused Apple Health
-                    // read is invisible to us, so the text can only ever say
-                    // "check Settings". Saying it and then making the reader
-                    // find Settings themselves is the difference between a
-                    // dead end and a fix. `openSettingsURLString` is the only
-                    // deep link Apple sanctions; it lands on Written's own
-                    // page, where Health sits one tap away.
-                    Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    } label: {
+                    // place the app cannot reach, and saying so while making the
+                    // reader find that place themselves is the difference
+                    // between a dead end and a fix.
+                    //
+                    // Where that place is differs by source, which is the part
+                    // this got wrong for a while. `openSettingsURLString` lands
+                    // on Written's own Settings page, and the Calendars switch
+                    // *is* there — one tap. Health is not on that page at all:
+                    // it lives under Privacy & Security, or in the Health app
+                    // under Profile › Apps. So the message named one place and
+                    // the button went to another.
+                    Button(action: Self.openPermissions(for: next)) {
                         HStack(spacing: 5) {
-                            Image(systemName: "gearshape")
+                            Image(systemName: next.opensHealthApp ? "heart" : "gearshape")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Open Settings")
+                            Text(next.opensHealthApp ? "Open Health" : "Open Settings")
                                 .font(.system(size: 13, weight: .semibold))
                         }
                         .foregroundStyle(GardenPalette.gold)
@@ -1028,6 +996,21 @@ struct GrowProfileView: View {
 
         growth = 0
         withAnimation(.easeOut(duration: 1.8)) { growth = 1 }
+    }
+}
+
+/// Stops a scroll view bouncing when its content already fits.
+///
+/// `scrollBounceBehavior` is iOS 16.4 and this project ships to 16.0, so it is
+/// wrapped rather than applied directly. On anything older the bounce stays,
+/// which is the behaviour that was there before.
+struct NoIdleBounce: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.scrollBounceBehavior(.basedOnSize)
+        } else {
+            content
+        }
     }
 }
 

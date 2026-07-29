@@ -46,6 +46,24 @@ struct CalendarDistiller {
 
     private let store = EKEventStore()
 
+    /// Whether calendar access is refused in a way only Settings can undo.
+    ///
+    /// Answers without prompting, which is the whole point: a refusal used to be
+    /// discovered by tapping Connect and waiting for a distillation to come back
+    /// with nothing, and the message arrived after the wait rather than instead
+    /// of it.
+    ///
+    /// `.notDetermined` is deliberately *not* blocked — that is an ordinary
+    /// first run, and the sheet is about to be shown. `.writeOnly` is, because
+    /// on iOS 17 it reads nothing at all while looking exactly like an empty
+    /// calendar; it is the same trap `requestFullAccessToEvents` exists to
+    /// avoid, seen from the other side.
+    static var isBlocked: Bool {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        if #available(iOS 17.0, *), status == .writeOnly { return true }
+        return status == .denied || status == .restricted
+    }
+
     func distill() async throws -> [DistilledRecord] {
         guard try await requestAccess() else { throw CalendarError.notAuthorized }
 

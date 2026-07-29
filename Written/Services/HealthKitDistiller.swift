@@ -46,7 +46,7 @@ struct HealthKitDistiller {
                 return "Apple Health isn't available on this device."
             case .stageFailed(let detail):
                 let message = "Apple Health didn't respond. Try again — and if it keeps happening, "
-                    + "check Settings › Privacy & Security › Health › Written."
+                    + "check Health › Profile › Apps › Written, or Settings › Privacy & Security › Health."
                 #if DEBUG
                 return "\(message)\n[\(detail)]"
                 #else
@@ -57,7 +57,7 @@ struct HealthKitDistiller {
                 // actually gates it — with Health off there, the permission
                 // sheet never appears at all and the request simply never
                 // returns, which is indistinguishable from the app being stuck.
-                return "Nothing came back from Apple Health. Check Settings › Privacy & Security › Health › Written and turn the categories on — then try again. If they are already on, there may be no workouts or activity recorded yet."
+                return "Nothing came back from Apple Health. Open Health › Profile › Apps › Written and turn the categories on — then try again. If they are already on, there may be no workouts or activity recorded yet, or Health itself may be switched off for Written under Settings › Privacy & Security."
             }
         }
     }

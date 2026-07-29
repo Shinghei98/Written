@@ -14,6 +14,10 @@ struct ProfilePreviewView: View {
     @ObservedObject var viewModel: DistillViewModel
     var onBack: () -> Void = {}
 
+    /// The end of onboarding. Everything before this was about building the
+    /// profile; this is the first move outward, into other people.
+    var onExplore: () -> Void = {}
+
     var body: some View {
         ZStack(alignment: .top) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -23,6 +27,8 @@ struct ProfilePreviewView: View {
                     header
 
                     ExampleProfileCard(profile: viewModel.exampleProfile)
+
+                    explore
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 96)
@@ -32,6 +38,27 @@ struct ProfilePreviewView: View {
             topBar
         }
         .preferredColorScheme(.light)
+    }
+
+    /// Full width and at the foot of the page, unlike the Dashboard link in the
+    /// bar above: this is the one thing to do here, and everything above it is
+    /// the argument for doing it.
+    private var explore: some View {
+        Button(action: onExplore) {
+            HStack(spacing: 7) {
+                Image(systemName: "book")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Explore")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundColor(GardenPalette.parchment)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(GardenPalette.gold, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 10)
+        .accessibilityHint("See the people you could meet")
     }
 
     // MARK: - Chrome

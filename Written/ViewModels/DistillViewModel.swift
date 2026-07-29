@@ -73,7 +73,16 @@ final class DistillViewModel: ObservableObject {
         // connected bars have to be right on the first frame rather than
         // appearing a beat later or, as they used to, not at all.
         records = RecordStore.load()
-        if !records.isEmpty { recomputeDerived() }
+        // Health's figures come from their own file: its rows are discarded, so
+        // unlike every other source there is nothing in `records` to rebuild the
+        // branch from. Before `recomputeDerived`, which reads them.
+        if let cached = LifestyleStore.load() {
+            chronotype = cached.chronotype
+            hourlyActivity = cached.hourlyActivity
+            sports = cached.sports
+            averageDailySteps = cached.averageDailySteps
+        }
+        if !records.isEmpty || chronotype != nil { recomputeDerived() }
 
         // Then reconcile with the server, which is the actual record. The cache
         // above is what makes the first frame right; this is what makes a
@@ -149,6 +158,7 @@ final class DistillViewModel: ObservableObject {
         googleOAuth.disconnect()
         BanList.clear()
         RecordStore.clear()
+        LifestyleStore.clear()
         UserDefaults.standard.removeObject(forKey: Self.treeSeedKey)
         clearInMemoryState()
     }
@@ -208,14 +218,24 @@ final class DistillViewModel: ObservableObject {
             }
         }
 
-        recomputeDerived()
-
+        // Before `recomputeDerived`, and that order is the whole point.
+        //
+        // The lifestyle branch is the one part of the tree not derived from the
+        // records — its rows are discarded, so `recomputeDerived` sizes it from
+        // these four figures instead. Assigning them *after* the recompute meant
+        // the tree was rebuilt from whatever they held a moment earlier, which on
+        // a cold launch is nothing: the branch came out nil, nothing recomputed
+        // it afterwards, and Apple Health read as disconnected on every relaunch
+        // even though the restore had just fetched its signals successfully.
         if let lifestyle = snapshot.lifestyle {
             chronotype = lifestyle.chronotype
             hourlyActivity = lifestyle.hourlyActivity
             sports = lifestyle.sports.filter { !bans.contains(.sport, $0.name) }
             averageDailySteps = lifestyle.averageDailySteps
+            cacheLifestyle()
         }
+
+        recomputeDerived()
 
         // Age and sex live on the user object; district still arrives as a
         // record, so only fill what `recomputeDerived` couldn't.
@@ -277,6 +297,21 @@ final class DistillViewModel: ObservableObject {
             if case .failed(let message) = status(for: source) { return message }
         }
         return nil
+    }
+
+    /// Why this source cannot work *before* it is tried, where that is knowable.
+    ///
+    /// Only Calendar today, and only because EventKit will report its
+    /// authorization without prompting. HealthKit will not: read authorization
+    /// is hidden by design, so a declined Health read and an empty Health app
+    /// are the same answer — which is exactly why `HealthError.noData` is named
+    /// for the symptom. There is no equivalent here and inventing one would mean
+    /// guessing.
+    func blockedMessage(for modality: Modality) -> String? {
+        guard modality.sources.contains("apple_calendar"), CalendarDistiller.isBlocked else {
+            return nil
+        }
+        return CalendarDistiller.CalendarError.notAuthorized.localizedDescription
     }
 
     var recordCountBySource: [(source: String, count: Int)] {
@@ -411,6 +446,21 @@ final class DistillViewModel: ObservableObject {
         hourlyActivity = LifestyleHighlights.hourlyActivity(in: raw)
         sports = LifestyleHighlights.topSports(in: raw)
         averageDailySteps = LifestyleHighlights.averageDailySteps(in: raw)
+        cacheLifestyle()
+    }
+
+    /// The four figures to disk, so the branch survives a relaunch without
+    /// waiting on the network — the only source that needs this, because it is
+    /// the only one whose rows are thrown away. See `LifestyleStore`.
+    private func cacheLifestyle() {
+        LifestyleStore.save(
+            LifestyleStore.Cached(
+                chronotype: chronotype,
+                hourlyActivity: hourlyActivity,
+                sports: sports,
+                averageDailySteps: averageDailySteps
+            )
+        )
     }
 
     /// Age and sex up to the user object, where they are the only copy.

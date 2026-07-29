@@ -23,6 +23,14 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
 
     /// `DistilledRecord.source` values that feed this branch. Empty means the
     /// modality is declared for the shape of the tree but has no distiller yet.
+    /// Whether a refused permission for this source is fixed in the Health app
+    /// rather than in Settings.
+    ///
+    /// Health is the one permission not reachable from Written's own Settings
+    /// page — it lives under Privacy & Security, or in Health under Profile ›
+    /// Apps. Every other source's switch is on the app's page.
+    var opensHealthApp: Bool { sources.contains("health") }
+
     var sources: [String] {
         switch self {
         // Order matters: this array drives the rows in `SourcePickerSheet` and

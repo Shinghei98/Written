@@ -110,7 +110,7 @@ struct RootView: View {
         Group {
             switch route {
             case .home:
-                HomeView(onSignOut: {
+                AppShell(onSignOut: {
                     SupabaseAuth.shared.signOut()
                     route = .signIn
                 })

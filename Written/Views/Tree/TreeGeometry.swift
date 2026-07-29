@@ -11,14 +11,6 @@ enum GardenPalette {
     static let gold = Color(red: 0.549, green: 0.478, blue: 0.333)
     static let card = Color(red: 0.988, green: 0.980, blue: 0.965)
 
-    /// What is under the garden page when it is pulled up.
-    ///
-    /// Darker than the parchment rather than another shade of it. The whole
-    /// point of the gesture is that a sheet lifts, and two surfaces a few
-    /// percent apart read as a rendering seam rather than as one thing on top
-    /// of another — the drop has to be plain enough to see in the strip at the
-    /// bottom of the screen, which is all that is ever exposed.
-    static let underpage = Color(red: 0.855, green: 0.831, blue: 0.792)
 }
 
 /// The garden page: square but for its bottom corners, which are rounded so it
