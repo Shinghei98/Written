@@ -20,9 +20,13 @@ Two traps, both already paid for once:
 * **Location must be granted first.** Otherwise the permission sheet sits over
   the garden and gets measured instead of the plant, which produced a confident
   and entirely wrong "the plant moved 0.139" reading.
-* **Let it settle.** The plant has an entrance animation and the sparkles never
-  stop, so a screenshot taken too early compares two different moments. Ink is
-  compared rather than pixels for the same reason.
+* **Let it settle, and generously.** The plant has an entrance animation and the
+  sparkles never stop, so a screenshot taken too early compares two different
+  moments, and ink is compared rather than pixels for the same reason. Twelve
+  seconds was not enough on a cold start straight after an install: the
+  cotyledons had not opened, the frame looked like a plant with no crown, and a
+  change that was perfectly fine was reported as having broken the drawing and
+  reverted on the strength of it.
 """
 
 from __future__ import annotations
@@ -48,7 +52,7 @@ TEMPLATE = ROOT / "tools" / "reference" / "canopy.png"
 
 DEVICE = "D6B47BF8-65E2-4A9C-88FE-498A94F1C384"
 BUNDLE = "com.written.datingapp"
-SETTLE = 12.0
+SETTLE = 26.0
 
 INK = 125          # below this is a drawn stroke rather than a pale vein
 PANEL = 900        # height each panel is normalised to

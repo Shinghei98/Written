@@ -627,7 +627,7 @@ enum SeedlingArt {
             // running into the terminal leaf — two and a half times its length.
             // The rachis as a whole grows by less, 1.1815, since everything
             // below that point keeps its size.
-            reach: CGSize(width: 0.0945, height: 0.1040),
+            reach: CGSize(width: 0.1090, height: 0.1200),
             turn: 18,
             leaflets: [
                 // The second branch, measured as a gap from the first rather
@@ -646,7 +646,7 @@ enum SeedlingArt {
                 // That leaves 0.121 to the terminal leaf at the tip, less than
                 // the gap below it, so the upper pair now sits closer together
                 // than the lower.
-                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.744,
+                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.645,
                         stalkRun: CGSize(width: 0.004, height: -0.074)),
                 Leaflet(mirrored: true, axis: 50, scale: 0.26, along: 1, stalkRun: .zero),
                 // The first branch off the rachis, moved out from the stem by
@@ -657,7 +657,7 @@ enum SeedlingArt {
                 // Its leaf — the lower one, the stalk running right and a little
                 // down — reaches a fifth further along that stalk, (0.040, 0.008)
                 // to (0.048, 0.0096), and grows from 0.23 to 0.25.
-                Leaflet(mirrored: true, axis: 88, scale: 0.25, along: 0.460,
+                Leaflet(mirrored: true, axis: 88, scale: 0.25, along: 0.399,
                         stalkRun: CGSize(width: 0.048, height: 0.0096))
             ]
         ),
