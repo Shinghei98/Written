@@ -27,19 +27,26 @@ class ShareViewController: SLComposeServiceViewController {
     /// attachment is asynchronous, so it is not known when the sheet appears.
     private var link: String?
     private var videoID: String?
+    /// Whatever the host app actually handed over, kept for the message shown
+    /// when it cannot be parsed. "That isn't a YouTube link" is not much use
+    /// when the link plainly was one; saying what arrived is.
+    private var received: String?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         placeholder = "Say something about it — optional"
         Task { @MainActor in
-            link = await sharedURL()
+            received = await sharedItem()
+            link = received.flatMap(Self.firstLink(in:))
             videoID = link.flatMap(SharePoster.videoID(from:))
             if videoID == nil {
-                // Nothing to share. Said plainly and immediately rather than
-                // letting someone type a sentence about a link that will be
-                // refused when they tap Post.
+                // Nothing to share. Said immediately rather than letting someone
+                // type a sentence about a link that will be refused at Post —
+                // and quoting what arrived, because the first version of this
+                // said "not a YouTube link" about links that were.
                 textView.text = ""
-                placeholder = "That isn't a YouTube video link"
+                placeholder = received.map { "Can't read a video from: \($0.prefix(80))" }
+                    ?? "Nothing was shared"
             }
             // Post is disabled until this runs, because `isContentValid` cannot
             // answer before the attachment has loaded.
@@ -65,22 +72,47 @@ class ShareViewController: SLComposeServiceViewController {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 
-    private func sharedURL() async -> String? {
+    /// Whatever was shared, as text.
+    ///
+    /// **Text as well as URLs**, which is what this got wrong. Only
+    /// `public.url` attachments were read, and an app that shares its link as
+    /// plain text — or as a sentence with the link inside it, which is what most
+    /// share sheets actually send — was skipped entirely, leaving nothing to
+    /// parse and a message blaming the link.
+    private func sharedItem() async -> String? {
+        let wanted = [UTType.url.identifier, UTType.plainText.identifier, UTType.text.identifier]
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+
         for item in items {
             for provider in item.attachments ?? [] {
-                guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier)
-                else { continue }
-                let loaded = try? await provider.loadItem(
-                    forTypeIdentifier: UTType.url.identifier
-                )
-                // YouTube hands over a `URL`; some apps hand over the same thing
-                // as a string, so both are accepted.
-                if let url = loaded as? URL { return url.absoluteString }
-                if let text = loaded as? String { return text }
+                for type in wanted where provider.hasItemConformingToTypeIdentifier(type) {
+                    let loaded = try? await provider.loadItem(forTypeIdentifier: type)
+                    if let url = loaded as? URL { return url.absoluteString }
+                    if let text = loaded as? String, !text.isEmpty { return text }
+                    if let data = loaded as? Data,
+                       let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                        return text
+                    }
+                }
             }
+            // Some apps put the link only in the item's own text.
+            if let text = item.attributedContentText?.string, !text.isEmpty { return text }
         }
         return nil
+    }
+
+    /// The first web address inside whatever arrived.
+    ///
+    /// `URL(string:)` on the whole thing is not enough: a share is often a
+    /// sentence with a link in it, and one space is all it takes for that to
+    /// return nil. `NSDataDetector` finds the link wherever it sits.
+    private static func firstLink(in text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.host != nil { return trimmed }
+
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        return detector?.firstMatch(in: trimmed, range: range)?.url?.absoluteString
     }
 }
 
