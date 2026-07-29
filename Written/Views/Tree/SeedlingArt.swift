@@ -627,26 +627,36 @@ enum SeedlingArt {
             turn: 18,
             leaflets: shoots[0].leaflets
         ),
-        // L1 — the left-hand lowest branch. Both of its stalks run a tenth
-        // longer along their own directions, with the bifurcation held exactly
-        // where it is.
+        // L1 — the left-hand lowest branch.
         Shoot(
             id: 1,
             stage: .branch,
             attachment: 0.34,
-            // A tenth past (-0.058, 0.076), which carries the terminal leaf —
-            // the upper one — further up and left, since it sits at the tip.
-            reach: CGSize(width: -0.0638, height: 0.0836),
+            // The upper branch — the rachis, which runs into the terminal leaf
+            // — turned a degree counterclockwise and then extended a tenth
+            // *beyond the bifurcation*, from (-0.0638, 0.0836).
+            //
+            // Extending only the far segment means the rachis as a whole grows
+            // by less than a tenth: 0.382 + 1.1 × 0.618 = 1.0618 of its length,
+            // since the stretch before the branch point keeps its size.
+            //
+            // The turn is applied to `reach` rather than to `turn`, which would
+            // swing the sub-petiole and the lower leaf with it. Only the upper
+            // branch was asked for.
+            reach: CGSize(width: -0.0692, height: 0.0875),
             turn: 0,
             leaflets: [
                 Leaflet(mirrored: false, axis: -50, scale: 0.26, along: 1, stalkRun: .zero),
-                // `along` divided by the same tenth the rachis grew by, 0.42 to
-                // 0.382. It is a *fraction* of the rachis, so leaving it alone
-                // while the rachis lengthens would carry the bifurcation out
-                // with the tip — and the bifurcation is where it should be.
-                // Shrinking it in step keeps that point still while the stalk
-                // beyond it extends.
-                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.382,
+                // Divided by that same 1.0618, 0.382 to 0.360. `along` is a
+                // fraction of the rachis rather than a distance, so leaving it
+                // alone while the rachis lengthens carries the branch point out
+                // with the tip — and the branch point is where it should be.
+                //
+                // It does swing the degree the rachis turned, which the drawing
+                // cannot avoid: the rachis is one curve from stem to tip with no
+                // kink at the split, so the far segment cannot turn without the
+                // near one. At this radius that is about 0.0007 of the canvas.
+                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.360,
                         stalkRun: CGSize(width: -0.0506, height: 0.0154))
             ]
         ),
