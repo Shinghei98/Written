@@ -12,6 +12,12 @@ import UIKit
 /// dating side of the product has no data behind it yet and is not mocked up.
 struct DashboardView: View {
     @ObservedObject var viewModel: DistillViewModel
+
+    /// Observed, not read statically. The name lives on the auth object rather
+    /// than in the distillation, and a static `SupabaseAuth.shared.firstName`
+    /// renders once and never again — so correcting it would have left the row
+    /// showing the old name until the screen was rebuilt.
+    @ObservedObject private var auth = SupabaseAuth.shared
     var onBack: () -> Void = {}
     /// "Confirm" — `HomeView` slides this screen away to the profile previews.
     var onConfirm: () -> Void = {}
@@ -372,7 +378,7 @@ struct DashboardView: View {
     /// screen.
     private var header: some View {
         VStack(spacing: 14) {
-            Text("Dashboard")
+            Text("Memories")
                 .font(BrandFont.title(44))
                 .foregroundStyle(GardenPalette.ink)
 
@@ -462,6 +468,18 @@ struct DashboardView: View {
                 // simultaneous tap recogniser for dismissing entry edits, and a
                 // bare tap gesture has to compete with it. A button's hit
                 // handling doesn't.
+                Button { withAnimation(.easeOut(duration: 0.18)) { editor = .name } } label: {
+                    identityRow(
+                        icon: "person.text.rectangle",
+                        text: auth.firstName ?? "Add your name",
+                        isPlaceholder: auth.firstName == nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                identityDivider
+
                 Button { withAnimation(.easeOut(duration: 0.18)) { editor = .birthday } } label: {
                     identityRow(
                         icon: "birthday.cake",
@@ -506,6 +524,21 @@ struct DashboardView: View {
     @ViewBuilder
     private var biographicsSheet: some View {
         switch editor {
+        case .name:
+            NameSheet(
+                current: auth.firstName,
+                onSave: { name in
+                    // Fire and forget, and the sheet closes either way.
+                    // `upsertProfile` sets `firstName` only *after* the server
+                    // accepts it, so the row never shows a name that did not
+                    // save — but a failure is silent and the old name simply
+                    // stays, which is the same silent-failure class as every
+                    // other sync here. See the `lastError` known gap.
+                    Task { try? await auth.saveName(first: name, last: nil) }
+                    closeEditor()
+                },
+                onCancel: closeEditor
+            )
         case .birthday:
             BirthdaySheet(
                 onSave: { month, day, year in

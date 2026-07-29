@@ -346,10 +346,12 @@ RLS on `auth.uid()`, and a `photos` table for order, kind and the video crop
 rects. Video crops are stored as unit rectangles rather than baked in, because
 the file needs re-encoding for size before upload anyway — do both in one pass.
 
-**Some things can be set but never changed.** The name is captured during
-onboarding and has no edit path afterwards. This is the same shape of bug the
-biographics rows had, where a row only rendered once it had a value, so nobody
-could ever add one.
+**Some things can be set but never changed.** The name had this and no longer
+does — it is the first biographics row on the dashboard, through `NameSheet`.
+The shape of the bug is worth keeping in mind for the next field: a value
+captured once during onboarding, on a screen nobody returns to, is a value with
+a typo in it forever. The biographics rows had the same defect from the other
+side, rendering only once they held a value, so nobody could put a first one in.
 
 **Discovery reads across accounts, and the isolation was measured on
 2026-07-29 rather than assumed.** `discovery_cards` (migration 0007) is the only

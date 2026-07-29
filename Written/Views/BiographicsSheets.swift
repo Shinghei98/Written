@@ -4,6 +4,7 @@ import SwiftUI
 
 /// Which of the biographics rows is being corrected, if any.
 enum BiographicsEditor: Identifiable {
+    case name
     case birthday
     case gender
     case place
@@ -74,6 +75,57 @@ struct BiographicsSheet<Content: View>: View {
             .padding(.horizontal, 28)
         }
         .transition(.opacity)
+    }
+}
+
+/// Correcting the name.
+///
+/// This closes something `CLAUDE.md` lists as a known gap: the name was captured
+/// during onboarding and had no edit path afterwards, so a typo on the very
+/// first screen was permanent. It is the same shape of bug the biographics rows
+/// themselves had — a row that only rendered once it held a value, which nobody
+/// could ever put a value into.
+struct NameSheet: View {
+    let current: String?
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var text: String = ""
+    @FocusState private var isFocused: Bool
+
+    private var trimmed: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        BiographicsSheet(
+            title: "What should people call you?",
+            subtitle: "This is the name on your profile.",
+            confirmEnabled: !trimmed.isEmpty,
+            onConfirm: { onSave(trimmed) },
+            onCancel: onCancel
+        ) {
+            TextField("First name", text: $text)
+                .font(BrandFont.body(17))
+                .foregroundStyle(GardenPalette.ink)
+                .multilineTextAlignment(.center)
+                .textContentType(.givenName)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($isFocused)
+                .onSubmit { if !trimmed.isEmpty { onSave(trimmed) } }
+                .padding(.vertical, 11)
+                .padding(.horizontal, 14)
+                .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                }
+        }
+        .onAppear {
+            text = current ?? ""
+            isFocused = true
+        }
     }
 }
 
