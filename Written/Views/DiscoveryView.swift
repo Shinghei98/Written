@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// Which way a drag is going, decided once per gesture and then held.
+/// Whether a drag is sideways enough to belong to the photos.
 ///
-/// The feed pages vertically and the photos page sideways, so every touch has
-/// two claimants. Judging the axis afresh on each event — which is what this
-/// did first — lets ownership flip mid-drag: a swipe up that starts a few
-/// degrees off vertical hands the first events to the photos, then takes them
-/// back, and the result is a feed that fights the finger.
+/// The two gestures are **not** symmetric, and that asymmetry is the whole
+/// design — it is how Instagram behaves and it is right. Vertical works
+/// everywhere, on every part of the card including the photograph, and it works
+/// from the first pixel with nothing to qualify for. Horizontal applies only to
+/// the photo, and only when the drag is clearly horizontal.
 ///
-/// So: wait for enough travel to judge at all, decide once, and let the loser
-/// ignore the rest of the gesture entirely.
+/// Gating *both* — which is what this did first — meant a swipe up on a photo
+/// had to travel ten points and prove itself before the feed would move at all,
+/// so the one gesture that should never hesitate was the one that did.
 enum DragAxis {
     /// How far the finger must move before the direction means anything. Below
     /// this a swipe has no direction, only noise.
@@ -84,18 +85,17 @@ struct DiscoveryView: View {
             // Vertical only, and only if this drag was judged vertical when it
             // started. See `DragAxis`.
             DragGesture(coordinateSpace: .global)
-                .onChanged { value in
-                    if model.ownsDrag == nil, DragAxis.isDecidable(value.translation) {
-                        model.ownsDrag = !DragAxis.isHorizontal(value.translation)
-                    }
-                    guard model.ownsDrag == true else { return }
-                    model.drag = value.translation.height
-                }
+                // Ungated: the feed follows the finger immediately, anywhere on
+                // the card. A mostly-sideways drag moves it a little and springs
+                // back, which is what Instagram does and reads as the surface
+                // being alive rather than as a mistake.
+                .onChanged { value in model.drag = value.translation.height }
                 .onEnded { value in
                     model.drag = 0
-                    let owned = model.ownsDrag == true
-                    model.ownsDrag = nil
-                    guard owned else { return }
+                    // Committing is the part that *is* gated. Tracking a few
+                    // points of vertical during a photo swipe is fine; changing
+                    // profile because of it is not.
+                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
                     // A quarter of the screen, or a flick — the same commit
                     // rule the garden's pull-up uses.
                     let projected = value.predictedEndTranslation.height
@@ -131,9 +131,6 @@ final class DiscoveryModel: ObservableObject {
     @Published private(set) var profiles: [DiscoveryFeed.Profile] = []
     @Published var index = 0
     @Published var drag: CGFloat = 0
-    /// Whether the drag in flight belongs to the feed. Nil while undecided and
-    /// between gestures. See `DragAxis`.
-    @Published var ownsDrag: Bool?
     @Published private(set) var failure: String?
 
     private var feed: DiscoveryFeed?
@@ -186,9 +183,14 @@ struct DiscoveryCard: View {
 
     @State private var page = 0
     @State private var dragX: CGFloat = 0
-    /// The mirror of `DiscoveryModel.ownsDrag`: exactly one of the two claims
-    /// any given drag, and the same test decides both.
-    @State private var ownsDrag: Bool?
+    /// How this drag was judged, and where the finger was when it was judged.
+    ///
+    /// The offset is measured *from that point*. Taking `translation.width`
+    /// whole meant the photo jumped by however far the finger had already
+    /// travelled while the gesture was making up its mind — ten points at once,
+    /// which is precisely the lurch that made the swipe feel unsmooth.
+    private enum Carousel: Equatable { case engaged(from: CGFloat), declined }
+    @State private var carousel: Carousel?
 
     /// "23 · Central West End" — each part dropped when unknown, so a card with
     /// no age still reads cleanly instead of carrying a stray separator.
@@ -267,23 +269,27 @@ struct DiscoveryCard: View {
                     // began on a photo — which is most of the card — and the
                     // feed would stop scrolling.
                     .simultaneousGesture(
-                        DragGesture(minimumDistance: 4)
+                        DragGesture(minimumDistance: 2)
                             .onChanged { value in
-                                if ownsDrag == nil, DragAxis.isDecidable(value.translation) {
-                                    ownsDrag = DragAxis.isHorizontal(value.translation)
+                                if carousel == nil, DragAxis.isDecidable(value.translation) {
+                                    carousel = DragAxis.isHorizontal(value.translation)
+                                        ? .engaged(from: value.translation.width)
+                                        : .declined
                                 }
-                                guard ownsDrag == true else { return }
-                                dragX = value.translation.width
+                                guard case .engaged(let origin) = carousel else { return }
+                                dragX = value.translation.width - origin
                             }
                             .onEnded { value in
+                                let travelled = dragX
                                 dragX = 0
-                                let owned = ownsDrag == true
-                                ownsDrag = nil
-                                guard owned else { return }
+                                carousel = nil
+                                guard travelled != 0 else { return }
                                 let last = profile.photoSeeds.count - 1
-                                if value.translation.width < -width * 0.22 {
+                                // Against what was actually dragged, not the raw
+                                // translation, for the same reason as above.
+                                if travelled < -width * 0.20 {
                                     page = min(last, page + 1)
-                                } else if value.translation.width > width * 0.22 {
+                                } else if travelled > width * 0.20 {
                                     page = max(0, page - 1)
                                 }
                             }
