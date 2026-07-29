@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- What the share sheet calls it. Without this it inherits the target's
+	     name and offers "ShareToWritten", which is a build artefact rather than
+	     a product — the row should say what the app is called. -->
+	<key>CFBundleDisplayName</key>
+	<string>Written</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

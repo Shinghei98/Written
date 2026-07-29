@@ -240,7 +240,7 @@
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ShareToWritten;
+				INFOPLIST_KEY_CFBundleDisplayName = Written;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -270,7 +270,7 @@
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ShareToWritten;
+				INFOPLIST_KEY_CFBundleDisplayName = Written;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				LD_RUNPATH_SEARCH_PATHS = (
