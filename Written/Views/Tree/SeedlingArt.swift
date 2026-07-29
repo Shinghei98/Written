@@ -533,15 +533,7 @@ enum SeedlingArt {
             turn: 0,
             leaflets: [
                 Leaflet(mirrored: false, axis: -50, scale: 0.24, along: 1, stalkRun: .zero),
-                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.34, stalkRun: CGSize(width: -0.038, height: 0.008)),
-                // Declared here but shut until the canopy, where the reference
-                // gives this branch a leaf either side of one point. It lives on
-                // the frozen set rather than only on the canopy's copy because
-                // `SeedlingView` indexes its per-leaflet animation state off
-                // *this* array — the two must agree on how many leaves a branch
-                // has, or the state silently belongs to the wrong leaf.
-                Leaflet(mirrored: true, axis: 88, scale: 0.22, along: 0.8095,
-                        stalkRun: CGSize(width: 0.030, height: 0.008), opensAt: .canopy)
+                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.34, stalkRun: CGSize(width: -0.038, height: 0.008))
             ]
         ),
         Shoot(
@@ -615,8 +607,7 @@ enum SeedlingArt {
             // stem to leaf tip against 0.21 and 0.32 for the two beside it. And
             // near-upright — +25.8° off vertical, where the others splay past
             // 50° — so the rachis is mostly rise and only a little reach.
-            // Opened out three degrees from the stem, 18.3 to 21.3.
-            reach: CGSize(width: 0.0374, height: 0.0700),
+            reach: CGSize(width: 0.034, height: 0.072),
             turn: 0,
             leaflets: [
                 // Two tiny leaves, not one. This is the newest growth and the
@@ -701,54 +692,53 @@ enum SeedlingArt {
             id: 1,
             stage: .branch,
             attachment: 0.34,
-            // Rotated to sit 30° off the stem rather than 39°, and shortened to
-            // 0.840 of its length in the same figure: (-0.0692, 0.0875) to
-            // (-0.0465, 0.0827).
+            // The upper branch — the rachis, which runs into the terminal leaf
+            // — turned a degree counterclockwise and then extended a tenth
+            // *beyond the bifurcation*, from (-0.0638, 0.0836).
             //
-            // The shortening is what halves the terminal leaf's distance from
-            // the pair below it. That leaf sits at the rachis' tip, so the only
-            // way to bring it closer to the branch point is to bring the tip in.
-            reach: CGSize(width: -0.0465, height: 0.0827),
+            // Extending only the far segment means the rachis as a whole grows
+            // by less than a tenth: 0.382 + 1.1 × 0.618 = 1.0618 of its length,
+            // since the stretch before the branch point keeps its size.
+            //
+            // The turn is applied to `reach` rather than to `turn`, which would
+            // swing the sub-petiole and the lower leaf with it. Only the upper
+            // branch was asked for.
+            reach: CGSize(width: -0.0692, height: 0.0875),
             turn: 0,
-            // Bowed below its own chord — the reference's branch dips rather
-            // than running straight out.
-            bow: 0.10,
             leaflets: [
-                // The furthest leaf, larger: 0.26 to 0.30.
-                Leaflet(mirrored: false, axis: -50, scale: 0.30, along: 1, stalkRun: .zero),
-                // The pair, both leaving the rachis at one point — the reference
-                // hangs them off the same place, one either side.
+                Leaflet(mirrored: false, axis: -50, scale: 0.26, along: 1, stalkRun: .zero),
+                // Divided by that same 1.0618, 0.382 to 0.360. `along` is a
+                // fraction of the rachis rather than a distance, so leaving it
+                // alone while the rachis lengthens carries the branch point out
+                // with the tip — and the branch point is where it should be.
                 //
-                // 0.8095 of the shortened rachis is 0.680 of the old one, which
-                // is where the two stalks used to meet it on average: 0.360 and
-                // 1.0. Expressed against the new length because `along` is a
-                // fraction, so the same number would mean a different place.
-                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.8095,
-                        stalkRun: CGSize(width: -0.030, height: 0.008)),
-                Leaflet(mirrored: true, axis: 88, scale: 0.22, along: 0.8095,
-                        stalkRun: CGSize(width: 0.030, height: 0.008), opensAt: .canopy)
+                // It does swing the degree the rachis turned, which the drawing
+                // cannot avoid: the rachis is one curve from stem to tip with no
+                // kink at the split, so the far segment cannot turn without the
+                // near one. At this radius that is about 0.0007 of the canvas.
+                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.360,
+                        stalkRun: CGSize(width: -0.0506, height: 0.0154))
             ]
         ),
         // L2 — the left-hand upper branch.
         Shoot(
             id: 2,
             stage: .bough,
-            // Up the stem by a fifth, 0.70 to 0.84 of the stage-3 stem, which
-            // puts it at 0.718 of the canopy's rather than 0.598 — closing about
-            // a third of the gap to the fork.
-            attachment: 0.84,
+            // 0.82 of the stage-3 stem, which is 0.701 of the canopy's. It went
+            // 0.70 to 0.84 to lift it toward the fork; this drops it back a
+            // little, keeping most of that lift.
+            attachment: 0.82,
             // Shortened to 0.7125, (-0.1185, 0.156) to (-0.0844, 0.1111).
             // That factor is what halves the terminal leaf's distance from the
             // pair below it: the leaf sits at the tip, so bringing it closer to
             // the branch point means bringing the tip in.
             reach: CGSize(width: -0.0844, height: 0.1111),
             turn: 0,
-            // A clear concave-up arc. This branch runs up-*left*, and a positive
-            // bow pushes left of the direction of travel, which for it is below
-            // the chord — so the sag, and the opening upward, come from a
-            // positive number here. The same number on a right-hand branch would
-            // arch it the other way.
-            bow: 0.20,
+            // Arced the other way from the first attempt. Positive bow pushes
+            // left of the direction of travel, which for a branch running
+            // up-left put the sag below the chord; the reference arches the
+            // opposite way, so the sign flips.
+            bow: -0.20,
             leaflets: [
                 // The furthest leaf, half again as large: 0.290 to 0.435.
                 Leaflet(mirrored: false, axis: -46, scale: 0.435, along: 1, stalkRun: .zero),
@@ -759,13 +749,19 @@ enum SeedlingArt {
                 // Opposite bows so both petioles curl *toward* the backbone
                 // rather than both the same way round: bow is relative to the
                 // direction a stalk runs, and these two run opposite ways.
+                // 40 degrees either side of the backbone, which runs -36.9 from
+                // vertical: these two sat 74.9 and 105.1 off it, nearly square
+                // and not symmetric at all. Each stalk keeps the length it had.
                 Leaflet(mirrored: false, axis: -92, scale: 0.19, along: 0.5965,
-                        stalkRun: CGSize(width: -0.030, height: 0.013),
+                        stalkRun: CGSize(width: -0.0315, height: -0.0079),
                         bow: -0.22, opensAt: .canopy),
                 Leaflet(mirrored: false, axis: 4, scale: 0.065, along: 0.58,
                         stalkRun: CGSize(width: 0.005, height: -0.040), closesAt: .canopy),
-                Leaflet(mirrored: true, axis: 26, scale: 0.19, along: 0.5965,
-                        stalkRun: CGSize(width: 0.030, height: -0.013),
+                // The right-hand flank, halved: 0.19 to 0.095. Its partner on
+                // the left keeps its size, so the pair is symmetric in where it
+                // sits and deliberately not in how big it is.
+                Leaflet(mirrored: true, axis: 26, scale: 0.095, along: 0.5965,
+                        stalkRun: CGSize(width: 0.0017, height: -0.0350),
                         bow: 0.22, opensAt: .canopy)
             ]
         ),
@@ -778,7 +774,14 @@ enum SeedlingArt {
             // is the canopy's `t` directly rather than a fraction of some
             // earlier stem that has to be converted.
             attachment: 0.629,
-            reach: CGSize(width: 0.034, height: 0.072),
+            // Opened out from the stem twice: three degrees, then ten more, so
+            // 13 from where it started — 18.3 to 31.3 against the stem.
+            //
+            // Both rotations had to be redone. That same reach appears in the
+            // frozen set as well as here, and a replace-first-match put them
+            // both on the frozen copy — which the canopy blend overwrites
+            // wholesale, so R2 never moved at all.
+            reach: CGSize(width: 0.0481, height: 0.0619),
             turn: 0,
             // Bowed above its chord: the reference's newest shoot arcs upward
             // rather than running straight, which is most of what makes it read

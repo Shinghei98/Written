@@ -12,3 +12,6 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 build/
+
+# Regenerable harness output — screenshots and overlays, half a megabyte a round.
+tools/out/
