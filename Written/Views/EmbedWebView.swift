@@ -21,7 +21,11 @@ struct EmbedWebView: UIViewRepresentable {
     /// The player refused to play it. Some videos genuinely cannot be embedded —
     /// the uploader's choice — and a card showing YouTube's own error screen
     /// with a numeric code is worse than saying so plainly.
-    var onUnavailable: () -> Void = {}
+    /// Carries the player's own code, because the codes mean different things
+    /// and guessing between them has already cost a round: 101 and 150 are the
+    /// uploader forbidding embedding, 2 is a bad parameter — my fault — and 5 is
+    /// the player itself failing.
+    var onUnavailable: (Int) -> Void = { _ in }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -92,9 +96,9 @@ struct EmbedWebView: UIViewRepresentable {
         var loaded: String?
         var playing = false
         var muted = true
-        let onUnavailable: () -> Void
+        let onUnavailable: (Int) -> Void
 
-        init(onUnavailable: @escaping () -> Void) {
+        init(onUnavailable: @escaping (Int) -> Void) {
             self.onUnavailable = onUnavailable
         }
 
@@ -102,8 +106,8 @@ struct EmbedWebView: UIViewRepresentable {
             _ controller: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let body = message.body as? String, body.hasPrefix("error") else { return }
-            onUnavailable()
+            guard let body = message.body as? String, body.hasPrefix("error:") else { return }
+            onUnavailable(Int(body.dropFirst("error:".count)) ?? -1)
         }
     }
 

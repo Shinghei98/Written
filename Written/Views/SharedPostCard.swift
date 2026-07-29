@@ -20,6 +20,10 @@ struct SharedPostCard: View {
     /// so and offers the way to watch it, instead of showing YouTube's grey
     /// panel and a numeric code inside a parchment frame.
     @State private var isUnavailable = false
+    /// The player's own code for the refusal. Shown in debug builds only — a
+    /// number means nothing to a reader, and everything to whoever is trying to
+    /// work out whether the video forbids embedding or the page is at fault.
+    @State private var errorCode: Int?
 
     private static let horizontalPadding: CGFloat = 20
 
@@ -92,7 +96,10 @@ struct SharedPostCard: View {
                     videoID: post.videoID,
                     isPlaying: isActive,
                     isMuted: isMuted,
-                    onUnavailable: { isUnavailable = true }
+                    onUnavailable: { code in
+                        isUnavailable = true
+                        errorCode = code
+                    }
                 )
                 .frame(height: mediaHeight)
                     // Black behind it, not parchment: a 16:9 video in a 4:5
@@ -130,6 +137,16 @@ struct SharedPostCard: View {
                 Text("This one can't be played here")
                     .font(.system(size: 13))
                     .foregroundColor(GardenPalette.muted)
+#if DEBUG
+                if let errorCode {
+                    // 101/150: the uploader disallows embedding. 2: a bad
+                    // parameter, which would be this app's fault. 5: the
+                    // player failed. 100: no such video.
+                    Text("player error \(errorCode)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(GardenPalette.gold)
+                }
+#endif
                 if let watch = URL(string: "https://www.youtube.com/watch?v=\(post.videoID)") {
                     Link(destination: watch) {
                         Text("Watch on YouTube")
