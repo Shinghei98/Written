@@ -43,6 +43,17 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "stages") == "all"
     }
 
+    /// `-reveal 1` → the garden with its page already ridden up, uncovering the
+    /// Dashboard button.
+    ///
+    /// Same reason as everything else here: the reveal is a drag, `simctl` has
+    /// no way to drag, and this machine has neither `idb` nor `fbsimctl`. Without
+    /// it the raised layout can be reasoned about and not looked at, which is
+    /// how the badge that turned out to be sitting on a leaf got shipped.
+    static var startsRevealed: Bool {
+        UserDefaults.standard.string(forKey: "reveal") == "1"
+    }
+
     /// `-screen dashboard` → plays the move to the dashboard shortly after
     /// launch. It is otherwise only reachable by tapping "View Dashboard", and
     /// `simctl` cannot tap; screenshotting during the delay and after it covers

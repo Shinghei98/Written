@@ -53,6 +53,14 @@ struct GrowProfileView: View {
     @State private var distillProgress: Double = 0
     @State private var progressWalk: Task<Void, Never>?
 
+    /// How far the page has ridden up, in points. The single source of truth for
+    /// the reveal: the button's opacity is read off it, so a drag that stops
+    /// half way leaves the button half faded rather than the two disagreeing.
+    @State private var revealed: CGFloat = 0
+    /// Drives the arrow's rise and fall. Set once and left alone; the animation
+    /// on it is what repeats.
+    @State private var isBobbing = false
+
     /// How the head moves along the bar: one pace between dots, and a wait on
     /// the dot it reaches.
     private static let progressStep: Double = 1.0
@@ -101,21 +109,47 @@ struct GrowProfileView: View {
     /// shrunk to fit more of them.
     private static let promptsOverdraw: CGFloat = barRow
 
-    /// What the stack is drawn and scrolled inside.
-    private static let promptsDrawn: CGFloat = promptsReserve + promptsOverdraw
-
     /// The fade at the top of the stack, in points rather than as a fraction of
     /// the window — a fraction would have grown with the overdraw and turned a
     /// soft edge into a long dissolve over half the visible rows.
     private static let barsFade: CGFloat = 26
+
+    /// The strip at the foot of the page holding the arrow.
+    ///
+    /// Taken out of the reserve rather than added below it. The reserve is what
+    /// the garden is measured against, so a strip added underneath would have
+    /// come straight off the plant — and the Dashboard button that used to sit
+    /// inside the reserve was 48 points plus its gap, so removing it pays for
+    /// this twice over and still leaves the rows better off than before.
+    private static let handleHeight: CGFloat = 28
+
+    /// How far the page rides up to uncover the Dashboard button.
+    private static let revealHeight: CGFloat = 72
+
+    /// What the stack is drawn and scrolled inside, once the strip is taken out.
+    private static let promptsDrawn: CGFloat =
+        promptsReserve - handleHeight + promptsOverdraw
+
+    /// Whether the page can be pulled up at all. The Dashboard is the way into
+    /// what the distillation produced, so there has to *be* a distillation:
+    /// before the first connection the arrow is not drawn and the drag does
+    /// nothing, rather than sliding the page onto a button that is disabled.
+    private var canReveal: Bool { !viewModel.treeState.connectedModalities.isEmpty }
 
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
     private var isCovering: Bool { isWatering }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             GardenPalette.parchment.ignoresSafeArea()
+
+            // Underneath the page, uncovered as it rides up. Drawn first and
+            // covered by the page's own background until then, so there is one
+            // button rather than one that is hidden and another that is shown.
+            viewProfile
+                .padding(.bottom, 18)
+                .opacity(revealed / Self.revealHeight)
 
             VStack(spacing: 0) {
                 header
@@ -136,11 +170,35 @@ struct GrowProfileView: View {
                     // the content can never exceed this, so the garden's size is
                     // now the same by construction rather than by arithmetic
                     // that has to be redone every time a modality is added.
-                    .frame(height: Self.promptsReserve, alignment: .bottom)
+                    .frame(height: Self.promptsReserve - Self.handleHeight, alignment: .bottom)
                     .padding(.horizontal, 16)
+                revealHandle
+                    .frame(height: Self.handleHeight)
                     .padding(.bottom, 12)
             }
+            // Opaque, or the button below shows through the page instead of
+            // from under it.
+            .background(GardenPalette.parchment)
+            .offset(y: -revealed)
+            // Simultaneous rather than exclusive: the stack above is a scroll
+            // view and would otherwise swallow every upward drag before this
+            // saw it.
+            .simultaneousGesture(revealDrag)
         }
+        // Losing the last connection has to put the page back down, or it stays
+        // up over a button that is no longer reachable.
+        .onChange(of: canReveal) { can in
+            guard !can else { return }
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { revealed = 0 }
+        }
+#if DEBUG
+        // `-reveal 1` on the launch line; see `DebugLaunch`.
+        .onAppear {
+            if DebugLaunch.startsRevealed, DebugLaunch.firesOnce("reveal") {
+                revealed = Self.revealHeight
+            }
+        }
+#endif
         .preferredColorScheme(.light)
         // Fires once on appear, then again whenever a distillation changes the
         // shape of the tree.
@@ -420,8 +478,6 @@ struct GrowProfileView: View {
                             .id(next)
                     }
 
-                    viewProfile
-
                     // Something to scroll *to*. Anchoring on the last real row
                     // would follow whichever view that happens to be, and it
                     // changes as sources connect.
@@ -470,6 +526,67 @@ struct GrowProfileView: View {
     /// The foot of the scrolling stack, which is where it should sit whenever
     /// the set of connections changes.
     private static let promptsFoot = "prompts-foot"
+
+    /// The arrow at the foot of the page: the only sign that there is anything
+    /// under it. It rises and falls rather than sitting still because a static
+    /// chevron on a screen with no other chrome reads as decoration.
+    ///
+    /// Tappable as well as draggable. An arrow that looks like a control and
+    /// only answers to a gesture nobody has been told about is worse than no
+    /// arrow, and the tap costs one closure.
+    private var revealHandle: some View {
+        Button {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                revealed = revealed > 0 ? 0 : Self.revealHeight
+            }
+        } label: {
+            Image(systemName: "chevron.up")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(GardenPalette.gold)
+                .rotationEffect(.degrees(revealed > 0 ? 180 : 0))
+                .offset(y: isBobbing ? -4 : 2)
+                // Only while there is something to reveal and it is still
+                // hidden. Left running underneath the raised page it reads as
+                // the button twitching.
+                .animation(
+                    canReveal && revealed == 0
+                        ? .easeInOut(duration: 0.95).repeatForever(autoreverses: true)
+                        : .easeOut(duration: 0.2),
+                    value: isBobbing
+                )
+                // Room to hit, without the arrow itself growing.
+                .frame(width: 64, height: Self.handleHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(canReveal ? 1 : 0)
+        .allowsHitTesting(canReveal)
+        .animation(.easeInOut(duration: 0.35), value: canReveal)
+        .onAppear { isBobbing = true }
+    }
+
+    /// Dragging the page itself, which is the gesture the arrow is advertising.
+    ///
+    /// Clamped rather than rubber-banded at both ends: there is one screen above
+    /// and one below, and letting it pull past either implies a third.
+    private var revealDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard canReveal else { return }
+                let from = revealed > Self.revealHeight / 2 ? Self.revealHeight : 0
+                revealed = min(Self.revealHeight, max(0, from - value.translation.height))
+            }
+            .onEnded { value in
+                guard canReveal else { return }
+                // Where it would land if the finger kept going, so a short fast
+                // flick settles the same way a long slow drag does.
+                let projected = revealed - (value.predictedEndTranslation.height
+                                            - value.translation.height) * 0.25
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                    revealed = projected > Self.revealHeight / 2 ? Self.revealHeight : 0
+                }
+            }
+    }
 
     /// The way to the dashboard, under the bars.
     ///
