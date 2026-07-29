@@ -626,12 +626,19 @@ enum SeedlingArt {
             reach: CGSize(width: 0.080, height: 0.088),
             turn: 18,
             leaflets: [
-                // The second branch, moved out so the gap to the first grows by
-                // three fifths: they sat 0.116 of the rachis apart, now 0.186,
-                // which puts this at 0.544 + 0.186. Held as a gap rather than a
-                // position, since the first branch is where it should be and
-                // this one is being measured from it.
-                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.730,
+                // The second branch, measured as a gap from the first rather
+                // than as a position — the first is where it should be, and
+                // this is placed relative to it.
+                //
+                // The gap has been opened twice: 0.116 of the rachis, then three
+                // fifths more to 0.186, then four fifths more again to 0.335.
+                // 0.544 + 0.335. Compounding, not replacing — the second figure
+                // was asked for because the first had not gone far enough.
+                //
+                // That leaves 0.121 to the terminal leaf at the tip, less than
+                // the gap below it, so the upper pair now sits closer together
+                // than the lower.
+                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.879,
                         stalkRun: CGSize(width: 0.004, height: -0.074)),
                 Leaflet(mirrored: true, axis: 50, scale: 0.26, along: 1, stalkRun: .zero),
                 // The first branch off the rachis, moved out from the stem by
