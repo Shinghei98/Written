@@ -59,12 +59,22 @@ struct GrowProfileView: View {
     private static let progressDwell: Double = 0.45
 
     /// Height held for the bars at the foot of the screen, filled or not.
+    /// Reserving it is what keeps the garden the same size from the first stage
+    /// to the last.
     ///
-    /// The tallest the stack gets is every modality but the last connected —
-    /// two slim bars at 44 and the 76pt invitation — plus "View Dashboard", which
-    /// is there at every stage, and the gaps. Reserving it is what keeps the
-    /// garden the same size from the first stage to the last.
-    private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3
+    /// Derived from the number of modalities rather than written out, because
+    /// it went stale the moment a fourth was added: at `44 * 2` it held room for
+    /// two bars, a fourth overflowed it, and the garden gave up the difference —
+    /// the plant scaling down and sliding as the user connected, which is
+    /// exactly what this constant exists to prevent.
+    ///
+    /// The tallest the stack ever gets is one short of every bar plus the
+    /// invitation to the last one, plus the Dashboard button: all four connected
+    /// is *shorter*, since the invitation is gone by then.
+    private static var promptsReserve: CGFloat {
+        let bars = CGFloat(Modality.allCases.count - 1)
+        return 44 * bars + 76 + 48 + 8 * (bars + 1)
+    }
 
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
@@ -80,8 +90,8 @@ struct GrowProfileView: View {
                 garden
                 Spacer(minLength: 8)
                 prompts
-                    // Room for the tallest the stack ever gets — two connected
-                    // bars and an invitation — held whether or not it is filled.
+                    // Room for the tallest the stack ever gets, held whether or
+                    // not it is filled.
                     //
                     // The garden takes what is left, so without this the space
                     // below it shrinks with every bar added, the square shrinks

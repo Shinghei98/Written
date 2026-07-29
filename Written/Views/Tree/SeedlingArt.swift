@@ -415,6 +415,12 @@ enum SeedlingArt {
                 // At 0.29 of a cotyledon it is as long as the stalk that carries
                 // it. Drawn shorter, it and the bud sat on top of each other.
                 Leaflet(mirrored: false, axis: -46, scale: 0.29, along: 1, stalkRun: .zero),
+                // The middle leaf, hanging below the rachis and pointing back
+                // down-left. The reference draws this shoot with *three*
+                // leaflets, not two — a big terminal one, this, and the small
+                // one opposite. Drawn with two it read as a twig rather than a
+                // frond.
+                Leaflet(mirrored: false, axis: -92, scale: 0.19, along: 0.54, stalkRun: CGSize(width: -0.030, height: 0.013)),
                 // The bud: this shoot is the newest growth and its second leaf
                 // has not opened. It forks from the rachis' own tip on a short
                 // upright stalk — a third of the way back down it, as an earlier
@@ -424,7 +430,11 @@ enum SeedlingArt {
                 // put both at the same point because its leaf is narrow where
                 // it starts; ours is not, and a bud leaving the rachis at the
                 // tip comes out *inside* the leaf's base and crosses it.
-                Leaflet(mirrored: false, axis: 4, scale: 0.065, along: 0.58, stalkRun: CGSize(width: 0.005, height: -0.040))
+                // Was a bud on a near-vertical stalk. In the reference it is an
+                // open leaf on the *other* side of the rachis, low down it and
+                // pointing up-right, which is what makes the cluster read as a
+                // frond with a leaf either side rather than a stalk with a lump.
+                Leaflet(mirrored: true, axis: 26, scale: 0.115, along: 0.31, stalkRun: CGSize(width: 0.026, height: -0.024))
             ]
         ),
         Shoot(
@@ -444,11 +454,19 @@ enum SeedlingArt {
             reach: CGSize(width: 0.034, height: 0.072),
             turn: 0,
             leaflets: [
-                // One leaf, terminal, so rachis and midrib read as one stroke.
-                // The reference's blade here measures 2.62 long to wide against
-                // the cotyledon's 2.08 — the side leaflets run narrower than the
+                // Two tiny leaves, not one. This is the newest growth and the
+                // reference gives it a pair — the smallest on the plant, but a
+                // pair, which is what says "just opened" rather than "stunted".
+                //
+                // The reference's blades here measure 2.62 long to wide against
+                // the cotyledon's 2.08: side leaflets run narrower than the
                 // leaves that opened first, not merely smaller.
-                Leaflet(mirrored: true, axis: 34, scale: 0.20, along: 1, stalkRun: .zero)
+                // Scaled to the reference rather than to the word "tiny": its
+                // blade here measures 0.55 of a cotyledon, which is small
+                // against the leaves above it but not a speck. At 0.145 this
+                // pair was a third of that and read as debris.
+                Leaflet(mirrored: true, axis: 30, scale: 0.30, along: 1, stalkRun: .zero),
+                Leaflet(mirrored: false, axis: -34, scale: 0.23, along: 0.46, stalkRun: CGSize(width: -0.026, height: -0.008))
             ]
         )
     ]
@@ -480,8 +498,21 @@ enum SeedlingArt {
     /// that put it out, and its rachis lengthens with it. Left frozen, it reads
     /// as a sprig the plant grew past. Each shoot is declared at its own birth
     /// size, so this is measured from *its* stage, not from the start.
+    /// A shoot keeps growing for as long as the plant does, rather than for one
+    /// stage and then stopping.
+    ///
+    /// Measured against the reference: normalise every blade by that drawing's
+    /// own cotyledon and its side leaves run 0.48 to 0.71 of one. Ours ran 0.26
+    /// to 0.40 — about half — which is most of why the plant read as a different
+    /// species even with the stem weight and the attachments right.
+    ///
+    /// Capping at one stage was what held them there: the oldest shoot stopped
+    /// growing three stages before the plant did. Letting it run to three puts
+    /// the first shoot at 2.14x by the canopy, which lands it near the top of
+    /// the reference's range while the newest sits at the bottom — the spread
+    /// the drawing actually has.
     static func shootGrowth(_ shoot: Shoot, extended: CGFloat) -> CGFloat {
-        let stagesOn = min(max(extended - CGFloat(shoot.stage.rawValue), 0), 1)
+        let stagesOn = min(max(extended - CGFloat(shoot.stage.rawValue), 0), 3)
         return 1 + 0.38 * stagesOn
     }
 
@@ -915,7 +946,15 @@ struct VectorStemShape: Shape {
         )
 
         let baseHalf = w * 0.0082
-        let headHalf = baseHalf * (1 - 0.40 * progress)
+        // Barely tapered, because the reference's stem barely tapers. Measured
+        // across its own span it runs 0.0157 of the canvas at the foot, 0.0123
+        // at the middle and 0.0140 at the fork — a ratio of 1.12, which is a
+        // stroke of near-constant weight rather than a wedge.
+        //
+        // At 0.40 ours reached the fork at 1.67, and read as a spike with
+        // leaves stuck on it against the reference's steady vessel. The taper
+        // has to be small enough to notice only by looking for it.
+        let headHalf = baseHalf * (1 - 0.12 * progress)
 
         // Built along the shared centreline rather than as its own curve: the
         // stem's shape changes with the stage, and a tube drawn to a private
