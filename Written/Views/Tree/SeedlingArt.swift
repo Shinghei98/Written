@@ -383,6 +383,24 @@ enum SeedlingArt {
         var closesAt: SeedlingStage? = nil
 
         var hasSubPetiole: Bool { stalkRun != .zero }
+
+        /// Part-way toward another leaflet. `mirrored` and the stage window are
+        /// taken from self — which side of the rachis a leaf is on, and whether
+        /// it is drawn at all, are not quantities to interpolate.
+        func blended(toward other: Leaflet, by t: CGFloat) -> Leaflet {
+            Leaflet(
+                mirrored: mirrored,
+                axis: axis + (other.axis - axis) * Double(t),
+                scale: scale + (other.scale - scale) * t,
+                along: along + (other.along - along) * t,
+                stalkRun: CGSize(
+                    width: stalkRun.width + (other.stalkRun.width - stalkRun.width) * t,
+                    height: stalkRun.height + (other.stalkRun.height - stalkRun.height) * t
+                ),
+                opensAt: opensAt,
+                closesAt: closesAt
+            )
+        }
     }
 
     /// A shoot off the side of the stem, and the stage it first appears at.
@@ -405,6 +423,27 @@ enum SeedlingArt {
         /// The leaflet the rachis runs into, so that stem, stalk and midrib are
         /// one line — the rachis' end tangent is aimed along this one's axis.
         var carrier: Leaflet { leaflets.first { !$0.hasSubPetiole } ?? leaflets[0] }
+
+        /// This shoot part-way toward another, for growing into the canopy's
+        /// version of itself instead of snapping to it.
+        ///
+        /// `stage` and `id` are taken from self: they say *when* a shoot exists
+        /// and which animation state belongs to it, and blending either would be
+        /// meaningless. `opensAt` and `closesAt` likewise — a leaflet is drawn
+        /// or it is not.
+        func blended(toward other: Shoot, by t: CGFloat) -> Shoot {
+            Shoot(
+                id: id,
+                stage: stage,
+                attachment: attachment + (other.attachment - attachment) * t,
+                reach: CGSize(
+                    width: reach.width + (other.reach.width - reach.width) * t,
+                    height: reach.height + (other.reach.height - reach.height) * t
+                ),
+                turn: turn + (other.turn - turn) * Double(t),
+                leaflets: zip(leaflets, other.leaflets).map { $0.blended(toward: $1, by: t) }
+            )
+        }
     }
 
     /// Degrees the spine sweeps toward its own side over the blade's length. A
@@ -562,10 +601,69 @@ enum SeedlingArt {
         )
     ]
 
+    /// The same four branches as the canopy draws them.
+    ///
+    /// A separate copy rather than canopy-only overrides on the shared ones, and
+    /// the reason is a track record: every canopy change so far has had to be
+    /// gated by hand — `opensAt` on a leaflet, a weight on the taper, another on
+    /// the lean — and two of those gates were missed, each found only by
+    /// diffing renders against a build from before the work began. These four
+    /// branches will be adjusted many times, and with a copy an adjustment
+    /// physically cannot reach stage 1, 2 or 3.
+    ///
+    /// **Same shape as `shoots`.** Same count, same leaflets per shoot, in the
+    /// same order — `SeedlingView` keys its per-leaflet animation state off
+    /// indices into `shoots`, so a different shape here would misalign them
+    /// rather than fail loudly.
+    static let canopyShoots: [Shoot] = [
+        // R1 — the right-hand branch, moved out from the stem. Only the rachis
+        // changes: lengthening it carries the branch point and both leaves out
+        // together, which is what "the whole branch further right" is.
+        Shoot(
+            id: 0,
+            stage: .shoot,
+            attachment: 0.52,
+            reach: CGSize(width: 0.080, height: 0.088),
+            turn: 18,
+            leaflets: shoots[0].leaflets
+        ),
+        // L1 — the left-hand lowest branch. Its split happens later along the
+        // rachis, and both leaves grow a little and move outward: the lower one
+        // left and down, the upper one up and left.
+        Shoot(
+            id: 1,
+            stage: .branch,
+            attachment: 0.34,
+            // Further left and a little higher, which carries the terminal leaf
+            // — the upper one — up and left with it, since it sits at the tip.
+            reach: CGSize(width: -0.058, height: 0.076),
+            turn: 0,
+            leaflets: [
+                Leaflet(mirrored: false, axis: -50, scale: 0.26, along: 1, stalkRun: .zero),
+                // `along` 0.34 to 0.42: further along the rachis is later, so
+                // the bifurcation happens further from the stem. The stalk runs
+                // further left and a touch further down.
+                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.42,
+                        stalkRun: CGSize(width: -0.046, height: 0.014))
+            ]
+        ),
+        shoots[2],
+        shoots[3]
+    ]
+
     /// The shoots grown by a given point in the climb — a shoot appears with
     /// the stage that grows it and stays for every stage after.
+    ///
+    /// Eased from the shared set into the canopy's over the last stage rather
+    /// than swapped at a threshold. Swapping would pop every branch the instant
+    /// the fourth source connected, mid-growth, which is the same defect as a
+    /// stem that jumps.
     static func shoots(by extended: CGFloat) -> [Shoot] {
-        shoots.filter { CGFloat($0.stage.rawValue) <= extended + 0.001 }
+        let canopy = min(max(extended - 3, 0), 1)
+        let set = canopy <= 0
+            ? shoots
+            : zip(shoots, canopyShoots).map { $0.blended(toward: $1, by: canopy) }
+        return set.filter { CGFloat($0.stage.rawValue) <= extended + 0.001 }
     }
 
     /// Degrees to turn a leaflet's blade box by, including the turn on the

@@ -86,7 +86,11 @@ struct SeedlingView: View {
                 cotyledon(mirrored: false, in: size)
                 cotyledon(mirrored: true, in: size)
 
-                ForEach(SeedlingArt.shoots) { shoot in
+                // The set for this point in the climb, not the raw array: the
+                // canopy draws its own copy of the branches, eased in over the
+                // last stage. Ids and leaflet counts match either way, so the
+                // animation state indexed below stays aligned.
+                ForEach(SeedlingArt.shoots(by: extended)) { shoot in
                     ForEach(Array(shoot.leaflets.enumerated()), id: \.offset) { index, leaflet in
                         // Indices stay aligned with the animation state arrays,
                         // which are sized to the full list — so a leaflet that
