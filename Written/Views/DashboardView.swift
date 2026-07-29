@@ -18,6 +18,20 @@ struct DashboardView: View {
     /// Drops the session and everything this device remembers about the account.
     var onSignOut: () -> Void = {}
 
+    /// Which half of the app this is, which decides what the page offers as a
+    /// way *out* of it.
+    ///
+    /// Onboarding: no signing out and no deleting the account. Someone half way
+    /// through setting up has not seen what any of it is for yet, and offering
+    /// to destroy it beside the button that carries on is an invitation to end
+    /// the thing by accident. Both stay reachable afterwards, where the account
+    /// is a thing that exists rather than one being made.
+    ///
+    /// Regular use: no "Garden". The tab bar is the way back to it, and a second
+    /// route in the corner is chrome for something already handled — during
+    /// onboarding there is no bar, so it is the only way back and it stays.
+    var isOnboarding = false
+
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingDelete = false
     @State private var isDeleting = false
@@ -58,10 +72,12 @@ struct DashboardView: View {
                             .id("lifestyle")
                         confirmButton
                             .padding(.top, 8)
-                        signOutButton
-                            .padding(.top, 6)
-                        deleteAccountButton
-                            .padding(.top, 10)
+                        if !isOnboarding {
+                            signOutButton
+                                .padding(.top, 6)
+                            deleteAccountButton
+                                .padding(.top, 10)
+                        }
                     }
                     .padding(.horizontal, 20)
                     // Clear of the pinned header at its tallest; the content
@@ -282,21 +298,26 @@ struct DashboardView: View {
     /// who doesn't.
     private var topBar: some View {
         HStack {
-            Button(action: onBack) {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Garden")
-                        .font(.system(size: 15, weight: .medium))
+            // Onboarding only. In regular use the tab bar is the way back to
+            // the garden, and a second route in the corner is chrome for
+            // something already handled.
+            if isOnboarding {
+                Button(action: onBack) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Garden")
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .foregroundStyle(GardenPalette.muted)
+                    // A 44pt-tall target, not just the glyphs.
+                    .padding(.horizontal, 16)
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(GardenPalette.muted)
-                // A 44pt-tall target, not just the glyphs.
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to the garden")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back to the garden")
 
             Spacer(minLength: 0)
 

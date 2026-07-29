@@ -64,7 +64,8 @@ struct AppShell: View {
                     onBack: { withAnimation(.easeInOut(duration: 0.35)) { tab = .distill } },
                     onExplore: finishOnboarding,
                     onSignOut: onSignOut,
-                    isVisible: tab == .dashboard
+                    isVisible: tab == .dashboard,
+                    isOnboarding: isOnboarding
                 )
             }
 

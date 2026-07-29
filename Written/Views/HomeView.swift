@@ -30,6 +30,10 @@ struct DashboardTab: View {
     /// the profile icon has to land on the dashboard every time.
     var isVisible = true
 
+    /// Passed through to the dashboard, which offers different ways out of
+    /// itself depending on which half of the app this is.
+    var isOnboarding = false
+
     @State private var lift: CGFloat = 0
     @State private var isShowingProfiles = false
 
@@ -71,7 +75,8 @@ struct DashboardTab: View {
                     onSignOut: {
                         viewModel.signOutLocalState()
                         onSignOut()
-                    }
+                    },
+                    isOnboarding: isOnboarding
                 )
                 .offset(y: lift)
                 // Offscreen but still mounted, so it must stop taking taps the
