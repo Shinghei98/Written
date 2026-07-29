@@ -70,7 +70,40 @@ enum SeedlingArt {
         let into = along - CGFloat(index)
         let from = forkHeights[index]
         let to = forkHeights[min(index + 1, forkHeights.count - 1)]
-        return CGPoint(x: forkX(extended: extended), y: from + (to - from) * into)
+        let upright = CGPoint(x: forkX(extended: extended), y: from + (to - from) * into)
+
+        // Turning the fork turns the whole stem, because `stemPoint` builds the
+        // centreline along the chord from the foot to here and every shoot hangs
+        // off that. Nothing else has to move.
+        let canopy = min(max(extended - 3, 0), 1)
+        guard canopy > 0 else { return upright }
+        return turnedAboutFoot(upright, degrees: canopyTilt * Double(canopy))
+    }
+
+    /// How far the canopy's stem is turned about its foot, in degrees, positive
+    /// being counterclockwise on screen — the top going left.
+    static let canopyTilt: Double = 2
+
+    /// Turns a point about the stem's foot.
+    ///
+    /// In pixels rather than canvas fractions. The canvas is wider than it is
+    /// tall, so mixing an x fraction with a y fraction in a rotation shears the
+    /// result instead of turning it — the same trap as measuring an angle off a
+    /// non-square image.
+    private static func turnedAboutFoot(_ point: CGPoint, degrees: Double) -> CGPoint {
+        let radians = degrees * .pi / 180
+        let cosine = CGFloat(cos(radians)), sine = CGFloat(sin(radians))
+
+        // Both in units of the canvas's *height*, which is what makes them
+        // comparable.
+        let dx = (point.x - stemBase.x) * aspectRatio
+        let dy = point.y - stemBase.y
+
+        // Screen coordinates put y downward, so counterclockwise as the eye sees
+        // it is clockwise in the arithmetic.
+        let rx = dx * cosine + dy * sine
+        let ry = -dx * sine + dy * cosine
+        return CGPoint(x: stemBase.x + rx / aspectRatio, y: stemBase.y + ry)
     }
 
     /// Where the fork sits across the canvas.
