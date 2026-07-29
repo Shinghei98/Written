@@ -303,8 +303,15 @@ enum SeedlingArt {
     /// Scaled by the reference's 940×1120 viewBox against our own units, and
     /// paired with `forkX`, which carries the rightward finish this profile
     /// cannot.
+    ///
+    /// The left lobe is then deepened by a fifth — apex -0.049 to -0.059 — which
+    /// is a departure from the trace and deliberate. Traced exactly it measured
+    /// right and read shallow, because the stem is turned two degrees
+    /// counterclockwise about its foot and that turn eats into the leftward
+    /// excursion the eye actually sees. The right lobe is untouched: it sits on
+    /// the side the turn moves *toward*, so it loses nothing.
     static let canopyLean: [CGFloat] = [
-        0.000, -0.028, -0.048, -0.049, -0.026,
+        0.000, -0.034, -0.058, -0.059, -0.031,
         -0.002, 0.013, 0.022, 0.022, 0.013, 0.000
     ]
 
