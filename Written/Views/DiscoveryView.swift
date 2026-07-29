@@ -1,41 +1,18 @@
 import SwiftUI
 
-/// Whether a drag is sideways enough to belong to the photos.
+/// The feed: other people, scrolled through.
 ///
-/// The two gestures are **not** symmetric, and that asymmetry is the whole
-/// design — it is how Instagram behaves and it is right. Vertical works
-/// everywhere, on every part of the card including the photograph, and it works
-/// from the first pixel with nothing to qualify for. Horizontal applies only to
-/// the photo, and only when the drag is clearly horizontal.
+/// **An ordinary scroll view, deliberately.** It was a pager for three rounds —
+/// one profile to a screen, a swipe committing to the next — and every gesture
+/// complaint in that time came from hand-rolling what UIKit already does. Two
+/// competing `DragGesture`s were arbitrated first per event, then locked per
+/// gesture, then ungated on one side; each fix moved the problem rather than
+/// removing it.
 ///
-/// Gating *both* — which is what this did first — meant a swipe up on a photo
-/// had to travel ten points and prove itself before the feed would move at all,
-/// so the one gesture that should never hesitate was the one that did.
-enum DragAxis {
-    /// How far the finger must move before the direction means anything. Below
-    /// this a swipe has no direction, only noise.
-    static let minimumTravel: CGFloat = 10
-
-    /// Sideways must be *clearly* sideways. In a vertical feed almost nobody
-    /// swipes up at exactly ninety degrees, so an even split hands too many
-    /// intended scrolls to the photos; the vertical gesture gets the benefit of
-    /// the doubt and horizontal has to earn it.
-    static let horizontalBias: CGFloat = 1.6
-
-    static func isDecidable(_ translation: CGSize) -> Bool {
-        abs(translation.width) + abs(translation.height) >= minimumTravel
-    }
-
-    static func isHorizontal(_ translation: CGSize) -> Bool {
-        abs(translation.width) > abs(translation.height) * horizontalBias
-    }
-}
-
-/// The feed: other people, one card at a time, swiped up and down.
-///
-/// Paged rather than free-scrolling. A profile is a thing you consider and then
-/// move past, and a scroll view that can rest halfway between two of them turns
-/// that into a list you skim — which is the opposite of what the card is for.
+/// Nesting a horizontal paging scroll view inside a vertical free one is how
+/// Instagram is built, and the axis disambiguation, the momentum and the
+/// rubber-banding all come with it. Cards are their own height now, so two can
+/// be on screen at once and the feed can rest anywhere between them.
 struct DiscoveryView: View {
     @StateObject private var model = DiscoveryModel()
 
@@ -47,7 +24,7 @@ struct DiscoveryView: View {
                 if model.profiles.isEmpty {
                     empty
                 } else {
-                    pager(in: geometry.size)
+                    feed(width: geometry.size.width)
                 }
             }
         }
@@ -55,57 +32,24 @@ struct DiscoveryView: View {
         .task { await model.load() }
     }
 
-    private func pager(in size: CGSize) -> some View {
-        // Hand-paged rather than `TabView(.page)`: the vertical page style
-        // brings its own indicator and its own bounce, and the feed has a tab
-        // bar overlaying its bottom edge that both would collide with.
-        //
-        // **A window, not the whole feed.** A plain `VStack` builds every child
-        // immediately — there is no scroll view here for a `LazyVStack` to be
-        // lazy against — so rendering the full list meant every card's
-        // `onAppear` firing at once. The three at the end each asked the feed to
-        // extend, which appended six more, whose `onAppear`s asked again: an
-        // endless list growing as fast as it could be built, which froze the app
-        // on launch because `AppShell` mounts every tab whether or not you are
-        // looking at it. Four cards is all that can ever be on screen or one
-        // swipe away from it.
-        let low = max(0, model.index - 1)
-        let high = min(model.profiles.count - 1, model.index + 2)
-
-        return VStack(spacing: 0) {
-            ForEach(low...high, id: \.self) { index in
-                DiscoveryCard(profile: model.profiles[index])
-                    .frame(width: size.width, height: size.height)
-            }
-        }
-        .frame(width: size.width, alignment: .top)
-        .offset(y: -CGFloat(model.index - low) * size.height + model.drag)
-        .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86), value: model.index)
-        .gesture(
-            // Vertical only, and only if this drag was judged vertical when it
-            // started. See `DragAxis`.
-            DragGesture(coordinateSpace: .global)
-                // Ungated: the feed follows the finger immediately, anywhere on
-                // the card. A mostly-sideways drag moves it a little and springs
-                // back, which is what Instagram does and reads as the surface
-                // being alive rather than as a mistake.
-                .onChanged { value in model.drag = value.translation.height }
-                .onEnded { value in
-                    model.drag = 0
-                    // Committing is the part that *is* gated. Tracking a few
-                    // points of vertical during a photo swipe is fine; changing
-                    // profile because of it is not.
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    // A quarter of the screen, or a flick — the same commit
-                    // rule the garden's pull-up uses.
-                    let projected = value.predictedEndTranslation.height
-                    if projected < -size.height * 0.25 {
-                        model.advance(by: 1)
-                    } else if projected > size.height * 0.25 {
-                        model.advance(by: -1)
-                    }
+    private func feed(width: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 14) {
+                ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
+                    DiscoveryCard(profile: profile, containerWidth: width)
+                        // Safe here in a way it was not before. A `LazyVStack`
+                        // inside a `ScrollView` builds only what is near the
+                        // viewport, so this fires as the reader arrives. In the
+                        // old plain `VStack` every child was built at once, all
+                        // twelve fired together, and each asked for six more —
+                        // which froze the app on launch.
+                        .onAppear { model.extend(reaching: index) }
                 }
-        )
+            }
+            .padding(.top, 12)
+            // The tab bar floats over the bottom of every page.
+            .padding(.bottom, MainTabBar.overlayHeight)
+        }
     }
 
     private var empty: some View {
@@ -125,12 +69,10 @@ struct DiscoveryView: View {
     }
 }
 
-/// Holds the feed and how far through it the reader is.
+/// Holds the feed.
 @MainActor
 final class DiscoveryModel: ObservableObject {
     @Published private(set) var profiles: [DiscoveryFeed.Profile] = []
-    @Published var index = 0
-    @Published var drag: CGFloat = 0
     @Published private(set) var failure: String?
 
     private var feed: DiscoveryFeed?
@@ -148,22 +90,12 @@ final class DiscoveryModel: ObservableObject {
         failure = nil
     }
 
-    /// Grows the feed rather than wrapping it. The rotation rules already make
-    /// it endless; the list just has to keep up.
-    ///
-    /// Driven by where the reader is, never by a card appearing. Appearance is
-    /// not a reliable signal here — the pager builds its cards eagerly, so an
-    /// `onAppear` that extends the feed extends it again for every card the
-    /// extension itself created.
-    private func extendIfNeeded() {
-        guard var feed, index > profiles.count - 4 else { return }
+    /// Grows the feed as the reader nears its end. The rotation rules already
+    /// make it endless; the list only has to keep up.
+    func extend(reaching index: Int) {
+        guard var feed, index >= profiles.count - 3 else { return }
         profiles += feed.next(6)
         self.feed = feed
-    }
-
-    func advance(by delta: Int) {
-        index = max(0, min(profiles.count - 1, index + delta))
-        extendIfNeeded()
     }
 }
 
@@ -180,18 +112,18 @@ final class DiscoveryModel: ObservableObject {
 /// card is something you interrogate rather than glance at.
 struct DiscoveryCard: View {
     let profile: DiscoveryFeed.Profile
+    /// The feed's width, so the photo's height can be worked out rather than
+    /// measured. `TabView` does not size itself to its content and ignores
+    /// `aspectRatio`, so something has to tell it how tall to be.
+    let containerWidth: CGFloat
 
     @State private var page = 0
-    @State private var dragX: CGFloat = 0
-    /// How this drag was judged, and where the finger was when it was judged.
-    ///
-    /// The offset is measured *from that point*. Taking `translation.width`
-    /// whole meant the photo jumped by however far the finger had already
-    /// travelled while the gesture was making up its mind — ten points at once,
-    /// which is precisely the lurch that made the swipe feel unsmooth.
-    private enum Carousel: Equatable { case engaged(from: CGFloat), declined }
-    @State private var carousel: Carousel?
 
+    private static let horizontalPadding: CGFloat = 20
+
+    private var photoHeight: CGFloat {
+        (containerWidth - Self.horizontalPadding * 2) / ExampleProfileCard.photoAspect
+    }
     /// "23 · Central West End" — each part dropped when unknown, so a card with
     /// no age still reads cleanly instead of carrying a stray separator.
     private var subtitle: String? {
@@ -212,9 +144,7 @@ struct DiscoveryCard: View {
             RoundedRectangle(cornerRadius: 24)
                 .strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1)
         }
-        .padding(.horizontal, 20)
-        // Clear of the tab bar, which floats over every page.
-        .padding(.bottom, MainTabBar.overlayHeight)
+        .padding(.horizontal, Self.horizontalPadding)
     }
 
     private var headerRow: some View {
@@ -250,54 +180,22 @@ struct DiscoveryCard: View {
     }
 
     /// Edge to edge, the way a post is, and paged sideways between the two.
+    ///
+    /// `TabView` rather than an offset and a drag gesture. It is a UIKit paging
+    /// scroll view underneath, which is what buys the rubber-band at the ends,
+    /// the momentum, and — the part that matters most here — a horizontal pan
+    /// recogniser that knows to let a vertical one through to the scroll view
+    /// above it. Three rounds of arbitrating that by hand is what this replaces.
     private var photos: some View {
-        Color.clear
-            .aspectRatio(ExampleProfileCard.photoAspect, contentMode: .fit)
-            .overlay {
-                GeometryReader { geometry in
-                    let width = geometry.size.width
-                    HStack(spacing: 0) {
-                        ForEach(Array(profile.photoSeeds.enumerated()), id: \.offset) { _, seed in
-                            PortraitView(seed: seed, initial: profile.name)
-                                .frame(width: width, height: geometry.size.height)
-                        }
-                    }
-                    .offset(x: -CGFloat(page) * width + dragX)
-                    .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: page)
-                    // Simultaneous, not exclusive. A plain `.gesture` here would
-                    // win over the feed's vertical one for every touch that
-                    // began on a photo — which is most of the card — and the
-                    // feed would stop scrolling.
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 2)
-                            .onChanged { value in
-                                if carousel == nil, DragAxis.isDecidable(value.translation) {
-                                    carousel = DragAxis.isHorizontal(value.translation)
-                                        ? .engaged(from: value.translation.width)
-                                        : .declined
-                                }
-                                guard case .engaged(let origin) = carousel else { return }
-                                dragX = value.translation.width - origin
-                            }
-                            .onEnded { value in
-                                let travelled = dragX
-                                dragX = 0
-                                carousel = nil
-                                guard travelled != 0 else { return }
-                                let last = profile.photoSeeds.count - 1
-                                // Against what was actually dragged, not the raw
-                                // translation, for the same reason as above.
-                                if travelled < -width * 0.20 {
-                                    page = min(last, page + 1)
-                                } else if travelled > width * 0.20 {
-                                    page = max(0, page - 1)
-                                }
-                            }
-                    )
-                }
+        TabView(selection: $page) {
+            ForEach(Array(profile.photoSeeds.enumerated()), id: \.offset) { index, seed in
+                PortraitView(seed: seed, initial: profile.name)
+                    .tag(index)
             }
-            .clipped()
-            .overlay(alignment: .bottom) { dots }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: photoHeight)
+        .overlay(alignment: .bottom) { dots }
     }
 
     /// Which of the two you are on. Drawn over the photo rather than under it,
