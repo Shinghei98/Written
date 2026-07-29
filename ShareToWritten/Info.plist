@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!-- One web URL, and nothing else. The template ships TRUEPREDICATE,
+			     which offers Written in the share sheet of every app on the
+			     phone — for a photo, a contact, a PDF — and then has nothing to
+			     do with what it is handed. An extension that appears where it
+			     cannot help is worse than one that appears rarely. -->
+			<key>NSExtensionActivationRule</key>
+			<dict>
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
+			</dict>
+		</dict>
+		<!-- A class rather than the template's storyboard: the composer is
+		     SwiftUI, and a storyboard whose only job is to name one controller
+		     is a second file to keep in step for nothing. -->
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+	</dict>
+</dict>
+</plist>

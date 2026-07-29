@@ -6,11 +6,58 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9E1CCFF0301AA8FA00DFEB22 /* ShareToWritten.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9E1CCFEE301AA8FA00DFEB22 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A100000A2E10000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9E1CCFE5301AA8FA00DFEB22;
+			remoteInfo = ShareToWritten;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9E1CCFF1301AA8FA00DFEB22 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				9E1CCFF0301AA8FA00DFEB22 /* ShareToWritten.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareToWritten.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000052E100005 /* Written.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Written.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9E1CCFF4301AA8FA00DFEB22 /* Exceptions for "ShareToWritten" folder in "ShareToWritten" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		9E1CCFE7301AA8FA00DFEB22 /* ShareToWritten */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9E1CCFF4301AA8FA00DFEB22 /* Exceptions for "ShareToWritten" folder in "ShareToWritten" target */,
+			);
+			path = ShareToWritten;
+			sourceTree = "<group>";
+		};
 		A10000012E100001 /* Written */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Written;
@@ -19,6 +66,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		9E1CCFE3301AA8FA00DFEB22 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000022E100002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -33,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000012E100001 /* Written */,
+				9E1CCFE7301AA8FA00DFEB22 /* ShareToWritten */,
 				A10000042E100004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000052E100005 /* Written.app */,
+				9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +104,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9E1CCFF5301AA8FA00DFEB22 /* Build configuration list for PBXNativeTarget "ShareToWritten" */;
+			buildPhases = (
+				9E1CCFE2301AA8FA00DFEB22 /* Sources */,
+				9E1CCFE3301AA8FA00DFEB22 /* Frameworks */,
+				9E1CCFE4301AA8FA00DFEB22 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9E1CCFE7301AA8FA00DFEB22 /* ShareToWritten */,
+			);
+			name = ShareToWritten;
+			packageProductDependencies = (
+			);
+			productName = ShareToWritten;
+			productReference = 9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		A10000062E100006 /* Written */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000072E100007 /* Build configuration list for PBXNativeTarget "Written" */;
@@ -55,10 +133,12 @@
 				A10000082E100008 /* Sources */,
 				A10000022E100002 /* Frameworks */,
 				A10000092E100009 /* Resources */,
+				9E1CCFF1301AA8FA00DFEB22 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				9E1CCFEF301AA8FA00DFEB22 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000012E100001 /* Written */,
@@ -77,9 +157,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1600;
+				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					9E1CCFE5301AA8FA00DFEB22 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					A10000062E100006 = {
 						CreatedOnToolsVersion = 16.0;
 					};
@@ -100,11 +183,19 @@
 			projectRoot = "";
 			targets = (
 				A10000062E100006 /* Written */,
+				9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		9E1CCFE4301AA8FA00DFEB22 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000092E100009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -115,6 +206,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		9E1CCFE2301AA8FA00DFEB22 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000082E100008 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +222,76 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		9E1CCFEF301AA8FA00DFEB22 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */;
+			targetProxy = 9E1CCFEE301AA8FA00DFEB22 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		9E1CCFF2301AA8FA00DFEB22 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 947DHTL37S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShareToWritten/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShareToWritten;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.written.datingapp.ShareToWritten;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9E1CCFF3301AA8FA00DFEB22 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 947DHTL37S;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShareToWritten/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShareToWritten;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.written.datingapp.ShareToWritten;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		A100000C2E10000C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -314,6 +481,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		9E1CCFF5301AA8FA00DFEB22 /* Build configuration list for PBXNativeTarget "ShareToWritten" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9E1CCFF2301AA8FA00DFEB22 /* Debug */,
+				9E1CCFF3301AA8FA00DFEB22 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A10000072E100007 /* Build configuration list for PBXNativeTarget "Written" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
