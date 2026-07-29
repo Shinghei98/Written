@@ -298,6 +298,13 @@ enum SeedlingArt {
         /// is upward. Zero for the terminal leaflet, which the rachis reaches
         /// by itself.
         let stalkRun: CGSize
+        /// The stage this leaflet first opens at. `nil` means it is there from
+        /// the moment its shoot is, which is true of every leaflet drawn before
+        /// a fifth stage existed.
+        var opensAt: SeedlingStage? = nil
+        /// The stage it stops being drawn at, for a leaflet that a later stage
+        /// replaces — the bough's bud gives way to the frond it becomes.
+        var closesAt: SeedlingStage? = nil
 
         var hasSubPetiole: Bool { stalkRun != .zero }
     }
@@ -417,10 +424,12 @@ enum SeedlingArt {
                 Leaflet(mirrored: false, axis: -46, scale: 0.29, along: 1, stalkRun: .zero),
                 // The middle leaf, hanging below the rachis and pointing back
                 // down-left. The reference draws this shoot with *three*
-                // leaflets, not two — a big terminal one, this, and the small
-                // one opposite. Drawn with two it read as a twig rather than a
-                // frond.
-                Leaflet(mirrored: false, axis: -92, scale: 0.19, along: 0.54, stalkRun: CGSize(width: -0.030, height: 0.013)),
+                // leaflets — a big terminal one, this, and the small one
+                // opposite — but only at the canopy. Opening it earlier would
+                // redraw the bough at stage 3, which is not this stage's to
+                // change.
+                Leaflet(mirrored: false, axis: -92, scale: 0.19, along: 0.54,
+                        stalkRun: CGSize(width: -0.030, height: 0.013), opensAt: .canopy),
                 // The bud: this shoot is the newest growth and its second leaf
                 // has not opened. It forks from the rachis' own tip on a short
                 // upright stalk — a third of the way back down it, as an earlier
@@ -430,11 +439,17 @@ enum SeedlingArt {
                 // put both at the same point because its leaf is narrow where
                 // it starts; ours is not, and a bud leaving the rachis at the
                 // tip comes out *inside* the leaf's base and crosses it.
-                // Was a bud on a near-vertical stalk. In the reference it is an
-                // open leaf on the *other* side of the rachis, low down it and
-                // pointing up-right, which is what makes the cluster read as a
-                // frond with a leaf either side rather than a stalk with a lump.
-                Leaflet(mirrored: true, axis: 26, scale: 0.115, along: 0.31, stalkRun: CGSize(width: 0.026, height: -0.024))
+                // The bud, exactly as it was drawn for the bough: this shoot is
+                // the newest growth at *that* stage and its second leaf has not
+                // opened. It gives way at the canopy, by which point it has.
+                Leaflet(mirrored: false, axis: 4, scale: 0.065, along: 0.58,
+                        stalkRun: CGSize(width: 0.005, height: -0.040), closesAt: .canopy),
+                // What the bud becomes: an open leaf on the other side of the
+                // rachis, low down it and pointing up-right, which is what makes
+                // the cluster read as a frond with a leaf either side rather
+                // than a stalk with a lump.
+                Leaflet(mirrored: true, axis: 26, scale: 0.115, along: 0.31,
+                        stalkRun: CGSize(width: 0.026, height: -0.024), opensAt: .canopy)
             ]
         ),
         Shoot(
@@ -512,8 +527,13 @@ enum SeedlingArt {
     /// the reference's range while the newest sits at the bottom — the spread
     /// the drawing actually has.
     static func shootGrowth(_ shoot: Shoot, extended: CGFloat) -> CGFloat {
-        let stagesOn = min(max(extended - CGFloat(shoot.stage.rawValue), 0), 3)
-        return 1 + 0.38 * stagesOn
+        let stagesOn = min(max(extended - CGFloat(shoot.stage.rawValue), 0), 1)
+        // Applied only over the last stage, so every earlier one is left exactly
+        // as it was drawn. Raising the cap to three stages did the same job and
+        // changed stages 2 and 3 on the way past, which is not a trade worth
+        // making for a stage nobody had complained about.
+        let canopy = min(max(extended - 3, 0), 1)
+        return (1 + 0.38 * stagesOn) * (1 + 0.55 * canopy)
     }
 
     /// A leaflet's blade size at a point in the climb, as a fraction of a
@@ -610,8 +630,26 @@ enum SeedlingArt {
     /// The point a shoot's cluster reaches furthest out to, on its own side, so
     /// anything set beside it clears every leaflet rather than the one that
     /// happens to be listed last.
+    /// Whether a leaflet is drawn at this point in the climb.
+    ///
+    /// Leaflets had no stage of their own, so adding one to a shoot added it to
+    /// *every* stage that shoot appears in — which is how giving the bough its
+    /// third leaf silently changed stage 3. A leaflet now says when it opens and
+    /// when, if ever, it gives way.
+    static func isOpen(_ leaflet: Leaflet, extended: CGFloat) -> Bool {
+        if let opens = leaflet.opensAt, extended < CGFloat(opens.rawValue) - 0.001 { return false }
+        if let closes = leaflet.closesAt, extended >= CGFloat(closes.rawValue) - 0.001 { return false }
+        return true
+    }
+
+    static func openLeaflets(of shoot: Shoot, extended: CGFloat) -> [Leaflet] {
+        shoot.leaflets.filter { isOpen($0, extended: extended) }
+    }
+
     static func shootExtent(of shoot: Shoot, extended: CGFloat) -> CGPoint {
-        let tips = shoot.leaflets.map { leafletTip($0, of: shoot, extended: extended) }
+        let visible = openLeaflets(of: shoot, extended: extended)
+        let tips = (visible.isEmpty ? shoot.leaflets : visible)
+            .map { leafletTip($0, of: shoot, extended: extended) }
         let outward = shoot.reach.width < 0
             ? tips.min { $0.x < $1.x }
             : tips.max { $0.x < $1.x }
@@ -946,15 +984,19 @@ struct VectorStemShape: Shape {
         )
 
         let baseHalf = w * 0.0082
-        // Barely tapered, because the reference's stem barely tapers. Measured
-        // across its own span it runs 0.0157 of the canvas at the foot, 0.0123
-        // at the middle and 0.0140 at the fork — a ratio of 1.12, which is a
-        // stroke of near-constant weight rather than a wedge.
+        // The canopy's stem barely tapers, because the reference's barely does:
+        // measured across its own span it runs 0.0157 of the canvas at the foot
+        // and 0.0140 at the fork, a ratio of 1.12 — a stroke of near-constant
+        // weight rather than a wedge. At 0.40 it reached the fork at 1.67 and
+        // read as a spike with leaves stuck on it.
         //
-        // At 0.40 ours reached the fork at 1.67, and read as a spike with
-        // leaves stuck on it against the reference's steady vessel. The taper
-        // has to be small enough to notice only by looking for it.
-        let headHalf = baseHalf * (1 - 0.12 * progress)
+        // Eased in over the last stage rather than applied throughout. Changed
+        // outright it thickened the stem at *every* stage, which is shared
+        // geometry being altered to fix one drawing — the exact trap `CLAUDE.md`
+        // warns about, and it went unnoticed until the stages were diffed
+        // against a build from before any of this.
+        let taper = 0.40 - 0.28 * min(max(extended - 3, 0), 1)
+        let headHalf = baseHalf * (1 - taper * progress)
 
         // Built along the shared centreline rather than as its own curve: the
         // stem's shape changes with the stage, and a tube drawn to a private
@@ -1058,6 +1100,7 @@ struct VectorStemShape: Shape {
                 ))
 
                 for leaflet in shoot.leaflets {
+                    guard SeedlingArt.isOpen(leaflet, extended: extended) else { continue }
                     guard let sub = SeedlingArt.subPetiole(leaflet, of: shoot, extended: extended) else { continue }
                     let opens = rachisWindow * Double(leaflet.along)
                     let grown = min(1, max(0, (grownness - opens) / 0.30))

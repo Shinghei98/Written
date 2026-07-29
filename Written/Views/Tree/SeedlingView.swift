@@ -88,7 +88,12 @@ struct SeedlingView: View {
 
                 ForEach(SeedlingArt.shoots) { shoot in
                     ForEach(Array(shoot.leaflets.enumerated()), id: \.offset) { index, leaflet in
-                        self.leaflet(leaflet, of: shoot, index: index, in: size)
+                        // Indices stay aligned with the animation state arrays,
+                        // which are sized to the full list — so a leaflet that
+                        // has not opened yet is skipped here rather than removed.
+                        if SeedlingArt.isOpen(leaflet, extended: extended) {
+                            self.leaflet(leaflet, of: shoot, index: index, in: size)
+                        }
                     }
                 }
             }

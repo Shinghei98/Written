@@ -71,10 +71,19 @@ struct GrowProfileView: View {
     /// The tallest the stack ever gets is one short of every bar plus the
     /// invitation to the last one, plus the Dashboard button: all four connected
     /// is *shorter*, since the invitation is gone by then.
-    private static var promptsReserve: CGFloat {
-        let bars = CGFloat(Modality.allCases.count - 1)
-        return 44 * bars + 76 + 48 + 8 * (bars + 1)
-    }
+    private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3
+
+    /// The height the bars are allowed, whatever the count.
+    ///
+    /// Two bars and the gap between them, which is exactly what `promptsReserve`
+    /// budgeted before a fourth modality existed — so the garden keeps the size
+    /// and position it has always had, and a new source can never push it.
+    ///
+    /// Deriving the reserve from the modality count instead, as an earlier pass
+    /// did, holds the plant still *relative to itself* but moves it from where
+    /// it was: every stage loses the same 52 points, including the ones drawn
+    /// long before any of this. The bars are what should give, not the plant.
+    private static let barsWindow: CGFloat = 44 * 2 + 8
 
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
@@ -97,7 +106,13 @@ struct GrowProfileView: View {
                     // below it shrinks with every bar added, the square shrinks
                     // to fit, and the plant slides and scales as the user
                     // connects. It should stand still and only grow.
-                    .frame(minHeight: Self.promptsReserve, alignment: .bottom)
+                    // A fixed height, not a minimum. With `minHeight` the stack
+                    // could still outgrow the reserve — and did, by 4 points at
+                    // one stage, which moved the plant. Capping the bars means
+                    // the content can never exceed this, so the garden's size is
+                    // now the same by construction rather than by arithmetic
+                    // that has to be redone every time a modality is added.
+                    .frame(height: Self.promptsReserve, alignment: .bottom)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
             }
@@ -368,10 +383,30 @@ struct GrowProfileView: View {
     /// as it completes.
     private var prompts: some View {
         VStack(spacing: 8) {
-            ForEach(viewModel.treeState.connectedModalities) { modality in
-                ConnectedBar(modality: modality, sources: viewModel.connectedSources(for: modality))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            // Held to a fixed window and faded off at the top rather than
+            // allowed to grow. The newest connection stays fully legible at the
+            // bottom; older ones ride up out of the frame, which is the same
+            // thing the stack was already doing visually — it just no longer
+            // costs the garden any height to do it.
+            VStack(spacing: 8) {
+                ForEach(viewModel.treeState.connectedModalities) { modality in
+                    ConnectedBar(modality: modality, sources: viewModel.connectedSources(for: modality))
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.barsWindow, alignment: .bottom)
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.34),
+                        .init(color: .black, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
 
             if let next = viewModel.treeState.nextModality {
                 promptCard(for: next)
