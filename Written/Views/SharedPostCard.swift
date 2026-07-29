@@ -12,9 +12,14 @@ struct SharedPostCard: View {
     /// `DiscoveryView.activeShare`.
     var isActive = false
 
-    /// Sound is off until asked for, and asking is per card rather than for the
-    /// feed: unmuting one video should not mean the next one arrives talking.
-    @State private var isMuted = true
+    /// Sound is off until asked for, and then it stays on for the whole feed.
+    ///
+    /// This was per card, on the reasoning that unmuting one video should not
+    /// mean the next arrives talking. That had it backwards: sound is a
+    /// preference of the *reader*, not a property of the post, and someone who
+    /// has said they want to hear this feed should not have to say it again at
+    /// every card. Owned by `DiscoveryView` and bound here.
+    @Binding var isMuted: Bool
     /// The player said it cannot show this one. Some uploaders disable
     /// embedding, which is a real answer rather than a fault — so the card says
     /// so and offers the way to watch it, instead of showing YouTube's grey

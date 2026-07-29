@@ -25,6 +25,13 @@ struct DiscoveryView: View {
     /// sources. It is also what Instagram does, and for the same reason.
     @State private var activeShare: String?
 
+    /// Whether the feed's sound is on. One switch for all of it — see
+    /// `SharedPostCard.isMuted`.
+    ///
+    /// Not remembered between launches, deliberately: opening an app to
+    /// unexpected sound is worse than tapping once to ask for it.
+    @State private var isFeedMuted = true
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -72,7 +79,8 @@ struct DiscoveryView: View {
                             SharedPostCard(
                                 post: post,
                                 containerWidth: width,
-                                isActive: activeShare == post.id
+                                isActive: activeShare == post.id,
+                                isMuted: $isFeedMuted
                             )
                             // Reports where it is, so the feed can work out
                             // which one is centred. Only the shared cards do
