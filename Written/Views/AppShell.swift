@@ -9,6 +9,10 @@ import SwiftUI
 /// to, which is the same reason `HomeView` keeps the garden alive under the
 /// dashboard rather than swapping it out.
 struct AppShell: View {
+    /// Bound from `RootView`, which owns them: the photo page runs before this
+    /// view exists, so the array cannot belong to the view model it feeds.
+    @Binding var photos: [PickedMedia?]
+
     var onSignOut: () -> Void = {}
 
     /// One distillation, every tab. Owned here rather than by a tab, because the
@@ -61,6 +65,7 @@ struct AppShell: View {
             page(.dashboard) {
                 DashboardTab(
                     viewModel: viewModel,
+                    photos: $photos,
                     onBack: { withAnimation(.easeInOut(duration: 0.35)) { tab = .distill } },
                     onExplore: finishOnboarding,
                     onSignOut: onSignOut,

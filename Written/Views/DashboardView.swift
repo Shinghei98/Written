@@ -18,6 +18,10 @@ struct DashboardView: View {
     /// renders once and never again — so correcting it would have left the row
     /// showing the old name until the screen was rebuilt.
     @ObservedObject private var auth = SupabaseAuth.shared
+
+    /// The six profile photographs. Bound from `RootView`, which owns them —
+    /// the page that collects them runs before this screen exists.
+    @Binding var photos: [PickedMedia?]
     var onBack: () -> Void = {}
     /// "Confirm" — `HomeView` slides this screen away to the profile previews.
     var onConfirm: () -> Void = {}
@@ -70,6 +74,8 @@ struct DashboardView: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 14) {
+                        photosSection
+                            .id("photos")
                         identitySection
                         musicSection
                         mediaSection
@@ -439,6 +445,32 @@ struct DashboardView: View {
         guard let last = viewModel.lastCollectedAt else { return "Nothing distilled yet" }
         return "Last read: \(last.formatted(.dateTime.day().month(.abbreviated).year()))"
     }
+
+    // MARK: - Photos
+
+    /// The six profile photographs, editable here the same way they were
+    /// collected.
+    ///
+    /// The grid is `PhotoGrid`, the same view the photo page uses rather than a
+    /// second one that looks like it — so picking, framing, the video branch and
+    /// the 4:5 slot ratio all behave identically, and a change to any of them
+    /// lands in both places at once.
+    ///
+    /// Three across rather than two: this is a card on a page of cards, not a
+    /// page of its own, and at two the slots were taller than everything around
+    /// them. The prompts are dropped for the same reason — by the time someone
+    /// is on this screen the grid needs no explaining, and six lines of
+    /// instruction would be the loudest thing on the page.
+    private var photosSection: some View {
+        card {
+            cardLabel("PHOTOS", icon: "photo.on.rectangle")
+            Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+            PhotoGrid(media: $photos, columns: 3, cornerRadius: 16)
+                .padding(.top, 12)
+        }
+    }
+
 
     // MARK: - Identity
 
@@ -1521,5 +1553,5 @@ private struct ArtworkTile: View {
 }
 
 #Preview {
-    DashboardView(viewModel: DistillViewModel())
+    DashboardView(viewModel: DistillViewModel(), photos: .constant(Array(repeating: nil, count: 6)))
 }

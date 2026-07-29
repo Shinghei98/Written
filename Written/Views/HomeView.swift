@@ -14,6 +14,7 @@ import SwiftUI
 /// left is the one vertical move that remains: dashboard to preview.
 struct DashboardTab: View {
     @ObservedObject var viewModel: DistillViewModel
+    @Binding var photos: [PickedMedia?]
 
     /// Back to the garden — a different tab now, rather than a layer underneath.
     var onBack: () -> Void = {}
@@ -64,6 +65,7 @@ struct DashboardTab: View {
 
                 DashboardView(
                     viewModel: viewModel,
+                    photos: $photos,
                     onBack: onBack,
                     onConfirm: {
                         withAnimation(Self.leaving) { lift = -travel }

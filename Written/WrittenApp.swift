@@ -39,6 +39,13 @@ struct RootView: View {
     /// force-quit part way through it — they landed in the garden and were never
     /// asked their name again.
     @State private var route = RootView.initialRoute()
+    /// The six photographs, owned here because they outlive the page that
+    /// collects them: onboarding fills them and the dashboard corrects them
+    /// afterwards, and the two screens live either side of the shell.
+    ///
+    /// They still go nowhere durable — see the photos gap in CLAUDE.md — so
+    /// this is where they exist until something uploads them.
+    @State private var photos: [PickedMedia?] = Array(repeating: nil, count: 6)
     @State private var isEnteringPhone = false
     @State private var signInError: String?
 
@@ -112,7 +119,7 @@ struct RootView: View {
         Group {
             switch route {
             case .home:
-                AppShell(onSignOut: {
+                AppShell(photos: $photos, onSignOut: {
                     SupabaseAuth.shared.signOut()
                     route = .signIn
                 })
@@ -143,7 +150,8 @@ struct RootView: View {
                     onSkip: {
                         Task { await SupabaseAuth.shared.markPhotoStepSeen() }
                         route = .home
-                    }
+                    },
+                    media: $photos
                 )
 
             case .signIn:
