@@ -19,11 +19,15 @@ enum AppConfig {
     /// this string. See `supabase/migrations/0001_initial.sql`.
     ///
     /// The `service_role` key bypasses all of that and must never appear here.
-    static let supabaseAnonKey = """
-        eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\
-        .eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3bmV6a2Jlc2pvYXpscGFmbGJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyMDQwNDUsImV4cCI6MjEwMDc4MDA0NX0\
-        .ZDITVhCgRMJvBqlkVeViHS6d12yltY63i9h3JcXwoGo
-        """
+    /// The publishable key, which replaced the JWT `anon` key when the legacy
+    /// keys were disabled on 2026-07-29.
+    ///
+    /// Committed on purpose, exactly as its predecessor was: it ships in the
+    /// binary and row-level security is what protects the data. Its opposite
+    /// number, `sb_secret_…`, must never appear here or anywhere else in this
+    /// repo — the old `service_role` key had to be retired precisely because it
+    /// was pasted into a working session.
+    static let supabaseAnonKey = "sb_publishable_rKIU-q6beAiLawLkjEiMYA_vZNmC2aT"
 
     // MARK: Google / YouTube OAuth
 

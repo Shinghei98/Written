@@ -140,11 +140,7 @@ private enum SharePoster {
 
     /// Public by design — it ships inside the app binary too. Row-level security
     /// is what protects the data, not this key.
-    static let anonKey = """
-        eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\
-        .eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3bmV6a2Jlc2pvYXpscGFmbGJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyMDQwNDUsImV4cCI6MjEwMDc4MDA0NX0\
-        .ZDITVhCgRMJvBqlkVeViHS6d12yltY63i9h3JcXwoGo
-        """
+    static let anonKey = "sb_publishable_rKIU-q6beAiLawLkjEiMYA_vZNmC2aT"
 
     /// Mirrors `SharedPostService.parse`. The id is the identity — a watch link,
     /// a `youtu.be` link and a Short are three ways of writing one video — and

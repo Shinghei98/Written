@@ -540,32 +540,31 @@ are applied and were exercised directly against the database — an unchanged
 value — but no distillation has gone through `append_source_records` from the
 phone. Distil Apple Music twice and confirm the second run writes only what moved.
 
-**Three credentials have been exposed in working sessions and should be
-rotated.** None is in the repo; all three are in chat transcripts, which is a
-place secrets get read long after anyone is thinking about them. The two from
-2026-07-28 were **still live on 2026-07-29** — the personal access token was
-checked and returned 200 — so this list has already outlived one round of good
-intentions.
+**Credential rotation, closed on 2026-07-29.** Kept as a record of what was
+done and why, because the shape of the mistake matters more than the keys.
 
-- **The `service_role` key** — pasted on 2026-07-29 to seed the six synthetic
-  accounts, which genuinely needed it: `public.users.id` is a foreign key onto
-  `auth.users(id)`, so a synthetic person has to be a real auth user first, and
-  only `service_role` may create one. **This is the most dangerous of the three
-  to leave alone.** It bypasses row-level security completely rather than
-  defeating it indirectly — no token forging required, it simply is not subject
-  to policy — so it reads and writes every row of every account. Rotate in
-  Dashboard → Settings → API. Seeding needs it exactly once; there is no reason
-  for it to survive the run.
-- **The Supabase `jwt_secret`** — returned by `GET /v1/projects/<ref>/postgrest`
-  alongside the field actually being read. This is the one that matters: it signs
-  the project's JWTs, so anyone holding it can mint a token claiming any `sub` and
-  **row-level security will honour it**. RLS is the entire authorisation layer, so
-  the secret defeats it completely. Rotate in Dashboard → Settings → API → JWT
-  Settings. It invalidates every session and regenerates the `anon` key, so
-  `AppConfig.supabaseAnonKey` needs updating and the app rebuilding.
-- **A personal access token** (`sbp_…`), pasted to configure the Supabase MCP
-  server. Full Management API authority over the account — it can read the
-  `service_role` key. Rotate at supabase.com/dashboard/account/tokens and re-add
-  the MCP server with the new value.
+Three were exposed across working sessions — the `service_role` key, the
+`jwt_secret`, and an `sbp_` personal access token — none in the repo, all in chat
+transcripts, which is where secrets get read long after anyone is thinking about
+them. The two from July were still live when checked eight months later, which is
+the argument for doing this at the time rather than noting it.
+
+- **The PAT** was revoked. Confirmed rather than assumed: the Management API
+  answers 401 with it. Generate a fresh one only when a deploy needs it; a token
+  that exists for twenty minutes cannot leak from a config file next year.
+- **The `service_role` and `anon` keys** were both JWTs derived from the legacy
+  secret, so retiring them was one action rather than two — but not the one
+  expected. The project had already migrated to JWT signing keys, which makes the
+  legacy secret verification-only and leaves no rotate button; what kills the
+  exposed key is **disabling the legacy API keys** on the API keys page.
+- **`AppConfig.supabaseAnonKey` is now `sb_publishable_…`**, and so is the
+  extension's own copy. Both were checked in the *built* binaries rather than the
+  source, because there are two and forgetting one gives a share sheet that
+  silently fails while the app works.
+
+**Never commit `sb_secret_…`.** It is the successor to `service_role` and is
+subject to no row-level security whatsoever. `tools/seed_synthetic.py` needs one;
+it reads from the environment and has no default, and that is the pattern for
+anything like it.
 
 **Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 5 today.
