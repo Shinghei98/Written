@@ -339,11 +339,25 @@ struct DashboardView: View {
                 .transition(.opacity)
             }
         }
+        // Its own height, not its contents'. Everything in this row is
+        // conditional — the Garden button only during onboarding, Done only
+        // while editing — so with both away the row collapsed to nothing and
+        // took the title up 44 points with it. The bar reserves the space it
+        // has always occupied whether or not anything is standing in it.
+        //
+        // Nothing below moves either way: the scrolling content is padded by
+        // `expandedHeaderHeight`, a constant, so the biographics sit where they
+        // always did.
+        .frame(height: 44)
         .padding(.horizontal, 4)
         .background(GardenPalette.parchment)
+        // Onboarding only, and for the same reason the button is: pulling down
+        // to go back needs somewhere to go back *to*, and in regular use the
+        // garden is a tab rather than a layer underneath.
         .gesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { drag in
+                    guard isOnboarding else { return }
                     if drag.translation.height > 40 { onBack() }
                 }
         )
