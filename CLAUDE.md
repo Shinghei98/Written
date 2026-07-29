@@ -307,11 +307,165 @@ than the change. These rules exist because each was paid for once already.
   simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`, then
   reopen — one more reason to take fewer screenshots.
 
+## The two halves of the app
+
+**Onboarding is a line; regular use is a tab bar.** They are different products
+wearing one binary, and most of the layout rules below only make sense once that
+is clear.
+
+Onboarding runs sign in → name → photos → grow the plant → "People you will
+see", and ends the moment **Explore** is tapped there. Through all of it the tab
+bar is absent: a bar would offer four exits from a sequence whose whole point is
+that it has one. The garden therefore keeps an arrow at its foot and a pull-up
+gesture, because with no bar it has to carry the way onward itself.
+
+Regular use is the reverse. The bar exists, so the garden gives up the arrow and
+the pull-up — a second route to a place a tab already reaches is chrome. The
+dashboard likewise drops its "Garden" button, and gains sign-out and delete,
+which are hidden during onboarding: offering to destroy an account beneath the
+button that carries on making one is an invitation to end the thing by accident.
+
+`SupabaseAuth.OnboardingStep.exploring` marks the boundary and slots into the
+machinery that already decides the first frame synchronously, so a force-quit
+mid-garden resumes correctly. `AppShell` owns the flag and every screen reads
+it, so the bar arriving and the arrow leaving cannot disagree.
+
+## The tab bar, and why it must never inset
+
+Five tabs: Explore, Wish, Chat, the garden, and Memories (the dashboard). Wish
+and Chat are unbuilt and say so rather than rendering blank; they exist in the
+enum from the first build so the bar's geometry never shifts under them.
+
+**It overlays. It never takes layout height.** `promptsReserve` is what the
+garden is measured against, so anything consuming height at the bottom of the
+screen moves the plant — a regression this project has paid for four times.
+Everything the bar needs comes *out* of the reserve rather than being added
+under it, and `MainTabBar.overlayHeight` is derived from the bar's own height
+plus its inset rather than guessed alongside it, because a guess was 22 points
+wrong and cost the connected rows that space for nothing.
+
+Two of its icons are drawn rather than named. SF Symbols has no
+message-in-a-bottle and no potted plant on iOS 16, and `sailboat` and `tree`
+were each standing in for something they were not.
+
+## Discovery: the only two tables one user may read about another
+
+Every policy in `0001` is `auth.uid() = user_id`, which made a feed of other
+people impossible rather than merely unbuilt. Two tables open that up and no
+more should without the same argument:
+
+- **`discovery_cards`** (`0007`) — a name, an age, a district, six photo seeds
+  and derived `{domain, subject}` pairs. Deliberately **not** a view over
+  `distilled_records`: enough for `Ontology.line(for:subject:)` to write a line,
+  and nothing that could reconstruct a distillation.
+- **`shared_posts`** (`0008`) — a video id and a sentence somebody chose to
+  publish. `sharer_name` is denormalised for the same reason `display_name` is:
+  `public.users` is `auth.uid() = id` and opening it for a byline is not a trade
+  worth making.
+
+Both split read from write, because who may *read* a card and who may *change*
+one are different questions. Measured on 2026-07-29 from a real signed-in
+session rather than argued from the policy text: 6 cards and 5 posts visible, 12
+own records against 2528 that exist, 0 to an unauthenticated caller, and a
+forged post naming another user refused with `42501`. **Re-run that probe if
+these policies are ever touched** — a table opened for read is the one place in
+this schema where a mistake is silent.
+
+Six synthetic accounts populate it, seeded by `tools/seed_synthetic.py` with
+full datasets rather than bare cards. It needs the `service_role` key, which is
+why it is a script you run and not something the app can do.
+
+### The feed's rotation
+
+`DiscoveryFeed` shows a person repeatedly with different photographs and
+different lines each time — two of each, both drawn without replacement, on
+independent cycles.
+
+**The round order is fixed, and that is not laziness.** Requiring five profiles
+between one person and their next means, for a person at position `p` in one
+round and `q` in the next, that `q >= p` — for everyone simultaneously, across a
+permutation. Only the identity does that. Measured over three thousand
+reshuffles the worst gap was 1, not 5, including with a "don't start a round
+with whoever ended the last" guard that looked sufficient. A repeated
+permutation gives exactly `n - 1` every time, which is the most any ordering can
+offer.
+
+Shared videos are interleaved every fourth item rather than mixed into that
+machinery, since the separation rule is about people and a video is not one.
+Their ids carry an **appearance number** for the same reason profiles' do: one
+post recurring with one id hands `ForEach` duplicates, which is undefined
+behaviour and hung the app outright.
+
+## Embedding YouTube, which took six attempts
+
+**The player will not run in a document with no origin, and an app-built page
+has none.** Four ways of claiming one all failed, and each failure is worth
+knowing so nobody tries them again:
+
+    loadHTMLString with a base URL          -> error 152
+    the same, plus an `origin` player var   -> 152 again
+    loading youtube.com/embed top-level     -> 153, the referrer complaint
+    a page served from a Supabase function  -> black, no error at all
+
+A base URL resolves relative links and is not an origin. A player parameter is a
+claim. And **Supabase cannot host the page**: both edge functions and Storage
+rewrite HTML to `content-type: text/plain` with
+`content-security-policy: default-src 'none'; sandbox`, an anti-phishing measure
+for the whole project, so the script never ran.
+
+What works is `loadSimulatedRequest`, which gives the HTML the security origin of
+a URL you name — and naming a **third-party** one. The page had been claiming to
+*be* youtube.com, which nothing on the real web does, and which the player has
+every reason to refuse. It claims the project's Supabase host now.
+
+None of that was deduced. Five fixes were reasoned from a single error number
+and all five were wrong; the page's own console said `api: loaded`,
+`player: ready`, `error: 152` and pointed straight at the cause. `EmbedWebView`
+still forwards `console`, `window.onerror` and player errors through `onLog` —
+nothing draws them, and the next blank player will want them back.
+
+Playback follows the card nearest the middle of the screen, muted, one at a
+time. Muted is load-bearing: WebKit blocks unmuted autoplay outright, so an
+unmuted player would simply never start. Sound is a preference of the *reader*,
+so unmuting one video unmutes the feed — and resets on launch, because opening
+an app to unexpected sound is worse than tapping once to ask for it.
+
+## The share extension
+
+`ShareToWritten` is a second target — the first this project has had. It needs
+three things on **both** targets: the App Group, a shared keychain group so the
+extension can read the session and post as that user, and matching bundle ids.
+Verify entitlements in the *signed* binary, not the `.entitlements` file; Xcode
+has silently dropped one here before.
+
+It is **deliberately self-contained**, repeating the host, the anon key, the
+keychain read and the link parsing rather than sharing files. Synchronized
+folders scope everything under `Written/` to the app target, and sharing files
+means the `project.pbxproj` surgery that arrangement exists to avoid.
+
+Three things the template gets wrong for this use. Its activation rule is
+`TRUEPREDICATE`, which offers Written in every app's share sheet for photos and
+contacts it cannot use. Its compose sheet pre-fills the text view with the
+shared item, which published the URL as the caption. And **`INFOPLIST_KEY_*`
+build settings beat the `Info.plist` file**, so the display name has to change in
+`project.pbxproj` or the share sheet says "ShareToWritten".
+
+Where the row appears in that sheet is iOS's business — ranked by use, no API.
+
 ## Known gaps
 
 Real, deliberate, and unfinished as of 2026-07-28. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
+
+**`hasExplored` is local only.** The two onboarding steps before it mirror
+columns on `public.users`; this one lives in `UserDefaults`, so a reinstall walks
+someone through the garden a second time. A column and a migration fixes it.
+
+**The plant's position is unverified.** `(858, 1626)` at stage 2 is the check
+that has caught every layout regression here, and CoreSimulator has been
+unusable since it crashed on 2026-07-29 — several changes have shipped on
+arithmetic alone since. Restart the simulator and re-run it.
 
 **App Store privacy labels are not filled in.** The manifest now declares what
 is collected; App Store Connect's own questionnaire is a separate answer and

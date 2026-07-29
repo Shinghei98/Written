@@ -25,12 +25,12 @@ struct SharedPostCard: View {
     /// so and offers the way to watch it, instead of showing YouTube's grey
     /// panel and a numeric code inside a parchment frame.
     @State private var isUnavailable = false
-    /// The player's own code for the refusal. Shown in debug builds only — a
-    /// number means nothing to a reader, and everything to whoever is trying to
-    /// work out whether the video forbids embedding or the page is at fault.
-    @State private var errorCode: Int?
-    /// What the page said, most recent last. Debug only, and kept short — this
-    /// is something to read off the screen, not a log viewer.
+    /// What the page said, most recent last.
+    ///
+    /// Kept, though nothing draws it any more. `onLog` is how the embed was
+    /// finally diagnosed after five wrong fixes reasoned from an error number,
+    /// and the next person to meet a blank player will want it back — rendering
+    /// it is three lines, working out that it was needed took a day.
     @State private var log: [String] = []
 
     private static let horizontalPadding: CGFloat = 20
@@ -53,9 +53,6 @@ struct SharedPostCard: View {
             media
             actionRow
             caption
-#if DEBUG
-            diagnostics
-#endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 24))
@@ -110,10 +107,7 @@ struct SharedPostCard: View {
                     videoID: post.videoID,
                     isPlaying: isActive,
                     isMuted: isMuted,
-                    onUnavailable: { code in
-                        isUnavailable = true
-                        errorCode = code
-                    },
+                    onUnavailable: { _ in isUnavailable = true },
                     onLog: { line in
                         log.append(line)
                         if log.count > 6 { log.removeFirst() }
@@ -155,28 +149,6 @@ struct SharedPostCard: View {
         }
     }
 
-#if DEBUG
-    /// What the page reported, under the card. Ugly on purpose and debug-only:
-    /// five fixes for this were guessed from an error number, and reading four
-    /// lines beats a sixth guess.
-    @ViewBuilder
-    private var diagnostics: some View {
-        if !log.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(log.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(GardenPalette.muted)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.top, 6)
-        }
-    }
-#endif
 
     /// Can't be played here — with the way to play it anyway.
     ///
@@ -184,26 +156,8 @@ struct SharedPostCard: View {
     /// to show it, and only the embedding is refused.
     private var unavailable: some View {
         ZStack {
-            GardenPalette.ink.opacity(0.92)
-            VStack(spacing: 8) {
-#if DEBUG
-                // The page's own words, at a size someone can read. This lived
-                // under the card at 9pt grey and went unnoticed twice, which is
-                // a diagnostic that does not diagnose.
-                if log.isEmpty {
-                    Text("no output from the page")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.white)
-                } else {
-                    ForEach(Array(log.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-#else
+            GardenPalette.ink.opacity(0.06)
+            VStack(spacing: 10) {
                 Image(systemName: "play.slash")
                     .font(.system(size: 20, weight: .light))
                     .foregroundColor(GardenPalette.muted)
@@ -220,7 +174,6 @@ struct SharedPostCard: View {
                             .overlay { Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1) }
                     }
                 }
-#endif
             }
             .padding(.horizontal, 16)
         }
