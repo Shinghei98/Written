@@ -39,12 +39,19 @@ class ShareViewController: SLComposeServiceViewController {
             received = await sharedItem()
             link = received.flatMap(Self.firstLink(in:))
             videoID = link.flatMap(SharePoster.videoID(from:))
+
+            // Emptied whatever happens. The sheet arrives with the shared item
+            // already in the text view — that is what `SLComposeServiceViewController`
+            // is for when the thing being composed *is* the text — but here the
+            // link is the post and this field is the sentence about it. Left
+            // alone, tapping Share published the URL as the caption.
+            textView.text = ""
+
             if videoID == nil {
                 // Nothing to share. Said immediately rather than letting someone
                 // type a sentence about a link that will be refused at Post —
                 // and quoting what arrived, because the first version of this
                 // said "not a YouTube link" about links that were.
-                textView.text = ""
                 placeholder = received.map { "Can't read a video from: \($0.prefix(80))" }
                     ?? "Nothing was shared"
             }
@@ -58,7 +65,16 @@ class ShareViewController: SLComposeServiceViewController {
     override func isContentValid() -> Bool { videoID != nil }
 
     override func didSelectPost() {
-        let message = contentText ?? ""
+        var message = contentText ?? ""
+        // Belt and braces: if the field somehow still holds the link — restored
+        // by the system, or pasted back by hand — that is not a caption.
+        if let received, message.trimmingCharacters(in: .whitespacesAndNewlines) == received
+            .trimmingCharacters(in: .whitespacesAndNewlines) {
+            message = ""
+        }
+        if let link, message.trimmingCharacters(in: .whitespacesAndNewlines) == link {
+            message = ""
+        }
         guard let link else { return complete() }
         Task {
             await SharePoster.post(link: link, message: message)
