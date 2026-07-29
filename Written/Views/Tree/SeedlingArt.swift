@@ -724,14 +724,10 @@ enum SeedlingArt {
         Shoot(
             id: 2,
             stage: .bough,
-            // 0.823 of the stage-3 stem. It went 0.70 to 0.84 to lift it toward
-            // the fork, then 0.82, then half a canvas unit *down* to 0.817 —
-            // which read on screen as having gone up, so it is back the other
-            // way, the same half unit above 0.820.
-            //
-            // The unit is 0.5 of the 358-unit viewBox the reference is traced
-            // in, the frame the measurements beside these constants use.
-            attachment: 0.823,
+            // 0.82 of the stage-3 stem, which is 0.701 of the canopy's. It went
+            // 0.70 to 0.84 to lift it toward the fork; this drops it back a
+            // little, keeping most of that lift.
+            attachment: 0.82,
             // Shortened to 0.7125, (-0.1185, 0.156) to (-0.0844, 0.1111).
             // That factor is what halves the terminal leaf's distance from the
             // pair below it: the leaf sits at the tip, so bringing it closer to
@@ -744,17 +740,8 @@ enum SeedlingArt {
             // opposite way, so the sign flips.
             bow: -0.20,
             leaflets: [
-                // The furthest leaf, half again as large: 0.290 to 0.435, and
-                // tilted fifteen degrees further round so it hangs. Which sign
-                // droops is not guessable — the blade is laid out up-and-left
-                // and then rotated, so it was found by asking which way moves
-                // the tip down the canvas rather than by reading the number.
-                //
-                // On a petiole now rather than sitting straight on the tip: a
-                // quarter of the rachis, carrying on the same bearing, so the
-                // blade stands further out without the backbone growing.
-                Leaflet(mirrored: false, axis: -61, scale: 0.435, along: 1,
-                        stalkRun: CGSize(width: -0.0211, height: -0.0278)),
+                // The furthest leaf, half again as large: 0.290 to 0.435.
+                Leaflet(mirrored: false, axis: -46, scale: 0.435, along: 1, stalkRun: .zero),
                 // The flanking pair, both leaving the backbone at one point.
                 // 0.5965 of the shortened rachis is 0.425 of the old one, where
                 // the two stalks used to meet it on average — 0.310 and 0.540.
@@ -773,12 +760,8 @@ enum SeedlingArt {
                 // The right-hand flank, halved: 0.19 to 0.095. Its partner on
                 // the left keeps its size, so the pair is symmetric in where it
                 // sits and deliberately not in how big it is.
-                // Closed five degrees onto the backbone, 42.5 to 37.5. Measured
-                // against the chord, not the bowed curve — the two differ by a
-                // couple of degrees here and mixing them is how a "40" becomes
-                // a 42.5 next time anyone checks.
                 Leaflet(mirrored: true, axis: 26, scale: 0.095, along: 0.5965,
-                        stalkRun: CGSize(width: -0.0011, height: -0.0350),
+                        stalkRun: CGSize(width: 0.0017, height: -0.0350),
                         bow: 0.22, opensAt: .canopy)
             ]
         ),
@@ -798,10 +781,7 @@ enum SeedlingArt {
             // frozen set as well as here, and a replace-first-match put them
             // both on the frozen copy — which the canopy blend overwrites
             // wholesale, so R2 never moved at all.
-            // Then ten degrees clockwise on top of that, 40.1 to 50.1 from
-            // vertical. Clockwise is the *positive* direction here because the
-            // canvas measures y downward.
-            reach: CGSize(width: 0.0573, height: 0.0519),
+            reach: CGSize(width: 0.0481, height: 0.0619),
             turn: 0,
             // Bowed above its chord: the reference's newest shoot arcs upward
             // rather than running straight, which is most of what makes it read
@@ -812,10 +792,8 @@ enum SeedlingArt {
                 // the same point is what says "just opened"; the previous
                 // arrangement hung one halfway down the stalk, which reads as an
                 // older branch that has started shedding.
-                // Halving these took too much off; 0.115 back to 0.10, which is
-                // slightly smaller rather than half the size.
-                Leaflet(mirrored: true, axis: 34, scale: 0.10, along: 1, stalkRun: .zero),
-                Leaflet(mirrored: false, axis: -34, scale: 0.10, along: 1,
+                Leaflet(mirrored: true, axis: 34, scale: 0.115, along: 1, stalkRun: .zero),
+                Leaflet(mirrored: false, axis: -34, scale: 0.115, along: 1,
                         stalkRun: CGSize(width: -0.001, height: -0.001))
             ]
         )
