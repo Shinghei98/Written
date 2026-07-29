@@ -51,7 +51,13 @@ enum SeedlingArt {
     /// height above its own foot. Against ours at 0.705 that is 0.182, where the
     /// previous step landed at 0.667 of the same measure. The plant grows by
     /// getting taller before it gets wider, and this is the largest step yet.
-    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235, 0.182]
+    ///
+    /// Raised again from 0.182, by eye against the reference rather than by
+    /// arithmetic: the bifurcation sat too low and the bare stem under it was
+    /// too short. Raising it does both at once — the fork lifts, and because
+    /// shoots are anchored to a height rather than a share of the stem, they all
+    /// drop away from it as the stem lengthens past them.
+    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235, 0.155]
 
     /// The fork partway through that climb. Everything above it — petioles,
     /// blades, every shoot's attachment point — is placed off this, so they all
