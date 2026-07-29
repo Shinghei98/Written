@@ -95,7 +95,7 @@ struct SeedlingView: View {
                         // Indices stay aligned with the animation state arrays,
                         // which are sized to the full list — so a leaflet that
                         // has not opened yet is skipped here rather than removed.
-                        if SeedlingArt.isOpen(leaflet, extended: extended) {
+                        if SeedlingArt.isDrawn(leaflet, extended: extended) {
                             self.leaflet(leaflet, of: shoot, index: index, in: size)
                         }
                     }
@@ -265,23 +265,38 @@ struct SeedlingView: View {
             // Each leaflet opens as the shoot's stalk reaches it, so the
             // cluster unfolds from the stem outward.
             for (index, leaflet) in shoot.leaflets.enumerated() {
-                let reached = delay + Self.shootDelay
-                    + Self.shootDuration * (0.55 * Double(leaflet.along) + 0.22)
-                withAnimation(.spring(response: Self.leafletSettle, dampingFraction: 0.66).delay(reached)) {
-                    leafletScale[shoot.id][index] = 1
+                // Not every leaflet on a shoot arrives with it: L2 is put out at
+                // the bough and gains a pair at the canopy. Opening those here
+                // is what left them sitting at full size, invisible only because
+                // `isOpen` was hiding them, ready to appear the moment it
+                // stopped — the pop this whole sequence is meant to avoid.
+                guard SeedlingArt.isOpen(leaflet, extended: stage.extended) else {
+                    leafletScale[shoot.id][index] = 0.05
+                    leafletOpacity[shoot.id][index] = 0
+                    continue
                 }
-                withAnimation(.easeOut(duration: 0.35).delay(reached)) {
-                    leafletOpacity[shoot.id][index] = 1
-                }
+                open(leaflet, of: shoot, index: index, delay: delay)
             }
         }
 
         // A stage skipped — arriving already grown — leaves its shoots open
-        // without animating them.
+        // without animating them. Except for the leaves that change at *this*
+        // stage: their shoot is older, so nothing above touches them, and they
+        // are exactly the ones that need the growing animation rather than a
+        // straight assignment.
         for shoot in SeedlingArt.shoots where shoot.stage.rawValue < stage.rawValue {
-            for index in shoot.leaflets.indices {
-                leafletScale[shoot.id][index] = 1
-                leafletOpacity[shoot.id][index] = 1
+            for (index, leaflet) in shoot.leaflets.enumerated() {
+                let isOpen = SeedlingArt.isOpen(leaflet, extended: stage.extended)
+                guard leaflet.opensAt == stage || leaflet.closesAt == stage else {
+                    leafletScale[shoot.id][index] = isOpen ? 1 : 0.05
+                    leafletOpacity[shoot.id][index] = isOpen ? 1 : 0
+                    continue
+                }
+                if isOpen {
+                    open(leaflet, of: shoot, index: index, delay: delay)
+                } else {
+                    close(leaflet, of: shoot, index: index, delay: delay)
+                }
             }
         }
         // And anything newer than this stage is not on the plant yet: stepping
@@ -291,6 +306,42 @@ struct SeedlingView: View {
                 leafletScale[shoot.id][index] = 0.05
                 leafletOpacity[shoot.id][index] = 0
             }
+        }
+    }
+
+    /// A leaflet unfolding, timed to when its shoot's stalk reaches it — so a
+    /// cluster opens from the stem outward rather than all at once.
+    private func open(
+        _ leaflet: SeedlingArt.Leaflet,
+        of shoot: SeedlingArt.Shoot,
+        index: Int,
+        delay: Double
+    ) {
+        let reached = delay + Self.shootDelay
+            + Self.shootDuration * (0.55 * Double(leaflet.along) + 0.22)
+        withAnimation(.spring(response: Self.leafletSettle, dampingFraction: 0.66).delay(reached)) {
+            leafletScale[shoot.id][index] = 1
+        }
+        withAnimation(.easeOut(duration: 0.35).delay(reached)) {
+            leafletOpacity[shoot.id][index] = 1
+        }
+    }
+
+    /// The reverse, for a leaf the next stage does without. Eased rather than
+    /// sprung: a leaf being given up should not bounce on the way out, and it
+    /// leads its replacement slightly so the two are not on screen at full
+    /// weight together.
+    private func close(
+        _ leaflet: SeedlingArt.Leaflet,
+        of shoot: SeedlingArt.Shoot,
+        index: Int,
+        delay: Double
+    ) {
+        let reached = delay + Self.shootDelay
+            + Self.shootDuration * (0.55 * Double(leaflet.along) + 0.22) - 0.2
+        withAnimation(.easeInOut(duration: 0.45).delay(max(0, reached))) {
+            leafletScale[shoot.id][index] = 0.05
+            leafletOpacity[shoot.id][index] = 0
         }
     }
 }

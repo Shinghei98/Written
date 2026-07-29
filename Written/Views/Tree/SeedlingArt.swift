@@ -1030,6 +1030,27 @@ enum SeedlingArt {
         return true
     }
 
+    /// Whether a leaflet belongs in the view hierarchy at all — a full stage
+    /// wider than `isOpen` at each end.
+    ///
+    /// The two cannot be the same test. `isOpen` answers *is this leaf part of
+    /// the plant now*, which is what `shootExtent` and the badges want. Used as
+    /// the structural gate it also decided when the leaf existed to be animated,
+    /// and a leaf that arrives at the canopy only becomes open once `extended`
+    /// has finished its climb — so its fade-in had nothing on screen to play on
+    /// and it appeared at full size the instant the number crossed, while the
+    /// leaf it replaces vanished the same way. L2 swaps two leaves for one at
+    /// that step, so the branch looked like it came apart and was rebuilt.
+    ///
+    /// A stage of slack each side leaves both mounted across the change, where
+    /// `leafletOpacity` can carry them. Outside its own window a leaflet sits at
+    /// opacity zero, so the slack draws nothing.
+    static func isDrawn(_ leaflet: Leaflet, extended: CGFloat) -> Bool {
+        if let opens = leaflet.opensAt, extended < CGFloat(opens.rawValue) - 1.001 { return false }
+        if let closes = leaflet.closesAt, extended >= CGFloat(closes.rawValue) + 1 { return false }
+        return true
+    }
+
     static func openLeaflets(of shoot: Shoot, extended: CGFloat) -> [Leaflet] {
         shoot.leaflets.filter { isOpen($0, extended: extended) }
     }

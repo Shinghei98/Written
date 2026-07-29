@@ -85,6 +85,25 @@ struct GrowProfileView: View {
     /// long before any of this. The bars are what should give, not the plant.
     private static let barsWindow: CGFloat = 44 * 2 + 8
 
+    /// How far the stack is allowed to *draw* above that window.
+    ///
+    /// The window is a layout reserve, and it has to stay 96 or the garden
+    /// changes size — that is the whole point of the constant above. But it was
+    /// also acting as the visible height, so the stack faded out 96 points off
+    /// its own bottom and left a band of empty parchment between the last bar
+    /// and the soil. With three sources connected the first bar had already gone
+    /// entirely, well before it was anywhere near the plant.
+    ///
+    /// One more bar's pitch — a bar and the gap above it. Drawn, not reserved:
+    /// the layout frame below is still `barsWindow`, so this cannot move the
+    /// garden or shrink the plant.
+    private static let barsOverdraw: CGFloat = 44 + 8
+
+    /// The fade at the top of the stack, in points rather than as a fraction of
+    /// the window — a fraction would have grown with the overdraw and turned a
+    /// soft edge into a long dissolve over half the visible bars.
+    private static let barsFade: CGFloat = 26
+
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
     private var isCovering: Bool { isWatering }
@@ -395,18 +414,26 @@ struct GrowProfileView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: Self.barsWindow, alignment: .bottom)
+            // Drawn over the taller window and faded at its top, then handed to
+            // the layout at the shorter one. Two frames, in that order, because
+            // `.frame` does not clip: the stack keeps its full drawn height and
+            // simply overhangs the reserve, so the bars climb toward the soil
+            // while the garden below is measured against a height that has not
+            // changed.
+            .frame(height: Self.barsWindow + Self.barsOverdraw, alignment: .bottom)
             .mask(
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.34),
+                        .init(color: .black,
+                              location: Self.barsFade / (Self.barsWindow + Self.barsOverdraw)),
                         .init(color: .black, location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
+            .frame(height: Self.barsWindow, alignment: .bottom)
 
             if let next = viewModel.treeState.nextModality {
                 promptCard(for: next)
