@@ -1,49 +1,39 @@
 import SwiftUI
 
-/// The garden and the dashboard, and the move between them.
+/// The dashboard and the profile preview, and the move between them.
 ///
-/// They are stacked rather than pushed or presented: "View Dashboard" slides the
-/// garden *off the top* of the screen, accelerating as it goes, and the
-/// dashboard is simply what was underneath all along. A navigation push would
-/// slide in from the trailing edge, and a sheet would rise over the garden and
-/// leave it visible behind — neither reads as leaving the garden behind.
+/// They are stacked rather than pushed or presented: confirming on the dashboard
+/// slides it *off the top* of the screen, accelerating as it goes, and the
+/// preview is simply what was underneath all along. A navigation push would
+/// slide in from the trailing edge, and a sheet would rise over the dashboard
+/// and leave it visible behind — neither reads as leaving it.
 ///
-/// The garden stays mounted under the offset. Tearing it down would replay the
-/// plant's whole growth on the way back, and it holds the animation state the
-/// badges and the stem are pinned to.
-struct HomeView: View {
-    /// Back to sign-in, for `RootView`. Reached from the garden's debug header.
+/// **The garden used to live here too**, and reached the dashboard by being
+/// pulled up off the screen. The dashboard is a tab now, so that gesture and the
+/// arrow advertising it are gone and the garden no longer moves at all. What is
+/// left is the one vertical move that remains: dashboard to preview.
+struct DashboardTab: View {
+    @ObservedObject var viewModel: DistillViewModel
+
+    /// Back to the garden — a different tab now, rather than a layer underneath.
+    var onBack: () -> Void = {}
+    /// "Explore" on the preview: through to the discovery feed.
+    var onExplore: () -> Void = {}
+    /// Back to sign-in, for `RootView`.
     var onSignOut: () -> Void = {}
 
-    /// "Explore" on the profile preview — the end of onboarding, and the move
-    /// into the rest of the app. Handled by `AppShell`, which owns the tabs.
-    var onExplore: () -> Void = {}
-
-    /// True while the garden's pull-up is being dragged, so the shell can take
-    /// the tab bar out of the way of a gesture that starts on top of it.
-    var onGesture: (Bool) -> Void = { _ in }
-
-    /// One distillation, two screens: the view model is owned here so the
-    /// dashboard reads exactly what the garden grew.
-    @StateObject private var viewModel = DistillViewModel()
-
-    /// How far each screen has slid off the top. The stack is garden over
-    /// dashboard over profiles, and each layer leaves the same way the one
-    /// before it did — one move learned once.
     @State private var lift: CGFloat = 0
-    @State private var dashboardLift: CGFloat = 0
-    @State private var isShowingDashboard = false
     @State private var isShowingProfiles = false
 
     /// Accelerating away, and easing back: `easeIn` spends its speed at the end
-    /// of the travel, so the garden gathers pace as it leaves rather than
+    /// of the travel, so the dashboard gathers pace as it leaves rather than
     /// gliding out at a constant rate.
     private static let leaving: Animation = .easeIn(duration: 0.5)
     private static let returning: Animation = .easeOut(duration: 0.45)
 
     var body: some View {
         GeometryReader { geometry in
-            // Past the top edge, safe areas included, or the garden's last
+            // Past the top edge, safe areas included, or the dashboard's last
             // sliver hangs at the top of the screen once the animation settles.
             let travel = geometry.size.height
                 + geometry.safeAreaInsets.top
@@ -54,7 +44,7 @@ struct HomeView: View {
                 ProfilePreviewView(
                     viewModel: viewModel,
                     onBack: {
-                        withAnimation(Self.returning) { dashboardLift = 0 }
+                        withAnimation(Self.returning) { lift = 0 }
                         isShowingProfiles = false
                     },
                     onExplore: onExplore
@@ -62,12 +52,9 @@ struct HomeView: View {
 
                 DashboardView(
                     viewModel: viewModel,
-                    onBack: {
-                        withAnimation(Self.returning) { lift = 0 }
-                        isShowingDashboard = false
-                    },
+                    onBack: onBack,
                     onConfirm: {
-                        withAnimation(Self.leaving) { dashboardLift = -travel }
+                        withAnimation(Self.leaving) { lift = -travel }
                         isShowingProfiles = true
                     },
                     // Everything this device remembers is cleared here, before
@@ -78,65 +65,23 @@ struct HomeView: View {
                         onSignOut()
                     }
                 )
-                .offset(y: dashboardLift)
-                .allowsHitTesting(!isShowingProfiles)
-
-                // Deliberately without an `onSignOut`. Signing out has to clear
-                // this device first — `viewModel.signOutLocalState()` above —
-                // and a second route to `onSignOut` that skipped it would drop
-                // the session while leaving the distillation on disk.
-                GrowProfileView(
-                    viewModel: viewModel,
-                    // The drag moves this view directly, so what appears behind
-                    // it is the dashboard already sitting there in the stack —
-                    // the gesture uncovers the real screen rather than opening a
-                    // gap over a placeholder and jumping at the end.
-                    //
-                    // Unanimated on purpose: an animation here would interpolate
-                    // toward each drag position and lag the finger.
-                    onRevealDrag: { lift = -$0; onGesture(true) },
-                    onRevealEnd: { committed in
-                        onGesture(false)
-                        guard committed else {
-                            withAnimation(Self.returning) { lift = 0 }
-                            return
-                        }
-                        open(travel)
-                    }
-                )
-                // The garden rides the dashboard's exit too: it sits above it in
-                // the stack, so without this it would be left hanging over the
-                // profiles when the dashboard leaves.
-                .offset(y: lift + dashboardLift)
+                .offset(y: lift)
                 // Offscreen but still mounted, so it must stop taking taps the
                 // moment it starts leaving.
-                .allowsHitTesting(!isShowingDashboard)
+                .allowsHitTesting(!isShowingProfiles)
             }
 #if DEBUG
-            // `-screen dashboard` on the launch line; see `DebugLaunch`.
+            // `-screen profiles` on the launch line; see `DebugLaunch`. The
+            // dashboard itself is now `-tab dashboard` and needs no delay.
             .onAppear {
-                guard DebugLaunch.opensDashboard, DebugLaunch.firesOnce("screen") else { return }
+                guard DebugLaunch.opensProfiles, DebugLaunch.firesOnce("screen") else { return }
                 Task {
                     try? await Task.sleep(nanoseconds: UInt64(DebugLaunch.dashboardDelay * 1_000_000_000))
-                    open(travel)
-                    guard DebugLaunch.opensProfiles else { return }
-                    // Long enough for the dashboard's own slide to finish, or
-                    // the two moves collide and neither reads.
-                    try? await Task.sleep(nanoseconds: 1_400_000_000)
-                    withAnimation(Self.leaving) { dashboardLift = -travel }
+                    withAnimation(Self.leaving) { lift = -travel }
                     isShowingProfiles = true
                 }
             }
 #endif
         }
     }
-
-    private func open(_ travel: CGFloat) {
-        withAnimation(Self.leaving) { lift = -travel }
-        isShowingDashboard = true
-    }
-}
-
-#Preview {
-    HomeView()
 }

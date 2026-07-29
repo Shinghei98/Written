@@ -11,16 +11,16 @@ import SwiftUI
 struct AppShell: View {
     var onSignOut: () -> Void = {}
 
+    /// One distillation, every tab. Owned here rather than by a tab, because the
+    /// garden and the dashboard are now siblings — they used to be layers of one
+    /// screen, which is what let that screen own it.
+    @StateObject private var viewModel = DistillViewModel()
+
     /// Distill, not Explore. Someone arriving here has just finished growing
     /// their plant, and the first thing they should see is the thing they made.
     /// Reaching Explore is a deliberate move — the button on the profile
     /// preview, or the bar.
     @State private var tab: MainTab = .distill
-
-    /// True while the garden's pull-up is being dragged. The bar sits exactly
-    /// where that gesture starts, and two things reacting to one drag is worse
-    /// than one of them being briefly absent.
-    @State private var isGesturing = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -29,16 +29,17 @@ struct AppShell: View {
             page(.explore) { DiscoveryView() }
             page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
             page(.chat) { ComingSoonView(tab: .chat, note: "Where a commonality turns into a conversation.") }
-            page(.distill) {
-                HomeView(
-                    onSignOut: onSignOut,
+            page(.distill) { GrowProfileView(viewModel: viewModel) }
+            page(.dashboard) {
+                DashboardTab(
+                    viewModel: viewModel,
+                    onBack: { withAnimation(.easeInOut(duration: 0.35)) { tab = .distill } },
                     onExplore: { withAnimation(.easeInOut(duration: 0.45)) { tab = .explore } },
-                    onGesture: { isGesturing = $0 }
+                    onSignOut: onSignOut
                 )
             }
-            page(.settings) { ComingSoonView(tab: .settings, note: "Your account, your data, and what leaves this phone.") }
 
-            MainTabBar(selection: $tab, isHidden: isGesturing)
+            MainTabBar(selection: $tab)
                 .padding(.bottom, 6)
         }
 #if DEBUG
@@ -49,7 +50,7 @@ struct AppShell: View {
             case "explore":  tab = .explore
             case "wish":     tab = .wish
             case "chat":     tab = .chat
-            case "settings": tab = .settings
+            case "dashboard": tab = .dashboard
             default:         break
             }
         }

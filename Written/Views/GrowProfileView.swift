@@ -12,15 +12,6 @@ struct GrowProfileView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
-    /// How far the page has been dragged up, in points, as it happens.
-    /// `HomeView` turns this into its own lift, so the dashboard beneath is
-    /// uncovered by the drag rather than after it.
-    var onRevealDrag: (CGFloat) -> Void = { _ in }
-
-    /// The finger left the screen: `true` to go through to the dashboard,
-    /// `false` to settle back onto the garden.
-    var onRevealEnd: (Bool) -> Void = { _ in }
-
     /// Back to sign-in. Only the debug button in the header calls it today.
 
     @State private var growth: Double = 0
@@ -60,18 +51,6 @@ struct GrowProfileView: View {
     @State private var distillingModality: Modality?
     @State private var distillProgress: Double = 0
     @State private var progressWalk: Task<Void, Never>?
-
-    /// How far the arrow is lifted, in points. Driven a hop at a time by
-    /// `startBobbing`.
-    @State private var arrowLift: CGFloat = 0
-    @State private var bobbing: Task<Void, Never>?
-    /// Whether a reveal drag is in flight.
-    ///
-    /// A flag rather than the live offset. Storing the offset here meant a
-    /// `@State` write on every touch event, so each frame rebuilt this view *and*
-    /// `HomeView` — and the offset is not needed locally anyway, since
-    /// `HomeView` owns the movement.
-    @State private var isDragging = false
 
     /// How the head moves along the bar: one pace between dots, and a wait on
     /// the dot it reaches.
@@ -126,15 +105,6 @@ struct GrowProfileView: View {
     /// soft edge into a long dissolve over half the visible rows.
     private static let barsFade: CGFloat = 26
 
-    /// The strip at the foot of the page holding the arrow.
-    ///
-    /// Taken out of the reserve rather than added below it. The reserve is what
-    /// the garden is measured against, so a strip added underneath would have
-    /// come straight off the plant — and the Dashboard button that used to sit
-    /// inside the reserve was 48 points plus its gap, so removing it pays for
-    /// this twice over and still leaves the rows better off than before.
-    private static let handleHeight: CGFloat = 28
-
     /// Where a refused permission is actually turned back on, per source.
     ///
     /// `x-apple-health://` is a public scheme and opens the Health app, which
@@ -163,24 +133,10 @@ struct GrowProfileView: View {
     /// while it was away is re-read. See `promptCard`.
     @State private var permissionTick = 0
 
-    /// How far the page must be dragged before letting go goes through to the
-    /// dashboard rather than settling back.
-    ///
-    /// A fixed distance, not a fraction of the screen: this is a commit
-    /// threshold for a gesture, and a thumb's idea of "I meant that" does not
-    /// scale with the phone.
-    private static let commitDistance: CGFloat = 110
-
     /// What the stack is drawn and scrolled inside, once the arrow's strip and
     /// the tab bar's clearance are taken out.
     private static let promptsDrawn: CGFloat =
-        promptsReserve - handleHeight - MainTabBar.overlayHeight + promptsOverdraw
-
-    /// Whether the page can be pulled up at all. The Dashboard is the way into
-    /// what the distillation produced, so there has to *be* a distillation:
-    /// before the first connection the arrow is not drawn and the drag does
-    /// nothing, rather than sliding the page onto a button that is disabled.
-    private var canReveal: Bool { !viewModel.treeState.connectedModalities.isEmpty }
+        promptsReserve - MainTabBar.overlayHeight + promptsOverdraw
 
     /// The banner and the watering can share a lifetime: both are the cover for
     /// the wait, so they arrive and leave together.
@@ -212,49 +168,26 @@ struct GrowProfileView: View {
                     // now the same by construction rather than by arithmetic
                     // that has to be redone every time a modality is added.
                     .frame(
-                        height: Self.promptsReserve - Self.handleHeight - MainTabBar.overlayHeight,
+                        height: Self.promptsReserve - MainTabBar.overlayHeight,
                         alignment: .bottom
                     )
                     .padding(.horizontal, 16)
-                    // As low as it goes: bottom-aligned in a strip that also
-                    // carries the 12 points that used to be the page's bottom
-                    // padding, so the arrow drops to the safe-area edge without
-                    // the totals changing.
-                    revealHandle
-                        .frame(height: Self.handleHeight + 12, alignment: .bottom)
+                    .padding(.bottom, 12)
                     // The tab bar floats over this strip. Taken *out* of the
-                    // reserve above rather than added under it, so the three
-                    // heights still sum to what they always did and the plant
-                    // does not move — the same trade the arrow's strip made.
+                    // reserve above rather than added under it, so the heights
+                    // still sum to what they always did and the plant does not
+                    // move.
                     //
-                    // It costs the connected rows their bottom 86 points, which
-                    // is the price of a bar that is present on every screen.
+                    // The arrow that used to sit here is gone with the pull-up:
+                    // the dashboard is a tab now, so there is nothing under this
+                    // page to advertise. Its 28 points go back to the rows.
                     Color.clear.frame(height: MainTabBar.overlayHeight)
                 }
-                // Opaque, so the dashboard shows from under the page's edge
-                // rather than through it — and carried into the bottom inset so
-                // that edge is the screen's edge when the page is down, rather
-                // than a seam floating above the home indicator.
-                .background(
-                    PageShape()
-                        .fill(GardenPalette.parchment)
-                        .overlay(PageShape().stroke(GardenPalette.ink.opacity(0.12), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.13), radius: 9, y: 5)
-                        // The *background* reaches into the inset, not the
-                        // layout. Ignoring the safe area any higher up gives the
-                        // whole stack the extra height and moves the plant —
-                        // which it did, 30 points down, when this was tried at
-                        // the root to get at the inset.
-                        .ignoresSafeArea(edges: .bottom)
-                )
-                // No offset of its own: `HomeView` moves this whole view, which
-                // is what lets the drag reveal the real dashboard rather than a
-                // gap the garden has opened above a colour.
-                //
-                // Simultaneous rather than exclusive: the stack above is a
-                // scroll view and would otherwise swallow every upward drag
-                // before this saw it.
-                .simultaneousGesture(revealDrag)
+                // Plain parchment now. The rounded edge and shadow were there
+                // to make this read as a sheet lying over the dashboard, and
+                // with the pull-up gone there is nothing underneath for it to
+                // be a sheet over.
+                .background(GardenPalette.parchment.ignoresSafeArea(edges: .bottom))
             }
         .preferredColorScheme(.light)
         // Coming back from Settings or Health with a permission just granted.
@@ -597,83 +530,6 @@ struct GrowProfileView: View {
     /// The foot of the scrolling stack, which is where it should sit whenever
     /// the set of connections changes.
     private static let promptsFoot = "prompts-foot"
-
-    /// The arrow at the foot of the page: the only sign that there is anything
-    /// under it.
-    ///
-    /// Not a control. It is a label for the gesture, so it takes no taps —
-    /// `allowsHitTesting(false)` rather than merely having no action, or it
-    /// would swallow the drag that starts on top of it, which is exactly where
-    /// a user aiming at the arrow will start one.
-    private var revealHandle: some View {
-        Image(systemName: "chevron.up")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(GardenPalette.gold)
-            .offset(y: arrowLift)
-            .opacity(canReveal ? 1 : 0)
-            .animation(.easeInOut(duration: 0.35), value: canReveal)
-            .allowsHitTesting(false)
-            .onAppear(perform: startBobbing)
-            .onDisappear { bobbing?.cancel() }
-    }
-
-    /// Two hops, a pause, two hops — rather than a continuous rise and fall.
-    ///
-    /// A steady bob is ambient and stops being read after a few seconds; a
-    /// burst with a gap is a signal, because the gap is what makes the next
-    /// burst an event. `repeatForever(autoreverses:)` cannot express it — it
-    /// only knows one cycle — so the rhythm is driven from a task and each hop
-    /// is its own animation.
-    private func startBobbing() {
-        bobbing?.cancel()
-        bobbing = Task { @MainActor in
-            while !Task.isCancelled {
-                // Nothing to advertise, or the page is already up: idle rather
-                // than exit, since either can change without this restarting.
-                guard canReveal, !isDragging else {
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                    continue
-                }
-                for _ in 0..<2 {
-                    withAnimation(.easeOut(duration: 0.24)) { arrowLift = -7 }
-                    try? await Task.sleep(nanoseconds: 240_000_000)
-                    withAnimation(.easeIn(duration: 0.26)) { arrowLift = 0 }
-                    try? await Task.sleep(nanoseconds: 260_000_000)
-                }
-                try? await Task.sleep(nanoseconds: 1_300_000_000)
-            }
-        }
-    }
-
-    /// Dragging the page itself, which is the gesture the arrow is advertising.
-    ///
-    /// **Measured in `.global`, and it has to be.** `HomeView` moves this whole
-    /// view in response to what this reports, and a `DragGesture` measures its
-    /// translation against the view it is attached to — so in the default local
-    /// space the page moving under the finger changed the frame the translation
-    /// was measured in, which changed the translation, which moved the page
-    /// again. That is a feedback loop, and on device it read as the page
-    /// shaking. The global space does not move when the page does.
-    private var revealDrag: some Gesture {
-        DragGesture(minimumDistance: 8, coordinateSpace: .global)
-            .onChanged { value in
-                guard canReveal else { return }
-                // Clamped at zero: the dashboard is above this page and there is
-                // nothing below it, so pulling down does nothing rather than
-                // implying a third screen.
-                if !isDragging { isDragging = true }
-                onRevealDrag(max(0, -value.translation.height))
-            }
-            .onEnded { value in
-                guard canReveal, isDragging else { return }
-                isDragging = false
-                // Where the finger was going, not just where it stopped, so a
-                // short flick commits the same way a long slow pull does.
-                let projected = max(0, -value.predictedEndTranslation.height)
-                onRevealEnd(projected >= Self.commitDistance)
-            }
-    }
-
 
     private func promptCard(for next: Modality) -> some View {
         let first = viewModel.treeState.isSeedling

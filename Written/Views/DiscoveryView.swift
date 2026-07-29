@@ -28,19 +28,27 @@ struct DiscoveryView: View {
         // Hand-paged rather than `TabView(.page)`: the vertical page style
         // brings its own indicator and its own bounce, and the feed has a tab
         // bar overlaying its bottom edge that both would collide with.
-        VStack(spacing: 0) {
-            ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
-                DiscoveryCard(profile: profile)
+        //
+        // **A window, not the whole feed.** A plain `VStack` builds every child
+        // immediately — there is no scroll view here for a `LazyVStack` to be
+        // lazy against — so rendering the full list meant every card's
+        // `onAppear` firing at once. The three at the end each asked the feed to
+        // extend, which appended six more, whose `onAppear`s asked again: an
+        // endless list growing as fast as it could be built, which froze the app
+        // on launch because `AppShell` mounts every tab whether or not you are
+        // looking at it. Four cards is all that can ever be on screen or one
+        // swipe away from it.
+        let low = max(0, model.index - 1)
+        let high = min(model.profiles.count - 1, model.index + 2)
+
+        return VStack(spacing: 0) {
+            ForEach(low...high, id: \.self) { index in
+                DiscoveryCard(profile: model.profiles[index])
                     .frame(width: size.width, height: size.height)
-                    .onAppear {
-                        // Extend well before the reader arrives, so the feed
-                        // never shows its own edge.
-                        if index >= model.profiles.count - 3 { model.extend() }
-                    }
             }
         }
         .frame(width: size.width, alignment: .top)
-        .offset(y: -CGFloat(model.index) * size.height + model.drag)
+        .offset(y: -CGFloat(model.index - low) * size.height + model.drag)
         .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86), value: model.index)
         .gesture(
             DragGesture(coordinateSpace: .global)
@@ -101,14 +109,20 @@ final class DiscoveryModel: ObservableObject {
 
     /// Grows the feed rather than wrapping it. The rotation rules already make
     /// it endless; the list just has to keep up.
-    func extend() {
-        guard var feed else { return }
+    ///
+    /// Driven by where the reader is, never by a card appearing. Appearance is
+    /// not a reliable signal here — the pager builds its cards eagerly, so an
+    /// `onAppear` that extends the feed extends it again for every card the
+    /// extension itself created.
+    private func extendIfNeeded() {
+        guard var feed, index > profiles.count - 4 else { return }
         profiles += feed.next(6)
         self.feed = feed
     }
 
     func advance(by delta: Int) {
         index = max(0, min(profiles.count - 1, index + delta))
+        extendIfNeeded()
     }
 }
 
