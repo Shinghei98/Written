@@ -85,7 +85,13 @@ struct GrowProfileView: View {
     /// wrong way. Pinning the top gap and letting the single spacer below absorb
     /// the remainder makes the plant's height something set here rather than
     /// something that falls out.
-    private static let gardenTopGap: CGFloat = 10
+    /// 38, which is half way back from the 10 the lift first landed on. The
+    /// plant had risen 57 points from where it used to sit and that was too far;
+    /// this returns 28 of them. The rows are untouched by it — their top edge is
+    /// set by `promptsReserve` and stays where the lift put it, so what closes
+    /// is the gap between the plant and the stack rather than either boundary
+    /// moving back.
+    private static let gardenTopGap: CGFloat = 38
 
     /// The height the bars are allowed, whatever the count.
     ///
