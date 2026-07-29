@@ -627,24 +627,27 @@ enum SeedlingArt {
             turn: 18,
             leaflets: shoots[0].leaflets
         ),
-        // L1 — the left-hand lowest branch. Its split happens later along the
-        // rachis, and both leaves grow a little and move outward: the lower one
-        // left and down, the upper one up and left.
+        // L1 — the left-hand lowest branch. Both of its stalks run a tenth
+        // longer along their own directions, with the bifurcation held exactly
+        // where it is.
         Shoot(
             id: 1,
             stage: .branch,
             attachment: 0.34,
-            // Further left and a little higher, which carries the terminal leaf
-            // — the upper one — up and left with it, since it sits at the tip.
-            reach: CGSize(width: -0.058, height: 0.076),
+            // A tenth past (-0.058, 0.076), which carries the terminal leaf —
+            // the upper one — further up and left, since it sits at the tip.
+            reach: CGSize(width: -0.0638, height: 0.0836),
             turn: 0,
             leaflets: [
                 Leaflet(mirrored: false, axis: -50, scale: 0.26, along: 1, stalkRun: .zero),
-                // `along` 0.34 to 0.42: further along the rachis is later, so
-                // the bifurcation happens further from the stem. The stalk runs
-                // further left and a touch further down.
-                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.42,
-                        stalkRun: CGSize(width: -0.046, height: 0.014))
+                // `along` divided by the same tenth the rachis grew by, 0.42 to
+                // 0.382. It is a *fraction* of the rachis, so leaving it alone
+                // while the rachis lengthens would carry the bifurcation out
+                // with the tip — and the bifurcation is where it should be.
+                // Shrinking it in step keeps that point still while the stalk
+                // beyond it extends.
+                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.382,
+                        stalkRun: CGSize(width: -0.0506, height: 0.0154))
             ]
         ),
         shoots[2],
