@@ -633,9 +633,16 @@ struct GrowProfileView: View {
         // seemed right, since there is no neighbouring badge to clear — put it
         // squarely on the cotyledon blade, because the cotyledons reach further
         // out at this height than the shoot does.
+        //
+        // Dropped from -0.082 to -0.028. At -0.082 the badge cleared the big
+        // upper-left blade by 24px of a 144px badge, which is close enough to
+        // read as sitting on it. The blade runs down-and-right through here, so
+        // travelling down is what opens the gap — about half a pixel of
+        // clearance per pixel of travel — and this lands ~55px clear while
+        // staying well above the badge below it.
         if shoot.id == Self.boughShootID {
             return TreeGeometry.illustration(
-                CGPoint(x: extent.x + outward * 1.15, y: extent.y - 0.082),
+                CGPoint(x: extent.x + outward * 1.15, y: extent.y - 0.028),
                 in: rect
             )
         }
