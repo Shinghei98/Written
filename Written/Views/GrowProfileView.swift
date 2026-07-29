@@ -83,25 +83,30 @@ struct GrowProfileView: View {
     /// did, holds the plant still *relative to itself* but moves it from where
     /// it was: every stage loses the same 52 points, including the ones drawn
     /// long before any of this. The bars are what should give, not the plant.
-    private static let barsWindow: CGFloat = 44 * 2 + 8
+    private static let barRow: CGFloat = 44 + 8
 
-    /// How far the stack is allowed to *draw* above that window.
+    /// How far the stack is allowed to *draw* above the reserve.
     ///
-    /// The window is a layout reserve, and it has to stay 96 or the garden
+    /// The reserve is a layout figure and has to stay where it is or the garden
     /// changes size — that is the whole point of the constant above. But it was
     /// also acting as the visible height, so the stack faded out 96 points off
     /// its own bottom and left a band of empty parchment between the last bar
-    /// and the soil. With three sources connected the first bar had already gone
+    /// and the soil. With three sources connected the first bar had gone
     /// entirely, well before it was anywhere near the plant.
     ///
-    /// One more bar's pitch — a bar and the gap above it. Drawn, not reserved:
-    /// the layout frame below is still `barsWindow`, so this cannot move the
-    /// garden or shrink the plant.
-    private static let barsOverdraw: CGFloat = 44 + 8
+    /// One more row's pitch. Drawn, not reserved: the outer frame is still
+    /// `promptsReserve`, so this cannot move the garden or shrink the plant.
+    /// That is the trade this height was chosen under — the rows were given the
+    /// empty parchment above them and nothing else, rather than the plant being
+    /// shrunk to fit more of them.
+    private static let promptsOverdraw: CGFloat = barRow
+
+    /// What the stack is drawn and scrolled inside.
+    private static let promptsDrawn: CGFloat = promptsReserve + promptsOverdraw
 
     /// The fade at the top of the stack, in points rather than as a fraction of
     /// the window — a fraction would have grown with the overdraw and turned a
-    /// soft edge into a long dissolve over half the visible bars.
+    /// soft edge into a long dissolve over half the visible rows.
     private static let barsFade: CGFloat = 26
 
     /// The banner and the watering can share a lifetime: both are the cover for
@@ -401,50 +406,70 @@ struct GrowProfileView: View {
     /// record of what the plant was grown from instead of forgetting each step
     /// as it completes.
     private var prompts: some View {
-        VStack(spacing: 8) {
-            // Held to a fixed window and faded off at the top rather than
-            // allowed to grow. The newest connection stays fully legible at the
-            // bottom; older ones ride up out of the frame, which is the same
-            // thing the stack was already doing visually — it just no longer
-            // costs the garden any height to do it.
-            VStack(spacing: 8) {
-                ForEach(viewModel.treeState.connectedModalities) { modality in
-                    ConnectedBar(modality: modality, sources: viewModel.connectedSources(for: modality))
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 8) {
+                    ForEach(viewModel.treeState.connectedModalities) { modality in
+                        ConnectedBar(modality: modality, sources: viewModel.connectedSources(for: modality))
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+
+                    if let next = viewModel.treeState.nextModality {
+                        promptCard(for: next)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .id(next)
+                    }
+
+                    viewProfile
+
+                    // Something to scroll *to*. Anchoring on the last real row
+                    // would follow whichever view that happens to be, and it
+                    // changes as sources connect.
+                    Color.clear.frame(height: 1).id(Self.promptsFoot)
                 }
+                .frame(maxWidth: .infinity)
+                // A short stack sits at the bottom of the viewport rather than
+                // the top, so the invitation and the Dashboard button stay put
+                // and the rows fill upward into the space above them — which is
+                // where they were before any of this scrolled.
+                .frame(minHeight: Self.promptsDrawn, alignment: .bottom)
             }
-            .frame(maxWidth: .infinity)
             // Drawn over the taller window and faded at its top, then handed to
-            // the layout at the shorter one. Two frames, in that order, because
-            // `.frame` does not clip: the stack keeps its full drawn height and
-            // simply overhangs the reserve, so the bars climb toward the soil
-            // while the garden below is measured against a height that has not
-            // changed.
-            .frame(height: Self.barsWindow + Self.barsOverdraw, alignment: .bottom)
+            // the layout at the reserve. Two frames, in that order: the scroll
+            // view clips to the first, so it overhangs the reserve upward and
+            // the garden below is still measured against a height that has not
+            // changed. This is what buys the extra rows without the plant
+            // moving — at four connected the invitation is gone, leaving 232
+            // points of rows, which is 4.46 of the 52-point pitch.
+            .frame(height: Self.promptsDrawn)
             .mask(
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black,
-                              location: Self.barsFade / (Self.barsWindow + Self.barsOverdraw)),
+                        .init(color: .black, location: Self.barsFade / Self.promptsDrawn),
                         .init(color: .black, location: 1)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
-            .frame(height: Self.barsWindow, alignment: .bottom)
-
-            if let next = viewModel.treeState.nextModality {
-                promptCard(for: next)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .id(next)
+            .frame(height: Self.promptsReserve, alignment: .bottom)
+            .onAppear { proxy.scrollTo(Self.promptsFoot, anchor: .bottom) }
+            // A new connection lands at the bottom; without this it arrives
+            // below the fold on a stack that has started scrolling, so the one
+            // thing the user just did is the one thing they cannot see.
+            .onChange(of: viewModel.treeState) { _ in
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+                    proxy.scrollTo(Self.promptsFoot, anchor: .bottom)
+                }
             }
-
-            viewProfile
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: viewModel.treeState)
     }
+
+    /// The foot of the scrolling stack, which is where it should sit whenever
+    /// the set of connections changes.
+    private static let promptsFoot = "prompts-foot"
 
     /// The way to the dashboard, under the bars.
     ///
