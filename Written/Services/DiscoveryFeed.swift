@@ -19,6 +19,23 @@ import Foundation
 ///   `nextRound`.
 struct DiscoveryFeed {
 
+    /// One thing in the feed. A person, or a video somebody shared.
+    ///
+    /// The two are genuinely different — a profile is generated from a rotation
+    /// and a shared post is a row someone wrote — so they are cases rather than
+    /// a single struct with half its fields empty.
+    enum Item: Identifiable, Equatable {
+        case profile(Profile)
+        case shared(SharedPostService.Post)
+
+        var id: String {
+            switch self {
+            case .profile(let profile): return "p:" + profile.id
+            case .shared(let post): return "s:" + post.id
+            }
+        }
+    }
+
     /// What one card shows.
     struct Profile: Identifiable, Equatable {
         /// Unique per *appearance*, not per person: the feed shows the same
@@ -46,6 +63,20 @@ struct DiscoveryFeed {
     private let people: [DiscoveryService.Person]
     private var rng: SeededGenerator
 
+    /// Shared videos, newest first, cycled through as the feed goes on.
+    ///
+    /// Interleaved rather than mixed into the rotation: the separation rule and
+    /// the photo and caption cycles are all about *people*, and a shared post is
+    /// not a person. Slotting them in every few items leaves that machinery
+    /// exactly as it was.
+    private let posts: [SharedPostService.Post]
+    private var postCursor = 0
+
+    /// How often a shared video appears. Every fourth item, so the feed is
+    /// still mostly people — this is a dating app with videos in it, not the
+    /// other way round.
+    private static let postEvery = 4
+
     /// Per person, the photos and interests not yet used this cycle.
     private var photoPool: [String: [Int]] = [:]
     private var interestPool: [String: [DiscoveryService.Person.Interest]] = [:]
@@ -60,9 +91,32 @@ struct DiscoveryFeed {
 
     private var emitted = 0
 
-    init(people: [DiscoveryService.Person], seed: UInt64 = UInt64.random(in: 1...UInt64.max)) {
+    init(
+        people: [DiscoveryService.Person],
+        posts: [SharedPostService.Post] = [],
+        seed: UInt64 = UInt64.random(in: 1...UInt64.max)
+    ) {
         self.people = people
+        self.posts = posts
         self.rng = SeededGenerator(seed: seed)
+    }
+
+    /// The next thing to show, whichever kind it is.
+    mutating func nextItem() -> Item? {
+        // Counted on what has been emitted overall, so the spacing holds no
+        // matter how the two kinds interleave.
+        if !posts.isEmpty, emitted > 0, emitted % Self.postEvery == 0 {
+            let post = posts[postCursor % posts.count]
+            postCursor += 1
+            emitted += 1
+            return .shared(post)
+        }
+        return next().map(Item.profile)
+    }
+
+    /// The next `count` items, for a feed that reads ahead.
+    mutating func nextItems(_ count: Int) -> [Item] {
+        (0..<count).compactMap { _ in nextItem() }
     }
 
     /// The next profile, or nil when there is nobody to show.

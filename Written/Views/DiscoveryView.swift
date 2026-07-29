@@ -15,16 +15,33 @@ import SwiftUI
 /// be on screen at once and the feed can rest anywhere between them.
 struct DiscoveryView: View {
     @StateObject private var model = DiscoveryModel()
+    @State private var isSharing = false
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 GardenPalette.parchment.ignoresSafeArea()
 
-                if model.profiles.isEmpty {
+                if model.items.isEmpty {
                     empty
                 } else {
                     feed(width: geometry.size.width)
+                }
+
+                shareButton
+            }
+            .overlay {
+                if isSharing {
+                    ShareLinkSheet(
+                        onShared: { post in
+                            // Straight to the top rather than waiting for a
+                            // reload to find it. Sharing something and not
+                            // seeing it reads as a failure.
+                            model.prepend(post)
+                            isSharing = false
+                        },
+                        onCancel: { isSharing = false }
+                    )
                 }
             }
         }
@@ -35,8 +52,15 @@ struct DiscoveryView: View {
     private func feed(width: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 14) {
-                ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
-                    DiscoveryCard(profile: profile, containerWidth: width)
+                ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                    Group {
+                        switch item {
+                        case .profile(let profile):
+                            DiscoveryCard(profile: profile, containerWidth: width)
+                        case .shared(let post):
+                            SharedPostCard(post: post, containerWidth: width)
+                        }
+                    }
                         // Safe here in a way it was not before. A `LazyVStack`
                         // inside a `ScrollView` builds only what is near the
                         // viewport, so this fires as the reader arrives. In the
@@ -49,6 +73,30 @@ struct DiscoveryView: View {
             .padding(.top, 12)
             // The tab bar floats over the bottom of every page.
             .padding(.bottom, MainTabBar.overlayHeight)
+        }
+    }
+
+    /// Above the tab bar and clear of it, in the corner rather than in the
+    /// flow: the feed is the screen's subject and this is a way to add to it,
+    /// not a thing to read.
+    private var shareButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button { isSharing = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(GardenPalette.card)
+                        .frame(width: 52, height: 52)
+                        .background(GardenPalette.gold, in: Circle())
+                        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share a video")
+                .padding(.trailing, 22)
+                .padding(.bottom, MainTabBar.overlayHeight + 8)
+            }
         }
     }
 
@@ -72,29 +120,40 @@ struct DiscoveryView: View {
 /// Holds the feed.
 @MainActor
 final class DiscoveryModel: ObservableObject {
-    @Published private(set) var profiles: [DiscoveryFeed.Profile] = []
+    @Published private(set) var items: [DiscoveryFeed.Item] = []
     @Published private(set) var failure: String?
 
     private var feed: DiscoveryFeed?
 
     func load() async {
-        guard profiles.isEmpty else { return }
-        let people = await DiscoveryService.shared.people()
+        guard items.isEmpty else { return }
+        // Both at once: the shared posts are a small query and waiting for them
+        // serially would show a feed of profiles that then reshuffled itself.
+        async let peopleTask = DiscoveryService.shared.people()
+        async let postsTask = SharedPostService.shared.posts()
+        let (people, posts) = await (peopleTask, postsTask)
+
         guard !people.isEmpty else {
             failure = await DiscoveryService.shared.lastError
             return
         }
-        var feed = DiscoveryFeed(people: people)
-        profiles = feed.next(12)
+        var feed = DiscoveryFeed(people: people, posts: posts)
+        items = feed.nextItems(12)
         self.feed = feed
         failure = nil
+    }
+
+    /// Puts a just-shared video at the top, rather than waiting for a reload to
+    /// discover it. Sharing something and not seeing it reads as a failure.
+    func prepend(_ post: SharedPostService.Post) {
+        items.insert(.shared(post), at: 0)
     }
 
     /// Grows the feed as the reader nears its end. The rotation rules already
     /// make it endless; the list only has to keep up.
     func extend(reaching index: Int) {
-        guard var feed, index >= profiles.count - 3 else { return }
-        profiles += feed.next(6)
+        guard var feed, index >= items.count - 3 else { return }
+        items += feed.nextItems(6)
         self.feed = feed
     }
 }
