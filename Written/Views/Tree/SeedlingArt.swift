@@ -46,12 +46,12 @@ enum SeedlingArt {
     /// plant is 0.71 stem to 0.29 leaves, where ours had been nearer half and
     /// half. The plant has to get *taller*, not just wider, and that means the
     /// fork keeps climbing.
-    /// Phase 5 continues it. Measured off the reference the same way: its stem
-    /// runs from a soil line at 0.78 to a fork at 0.21, so the fork sits 0.269
-    /// of the way down from the top of the space above the soil. Against our own
-    /// foot at 0.705 that is 0.190 — where the previous step landed at 0.333 of
-    /// the same measure. The plant grows by getting taller before it gets wider.
-    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235, 0.190]
+    /// Phase 5 from the skeletonised reference, not from a density map: its stem
+    /// traces from a foot at 0.7727 to a fork at 0.1994, a rise of 0.7419 of the
+    /// height above its own foot. Against ours at 0.705 that is 0.182, where the
+    /// previous step landed at 0.667 of the same measure. The plant grows by
+    /// getting taller before it gets wider, and this is the largest step yet.
+    static let forkHeights: [CGFloat] = [0.433, 0.380, 0.335, 0.235, 0.182]
 
     /// The fork partway through that climb. Everything above it — petioles,
     /// blades, every shoot's attachment point — is placed off this, so they all
@@ -225,19 +225,43 @@ enum SeedlingArt {
     /// Two curves blended by the stage: the early stem's gentle bulge to the
     /// right, and phase 3's lean to the left. The user sees one stem that
     /// starts to bend as the plant puts on height.
+    /// The same profile traced off the phase-5 reference, which does *not*
+    /// straighten above halfway the way phase 3 does.
+    ///
+    /// The two agree for the bottom half and part company above it: phase 3 runs
+    /// -0.002, 0.003, 0.004 over t = 0.6…0.8 where this runs -0.027, -0.034,
+    /// -0.049. That difference is the whole silhouette — a stem that keeps
+    /// bowing left under the crown against one that stands up straight — and it
+    /// is why the drawn plant read as a different species from the reference
+    /// even with the fork and the shoots in the right places.
+    static let canopyLean: [CGFloat] = [
+        0.000, -0.040, -0.062, -0.062, -0.043,
+        -0.030, -0.027, -0.034, -0.049, -0.053, 0.000
+    ]
+
+    private static func lean(_ profile: [CGFloat], at t: CGFloat) -> CGFloat {
+        let steps = CGFloat(profile.count - 1)
+        let along = min(max(t, 0), 1) * steps
+        let index = min(Int(along), profile.count - 2)
+        let into = along - CGFloat(index)
+        return profile[index] + (profile[index + 1] - profile[index]) * into
+    }
+
     static func stemOffset(at t: CGFloat, extended: CGFloat) -> CGFloat {
         // The old quadratic's deviation from its chord, in closed form.
         let early = 2 * (1 - t) * t * stemBow
 
-        let steps = CGFloat(stemLean.count - 1)
-        let along = min(max(t, 0), 1) * steps
-        let index = min(Int(along), stemLean.count - 2)
-        let into = along - CGFloat(index)
-        let lean = stemLean[index] + (stemLean[index + 1] - stemLean[index]) * into
-        let late = lean * stemLength(extended: extended)
+        let length = stemLength(extended: extended)
+        let late = lean(stemLean, at: t) * length
+        let canopy = lean(canopyLean, at: t) * length
 
         let into3 = min(max(extended - 1, 0), 1)
-        return early * (1 - into3) + late * into3
+        let bowed = early * (1 - into3) + late * into3
+
+        // Blended in over the last stage only, so stages 0-3 keep exactly the
+        // stem they were drawn with.
+        let into4 = min(max(extended - 3, 0), 1)
+        return bowed * (1 - into4) + canopy * into4
     }
 
     /// The stem's centreline at `t`, in canvas fractions, measured from its
@@ -406,28 +430,25 @@ enum SeedlingArt {
         Shoot(
             id: 3,
             stage: .canopy,
-            // Higher than the bough and on the other side, which is what the
-            // stem has been doing all the way up: 0.34 left, 0.52 right, 0.70
-            // left, so 0.80 right. Not higher still — the reference puts its
-            // topmost shoot nearly under the fork, but its cotyledons leave the
-            // fork much flatter than ours do, and at 0.86 the blade runs into
-            // the left cotyledon's underside.
-            attachment: 0.80,
-            // A shade longer than the bough's, because it reaches across the
-            // side the right cotyledon already occupies and a short rachis
-            // leaves the blade sitting under it rather than clear of it.
-            reach: CGSize(width: 0.082, height: 0.099),
+            // Measured, after a first pass put it at 0.80 by reasoning about
+            // which side the stem "should" alternate to. Skeletonising the
+            // reference put it at 0.541 — 0.259 out, by far the largest error in
+            // the drawing, and the reason the stage read as a different plant.
+            // Its neighbours were already within 0.04 of the reference; this one
+            // shoot was the whole discrepancy.
+            attachment: 0.541,
+            // The smallest cluster on the plant: the reference traces 0.130 from
+            // stem to leaf tip against 0.21 and 0.32 for the two beside it. And
+            // near-upright — +25.8° off vertical, where the others splay past
+            // 50° — so the rachis is mostly rise and only a little reach.
+            reach: CGSize(width: 0.034, height: 0.072),
             turn: 0,
             leaflets: [
-                // Terminal, so rachis and midrib read as one stroke — the same
-                // reason the bough's leaf is terminal rather than hung off the
-                // side.
-                Leaflet(mirrored: true, axis: 48, scale: 0.27, along: 1, stalkRun: .zero),
-                // An open pair rather than another bud. The bough's bud is the
-                // newest growth at *its* stage; by this one it has had a stage
-                // to open, and a second unopened bud directly above the first
-                // would read as the plant having stalled.
-                Leaflet(mirrored: true, axis: 86, scale: 0.21, along: 0.36, stalkRun: CGSize(width: 0.038, height: 0.008))
+                // One leaf, terminal, so rachis and midrib read as one stroke.
+                // The reference's blade here measures 2.62 long to wide against
+                // the cotyledon's 2.08 — the side leaflets run narrower than the
+                // leaves that opened first, not merely smaller.
+                Leaflet(mirrored: true, axis: 34, scale: 0.20, along: 1, stalkRun: .zero)
             ]
         )
     ]
