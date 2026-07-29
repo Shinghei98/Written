@@ -40,7 +40,7 @@ struct AppShell: View {
             }
 
             MainTabBar(selection: $tab)
-                .padding(.bottom, 6)
+                .padding(.bottom, MainTabBar.bottomInset)
         }
 #if DEBUG
         // `-tab explore` on the launch line; see `DebugLaunch`.

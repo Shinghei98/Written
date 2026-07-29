@@ -15,18 +15,41 @@ enum MainTab: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
 
-    /// SF Symbols, with one compromise.
+    /// The symbol name, for the two tabs that have one.
     ///
-    /// **There is no ship-in-a-bottle symbol.** `sailboat` stands in for Wish
-    /// until there is custom artwork; it is the only icon here that is not the
-    /// thing it means, and it should be replaced rather than grown used to.
+    /// Wish and Distill are drawn instead — see `image(size:)`. SF Symbols has
+    /// no message-in-a-bottle and no potted plant on the version this project
+    /// ships to, and `sailboat` and `tree` were each standing in for a thing
+    /// they were not.
     var icon: String {
         switch self {
-        case .explore:  return "book"
-        case .wish:     return "sailboat"
-        case .chat:     return "paperplane"
+        case .explore:   return "book"
+        case .wish:      return "sailboat"
+        case .chat:      return "paperplane"
         case .distill:   return "tree"
         case .dashboard: return "square.grid.2x2"
+        }
+    }
+
+    /// What the bar actually draws.
+    ///
+    /// The two hand-drawn ones are stroked at the same weight as the symbols
+    /// beside them, so a row of five reads as one set rather than as three
+    /// icons and two illustrations.
+    @ViewBuilder
+    func image(size: CGFloat) -> some View {
+        switch self {
+        case .wish:
+            BottleIcon()
+                .stroke(style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
+                .frame(width: size, height: size)
+        case .distill:
+            PottedPlantIcon()
+                .stroke(style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
+                .frame(width: size, height: size)
+        default:
+            Image(systemName: icon)
+                .font(.system(size: size, weight: .regular))
         }
     }
 
@@ -54,10 +77,19 @@ struct MainTabBar: View {
     /// Hidden while another gesture owns the bottom of the screen.
     var isHidden = false
 
-    /// What a page should keep clear at its bottom edge.
-    static let overlayHeight: CGFloat = 86
+    /// The gap under the bar, which `AppShell` applies. Exposed so the
+    /// clearance below is derived from it rather than guessed alongside it.
+    static let bottomInset: CGFloat = 6
 
     private static let barHeight: CGFloat = 58
+
+    /// What a page should keep clear at its bottom edge.
+    ///
+    /// The bar's actual footprint, not a round number near it. At a hardcoded 86
+    /// it reserved 22 points more than the bar occupies, which on the garden was
+    /// 22 points of empty parchment the connected rows could have had. Derived,
+    /// it cannot drift from the thing it is clearing.
+    static var overlayHeight: CGFloat { barHeight + bottomInset }
     private static let iconSize: CGFloat = 21
 
     /// Where the blob is while a finger is on it, in slots. Nil between
@@ -85,8 +117,7 @@ struct MainTabBar: View {
 
                 HStack(spacing: 0) {
                     ForEach(MainTab.allCases) { tab in
-                        Image(systemName: tab.icon)
-                            .font(.system(size: Self.iconSize, weight: .regular))
+                        tab.image(size: Self.iconSize)
                             .foregroundColor(
                                 tab == selection ? GardenPalette.ink : GardenPalette.ink.opacity(0.42)
                             )
@@ -129,5 +160,93 @@ struct MainTabBar: View {
         .opacity(isHidden ? 0 : 1)
         .animation(.easeInOut(duration: 0.2), value: isHidden)
         .allowsHitTesting(!isHidden)
+    }
+}
+
+
+/// A bottle with a note in it — the Wish tab.
+///
+/// Drawn rather than named: SF Symbols has no message-in-a-bottle, and
+/// `sailboat` was standing in for a boat rather than for what the tab is about.
+/// Laid out in a unit square and scaled, so it holds its proportions at any
+/// size the bar might use.
+struct BottleIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
+        }
+        var path = Path()
+
+        // The cork, sitting proud of the neck.
+        path.move(to: p(0.42, 0.09))
+        path.addLine(to: p(0.58, 0.09))
+        path.addLine(to: p(0.58, 0.17))
+        path.addLine(to: p(0.42, 0.17))
+        path.closeSubpath()
+
+        // Neck, shoulders, body. The shoulders are where a bottle stops being a
+        // tube, so they get the curve and everything else stays straight.
+        path.move(to: p(0.44, 0.17))
+        path.addLine(to: p(0.44, 0.33))
+        path.addQuadCurve(to: p(0.27, 0.53), control: p(0.27, 0.38))
+        path.addLine(to: p(0.27, 0.85))
+        path.addQuadCurve(to: p(0.36, 0.94), control: p(0.27, 0.94))
+        path.addLine(to: p(0.64, 0.94))
+        path.addQuadCurve(to: p(0.73, 0.85), control: p(0.73, 0.94))
+        path.addLine(to: p(0.73, 0.53))
+        path.addQuadCurve(to: p(0.56, 0.33), control: p(0.73, 0.38))
+        path.addLine(to: p(0.56, 0.17))
+        path.closeSubpath()
+
+        // The note, rolled up inside. Two short strokes rather than a scroll:
+        // at this size anything more becomes a smudge.
+        path.move(to: p(0.38, 0.68))
+        path.addLine(to: p(0.62, 0.68))
+        path.move(to: p(0.38, 0.79))
+        path.addLine(to: p(0.56, 0.79))
+
+        return path
+    }
+}
+
+/// A seedling in a pot — the Distill tab.
+///
+/// `tree` was the old symbol and it was wrong twice over: the plant on that
+/// screen is a seedling rather than a tree, and it is grown in a pot by the
+/// person looking at it.
+struct PottedPlantIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
+        }
+        var path = Path()
+
+        // The pot: a trapezoid narrowing toward the base, with its rim drawn
+        // across rather than as a separate lip — one stroke reads cleaner at
+        // twenty-one points than two parallel ones.
+        path.move(to: p(0.22, 0.60))
+        path.addLine(to: p(0.78, 0.60))
+        path.addLine(to: p(0.68, 0.95))
+        path.addLine(to: p(0.32, 0.95))
+        path.closeSubpath()
+        path.move(to: p(0.25, 0.70))
+        path.addLine(to: p(0.75, 0.70))
+
+        // The stem, and a leaf either side at different heights — level leaves
+        // read as a symbol of a plant, staggered ones as a plant.
+        path.move(to: p(0.50, 0.60))
+        path.addLine(to: p(0.50, 0.22))
+
+        path.move(to: p(0.50, 0.34))
+        path.addQuadCurve(to: p(0.24, 0.30), control: p(0.34, 0.16))
+        path.addQuadCurve(to: p(0.50, 0.34), control: p(0.31, 0.40))
+
+        path.move(to: p(0.50, 0.46))
+        path.addQuadCurve(to: p(0.76, 0.43), control: p(0.67, 0.29))
+        path.addQuadCurve(to: p(0.50, 0.46), control: p(0.68, 0.52))
+
+        return path
     }
 }
