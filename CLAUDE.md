@@ -351,6 +351,16 @@ onboarding and has no edit path afterwards. This is the same shape of bug the
 biographics rows had, where a row only rendered once it had a value, so nobody
 could ever add one.
 
+**Discovery reads across accounts, and the isolation was measured on
+2026-07-29 rather than assumed.** `discovery_cards` (migration 0007) is the only
+table one user may read about another, and it is deliberately not a view over
+`distilled_records` — it carries a name, an age, a district, six photo seeds and
+derived `{domain, subject}` pairs, nothing that could rebuild a distillation.
+Checked from a real signed-in session: 6 cards visible, 13 own records visible
+against 2528 that exist, and 0 cards to an unauthenticated caller. Re-run that
+check if the policies are ever touched — a table opened for read is the one
+place in this schema where a mistake is silent.
+
 **`health_sports` is empty and it is not yet known whether that is right.**
 Checked directly rather than inferred: 0 rows, against 1 in `health_signals`. So
 chronotype computed and sports didn't. The early return that used to make this
@@ -364,10 +374,22 @@ are applied and were exercised directly against the database — an unchanged
 value — but no distillation has gone through `append_source_records` from the
 phone. Distil Apple Music twice and confirm the second run writes only what moved.
 
-**Two credentials were exposed in a working session on 2026-07-28 and should be
-rotated.** Neither is in the repo; both are in a chat transcript, which is a place
-secrets get read long after anyone is thinking about them.
+**Three credentials have been exposed in working sessions and should be
+rotated.** None is in the repo; all three are in chat transcripts, which is a
+place secrets get read long after anyone is thinking about them. The two from
+2026-07-28 were **still live on 2026-07-29** — the personal access token was
+checked and returned 200 — so this list has already outlived one round of good
+intentions.
 
+- **The `service_role` key** — pasted on 2026-07-29 to seed the six synthetic
+  accounts, which genuinely needed it: `public.users.id` is a foreign key onto
+  `auth.users(id)`, so a synthetic person has to be a real auth user first, and
+  only `service_role` may create one. **This is the most dangerous of the three
+  to leave alone.** It bypasses row-level security completely rather than
+  defeating it indirectly — no token forging required, it simply is not subject
+  to policy — so it reads and writes every row of every account. Rotate in
+  Dashboard → Settings → API. Seeding needs it exactly once; there is no reason
+  for it to survive the run.
 - **The Supabase `jwt_secret`** — returned by `GET /v1/projects/<ref>/postgrest`
   alongside the field actually being read. This is the one that matters: it signs
   the project's JWTs, so anyone holding it can mint a token claiming any `sub` and
