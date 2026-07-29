@@ -625,7 +625,17 @@ enum SeedlingArt {
             attachment: 0.52,
             reach: CGSize(width: 0.080, height: 0.088),
             turn: 18,
-            leaflets: shoots[0].leaflets
+            leaflets: [
+                Leaflet(mirrored: false, axis: -25, scale: 0.23, along: 0.66,
+                        stalkRun: CGSize(width: 0.004, height: -0.074)),
+                Leaflet(mirrored: true, axis: 50, scale: 0.26, along: 1, stalkRun: .zero),
+                // The first branch off the rachis, moved out from the stem by
+                // three fifths: 0.34 to 0.544. `along` is a fraction of the
+                // rachis, so this *is* the distance, the rachis itself being
+                // unchanged.
+                Leaflet(mirrored: true, axis: 88, scale: 0.23, along: 0.544,
+                        stalkRun: CGSize(width: 0.040, height: 0.008))
+            ]
         ),
         // L1 — the left-hand lowest branch.
         Shoot(
