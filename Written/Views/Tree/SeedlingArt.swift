@@ -64,7 +64,25 @@ enum SeedlingArt {
         let into = along - CGFloat(index)
         let from = forkHeights[index]
         let to = forkHeights[min(index + 1, forkHeights.count - 1)]
-        return CGPoint(x: 0.500, y: from + (to - from) * into)
+        return CGPoint(x: forkX(extended: extended), y: from + (to - from) * into)
+    }
+
+    /// Where the fork sits across the canvas.
+    ///
+    /// Straight above the foot for every stage but the last. The reference's
+    /// canopy finishes its stem *right* of where it started — foot at 0.4825 of
+    /// the viewBox, fork at 0.5016 — where ours has always finished left, at
+    /// 0.500 against a foot at 0.515.
+    ///
+    /// That difference cannot be left to the lean profile. `stemOffset` adds the
+    /// profile to the chord between foot and fork, so the profile has to reach
+    /// zero at the top or the stem arrives somewhere the cotyledons are not
+    /// hanging from. Ask it to carry the chord's error as well and it has to
+    /// snap back at t=1 — which is the third curve, the one just under the
+    /// bifurcation, that should not be there.
+    static func forkX(extended: CGFloat) -> CGFloat {
+        let canopy = min(max(extended - 3, 0), 1)
+        return 0.500 + (0.528 - 0.500) * canopy
     }
 
     // MARK: Leaf attachment
@@ -225,18 +243,30 @@ enum SeedlingArt {
     /// Two curves blended by the stage: the early stem's gentle bulge to the
     /// right, and phase 3's lean to the left. The user sees one stem that
     /// starts to bend as the plant puts on height.
-    /// The same profile traced off the phase-5 reference, which does *not*
-    /// straighten above halfway the way phase 3 does.
+    /// The canopy's own profile, read off the reference's centreline rather than
+    /// skeletonised out of a screenshot.
     ///
-    /// The two agree for the bottom half and part company above it: phase 3 runs
-    /// -0.002, 0.003, 0.004 over t = 0.6…0.8 where this runs -0.027, -0.034,
-    /// -0.049. That difference is the whole silhouette — a stem that keeps
-    /// bowing left under the crown against one that stands up straight — and it
-    /// is why the drawn plant read as a different species from the reference
-    /// even with the fork and the shoots in the right places.
+    /// **One left lobe, then one right lobe, and nothing after.** The reference
+    /// turns left out of the soil to about a quarter of the way up, sweeps right
+    /// in a single unbroken arc to roughly four fifths, and turns back left once
+    /// into the fork. Two inflections. Its centreline, sampled every tenth:
+    ///
+    ///     .4825 .4643 .4518 .4529 .4717 .4908 .5034 .5113 .5133 .5086 .5016
+    ///
+    /// The first attempt at this had every value negative — the stem never
+    /// crossed to the right of its chord at all, drifted further left over the
+    /// last third, and was then pulled back to zero at the top to meet the fork.
+    /// That pull is a third curve, sitting just under the bifurcation where the
+    /// reference has none, and it is what made the two stems read as different
+    /// plants. It came from skeletonising a PNG, which found the bends and lost
+    /// which way they went.
+    ///
+    /// Scaled by the reference's 940×1120 viewBox against our own units, and
+    /// paired with `forkX`, which carries the rightward finish this profile
+    /// cannot.
     static let canopyLean: [CGFloat] = [
-        0.000, -0.040, -0.062, -0.062, -0.043,
-        -0.030, -0.027, -0.034, -0.049, -0.053, 0.000
+        0.000, -0.028, -0.048, -0.049, -0.026,
+        -0.002, 0.013, 0.022, 0.022, 0.013, 0.000
     ]
 
     private static func lean(_ profile: [CGFloat], at t: CGFloat) -> CGFloat {
