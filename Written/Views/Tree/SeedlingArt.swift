@@ -418,6 +418,15 @@ enum SeedlingArt {
         /// the stem — rachis, sub-petioles and blades together, so the cluster
         /// swings as one piece rather than the blades twisting on fixed stalks.
         let turn: Double
+        /// How far the rachis bows off the straight line from stem to tip, as a
+        /// fraction of that line's length. Positive bows *below* the run — the
+        /// outside of the turn for a shoot reaching upward.
+        ///
+        /// Zero by default, which is every shoot drawn before this: the rachis
+        /// was a quadratic whose only curvature came from the angle its tip had
+        /// to arrive at, and a stalk asked to run straight out and arrive
+        /// straight ran straight.
+        var bow: CGFloat = 0
         let leaflets: [Leaflet]
 
         /// The leaflet the rachis runs into, so that stem, stalk and midrib are
@@ -441,6 +450,7 @@ enum SeedlingArt {
                     height: reach.height + (other.reach.height - reach.height) * t
                 ),
                 turn: turn + (other.turn - turn) * Double(t),
+                bow: bow + (other.bow - bow) * t,
                 leaflets: zip(leaflets, other.leaflets).map { $0.blended(toward: $1, by: t) }
             )
         }
@@ -507,7 +517,15 @@ enum SeedlingArt {
             turn: 0,
             leaflets: [
                 Leaflet(mirrored: false, axis: -50, scale: 0.24, along: 1, stalkRun: .zero),
-                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.34, stalkRun: CGSize(width: -0.038, height: 0.008))
+                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.34, stalkRun: CGSize(width: -0.038, height: 0.008)),
+                // Declared here but shut until the canopy, where the reference
+                // gives this branch a leaf either side of one point. It lives on
+                // the frozen set rather than only on the canopy's copy because
+                // `SeedlingView` indexes its per-leaflet animation state off
+                // *this* array — the two must agree on how many leaves a branch
+                // has, or the state silently belongs to the wrong leaf.
+                Leaflet(mirrored: true, axis: 88, scale: 0.22, along: 0.8095,
+                        stalkRun: CGSize(width: 0.030, height: 0.008), opensAt: .canopy)
             ]
         ),
         Shoot(
@@ -666,36 +684,85 @@ enum SeedlingArt {
             id: 1,
             stage: .branch,
             attachment: 0.34,
-            // The upper branch — the rachis, which runs into the terminal leaf
-            // — turned a degree counterclockwise and then extended a tenth
-            // *beyond the bifurcation*, from (-0.0638, 0.0836).
+            // Rotated to sit 30° off the stem rather than 39°, and shortened to
+            // 0.840 of its length in the same figure: (-0.0692, 0.0875) to
+            // (-0.0465, 0.0827).
             //
-            // Extending only the far segment means the rachis as a whole grows
-            // by less than a tenth: 0.382 + 1.1 × 0.618 = 1.0618 of its length,
-            // since the stretch before the branch point keeps its size.
-            //
-            // The turn is applied to `reach` rather than to `turn`, which would
-            // swing the sub-petiole and the lower leaf with it. Only the upper
-            // branch was asked for.
-            reach: CGSize(width: -0.0692, height: 0.0875),
+            // The shortening is what halves the terminal leaf's distance from
+            // the pair below it. That leaf sits at the rachis' tip, so the only
+            // way to bring it closer to the branch point is to bring the tip in.
+            reach: CGSize(width: -0.0465, height: 0.0827),
             turn: 0,
+            // Bowed below its own chord — the reference's branch dips rather
+            // than running straight out.
+            bow: 0.10,
             leaflets: [
-                Leaflet(mirrored: false, axis: -50, scale: 0.26, along: 1, stalkRun: .zero),
-                // Divided by that same 1.0618, 0.382 to 0.360. `along` is a
-                // fraction of the rachis rather than a distance, so leaving it
-                // alone while the rachis lengthens carries the branch point out
-                // with the tip — and the branch point is where it should be.
+                // The furthest leaf, larger: 0.26 to 0.30.
+                Leaflet(mirrored: false, axis: -50, scale: 0.30, along: 1, stalkRun: .zero),
+                // The pair, both leaving the rachis at one point — the reference
+                // hangs them off the same place, one either side.
                 //
-                // It does swing the degree the rachis turned, which the drawing
-                // cannot avoid: the rachis is one curve from stem to tip with no
-                // kink at the split, so the far segment cannot turn without the
-                // near one. At this radius that is about 0.0007 of the canvas.
-                Leaflet(mirrored: false, axis: -88, scale: 0.24, along: 0.360,
-                        stalkRun: CGSize(width: -0.0506, height: 0.0154))
+                // 0.8095 of the shortened rachis is 0.680 of the old one, which
+                // is where the two stalks used to meet it on average: 0.360 and
+                // 1.0. Expressed against the new length because `along` is a
+                // fraction, so the same number would mean a different place.
+                Leaflet(mirrored: false, axis: -88, scale: 0.22, along: 0.8095,
+                        stalkRun: CGSize(width: -0.030, height: 0.008)),
+                Leaflet(mirrored: true, axis: 88, scale: 0.22, along: 0.8095,
+                        stalkRun: CGSize(width: 0.030, height: 0.008), opensAt: .canopy)
             ]
         ),
-        shoots[2],
-        shoots[3]
+        // L2 — the left-hand upper branch.
+        Shoot(
+            id: 2,
+            stage: .bough,
+            // Up the stem by a fifth, 0.70 to 0.84 of the stage-3 stem, which
+            // puts it at 0.718 of the canopy's rather than 0.598 — closing about
+            // a third of the gap to the fork.
+            attachment: 0.84,
+            // Half again as long, (-0.079, 0.104) to (-0.1185, 0.156). The
+            // leaflets keep their `along` fractions, so the whole branch scales
+            // rather than only the stretch past a branch point — "the branch
+            // should be longer" rather than "the upper branch", which is what
+            // L1 and R1 were asked for.
+            //
+            // Read as x1.5 and not as a 150% increase, unlike every other figure
+            // in this sequence. At x2.5 the rachis ran clear past the left
+            // cotyledon's tip as a long bare stroke, which is not a longer
+            // branch so much as a different plant.
+            reach: CGSize(width: -0.1185, height: 0.156),
+            turn: 0,
+            // Bowed rather than straight. The reference's is a curve, and until
+            // now nothing in the model could say so: a rachis was a quadratic
+            // whose only bend came from the angle its tip had to arrive at.
+            bow: 0.12,
+            leaflets: shoots[2].leaflets
+        ),
+        // R2 — the newest growth, on the right.
+        Shoot(
+            id: 3,
+            stage: .canopy,
+            // Up the stem to halfway between where it was and L2, 0.541 to
+            // 0.629. This shoot's own stage *is* the canopy, so its attachment
+            // is the canopy's `t` directly rather than a fraction of some
+            // earlier stem that has to be converted.
+            attachment: 0.629,
+            reach: CGSize(width: 0.034, height: 0.072),
+            turn: 0,
+            // Bowed above its chord: the reference's newest shoot arcs upward
+            // rather than running straight, which is most of what makes it read
+            // as new growth rather than a twig.
+            bow: -0.12,
+            leaflets: [
+                // Two tiny leaves, both at the tip, one either side. A pair at
+                // the same point is what says "just opened"; the previous
+                // arrangement hung one halfway down the stalk, which reads as an
+                // older branch that has started shedding.
+                Leaflet(mirrored: true, axis: 34, scale: 0.13, along: 1, stalkRun: .zero),
+                Leaflet(mirrored: false, axis: -34, scale: 0.13, along: 1,
+                        stalkRun: CGSize(width: -0.001, height: -0.001))
+            ]
+        )
     ]
 
     /// The shoots grown by a given point in the climb — a shoot appears with
@@ -817,7 +884,25 @@ enum SeedlingArt {
         let grown = shootGrowth(shoot, extended: extended)
         let run = turned(CGSize(width: shoot.reach.width, height: -shoot.reach.height), by: shoot.turn)
         let tip = CGPoint(x: origin.x + run.width * grown, y: origin.y + run.height * grown)
-        return stalk(from: root, to: tip, arrivingAt: leafletTilt(shoot.carrier, of: shoot, extended: extended))
+        var stalk = stalk(from: root, to: tip, arrivingAt: leafletTilt(shoot.carrier, of: shoot, extended: extended))
+
+        // Bow the rachis off its chord by pushing the control point sideways.
+        // Done here rather than by moving the tip: the tip is where the terminal
+        // leaf hangs and where every `along` is measured from, so bending the
+        // stalk must not move it.
+        if shoot.bow != 0 {
+            // Perpendicular to the chord, in units of the canvas's height so the
+            // offset is the same distance whichever way the stalk points.
+            let dx = (stalk.tip.x - stalk.root.x) * aspectRatio
+            let dy = stalk.tip.y - stalk.root.y
+            let length = hypot(dx, dy)
+            if length > 0 {
+                let push = shoot.bow * length
+                stalk.control.x += (dy / length) * push / aspectRatio
+                stalk.control.y += (-dx / length) * push
+            }
+        }
+        return stalk
     }
 
     /// One leaflet's sub-petiole: from its branch point on the rachis to the
