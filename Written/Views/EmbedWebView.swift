@@ -66,6 +66,7 @@ struct EmbedWebView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator, name: "written")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
         // Part of a card, not a page inside one.
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
@@ -81,6 +82,8 @@ struct EmbedWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.wantsPlaying = isPlaying
+        coordinator.wantsMuted = isMuted
 
         if coordinator.loaded != videoID {
             coordinator.loaded = videoID
@@ -89,19 +92,15 @@ struct EmbedWebView: UIViewRepresentable {
                 URLRequest(url: url),
                 responseHTML: Self.page(for: videoID)
             )
+            // Nothing is sent yet. The page does not exist, so `wMute` does not
+            // exist, and a call now goes nowhere — see `webView(_:didFinish:)`.
+            return
         }
 
         // Only the calls, never a reload — reloading a player mid-video restarts
         // it, which as a card scrolls in and out would mean starting from zero
         // every time.
-        if coordinator.playing != isPlaying {
-            coordinator.playing = isPlaying
-            webView.evaluateJavaScript(isPlaying ? "wPlay()" : "wPause()")
-        }
-        if coordinator.muted != isMuted {
-            coordinator.muted = isMuted
-            webView.evaluateJavaScript(isMuted ? "wMute(true)" : "wMute(false)")
-        }
+        coordinator.apply(to: webView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -113,16 +112,51 @@ struct EmbedWebView: UIViewRepresentable {
             .removeScriptMessageHandler(forName: "written")
     }
 
-    final class Coordinator: NSObject, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var loaded: String?
-        var playing = false
-        var muted = true
+        var wantsPlaying = false
+        var wantsMuted = true
+        /// What the page has actually been told, as opposed to what is wanted.
+        /// Nil before the page exists, which is the whole point.
+        private var sentPlaying: Bool?
+        private var sentMuted: Bool?
         private let onUnavailable: (Int) -> Void
         private let onLog: (String) -> Void
 
         init(onUnavailable: @escaping (Int) -> Void, onLog: @escaping (String) -> Void) {
             self.onUnavailable = onUnavailable
             self.onLog = onLog
+        }
+
+        /// **The fix for sound that would not turn on.**
+        ///
+        /// A card scrolling in while the feed was already unmuted had its
+        /// `wMute(false)` evaluated before the document existed. The function
+        /// was not defined yet, the call threw inside JavaScript and was
+        /// swallowed — `evaluateJavaScript` with no completion handler reports
+        /// nothing — and the coordinator recorded it as sent, so it never went
+        /// again. The page then loaded and applied its own default, which is
+        /// muted. The switch said one thing and the player did another.
+        ///
+        /// Playback hid the same bug because scrolling changes which card is
+        /// centred and sends `wPlay` again a moment later. Nothing re-sent the
+        /// mute.
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            sentPlaying = nil
+            sentMuted = nil
+            apply(to: webView)
+        }
+
+        /// Sends only what has changed, and after a load everything has.
+        func apply(to webView: WKWebView) {
+            if sentPlaying != wantsPlaying {
+                sentPlaying = wantsPlaying
+                webView.evaluateJavaScript(wantsPlaying ? "wPlay()" : "wPause()")
+            }
+            if sentMuted != wantsMuted {
+                sentMuted = wantsMuted
+                webView.evaluateJavaScript(wantsMuted ? "wMute(true)" : "wMute(false)")
+            }
         }
 
         func userContentController(
