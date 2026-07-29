@@ -31,6 +31,15 @@ struct PhotoGrid: View {
     @State private var loadingIsVideo = false
     @State private var cropping: Crop?
 
+    /// Which slot is armed for removal, by key. Nil when nothing is wobbling.
+    ///
+    /// The same shape the dashboard's entries use, so the long press, the
+    /// wobble and the cross are literally the same code rather than a second
+    /// version of it.
+    @State private var editing: String?
+
+    private func key(_ index: Int) -> String { "photo-\(index)" }
+
     /// The photo being framed, and the slot it will land in.
     private struct Crop: Identifiable {
         let index: Int
@@ -50,6 +59,15 @@ struct PhotoGrid: View {
                 slot(index)
             }
         }
+        // A tap anywhere puts the armed slot away. Simultaneous, so it does not
+        // swallow the tap that opens a picker — the dashboard's own entries are
+        // disarmed the same way.
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                guard editing != nil else { return }
+                withAnimation(.easeOut(duration: 0.18)) { editing = nil }
+            }
+        )
         .overlay { if isLoadingPick { loadingPick } }
         .animation(.easeOut(duration: 0.15), value: isLoadingPick)
 #if DEBUG
@@ -160,6 +178,19 @@ struct PhotoGrid: View {
             }
         }
         .buttonStyle(.plain)
+        // Only a filled slot can be removed, and only a filled slot wobbles —
+        // an empty one has nothing to take away, and a cross over a dashed
+        // outline would be offering to delete a hole.
+        .removable(editing: editing == key(index) && media[index] != nil, index: index) {
+            withAnimation(.easeOut(duration: 0.18)) {
+                media[index] = nil
+                editing = nil
+            }
+            // Or choosing the same photo again would be a no-op the binding
+            // never notices — the same reason the crop's cancel clears it.
+            picking[index] = nil
+        }
+        .editableOnLongPress(media[index] == nil ? .constant(nil) : $editing, key: key(index))
     }
 
     private func empty(prompt: String) -> some View {

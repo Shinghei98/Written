@@ -1158,12 +1158,17 @@ private extension View {
     }
 }
 
-/// The home-screen wobble, for entries that can be struck off.
+/// The home-screen wobble, for anything that can be struck off.
+///
+/// Internal rather than private: the photo slots use it too, in both the
+/// onboarding grid and this page's. One wobble, one cross, one long-press
+/// duration — a second implementation would drift from this one on the first
+/// tweak to either.
 ///
 /// Each row is given a slightly different period and start phase. Sharing one
 /// makes a list move as a single rigid sheet, which reads as a glitch rather
 /// than as "these are loose now".
-private struct Jiggle: ViewModifier {
+struct Jiggle: ViewModifier {
     let active: Bool
     let index: Int
 
@@ -1192,7 +1197,7 @@ private struct Jiggle: ViewModifier {
 
 /// The remove badge — a cross in a circle at the corner, as the old springboard
 /// had it.
-private struct RemoveBadge: View {
+struct RemoveBadge: View {
     let action: () -> Void
 
     var body: some View {
@@ -1211,7 +1216,7 @@ private struct RemoveBadge: View {
     }
 }
 
-private extension View {
+extension View {
     /// Long press to make *this* entry editable. Pressing another entry hands
     /// the cross over rather than adding a second one.
     func editableOnLongPress(_ editing: Binding<String?>, key: String) -> some View {
