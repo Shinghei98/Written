@@ -24,6 +24,9 @@ struct SharedPostCard: View {
     /// number means nothing to a reader, and everything to whoever is trying to
     /// work out whether the video forbids embedding or the page is at fault.
     @State private var errorCode: Int?
+    /// What the page said, most recent last. Debug only, and kept short — this
+    /// is something to read off the screen, not a log viewer.
+    @State private var log: [String] = []
 
     private static let horizontalPadding: CGFloat = 20
 
@@ -45,6 +48,9 @@ struct SharedPostCard: View {
             media
             actionRow
             caption
+#if DEBUG
+            diagnostics
+#endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 24))
@@ -88,10 +94,13 @@ struct SharedPostCard: View {
 
     @ViewBuilder
     private var media: some View {
-        if isUnavailable {
-            unavailable
-        } else if post.provider == .youtube {
+        if post.provider == .youtube {
             ZStack(alignment: .bottomTrailing) {
+                // Mounted even after it fails. Tearing it out on the first error
+                // is what left Safari reporting "no inspectable application":
+                // the view being inspected had already deleted itself. The
+                // fallback goes *over* it, so the page stays alive and keeps
+                // talking.
                 EmbedWebView(
                     videoID: post.videoID,
                     isPlaying: isActive,
@@ -99,9 +108,14 @@ struct SharedPostCard: View {
                     onUnavailable: { code in
                         isUnavailable = true
                         errorCode = code
+                    },
+                    onLog: { line in
+                        log.append(line)
+                        if log.count > 6 { log.removeFirst() }
                     }
                 )
                 .frame(height: mediaHeight)
+                .overlay { if isUnavailable { unavailable } }
                     // Black behind it, not parchment: a 16:9 video in a 4:5
                     // frame leaves a band above and below, and warm paper either
                     // side of a video reads as a layout mistake where black
@@ -122,6 +136,29 @@ struct SharedPostCard: View {
             unavailable
         }
     }
+
+#if DEBUG
+    /// What the page reported, under the card. Ugly on purpose and debug-only:
+    /// five fixes for this were guessed from an error number, and reading four
+    /// lines beats a sixth guess.
+    @ViewBuilder
+    private var diagnostics: some View {
+        if !log.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(log.enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(GardenPalette.muted)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+        }
+    }
+#endif
 
     /// Can't be played here — with the way to play it anyway.
     ///

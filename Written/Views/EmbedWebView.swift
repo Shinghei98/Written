@@ -34,6 +34,11 @@ struct EmbedWebView: UIViewRepresentable {
     var isMuted: Bool
     /// The player's own error code, for the debug line on the card.
     var onUnavailable: (Int) -> Void = { _ in }
+    /// Everything the page says — its console, its errors, the player's state.
+    ///
+    /// Five attempts at this were reasoned from a single number and all five
+    /// were wrong. The page can simply tell us what happened instead.
+    var onLog: (String) -> Void = { _ in }
 
     /// What the page pretends to be. The iframe it holds is served from the same
     /// place, so the embed is same-origin with its container — which is the
@@ -89,7 +94,9 @@ struct EmbedWebView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onUnavailable: onUnavailable) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onUnavailable: onUnavailable, onLog: onLog)
+    }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController
@@ -101,16 +108,20 @@ struct EmbedWebView: UIViewRepresentable {
         var playing = false
         var muted = true
         private let onUnavailable: (Int) -> Void
+        private let onLog: (String) -> Void
 
-        init(onUnavailable: @escaping (Int) -> Void) {
+        init(onUnavailable: @escaping (Int) -> Void, onLog: @escaping (String) -> Void) {
             self.onUnavailable = onUnavailable
+            self.onLog = onLog
         }
 
         func userContentController(
             _ controller: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let body = message.body as? String, body.hasPrefix("error:") else { return }
+            guard let body = message.body as? String else { return }
+            onLog(body)
+            guard body.hasPrefix("error:") else { return }
             onUnavailable(Int(body.dropFirst("error:".count)) ?? -1)
         }
     }
@@ -141,11 +152,27 @@ struct EmbedWebView: UIViewRepresentable {
         <div id="player"></div>
         <script src="\(origin)/iframe_api"></script>
         <script>
-          // Mirrors console output into the app's log as well, so a failure is
-          // recoverable even without the inspector attached.
-          window.onerror = function (m, s, l) {
-            window.webkit.messageHandlers.written.postMessage('js:' + m + ' @' + l);
-          };
+          // Everything the page has to say, forwarded to the app. Cheaper than
+          // attaching a debugger, and it works on any device without a Mac.
+          function tell(text) {
+            if (window.webkit && window.webkit.messageHandlers &&
+                window.webkit.messageHandlers.written) {
+              window.webkit.messageHandlers.written.postMessage(String(text).slice(0, 200));
+            }
+          }
+          window.onerror = function (m, s, l) { tell('js: ' + m + ' @' + l); };
+          ['log', 'warn', 'error'].forEach(function (level) {
+            var was = console[level];
+            console[level] = function () {
+              tell(level + ': ' + Array.prototype.join.call(arguments, ' '));
+              was.apply(console, arguments);
+            };
+          });
+          // Whether the API arrived at all is the first fork: no script means a
+          // load problem, a script and a refusal means an embed problem.
+          setTimeout(function () {
+            tell(window.YT ? 'api: loaded' : 'api: MISSING after 5s');
+          }, 5000);
           var p, ready = false, wantPlay = false, wantMute = true;
 
           function onYouTubeIframeAPIReady() {
@@ -158,14 +185,13 @@ struct EmbedWebView: UIViewRepresentable {
               events: {
                 onReady: function () {
                   ready = true;
+                  tell('player: ready');
                   // The wishes may have arrived before the player did — the API
                   // is a network fetch and Swift does not wait for it.
                   wMute(wantMute);
                   if (wantPlay) { p.playVideo(); }
                 },
-                onError: function (e) {
-                  window.webkit.messageHandlers.written.postMessage('error:' + e.data);
-                },
+                onError: function (e) { tell('error:' + e.data); },
                 onStateChange: function (e) {
                   // Loop, as a reel does. A card that plays once and then shows
                   // a still frame looks broken rather than finished.
