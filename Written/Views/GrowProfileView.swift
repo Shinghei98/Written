@@ -57,9 +57,10 @@ struct GrowProfileView: View {
     /// the reveal: the button's opacity is read off it, so a drag that stops
     /// half way leaves the button half faded rather than the two disagreeing.
     @State private var revealed: CGFloat = 0
-    /// Drives the arrow's rise and fall. Set once and left alone; the animation
-    /// on it is what repeats.
-    @State private var isBobbing = false
+    /// How far the arrow is lifted, in points. Driven a hop at a time by
+    /// `startBobbing`.
+    @State private var arrowLift: CGFloat = 0
+    @State private var bobbing: Task<Void, Never>?
 
     /// How the head moves along the bar: one pace between dots, and a wait on
     /// the dot it reaches.
@@ -124,7 +125,13 @@ struct GrowProfileView: View {
     private static let handleHeight: CGFloat = 28
 
     /// How far the page rides up to uncover the Dashboard button.
-    private static let revealHeight: CGFloat = 72
+    ///
+    /// The button sits inside the safe area so it clears the home indicator by
+    /// itself, but the page's edge is now at the *screen's* bottom rather than
+    /// the inset's — so the travel has to cover the inset too, or the page
+    /// stops half over the button. 34 of inset, 10 of padding and the button's
+    /// 48, plus a dozen points of the surface below showing above it.
+    private static let revealHeight: CGFloat = 104
 
     /// What the stack is drawn and scrolled inside, once the strip is taken out.
     private static let promptsDrawn: CGFloat =
@@ -142,13 +149,18 @@ struct GrowProfileView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            GardenPalette.parchment.ignoresSafeArea()
+            // Not parchment: this is what shows in the strip under the page once
+            // it lifts, and it has to look like a different surface.
+            GardenPalette.underpage.ignoresSafeArea()
 
             // Underneath the page, uncovered as it rides up. Drawn first and
             // covered by the page's own background until then, so there is one
             // button rather than one that is hidden and another that is shown.
+            //
+            // Inside the safe area, so it clears the home indicator on its own
+            // and `revealHeight` does not have to know the inset.
             viewProfile
-                .padding(.bottom, 18)
+                .padding(.bottom, 10)
                 .opacity(revealed / Self.revealHeight)
 
             VStack(spacing: 0) {
@@ -172,13 +184,25 @@ struct GrowProfileView: View {
                     // that has to be redone every time a modality is added.
                     .frame(height: Self.promptsReserve - Self.handleHeight, alignment: .bottom)
                     .padding(.horizontal, 16)
+                // As low as it goes: bottom-aligned in a strip that also carries
+                // the 12 points that used to be the page's bottom padding, so
+                // the arrow drops to the safe-area edge without the totals
+                // changing. Below this is the inset itself, and an arrow inside
+                // that would sit under the home indicator.
                 revealHandle
-                    .frame(height: Self.handleHeight)
-                    .padding(.bottom, 12)
+                    .frame(height: Self.handleHeight + 12, alignment: .bottom)
             }
             // Opaque, or the button below shows through the page instead of
-            // from under it.
-            .background(GardenPalette.parchment)
+            // from under it — and carried into the bottom inset so the page's
+            // edge is the screen's edge when it is down, rather than a seam
+            // floating above the home indicator.
+            .background(
+                PageShape()
+                    .fill(GardenPalette.parchment)
+                    .overlay(PageShape().stroke(GardenPalette.ink.opacity(0.12), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.13), radius: 9, y: 5)
+                    .ignoresSafeArea(edges: .bottom)
+            )
             .offset(y: -revealed)
             // Simultaneous rather than exclusive: the stack above is a scroll
             // view and would otherwise swallow every upward drag before this
@@ -528,41 +552,51 @@ struct GrowProfileView: View {
     private static let promptsFoot = "prompts-foot"
 
     /// The arrow at the foot of the page: the only sign that there is anything
-    /// under it. It rises and falls rather than sitting still because a static
-    /// chevron on a screen with no other chrome reads as decoration.
+    /// under it.
     ///
-    /// Tappable as well as draggable. An arrow that looks like a control and
-    /// only answers to a gesture nobody has been told about is worse than no
-    /// arrow, and the tap costs one closure.
+    /// Not a control. It is a label for the gesture, so it takes no taps —
+    /// `allowsHitTesting(false)` rather than merely having no action, or it
+    /// would swallow the drag that starts on top of it, which is exactly where
+    /// a user aiming at the arrow will start one.
     private var revealHandle: some View {
-        Button {
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                revealed = revealed > 0 ? 0 : Self.revealHeight
+        Image(systemName: "chevron.up")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundColor(GardenPalette.gold)
+            .rotationEffect(.degrees(revealed > 0 ? 180 : 0))
+            .offset(y: arrowLift)
+            .opacity(canReveal ? 1 : 0)
+            .animation(.easeInOut(duration: 0.35), value: canReveal)
+            .allowsHitTesting(false)
+            .onAppear(perform: startBobbing)
+            .onDisappear { bobbing?.cancel() }
+    }
+
+    /// Two hops, a pause, two hops — rather than a continuous rise and fall.
+    ///
+    /// A steady bob is ambient and stops being read after a few seconds; a
+    /// burst with a gap is a signal, because the gap is what makes the next
+    /// burst an event. `repeatForever(autoreverses:)` cannot express it — it
+    /// only knows one cycle — so the rhythm is driven from a task and each hop
+    /// is its own animation.
+    private func startBobbing() {
+        bobbing?.cancel()
+        bobbing = Task { @MainActor in
+            while !Task.isCancelled {
+                // Nothing to advertise, or the page is already up: idle rather
+                // than exit, since either can change without this restarting.
+                guard canReveal, revealed == 0 else {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    continue
+                }
+                for _ in 0..<2 {
+                    withAnimation(.easeOut(duration: 0.24)) { arrowLift = -7 }
+                    try? await Task.sleep(nanoseconds: 240_000_000)
+                    withAnimation(.easeIn(duration: 0.26)) { arrowLift = 0 }
+                    try? await Task.sleep(nanoseconds: 260_000_000)
+                }
+                try? await Task.sleep(nanoseconds: 1_300_000_000)
             }
-        } label: {
-            Image(systemName: "chevron.up")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(GardenPalette.gold)
-                .rotationEffect(.degrees(revealed > 0 ? 180 : 0))
-                .offset(y: isBobbing ? -4 : 2)
-                // Only while there is something to reveal and it is still
-                // hidden. Left running underneath the raised page it reads as
-                // the button twitching.
-                .animation(
-                    canReveal && revealed == 0
-                        ? .easeInOut(duration: 0.95).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.2),
-                    value: isBobbing
-                )
-                // Room to hit, without the arrow itself growing.
-                .frame(width: 64, height: Self.handleHeight)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .opacity(canReveal ? 1 : 0)
-        .allowsHitTesting(canReveal)
-        .animation(.easeInOut(duration: 0.35), value: canReveal)
-        .onAppear { isBobbing = true }
     }
 
     /// Dragging the page itself, which is the gesture the arrow is advertising.

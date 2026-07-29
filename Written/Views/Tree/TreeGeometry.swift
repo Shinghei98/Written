@@ -10,6 +10,40 @@ enum GardenPalette {
     static let muted = Color(red: 0.431, green: 0.416, blue: 0.388)
     static let gold = Color(red: 0.549, green: 0.478, blue: 0.333)
     static let card = Color(red: 0.988, green: 0.980, blue: 0.965)
+
+    /// What is under the garden page when it is pulled up.
+    ///
+    /// Darker than the parchment rather than another shade of it. The whole
+    /// point of the gesture is that a sheet lifts, and two surfaces a few
+    /// percent apart read as a rendering seam rather than as one thing on top
+    /// of another — the drop has to be plain enough to see in the strip at the
+    /// bottom of the screen, which is all that is ever exposed.
+    static let underpage = Color(red: 0.855, green: 0.831, blue: 0.792)
+}
+
+/// The garden page: square but for its bottom corners, which are rounded so it
+/// reads as a sheet with an edge rather than as the screen itself.
+struct PageShape: Shape {
+    var radius: CGFloat = 22
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, min(rect.width, rect.height) / 2)
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - r),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.closeSubpath()
+        return path
+    }
 }
 
 /// Skeletons are built in unit space (0…1 on both axes, y downward). Everything
