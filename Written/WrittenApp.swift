@@ -55,7 +55,9 @@ struct RootView: View {
         switch SupabaseAuth.restoredStep {
         case .name: return .name
         case .photos: return .photos
-        case .done: return .home
+        // Both land on the shell. What differs is what the shell *shows* —
+        // `exploring` keeps the tab bar away and leaves the garden its arrow.
+        case .exploring, .done: return .home
         case nil: return .signIn
         }
     }
@@ -94,7 +96,7 @@ struct RootView: View {
         switch step {
         case .name: return .name
         case .photos: return .photos
-        case .done: return .home
+        case .exploring, .done: return .home
         }
     }
 

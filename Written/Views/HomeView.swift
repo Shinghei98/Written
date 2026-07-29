@@ -22,6 +22,14 @@ struct DashboardTab: View {
     /// Back to sign-in, for `RootView`.
     var onSignOut: () -> Void = {}
 
+    /// Whether this tab is the one on screen.
+    ///
+    /// The preview slides over the dashboard and this view stays mounted, so
+    /// without resetting on arrival the profile tab would reopen wherever it was
+    /// left — and where it was left, during onboarding, is the preview. Tapping
+    /// the profile icon has to land on the dashboard every time.
+    var isVisible = true
+
     @State private var lift: CGFloat = 0
     @State private var isShowingProfiles = false
 
@@ -69,6 +77,11 @@ struct DashboardTab: View {
                 // Offscreen but still mounted, so it must stop taking taps the
                 // moment it starts leaving.
                 .allowsHitTesting(!isShowingProfiles)
+            }
+            .onChange(of: isVisible) { visible in
+                guard visible else { return }
+                lift = 0
+                isShowingProfiles = false
             }
 #if DEBUG
             // `-screen profiles` on the launch line; see `DebugLaunch`. The

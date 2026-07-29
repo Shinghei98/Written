@@ -27,7 +27,7 @@ enum MainTab: Int, CaseIterable, Identifiable {
         case .wish:      return "sailboat"
         case .chat:      return "paperplane"
         case .distill:   return "tree"
-        case .dashboard: return "square.grid.2x2"
+        case .dashboard: return "person.crop.circle"
         }
     }
 

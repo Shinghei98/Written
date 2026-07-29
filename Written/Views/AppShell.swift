@@ -22,6 +22,19 @@ struct AppShell: View {
     /// preview, or the bar.
     @State private var tab: MainTab = .distill
 
+    /// Which half of the app this is.
+    ///
+    /// Onboarding is a line, not a place you navigate: sign in, name, photos,
+    /// grow the plant, meet the first person. A tab bar during it would offer
+    /// four exits from a sequence whose whole point is that it has one. So the
+    /// bar is absent until "Explore" is tapped, and the garden keeps the arrow
+    /// and the pull-up that were its own way onward.
+    ///
+    /// Read once into state rather than observed: the answer only changes at the
+    /// single moment `finishOnboarding` runs, and it decides the whole shape of
+    /// the screen, so it should not be able to shift under a redraw.
+    @State private var isOnboarding = SupabaseAuth.shared.onboardingStep != .done
+
     var body: some View {
         ZStack(alignment: .bottom) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -29,18 +42,37 @@ struct AppShell: View {
             page(.explore) { DiscoveryView() }
             page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
             page(.chat) { ComingSoonView(tab: .chat, note: "Where a commonality turns into a conversation.") }
-            page(.distill) { GrowProfileView(viewModel: viewModel) }
+            page(.distill) {
+                GrowProfileView(
+                    viewModel: viewModel,
+                    isOnboarding: isOnboarding,
+                    // Only ever used during onboarding — `canReveal` is false
+                    // afterwards, so these are never called in regular use.
+                    onRevealDrag: { gardenLift = -$0 },
+                    onRevealEnd: { committed in
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            gardenLift = 0
+                            if committed { tab = .dashboard }
+                        }
+                    }
+                )
+                .offset(y: gardenLift)
+            }
             page(.dashboard) {
                 DashboardTab(
                     viewModel: viewModel,
                     onBack: { withAnimation(.easeInOut(duration: 0.35)) { tab = .distill } },
-                    onExplore: { withAnimation(.easeInOut(duration: 0.45)) { tab = .explore } },
-                    onSignOut: onSignOut
+                    onExplore: finishOnboarding,
+                    onSignOut: onSignOut,
+                    isVisible: tab == .dashboard
                 )
             }
 
-            MainTabBar(selection: $tab)
-                .padding(.bottom, MainTabBar.bottomInset)
+            if !isOnboarding {
+                MainTabBar(selection: $tab)
+                    .padding(.bottom, MainTabBar.bottomInset)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
 #if DEBUG
         // `-tab explore` on the launch line; see `DebugLaunch`.
@@ -55,6 +87,23 @@ struct AppShell: View {
             }
         }
 #endif
+    }
+
+    /// How far the garden has been pulled up, during onboarding only. The
+    /// dashboard is a sibling tab rather than a layer beneath, so this is the
+    /// garden moving rather than a reveal of anything.
+    @State private var gardenLift: CGFloat = 0
+
+    /// "Explore" on the profile preview: the one moment onboarding ends.
+    ///
+    /// The bar arrives and the garden gives up its arrow together, which is why
+    /// both read the same flag rather than each deciding for itself.
+    private func finishOnboarding() {
+        SupabaseAuth.shared.markExplored()
+        withAnimation(.easeInOut(duration: 0.45)) {
+            isOnboarding = false
+            tab = .explore
+        }
     }
 
     /// Mounted always, shown when selected. `opacity` rather than `isHidden`

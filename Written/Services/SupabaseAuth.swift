@@ -90,13 +90,37 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     /// The three-way branch every route into the app funnels through.
     enum OnboardingStep: String {
-        case name, photos, done
+        case name, photos, exploring, done
     }
 
     var onboardingStep: OnboardingStep {
         if needsName { return .name }
         if needsPhotos { return .photos }
+        if !hasExplored { return .exploring }
         return .done
+    }
+
+    /// Whether "Explore" has been tapped on the profile preview, which is where
+    /// onboarding ends.
+    ///
+    /// **Local only**, unlike the two steps before it, which are mirrored from
+    /// columns on `public.users`. A reinstall will therefore walk someone
+    /// through the garden a second time. That is a real gap and the fix is a
+    /// column plus a migration; it is recorded rather than hidden because the
+    /// consequence is mild and the alternative was blocking this on a schema
+    /// change.
+    private static var hasExploredKey: String { AccountScope.key("written.onboarding.explored") }
+
+    private(set) var hasExplored: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasExploredKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasExploredKey) }
+    }
+
+    /// The end of onboarding. From here the tab bar appears and the garden gives
+    /// up its arrow.
+    func markExplored() {
+        hasExplored = true
+        cacheOnboardingStep()
     }
 
     private static let onboardingStepKey = "supabase_onboarding_step"
@@ -180,6 +204,9 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // asked for a name — the same defect `signOutLocalState` exists to stop.
         firstName = nil
         hasSeenPhotoStep = false
+        // Scoped to the account, so this clears that account's flag rather than
+        // whoever signs in next — the same reasoning as the two above.
+        UserDefaults.standard.removeObject(forKey: Self.hasExploredKey)
     }
 
     /// Deletes the account and everything hanging off it.
