@@ -122,13 +122,26 @@ struct SharedPostCard: View {
                     // reads as the letterboxing it is.
                     .background(Color.black)
 
+                // The tap target, *above* the web view rather than around it.
+                //
+                // This is why the sound could not be turned on: a `WKWebView`
+                // consumes touches, so a gesture on the stack containing it
+                // never fired. Nothing below a web view can be tapped through
+                // it, however clear or how large the shape is — the layer has to
+                // sit on top.
+                //
+                // The player has no controls of its own, so nothing is being
+                // stolen from it: the tap means the one thing a muted
+                // autoplaying video needs it to mean.
+                Color.clear
+                    .frame(height: mediaHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isMuted.toggle() }
+
+                // Above the tap layer but taking no touches itself, so it shows
+                // the state without carving a hole in the target.
                 muteButton
             }
-            // The card decides what plays, so the player has no controls of its
-            // own — which leaves the tap free to mean the one thing a muted
-            // autoplaying video needs it to.
-            .contentShape(Rectangle())
-            .onTapGesture { isMuted.toggle() }
         } else {
             // A provider the app does not know how to render. It should be
             // impossible today, since there is one, but a card that draws
