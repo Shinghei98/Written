@@ -1,5 +1,35 @@
 import SwiftUI
 
+/// Which way a drag is going, decided once per gesture and then held.
+///
+/// The feed pages vertically and the photos page sideways, so every touch has
+/// two claimants. Judging the axis afresh on each event — which is what this
+/// did first — lets ownership flip mid-drag: a swipe up that starts a few
+/// degrees off vertical hands the first events to the photos, then takes them
+/// back, and the result is a feed that fights the finger.
+///
+/// So: wait for enough travel to judge at all, decide once, and let the loser
+/// ignore the rest of the gesture entirely.
+enum DragAxis {
+    /// How far the finger must move before the direction means anything. Below
+    /// this a swipe has no direction, only noise.
+    static let minimumTravel: CGFloat = 10
+
+    /// Sideways must be *clearly* sideways. In a vertical feed almost nobody
+    /// swipes up at exactly ninety degrees, so an even split hands too many
+    /// intended scrolls to the photos; the vertical gesture gets the benefit of
+    /// the doubt and horizontal has to earn it.
+    static let horizontalBias: CGFloat = 1.6
+
+    static func isDecidable(_ translation: CGSize) -> Bool {
+        abs(translation.width) + abs(translation.height) >= minimumTravel
+    }
+
+    static func isHorizontal(_ translation: CGSize) -> Bool {
+        abs(translation.width) > abs(translation.height) * horizontalBias
+    }
+}
+
 /// The feed: other people, one card at a time, swiped up and down.
 ///
 /// Paged rather than free-scrolling. A profile is a thing you consider and then
@@ -51,18 +81,21 @@ struct DiscoveryView: View {
         .offset(y: -CGFloat(model.index - low) * size.height + model.drag)
         .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.86), value: model.index)
         .gesture(
-            // Vertical only. The card's photos page sideways, and both
-            // gestures see every touch — each ignores the axis that is not
-            // theirs rather than one of them winning outright, which is what
-            // lets a swipe across a photo not also throw the feed.
+            // Vertical only, and only if this drag was judged vertical when it
+            // started. See `DragAxis`.
             DragGesture(coordinateSpace: .global)
                 .onChanged { value in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    if model.ownsDrag == nil, DragAxis.isDecidable(value.translation) {
+                        model.ownsDrag = !DragAxis.isHorizontal(value.translation)
+                    }
+                    guard model.ownsDrag == true else { return }
                     model.drag = value.translation.height
                 }
                 .onEnded { value in
                     model.drag = 0
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                    let owned = model.ownsDrag == true
+                    model.ownsDrag = nil
+                    guard owned else { return }
                     // A quarter of the screen, or a flick — the same commit
                     // rule the garden's pull-up uses.
                     let projected = value.predictedEndTranslation.height
@@ -98,6 +131,9 @@ final class DiscoveryModel: ObservableObject {
     @Published private(set) var profiles: [DiscoveryFeed.Profile] = []
     @Published var index = 0
     @Published var drag: CGFloat = 0
+    /// Whether the drag in flight belongs to the feed. Nil while undecided and
+    /// between gestures. See `DragAxis`.
+    @Published var ownsDrag: Bool?
     @Published private(set) var failure: String?
 
     private var feed: DiscoveryFeed?
@@ -150,6 +186,9 @@ struct DiscoveryCard: View {
 
     @State private var page = 0
     @State private var dragX: CGFloat = 0
+    /// The mirror of `DiscoveryModel.ownsDrag`: exactly one of the two claims
+    /// any given drag, and the same test decides both.
+    @State private var ownsDrag: Bool?
 
     /// "23 · Central West End" — each part dropped when unknown, so a card with
     /// no age still reads cleanly instead of carrying a stray separator.
@@ -228,16 +267,19 @@ struct DiscoveryCard: View {
                     // began on a photo — which is most of the card — and the
                     // feed would stop scrolling.
                     .simultaneousGesture(
-                        DragGesture(minimumDistance: 8)
+                        DragGesture(minimumDistance: 4)
                             .onChanged { value in
-                                guard abs(value.translation.width) > abs(value.translation.height)
-                                else { return }
+                                if ownsDrag == nil, DragAxis.isDecidable(value.translation) {
+                                    ownsDrag = DragAxis.isHorizontal(value.translation)
+                                }
+                                guard ownsDrag == true else { return }
                                 dragX = value.translation.width
                             }
                             .onEnded { value in
                                 dragX = 0
-                                guard abs(value.translation.width) > abs(value.translation.height)
-                                else { return }
+                                let owned = ownsDrag == true
+                                ownsDrag = nil
+                                guard owned else { return }
                                 let last = profile.photoSeeds.count - 1
                                 if value.translation.width < -width * 0.22 {
                                     page = min(last, page + 1)
