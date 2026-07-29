@@ -634,16 +634,27 @@ final class DistillViewModel: ObservableObject {
               let age = calendar.dateComponents([.year], from: birthday, to: Date()).year,
               (0...130).contains(age) else { return false }
 
-        let record = DistilledRecord(
-            source: "user", dataType: "age", itemID: "age",
-            name: "\(age)", creator: "", detail: "",
-            extra: "birth_year=\(year);entered_by_user=1", collectedAt: Date()
-        )
-        replaceRecords(from: "user", with: userRecords(replacing: "age", with: record))
+        // The server first, and the local copy only if it took. Postgres is the
+        // record; a device that showed an age the server never received would be
+        // telling the user something untrue, and it would survive right up until
+        // the next restore quietly replaced it.
+        //
+        // The `Bool` this returns is still only about the date being a real
+        // date, so an impossible one keeps the sheet open exactly as before. A
+        // rejected *write* is not the sheet's problem: it closes, and the row
+        // keeps the value the server still holds.
+        //
         // Exact, because they typed it — this is the one path that knows the day
         // as well as the year, and `birth_date` wins over `birth_year` on read.
-        Task.detached(priority: .utility) {
-            await SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year)
+        Task {
+            guard await SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year)
+            else { return }
+            let record = DistilledRecord(
+                source: "user", dataType: "age", itemID: "age",
+                name: "\(age)", creator: "", detail: "",
+                extra: "birth_year=\(year);entered_by_user=1", collectedAt: Date()
+            )
+            replaceRecords(from: "user", with: userRecords(replacing: "age", with: record))
         }
         return true
     }
@@ -651,13 +662,13 @@ final class DistillViewModel: ObservableObject {
     /// A gender the user chose, which stands ahead of Health's biological sex.
     /// The two are not the same question, and only one of them was asked here.
     func setGender(_ label: String) {
-        let record = DistilledRecord(
-            source: "user", dataType: "gender", itemID: "gender",
-            name: label, creator: "", detail: "", extra: "entered_by_user=1", collectedAt: Date()
-        )
-        replaceRecords(from: "user", with: userRecords(replacing: "gender", with: record))
-        Task.detached(priority: .utility) {
-            await SyncService.shared.pushUserObject(sex: label)
+        Task {
+            guard await SyncService.shared.pushUserObject(sex: label) else { return }
+            let record = DistilledRecord(
+                source: "user", dataType: "gender", itemID: "gender",
+                name: label, creator: "", detail: "", extra: "entered_by_user=1", collectedAt: Date()
+            )
+            replaceRecords(from: "user", with: userRecords(replacing: "gender", with: record))
         }
     }
 
@@ -669,8 +680,8 @@ final class DistillViewModel: ObservableObject {
     /// Somewhere the user picked on the map, rather than where the phone is.
     func setPlace(at coordinate: CLLocationCoordinate2D) async {
         guard let record = try? await location.place(at: coordinate) else { return }
+        guard await SyncService.shared.pushUserObject(place: record.name) else { return }
         replaceRecords(from: "location", with: [record])
-        await SyncService.shared.pushUserObject(place: record.name)
     }
 
     /// `replaceRecords` clears a whole source, and the user source holds more

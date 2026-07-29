@@ -113,16 +113,23 @@ actor SyncService {
     /// Every argument is optional and nil ones are omitted rather than sent as
     /// null — the caller usually knows one fact, not all four, and a full
     /// overwrite would erase the other three.
+    /// Returns whether the row reached Postgres.
+    ///
+    /// It used to return nothing and swallow the error, which was fine while
+    /// every caller was a background push. It is not fine for a field the user
+    /// just typed: the server is the record, so the only way a local copy can
+    /// avoid drifting from it is to know whether the write landed.
+    @discardableResult
     func pushUserObject(
         birthDate: Date? = nil,
         birthYear: Int? = nil,
         sex: String? = nil,
         place: String? = nil,
         treeSeed: UInt64? = nil
-    ) async {
+    ) async -> Bool {
         guard let token = await SupabaseAuth.shared.validAccessToken(),
               let userID = await SupabaseAuth.shared.userID
-        else { return }
+        else { return false }
 
         var row: [String: Any] = ["id": userID]
         if let birthDate { row["birth_date"] = Self.day.string(from: birthDate) }
@@ -130,7 +137,7 @@ actor SyncService {
         if let sex { row["sex"] = sex }
         if let place { row["place"] = place }
         if let treeSeed { row["tree_seed"] = Int64(bitPattern: treeSeed) }
-        guard row.count > 1 else { return }
+        guard row.count > 1 else { return false }
 
         do {
             _ = try await post(
@@ -140,8 +147,10 @@ actor SyncService {
                 prefer: "resolution=merge-duplicates,return=minimal"
             )
             lastError = nil
+            return true
         } catch {
             lastError = error.localizedDescription
+            return false
         }
     }
 

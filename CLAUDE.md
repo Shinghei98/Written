@@ -340,6 +340,16 @@ is fixed in code and unproven in practice.
 upload must not interrupt the garden — but the next silent failure will look
 exactly like the last one: a table emptier than expected with nothing to say why.
 
+That silence is now the *only* consequence of a failed write, which is the
+deliberate trade: **Postgres is the record, so nothing is shown that the server
+did not accept.** The biographics rows used to apply locally and push in a
+detached task, so a rejected write left the device displaying an age or a gender
+the server had never heard of — true until the next restore quietly replaced it.
+`pushUserObject` returns whether the row landed, and `setBirthday`, `setGender`
+and `setPlace` write the local record only if it did. A failure therefore looks
+like the edit not happening, with no message; that is the cost of never showing
+something untrue, and it is the side chosen on purpose.
+
 **Photos go nowhere.** `PhotoEntryView` picks, frames and displays correctly,
 then `onContinue` drops the media. Needs migration `0007`: a Storage bucket with
 RLS on `auth.uid()`, and a `photos` table for order, kind and the video crop
