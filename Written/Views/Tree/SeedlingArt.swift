@@ -874,8 +874,19 @@ enum SeedlingArt {
         leaflet.scale * shootGrowth(shoot, extended: extended)
     }
 
-    /// A petiole as a curve: where it starts, its control point, where it ends.
-    typealias Stalk = (root: CGPoint, control: CGPoint, tip: CGPoint)
+    /// A petiole as a curve: where it starts, two control points, where it ends.
+    ///
+    /// Cubic rather than quadratic, and only because of `bowed`. A quadratic has
+    /// a single control point, and that one point has to do two jobs at once:
+    /// set the tangent the curve *arrives* on, and carry the bow. They conflict,
+    /// because a quadratic's end tangent is exactly `tip - control`, so bowing
+    /// swung the arrival off the terminal leaf's midrib and the branch stopped
+    /// meeting its leaf — one stroke read as two curves that happened to touch.
+    /// It showed on L2, which carries the largest bow on the plant.
+    ///
+    /// With two control points the jobs separate: `arrival` holds the tangent
+    /// and `control` takes the bow.
+    typealias Stalk = (root: CGPoint, control: CGPoint, arrival: CGPoint, tip: CGPoint)
 
     /// A curve from `root` to `tip` arriving along `axis` degrees off vertical,
     /// which is how every petiole in this drawing is built — the blade's midrib
@@ -884,7 +895,18 @@ enum SeedlingArt {
         let tilt = Angle(degrees: axis).radians
         let heading = CGPoint(x: CGFloat(sin(tilt)), y: -CGFloat(cos(tilt)))
         let reach = hypot(tip.x - root.x, tip.y - root.y) * 0.45
-        return (root, CGPoint(x: tip.x - heading.x * reach, y: tip.y - heading.y * reach), tip)
+        let quad = CGPoint(x: tip.x - heading.x * reach, y: tip.y - heading.y * reach)
+        // The cubic that draws the identical curve to the quadratic this used to
+        // be — degree elevation, control points a third of the way in from each
+        // end toward the old single one. Exact, not an approximation, which is
+        // what makes every unbowed stalk on the plant come out unchanged: bows
+        // exist only on the canopy shoots, so stages 0 to 3 cannot move.
+        return (
+            root,
+            CGPoint(x: root.x + (quad.x - root.x) * 2 / 3, y: root.y + (quad.y - root.y) * 2 / 3),
+            CGPoint(x: tip.x + (quad.x - tip.x) * 2 / 3, y: tip.y + (quad.y - tip.y) * 2 / 3),
+            tip
+        )
     }
 
     /// Where a shoot leaves the stem at a given point in the climb.
@@ -941,9 +963,13 @@ enum SeedlingArt {
         return stalk
     }
 
-    /// Pushes a stalk's control point sideways, bending it without moving
+    /// Pushes a stalk's first control point sideways, bending it without moving
     /// either end. The tip is where a blade hangs and where `along` is measured
     /// from, so a curve must not be bought by moving it.
+    ///
+    /// Only the first control point moves. The second one is what aims the
+    /// curve into the blade it runs to, so bending must leave it alone — moving
+    /// it is what used to break the branch and its leaf into two strokes.
     private static func bowed(_ stalk: inout Stalk, by bow: CGFloat) {
         guard bow != 0 else { return }
         // In units of the canvas's height, so the same number bends the same
@@ -952,7 +978,12 @@ enum SeedlingArt {
         let dy = stalk.tip.y - stalk.root.y
         let length = hypot(dx, dy)
         guard length > 0 else { return }
-        let push = bow * length
+        // Four thirds, so the existing bow constants keep the depth they had.
+        // One control point of a cubic carries its curve three eighths of the
+        // way off the chord at the midpoint, where a quadratic's carried it a
+        // half; 4/3 is the ratio between them. Without it every bow on the
+        // plant would quietly shallow out by a quarter.
+        let push = bow * length * 4 / 3
         stalk.control.x += (dy / length) * push / aspectRatio
         stalk.control.y += (-dx / length) * push
     }
@@ -1017,9 +1048,13 @@ enum SeedlingArt {
     /// Point at `t` along a stalk.
     static func point(at t: CGFloat, on stalk: Stalk) -> CGPoint {
         let mt = 1 - t
+        let a = mt * mt * mt
+        let b = 3 * mt * mt * t
+        let c = 3 * mt * t * t
+        let d = t * t * t
         return CGPoint(
-            x: mt * mt * stalk.root.x + 2 * mt * t * stalk.control.x + t * t * stalk.tip.x,
-            y: mt * mt * stalk.root.y + 2 * mt * t * stalk.control.y + t * t * stalk.tip.y
+            x: a * stalk.root.x + b * stalk.control.x + c * stalk.arrival.x + d * stalk.tip.x,
+            y: a * stalk.root.y + b * stalk.control.y + c * stalk.arrival.y + d * stalk.tip.y
         )
     }
 }
