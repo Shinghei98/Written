@@ -166,24 +166,32 @@ struct SharedPostCard: View {
     /// to show it, and only the embedding is refused.
     private var unavailable: some View {
         ZStack {
-            GardenPalette.ink.opacity(0.06)
-            VStack(spacing: 10) {
+            GardenPalette.ink.opacity(0.92)
+            VStack(spacing: 8) {
+#if DEBUG
+                // The page's own words, at a size someone can read. This lived
+                // under the card at 9pt grey and went unnoticed twice, which is
+                // a diagnostic that does not diagnose.
+                if log.isEmpty {
+                    Text("no output from the page")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white)
+                } else {
+                    ForEach(Array(log.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+#else
                 Image(systemName: "play.slash")
                     .font(.system(size: 20, weight: .light))
                     .foregroundColor(GardenPalette.muted)
                 Text("This one can't be played here")
                     .font(.system(size: 13))
                     .foregroundColor(GardenPalette.muted)
-#if DEBUG
-                if let errorCode {
-                    // 101/150: the uploader disallows embedding. 2: a bad
-                    // parameter, which would be this app's fault. 5: the
-                    // player failed. 100: no such video.
-                    Text("player error \(errorCode)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(GardenPalette.gold)
-                }
-#endif
                 if let watch = URL(string: "https://www.youtube.com/watch?v=\(post.videoID)") {
                     Link(destination: watch) {
                         Text("Watch on YouTube")
@@ -194,7 +202,9 @@ struct SharedPostCard: View {
                             .overlay { Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1) }
                     }
                 }
+#endif
             }
+            .padding(.horizontal, 16)
         }
         .frame(height: mediaHeight)
     }

@@ -40,10 +40,20 @@ struct EmbedWebView: UIViewRepresentable {
     /// were wrong. The page can simply tell us what happened instead.
     var onLog: (String) -> Void = { _ in }
 
-    /// What the page pretends to be. The iframe it holds is served from the same
-    /// place, so the embed is same-origin with its container — which is the
-    /// situation YouTube is built for and every previous attempt was not.
-    private static let origin = "https://www.youtube.com"
+    /// What the page claims to be — and deliberately **not** YouTube.
+    ///
+    /// The log settled what five rounds of inference could not: `api: loaded`,
+    /// `player: ready`, then `error: 152`. The script arrives and the player
+    /// builds; only playback is refused. So this was never about loading or
+    /// referrers, and the one thing left that was strange is that the page
+    /// claimed to *be* youtube.com. Nothing on the real web does that — an embed
+    /// sits on somebody else's site, and a page insisting it is YouTube itself
+    /// is a case YouTube has no reason to allow.
+    ///
+    /// The project's own Supabase host, which exists and answers over HTTPS, so
+    /// the origin is an ordinary third-party site rather than an invention or an
+    /// impersonation.
+    private static let origin = AppConfig.supabaseURL.absoluteString
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -74,7 +84,7 @@ struct EmbedWebView: UIViewRepresentable {
 
         if coordinator.loaded != videoID {
             coordinator.loaded = videoID
-            guard let url = URL(string: Self.origin + "/embed/" + videoID) else { return }
+            guard let url = URL(string: Self.origin + "/player/" + videoID) else { return }
             webView.loadSimulatedRequest(
                 URLRequest(url: url),
                 responseHTML: Self.page(for: videoID)
@@ -150,7 +160,7 @@ struct EmbedWebView: UIViewRepresentable {
         </head>
         <body>
         <div id="player"></div>
-        <script src="\(origin)/iframe_api"></script>
+        <script src="https://www.youtube.com/iframe_api"></script>
         <script>
           // Everything the page has to say, forwarded to the app. Cheaper than
           // attaching a debugger, and it works on any device without a Mac.
