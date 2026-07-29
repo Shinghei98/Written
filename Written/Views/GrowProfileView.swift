@@ -67,10 +67,25 @@ struct GrowProfileView: View {
     /// the plant scaling down and sliding as the user connected, which is
     /// exactly what this constant exists to prevent.
     ///
-    /// The tallest the stack ever gets is one short of every bar plus the
-    /// invitation to the last one, plus the Dashboard button: all four connected
-    /// is *shorter*, since the invitation is gone by then.
-    private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3
+    /// Was the tallest the stack could ever get; is now deliberately more than
+    /// that. The old figure — two bars, the invitation and the Dashboard button
+    /// — is kept as the derivation it came from, plus one row's pitch, because
+    /// the number's job changed: it stopped being "the most the stack needs" and
+    /// became "the space the stack is given". Growing it walks the boundary
+    /// between the garden and the rows *up* the screen, which lifts the plant
+    /// and lets the rows start higher in one move.
+    private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3 + barRow
+
+    /// The gap between the header and the plant.
+    ///
+    /// Fixed, where it used to be half of whatever was left over. The garden sat
+    /// between two flexible spacers that split the slack evenly, so it was
+    /// centred in the space rather than placed in it — and the only way to raise
+    /// the plant was to take space from the bottom, which moved the rows the
+    /// wrong way. Pinning the top gap and letting the single spacer below absorb
+    /// the remainder makes the plant's height something set here rather than
+    /// something that falls out.
+    private static let gardenTopGap: CGFloat = 10
 
     /// The height the bars are allowed, whatever the count.
     ///
@@ -150,7 +165,7 @@ struct GrowProfileView: View {
         ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
                 header
-                Spacer(minLength: 8)
+                Spacer(minLength: 0).frame(height: Self.gardenTopGap)
                 garden
                 Spacer(minLength: 8)
                 prompts
