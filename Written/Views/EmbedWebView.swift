@@ -3,32 +3,42 @@ import WebKit
 
 /// A shared video, playing inside a card.
 ///
-/// **It loads YouTube's embed URL directly** rather than building a page around
-/// an iframe, and that is the whole design rather than a detail of it.
+/// **The page is a normal iframe embed, given a real origin by
+/// `loadSimulatedRequest`.** Everything difficult here was one problem wearing
+/// three hats, and it took three wrong answers to see it: locally-made HTML has
+/// no origin, and YouTube's player will not run without one.
 ///
-/// The first version wrote its own HTML and let the IFrame API construct the
-/// player inside it. Every video came back with error 152 — including "Me at the
-/// zoo", which embeds everywhere — so it was the page and not the videos. A
-/// document made by `loadHTMLString` is not really *from* anywhere: whatever
-/// base URL it is handed, the request the player makes carries no origin YouTube
-/// will accept, and adding an `origin` parameter to claim otherwise did not help
-/// either. Two attempts at persuading it, both wrong.
+/// - `loadHTMLString` with a base URL → **error 152**. A base URL is not an
+///   origin; the document still comes from nowhere.
+/// - The same, plus an `origin` player parameter → **152 again**. Declaring an
+///   origin the document does not have persuades nobody.
+/// - Loading `youtube.com/embed/…` as a top-level request → **error 153**, which
+///   is the referrer complaint. The document had a real origin at last, but an
+///   app navigating straight to an embed sends no `Referer`, and the embed
+///   endpoint expects to be inside a page.
 ///
-/// Loading `youtube.com/embed/…` as a request removes the question rather than
-/// answering it. The document is served by YouTube, so its origin *is*
-/// YouTube's, and there is nothing left to declare.
+/// `loadSimulatedRequest(_:responseHTML:)` gives our own HTML the origin of a
+/// URL we name — not a base for resolving links, the actual security origin. So
+/// the iframe sits in a page that genuinely is `youtube.com`, which is the one
+/// arrangement the player accepts. It is iOS 15 and up; this project ships to
+/// 16.
 ///
-/// The cost is the IFrame API: with no parent frame there is nobody to call
-/// `playVideo()` from. Playback is driven through the `<video>` element the
-/// player is built on instead — cruder, and it works.
+/// Having a page back also restores the IFrame API, and with it `playVideo`,
+/// `pauseVideo` and a real `onError` to report codes rather than inferring them
+/// from a `<video>` element that never turned up.
 struct EmbedWebView: UIViewRepresentable {
     let videoID: String
     /// Whether this card is the one in the middle of the screen.
     var isPlaying: Bool
     /// Muted until the reader asks otherwise.
     var isMuted: Bool
-    /// No player ever appeared. Carries a code for the debug line on the card.
+    /// The player's own error code, for the debug line on the card.
     var onUnavailable: (Int) -> Void = { _ in }
+
+    /// What the page pretends to be. The iframe it holds is served from the same
+    /// place, so the embed is same-origin with its container — which is the
+    /// situation YouTube is built for and every previous attempt was not.
+    private static let origin = "https://www.youtube.com"
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -41,7 +51,6 @@ struct EmbedWebView: UIViewRepresentable {
         configuration.userContentController.add(context.coordinator, name: "written")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
         // Part of a card, not a page inside one.
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
@@ -53,17 +62,27 @@ struct EmbedWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
-        coordinator.wantsPlaying = isPlaying
-        coordinator.wantsMuted = isMuted
 
         if coordinator.loaded != videoID {
             coordinator.loaded = videoID
-            guard let url = Self.embed(videoID) else { return }
-            webView.load(URLRequest(url: url))
-            // Nothing to send yet — the state is applied when the page finishes.
-            return
+            guard let url = URL(string: Self.origin + "/embed/" + videoID) else { return }
+            webView.loadSimulatedRequest(
+                URLRequest(url: url),
+                responseHTML: Self.page(for: videoID)
+            )
         }
-        coordinator.apply(to: webView)
+
+        // Only the calls, never a reload — reloading a player mid-video restarts
+        // it, which as a card scrolls in and out would mean starting from zero
+        // every time.
+        if coordinator.playing != isPlaying {
+            coordinator.playing = isPlaying
+            webView.evaluateJavaScript(isPlaying ? "wPlay()" : "wPause()")
+        }
+        if coordinator.muted != isMuted {
+            coordinator.muted = isMuted
+            webView.evaluateJavaScript(isMuted ? "wMute(true)" : "wMute(false)")
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onUnavailable: onUnavailable) }
@@ -73,59 +92,14 @@ struct EmbedWebView: UIViewRepresentable {
             .removeScriptMessageHandler(forName: "written")
     }
 
-    /// `controls=0` because the card decides when this plays, and a scrub bar on
-    /// something that starts and stops with scrolling invites a fight over who
-    /// is in charge. `rel=0` stops the end screen offering other people's
-    /// videos, which in a feed reads as the app handing the reader off.
-    private static func embed(_ videoID: String) -> URL? {
-        URL(string: "https://www.youtube.com/embed/\(videoID)"
-            + "?playsinline=1&controls=0&rel=0&modestbranding=1&mute=1")
-    }
-
-    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKScriptMessageHandler {
         var loaded: String?
-        var wantsPlaying = false
-        var wantsMuted = true
+        var playing = false
+        var muted = true
         private let onUnavailable: (Int) -> Void
 
         init(onUnavailable: @escaping (Int) -> Void) {
             self.onUnavailable = onUnavailable
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            apply(to: webView)
-        }
-
-        /// Tells the `<video>` element what to do, waiting for it to exist.
-        ///
-        /// It is not there when the page reports itself finished — the player
-        /// builds it a moment afterwards — so this retries for a few seconds
-        /// rather than asking once and giving up. Running out of tries is also
-        /// the only way a video that cannot play is noticed now, since the
-        /// IFrame API's `onError` went with the wrapper page.
-        func apply(to webView: WKWebView) {
-            let script = """
-            (function () {
-              var tries = 0;
-              function go() {
-                var v = document.querySelector('video');
-                if (v) {
-                  v.muted = \(wantsMuted ? "true" : "false");
-                  \(wantsPlaying
-                    ? "var q = v.play(); if (q && q.catch) { q.catch(function () {}); }"
-                    : "v.pause();")
-                  return;
-                }
-                if (++tries > 40) {
-                  window.webkit.messageHandlers.written.postMessage('error:-2');
-                  return;
-                }
-                setTimeout(go, 100);
-              }
-              go();
-            })();
-            """
-            webView.evaluateJavaScript(script)
         }
 
         func userContentController(
@@ -135,5 +109,73 @@ struct EmbedWebView: UIViewRepresentable {
             guard let body = message.body as? String, body.hasPrefix("error:") else { return }
             onUnavailable(Int(body.dropFirst("error:".count)) ?? -1)
         }
+    }
+
+    /// The player, and the three functions Swift calls into it.
+    ///
+    /// `controls=0` because the card decides when this plays, and a scrub bar on
+    /// something that starts and stops with scrolling invites a fight over who
+    /// is in charge. `rel=0` stops the end screen offering other people's
+    /// videos, which in a feed reads as the app handing the reader off.
+    ///
+    /// It starts **muted**, and that is not a detail: WebKit blocks unmuted
+    /// autoplay outright, so an unmuted player would simply never begin.
+    private static func page(for videoID: String) -> String {
+        """
+        <!doctype html>
+        <html>
+        <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, \
+        maximum-scale=1, user-scalable=no">
+        <style>
+          html, body { margin: 0; padding: 0; height: 100%; background: #000; \
+        overflow: hidden; }
+          #player { position: absolute; inset: 0; width: 100%; height: 100%; }
+        </style>
+        </head>
+        <body>
+        <div id="player"></div>
+        <script src="\(origin)/iframe_api"></script>
+        <script>
+          var p, ready = false, wantPlay = false, wantMute = true;
+
+          function onYouTubeIframeAPIReady() {
+            p = new YT.Player('player', {
+              videoId: '\(videoID)',
+              playerVars: {
+                playsinline: 1, rel: 0, controls: 0, modestbranding: 1,
+                enablejsapi: 1, origin: '\(origin)'
+              },
+              events: {
+                onReady: function () {
+                  ready = true;
+                  // The wishes may have arrived before the player did — the API
+                  // is a network fetch and Swift does not wait for it.
+                  wMute(wantMute);
+                  if (wantPlay) { p.playVideo(); }
+                },
+                onError: function (e) {
+                  window.webkit.messageHandlers.written.postMessage('error:' + e.data);
+                },
+                onStateChange: function (e) {
+                  // Loop, as a reel does. A card that plays once and then shows
+                  // a still frame looks broken rather than finished.
+                  if (e.data === YT.PlayerState.ENDED) { p.seekTo(0); p.playVideo(); }
+                }
+              }
+            });
+          }
+
+          function wPlay()  { wantPlay = true;  if (ready) { p.playVideo(); } }
+          function wPause() { wantPlay = false; if (ready) { p.pauseVideo(); } }
+          function wMute(on) {
+            wantMute = on;
+            if (!ready) { return; }
+            if (on) { p.mute(); } else { p.unMute(); p.setVolume(100); }
+          }
+        </script>
+        </body>
+        </html>
+        """
     }
 }
