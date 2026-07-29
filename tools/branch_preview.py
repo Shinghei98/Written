@@ -75,9 +75,10 @@ def parse_shoots(marker: str, end: str) -> list[dict]:
             # at this stage; skipping it here matches SeedlingArt.isOpen.
             if "closesAt: .canopy" in tail:
                 continue
+            lbow = re.search(r"bow:\s*(-?[\d.]+)", tail)
             leaflets.append(dict(
                 mirrored=mirrored == "true", axis=float(axis), scale=float(scale),
-                along=float(along),
+                along=float(along), bow=float(lbow.group(1)) if lbow else 0.0,
                 stalk=(float(sx) if sx else 0.0, float(sy) if sy else 0.0),
             ))
         if reach is None:
@@ -193,6 +194,10 @@ def geometry(shoot, extended: float = STAGE):
         branch = (root[0] + (tip[0] - root[0]) * a, root[1] + (tip[1] - root[1]) * a)
         srun = turned(leaf["stalk"], shoot["turn"])
         lbase = (branch[0] + srun[0] * grown, branch[1] + srun[1] * grown)
+        # Where the petiole's curve bulges, so a bowed stalk is visibly bowed
+        # here too. Without this the preview draws every petiole straight and
+        # cannot show the one thing being changed.
+        bmid = midpoint_bowed(branch, lbase, leaf.get("bow", 0.0))
         # Blade reach along its own axis, the same figures leafletTip uses.
         box = (0.230, 0.312)
         side = 1 if leaf["mirrored"] else -1
@@ -203,8 +208,25 @@ def geometry(shoot, extended: float = STAGE):
         x, y = rx, ry * tall
         ltip = (lbase[0] + x * math.cos(ang) - y * math.sin(ang),
                 lbase[1] + (x * math.sin(ang) + y * math.cos(ang)) / tall)
-        out["leaflets"].append(dict(branch=branch, base=lbase, tip=ltip, scale=scale))
+        out["leaflets"].append(dict(branch=branch, base=lbase, tip=ltip,
+                                    scale=scale, bend=bmid))
     return out
+
+
+def midpoint_bowed(root, tip, bow):
+    """Halfway along a bowed stalk — the same push `bowed` applies in Swift."""
+    if bow == 0:
+        return ((root[0] + tip[0]) / 2, (root[1] + tip[1]) / 2)
+    dx = (tip[0] - root[0]) * ASPECT
+    dy = tip[1] - root[1]
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return root
+    push = bow * length
+    cx = (root[0] + tip[0]) / 2 + (dy / length) * push / ASPECT
+    cy = (root[1] + tip[1]) / 2 + (-dx / length) * push
+    # A quadratic at t=0.5 sits halfway between its chord's midpoint and control.
+    return ((root[0] + tip[0]) / 4 + cx / 2, (root[1] + tip[1]) / 4 + cy / 2)
 
 
 # ---------------------------------------------------------------------- draw
@@ -234,7 +256,8 @@ def main() -> None:
         g = geometry(shoot)
         d.line([to_px(g["root"]), to_px(g["tip"])], fill=(220, 40, 40), width=4)
         for leaf in g["leaflets"]:
-            d.line([to_px(leaf["branch"]), to_px(leaf["base"])], fill=(220, 40, 40), width=3)
+            d.line([to_px(leaf["branch"]), to_px(leaf["bend"]), to_px(leaf["base"])],
+                   fill=(220, 40, 40), width=3, joint="curve")
             d.line([to_px(leaf["base"]), to_px(leaf["tip"])], fill=(30, 90, 220), width=3)
             x, y = to_px(leaf["tip"])
             d.ellipse([x - 6, y - 6, x + 6, y + 6], outline=(30, 90, 220), width=3)

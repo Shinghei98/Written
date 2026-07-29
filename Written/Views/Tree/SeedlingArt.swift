@@ -374,6 +374,16 @@ enum SeedlingArt {
         /// is upward. Zero for the terminal leaflet, which the rachis reaches
         /// by itself.
         let stalkRun: CGSize
+        /// How far this leaflet's own stalk bows off its chord, on the same
+        /// terms as `Shoot.bow` — a fraction of the stalk's length, positive to
+        /// the left of the way it runs.
+        ///
+        /// Zero for every petiole drawn before this: a sub-petiole was a
+        /// straight run from the branch point to the blade, and a pair of them
+        /// meant to curl toward the stalk they hang off had no way to say so.
+        /// Two leaves either side of one point want *opposite* signs to curve
+        /// the same way relative to it.
+        var bow: CGFloat = 0
         /// The stage this leaflet first opens at. `nil` means it is there from
         /// the moment its shoot is, which is true of every leaflet drawn before
         /// a fifth stage existed.
@@ -397,6 +407,7 @@ enum SeedlingArt {
                     width: stalkRun.width + (other.stalkRun.width - stalkRun.width) * t,
                     height: stalkRun.height + (other.stalkRun.height - stalkRun.height) * t
                 ),
+                bow: bow + (other.bow - bow) * t,
                 opensAt: opensAt,
                 closesAt: closesAt
             )
@@ -419,8 +430,13 @@ enum SeedlingArt {
         /// swings as one piece rather than the blades twisting on fixed stalks.
         let turn: Double
         /// How far the rachis bows off the straight line from stem to tip, as a
-        /// fraction of that line's length. Positive bows *below* the run — the
-        /// outside of the turn for a shoot reaching upward.
+        /// fraction of that line's length.
+        ///
+        /// Positive bows to the **left of the direction of travel**, which is
+        /// not the same as downward and was written down as though it were. A
+        /// branch running up-left sags *below* its chord on a positive bow; one
+        /// running up-right rises *above* it on the same number. Two branches
+        /// meant to curve the same way as the eye sees it need opposite signs.
         ///
         /// Zero by default, which is every shoot drawn before this: the rachis
         /// was a quadratic whose only curvature came from the angle its tip had
@@ -599,7 +615,8 @@ enum SeedlingArt {
             // stem to leaf tip against 0.21 and 0.32 for the two beside it. And
             // near-upright — +25.8° off vertical, where the others splay past
             // 50° — so the rachis is mostly rise and only a little reach.
-            reach: CGSize(width: 0.034, height: 0.072),
+            // Opened out three degrees from the stem, 18.3 to 21.3.
+            reach: CGSize(width: 0.0374, height: 0.0700),
             turn: 0,
             leaflets: [
                 // Two tiny leaves, not one. This is the newest growth and the
@@ -720,23 +737,37 @@ enum SeedlingArt {
             // puts it at 0.718 of the canopy's rather than 0.598 — closing about
             // a third of the gap to the fork.
             attachment: 0.84,
-            // Half again as long, (-0.079, 0.104) to (-0.1185, 0.156). The
-            // leaflets keep their `along` fractions, so the whole branch scales
-            // rather than only the stretch past a branch point — "the branch
-            // should be longer" rather than "the upper branch", which is what
-            // L1 and R1 were asked for.
-            //
-            // Read as x1.5 and not as a 150% increase, unlike every other figure
-            // in this sequence. At x2.5 the rachis ran clear past the left
-            // cotyledon's tip as a long bare stroke, which is not a longer
-            // branch so much as a different plant.
-            reach: CGSize(width: -0.1185, height: 0.156),
+            // Shortened to 0.7125, (-0.1185, 0.156) to (-0.0844, 0.1111).
+            // That factor is what halves the terminal leaf's distance from the
+            // pair below it: the leaf sits at the tip, so bringing it closer to
+            // the branch point means bringing the tip in.
+            reach: CGSize(width: -0.0844, height: 0.1111),
             turn: 0,
-            // Bowed rather than straight. The reference's is a curve, and until
-            // now nothing in the model could say so: a rachis was a quadratic
-            // whose only bend came from the angle its tip had to arrive at.
-            bow: 0.12,
-            leaflets: shoots[2].leaflets
+            // A clear concave-up arc. This branch runs up-*left*, and a positive
+            // bow pushes left of the direction of travel, which for it is below
+            // the chord — so the sag, and the opening upward, come from a
+            // positive number here. The same number on a right-hand branch would
+            // arch it the other way.
+            bow: 0.20,
+            leaflets: [
+                // The furthest leaf, half again as large: 0.290 to 0.435.
+                Leaflet(mirrored: false, axis: -46, scale: 0.435, along: 1, stalkRun: .zero),
+                // The flanking pair, both leaving the backbone at one point.
+                // 0.5965 of the shortened rachis is 0.425 of the old one, where
+                // the two stalks used to meet it on average — 0.310 and 0.540.
+                //
+                // Opposite bows so both petioles curl *toward* the backbone
+                // rather than both the same way round: bow is relative to the
+                // direction a stalk runs, and these two run opposite ways.
+                Leaflet(mirrored: false, axis: -92, scale: 0.19, along: 0.5965,
+                        stalkRun: CGSize(width: -0.030, height: 0.013),
+                        bow: -0.22, opensAt: .canopy),
+                Leaflet(mirrored: false, axis: 4, scale: 0.065, along: 0.58,
+                        stalkRun: CGSize(width: 0.005, height: -0.040), closesAt: .canopy),
+                Leaflet(mirrored: true, axis: 26, scale: 0.19, along: 0.5965,
+                        stalkRun: CGSize(width: 0.030, height: -0.013),
+                        bow: 0.22, opensAt: .canopy)
+            ]
         ),
         // R2 — the newest growth, on the right.
         Shoot(
@@ -758,8 +789,8 @@ enum SeedlingArt {
                 // the same point is what says "just opened"; the previous
                 // arrangement hung one halfway down the stalk, which reads as an
                 // older branch that has started shedding.
-                Leaflet(mirrored: true, axis: 34, scale: 0.13, along: 1, stalkRun: .zero),
-                Leaflet(mirrored: false, axis: -34, scale: 0.13, along: 1,
+                Leaflet(mirrored: true, axis: 34, scale: 0.115, along: 1, stalkRun: .zero),
+                Leaflet(mirrored: false, axis: -34, scale: 0.115, along: 1,
                         stalkRun: CGSize(width: -0.001, height: -0.001))
             ]
         )
@@ -890,18 +921,7 @@ enum SeedlingArt {
         // Done here rather than by moving the tip: the tip is where the terminal
         // leaf hangs and where every `along` is measured from, so bending the
         // stalk must not move it.
-        if shoot.bow != 0 {
-            // Perpendicular to the chord, in units of the canvas's height so the
-            // offset is the same distance whichever way the stalk points.
-            let dx = (stalk.tip.x - stalk.root.x) * aspectRatio
-            let dy = stalk.tip.y - stalk.root.y
-            let length = hypot(dx, dy)
-            if length > 0 {
-                let push = shoot.bow * length
-                stalk.control.x += (dy / length) * push / aspectRatio
-                stalk.control.y += (-dx / length) * push
-            }
-        }
+        bowed(&stalk, by: shoot.bow)
         return stalk
     }
 
@@ -913,7 +933,25 @@ enum SeedlingArt {
         let grown = shootGrowth(shoot, extended: extended)
         let run = turned(leaflet.stalkRun, by: shoot.turn)
         let tip = CGPoint(x: branch.x + run.width * grown, y: branch.y + run.height * grown)
-        return stalk(from: branch, to: tip, arrivingAt: leafletTilt(leaflet, of: shoot, extended: extended))
+        var stalk = stalk(from: branch, to: tip, arrivingAt: leafletTilt(leaflet, of: shoot, extended: extended))
+        bowed(&stalk, by: leaflet.bow)
+        return stalk
+    }
+
+    /// Pushes a stalk's control point sideways, bending it without moving
+    /// either end. The tip is where a blade hangs and where `along` is measured
+    /// from, so a curve must not be bought by moving it.
+    private static func bowed(_ stalk: inout Stalk, by bow: CGFloat) {
+        guard bow != 0 else { return }
+        // In units of the canvas's height, so the same number bends the same
+        // distance whichever way the stalk points.
+        let dx = (stalk.tip.x - stalk.root.x) * aspectRatio
+        let dy = stalk.tip.y - stalk.root.y
+        let length = hypot(dx, dy)
+        guard length > 0 else { return }
+        let push = bow * length
+        stalk.control.x += (dy / length) * push / aspectRatio
+        stalk.control.y += (-dx / length) * push
     }
 
     /// Where a leaflet's blade starts: the end of its sub-petiole, or the
