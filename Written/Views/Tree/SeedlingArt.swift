@@ -532,8 +532,18 @@ enum SeedlingArt {
         // as it was drawn. Raising the cap to three stages did the same job and
         // changed stages 2 and 3 on the way past, which is not a trade worth
         // making for a stage nobody had complained about.
+        // Side leaves do not keep pace with the stem. Normalise both drawings
+        // to the same height and the reference's run 13.1%, 9.3%, 8.3% of it
+        // against cotyledons at 26.4% and 21.5% — two dominant leaves and then a
+        // steep drop. Ours ran 29.2, 24.1, 23.1 against 30.1: nearly flat, five
+        // big leaves instead of two.
+        //
+        // An earlier pass read the opposite and *grew* them, off eroded blade
+        // cores that under-measured the reference's cotyledon. The plant gets
+        // taller at this stage; the leaves stay the size they were, so their
+        // share of it falls.
         let canopy = min(max(extended - 3, 0), 1)
-        return (1 + 0.38 * stagesOn) * (1 + 0.55 * canopy)
+        return (1 + 0.38 * stagesOn) * (1 - 0.20 * canopy)
     }
 
     /// A leaflet's blade size at a point in the climb, as a fraction of a
