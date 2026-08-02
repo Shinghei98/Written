@@ -854,3 +854,29 @@ It appears **six times** in `project.pbxproj` — Debug and Release for the app,
 the share extension and the UI tests — and all six have to move together. The app
 and its extension sharing a build number is a hard requirement of the upload,
 not a tidiness rule.
+
+**This machine cannot upload to TestFlight, and the reason is not the project.**
+Checked on 2026-08-02: `Release` archives cleanly and the archive is correct —
+both bundle ids at the same build, `PrivacyInfo.xcprivacy` present, and the App
+Group *and* shared keychain group on **both** targets, which is the thing Xcode
+has silently dropped here before. What is missing is credentials:
+
+    error: exportArchive No Accounts
+    error: exportArchive No signing certificate "iOS Distribution" found
+
+Development signing works only because a certificate and profile are already on
+disk; no Apple ID is signed in to Xcode, so nothing can mint a *distribution*
+certificate. Two ways out, and the second is the one worth doing:
+
+- Xcode → Settings → Accounts → sign in, then Product → Archive → Distribute.
+  Needs 2FA every time and cannot be scripted.
+- **An App Store Connect API key** — Users and Access → Integrations → App Store
+  Connect API, role App Manager. Drop `AuthKey_<KEYID>.p8` in
+  `~/.appstoreconnect/private_keys/` and `xcodebuild -exportArchive` can upload
+  unattended with `-authenticationKeyPath/-KeyID/-KeyIssuerID`. The `.p8`
+  downloads **once**, and it is a credential — treat it like `sb_secret_…`.
+
+And note **which** testers: internal ones (team members) get a build the moment
+it finishes processing, but **external testers need Beta App Review**, which
+needs the privacy policy and the App Store privacy questionnaire — both still
+open above. "All TestFlight users" is blocked on those, not on the build.
