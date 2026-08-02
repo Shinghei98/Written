@@ -868,8 +868,17 @@ Development signing works only because a certificate and profile are already on
 disk; no Apple ID is signed in to Xcode, so nothing can mint a *distribution*
 certificate. Two ways out, and the second is the one worth doing:
 
-- Xcode → Settings → Accounts → sign in, then Product → Archive → Distribute.
-  Needs 2FA every time and cannot be scripted.
+- Xcode → Settings → Accounts → sign in, then Product → Archive → Distribute App
+  → **App Store Connect**. Needs 2FA every time and cannot be scripted.
+
+  **Not "TestFlight Internal Only", which is a one-way door.** It sets
+  `testFlightInternalTestingOnly` on the export, and Xcode's own description of
+  that key is "this build cannot be distributed via external TestFlight or the
+  App Store". It marks the *build*, not the app — the way out is to upload a
+  higher build number — but the option sits directly above the right one in the
+  same list, and picking it costs a number and a round of processing.
+  `app-store-connect` puts a build where internal testers, external testers and
+  App Store submission can all reach it.
 - **An App Store Connect API key** — Users and Access → Integrations → App Store
   Connect API, role App Manager. Drop `AuthKey_<KEYID>.p8` in
   `~/.appstoreconnect/private_keys/` and `xcodebuild -exportArchive` can upload
