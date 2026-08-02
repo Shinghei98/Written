@@ -38,6 +38,16 @@ struct DashboardTab: View {
     @State private var lift: CGFloat = 0
     @State private var isShowingProfiles = false
 
+    /// `-solo 1`, the same flag `AppShell.page` reads. Constant-folded away
+    /// outside DEBUG, so the two branches above cost a release build nothing.
+    private var isAuditingOneLayer: Bool {
+#if DEBUG
+        DebugLaunch.auditsOneTabAtATime
+#else
+        false
+#endif
+    }
+
     /// Accelerating away, and easing back: `easeIn` spends its speed at the end
     /// of the travel, so the dashboard gathers pace as it leaves rather than
     /// gliding out at a constant rate.
@@ -54,36 +64,69 @@ struct DashboardTab: View {
                 + 40
 
             ZStack {
-                ProfilePreviewView(
-                    viewModel: viewModel,
-                    onBack: {
-                        withAnimation(Self.returning) { lift = 0 }
-                        isShowingProfiles = false
-                    },
-                    onExplore: onExplore
-                )
+                // Under `-solo 1` only the layer being looked at is built.
+                //
+                // These two are stacked, not swapped: the preview sits at full
+                // frame *behind* the dashboard the whole time, and the dashboard
+                // slides off it. That is right for the animation and wrong for an
+                // audit — XCUITest reads the covered layer as happily as the
+                // visible one, so a dump of the dashboard also contained "People
+                // you will see" and "Meet someone who understands your world",
+                // and every pair of those was a false overlap. Exactly the
+                // problem `AppShell.page` has with its five tabs, one level down.
+                if !isAuditingOneLayer || isShowingProfiles {
+                    ProfilePreviewView(
+                        viewModel: viewModel,
+                        onBack: {
+                            withAnimation(Self.returning) { lift = 0 }
+                            isShowingProfiles = false
+                        },
+                        onExplore: onExplore
+                    )
+                    // **Hidden until the dashboard actually starts to move.**
+                    //
+                    // It sits at full frame behind the dashboard the whole time,
+                    // which is what makes the slide work — but it also means the
+                    // *lighter* of the two views is ready first. Arriving on
+                    // this tab therefore showed "People you will see" for a
+                    // frame or two before the dashboard finished laying out its
+                    // photos, biographics and cards on top. Exactly the
+                    // flash-of-the-wrong-screen that `RootView` documents for
+                    // sign-in, one level down.
+                    //
+                    // Keyed on `lift` rather than on `isShowingProfiles` alone:
+                    // the reveal begins the instant the offset animation starts,
+                    // and waiting for the flag would clip the first frames of it.
+                    // Opacity rather than a condition, so the view stays mounted
+                    // and keeps its state across the slide.
+                    .opacity(isShowingProfiles || lift != 0 ? 1 : 0)
+                    .allowsHitTesting(isShowingProfiles)
+                }
 
-                DashboardView(
-                    viewModel: viewModel,
-                    photos: $photos,
-                    onBack: onBack,
-                    onConfirm: {
-                        withAnimation(Self.leaving) { lift = -travel }
-                        isShowingProfiles = true
-                    },
-                    // Everything this device remembers is cleared here, before
-                    // the session is dropped upstream — the view model owns the
-                    // OAuth services, so this is the only place that can.
-                    onSignOut: {
-                        viewModel.signOutLocalState()
-                        onSignOut()
-                    },
-                    isOnboarding: isOnboarding
-                )
-                .offset(y: lift)
-                // Offscreen but still mounted, so it must stop taking taps the
-                // moment it starts leaving.
-                .allowsHitTesting(!isShowingProfiles)
+                if !isAuditingOneLayer || !isShowingProfiles {
+                    DashboardView(
+                        viewModel: viewModel,
+                        photos: $photos,
+                        onBack: onBack,
+                        onConfirm: {
+                            withAnimation(Self.leaving) { lift = -travel }
+                            isShowingProfiles = true
+                        },
+                        // Everything this device remembers is cleared here,
+                        // before the session is dropped upstream — the view model
+                        // owns the OAuth services, so this is the only place that
+                        // can.
+                        onSignOut: {
+                            viewModel.signOutLocalState()
+                            onSignOut()
+                        },
+                        isOnboarding: isOnboarding
+                    )
+                    .offset(y: lift)
+                    // Offscreen but still mounted, so it must stop taking taps
+                    // the moment it starts leaving.
+                    .allowsHitTesting(!isShowingProfiles)
+                }
             }
             .onChange(of: isVisible) { visible in
                 guard visible else { return }

@@ -8,6 +8,8 @@ enum BiographicsEditor: Identifiable {
     case birthday
     case gender
     case place
+    case education
+    case occupation
 
     var id: Self { self }
 }
@@ -114,6 +116,68 @@ struct NameSheet: View {
                 .submitLabel(.done)
                 .focused($isFocused)
                 .onSubmit { if !trimmed.isEmpty { onSave(trimmed) } }
+                .padding(.vertical, 11)
+                .padding(.horizontal, 14)
+                .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                }
+        }
+        .onAppear {
+            text = current ?? ""
+            isFocused = true
+        }
+    }
+}
+
+// MARK: - Education and occupation
+
+/// The two free-text rows, which differ only in their words and their keyboard.
+///
+/// One view rather than two near-identical ones: they ask for a line of prose,
+/// save it on Confirm, and nothing else. `NameSheet` stays separate because it
+/// is a *name* — `.givenName` content type, autocorrect off, one line — and
+/// folding it in here would mean three sets of exceptions rather than one view.
+struct FreeTextSheet: View {
+    let title: String
+    let subtitle: String
+    let placeholder: String
+    let current: String?
+    /// Schools run to several lines; a job title does not.
+    var allowsMultipleLines = false
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var text: String = ""
+    @FocusState private var isFocused: Bool
+
+    private var trimmed: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        BiographicsSheet(
+            title: title,
+            subtitle: subtitle,
+            confirmEnabled: !trimmed.isEmpty,
+            onConfirm: { onSave(trimmed) },
+            onCancel: onCancel
+        ) {
+            TextField(placeholder, text: $text, axis: allowsMultipleLines ? .vertical : .horizontal)
+                .font(BrandFont.body(17))
+                .foregroundStyle(GardenPalette.ink)
+                .multilineTextAlignment(.center)
+                .lineLimit(allowsMultipleLines ? 1...4 : 1...1)
+                // Capitalised by words: these are proper nouns more often than
+                // not — "Reed College", "Product Designer".
+                .textInputAutocapitalization(.words)
+                // `.return` rather than `.done` when several lines are wanted, so
+                // the keyboard offers a way to start the next school instead of
+                // dismissing on the first one.
+                .submitLabel(allowsMultipleLines ? .return : .done)
+                .focused($isFocused)
+                .onSubmit { if !allowsMultipleLines && !trimmed.isEmpty { onSave(trimmed) } }
                 .padding(.vertical, 11)
                 .padding(.horizontal, 14)
                 .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))

@@ -77,6 +77,12 @@ struct DashboardView: View {
                         photosSection
                             .id("photos")
                         identitySection
+                        // Straight after the biographics, because it is one:
+                        // the sliders say how to approach this person, which
+                        // belongs beside their age and where they are rather
+                        // than down among what their phone observed about them.
+                        communicationSection
+                            .id("communication")
                         musicSection
                         mediaSection
                             .id("media")
@@ -101,6 +107,24 @@ struct DashboardView: View {
                 // collapses against.
                 .trackingScrollOffset { scrollOffset = $0 }
 #if DEBUG
+                // `-bio education`; see `DebugLaunch`. The rows only open to a
+                // tap, which `simctl` cannot send.
+                .onAppear {
+                    guard let target = DebugLaunch.biographicsTarget,
+                          DebugLaunch.firesOnce("bio") else { return }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        switch target {
+                        case "name": withAnimation { editor = .name }
+                        case "birthday": withAnimation { editor = .birthday }
+                        case "gender": withAnimation { editor = .gender }
+                        case "place": withAnimation { editor = .place }
+                        case "education": withAnimation { editor = .education }
+                        case "occupation": withAnimation { editor = .occupation }
+                        default: break
+                        }
+                    }
+                }
                 // `-edit 1`; see `DebugLaunch`.
                 .onAppear {
                     if let target = DebugLaunch.editTarget, DebugLaunch.firesOnce("edit") {
@@ -545,6 +569,30 @@ struct DashboardView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+
+                identityDivider
+
+                Button { withAnimation(.easeOut(duration: 0.18)) { editor = .education } } label: {
+                    identityRow(
+                        icon: "graduationcap.fill",
+                        text: identity.education ?? "Add where you studied",
+                        isPlaceholder: identity.education == nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                identityDivider
+
+                Button { withAnimation(.easeOut(duration: 0.18)) { editor = .occupation } } label: {
+                    identityRow(
+                        icon: "briefcase.fill",
+                        text: identity.occupation ?? "Add your occupation",
+                        isPlaceholder: identity.occupation == nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.top, 6)
         }
@@ -560,13 +608,25 @@ struct DashboardView: View {
             NameSheet(
                 current: auth.firstName,
                 onSave: { name in
-                    // Fire and forget, and the sheet closes either way.
-                    // `upsertProfile` sets `firstName` only *after* the server
-                    // accepts it, so the row never shows a name that did not
-                    // save — but a failure is silent and the old name simply
-                    // stays, which is the same silent-failure class as every
-                    // other sync here. See the `lastError` known gap.
-                    Task { try? await auth.saveName(first: name, last: nil) }
+                    // The sheet closes either way, and `upsertProfile` sets
+                    // `firstName` only *after* the server accepts — so the row
+                    // never shows a name that did not save.
+                    //
+                    // It used to swallow the throw with `try?`, which made a
+                    // refused write indistinguishable from a dead button: the
+                    // sheet closed and the row stayed on "Add your name". The
+                    // error carries the status and PostgREST's own message, so
+                    // it is reported through the same channel as the rows that
+                    // own a column.
+                    Task {
+                        do {
+                            try await auth.saveName(first: name, last: nil)
+                            viewModel.biographicsError = nil
+                        } catch {
+                            viewModel.biographicsError =
+                                "Couldn't save that — \(error.localizedDescription)"
+                        }
+                    }
                     closeEditor()
                 },
                 onCancel: closeEditor
@@ -595,6 +655,31 @@ struct DashboardView: View {
                 onLocate: { await viewModel.currentCoordinate() },
                 onSave: { coordinate in
                     Task { await viewModel.setPlace(at: coordinate) }
+                    closeEditor()
+                },
+                onCancel: closeEditor
+            )
+        case .education:
+            FreeTextSheet(
+                title: "Where did you study?",
+                subtitle: "List every school that you have attended.",
+                placeholder: "Schools",
+                current: viewModel.identity.education,
+                allowsMultipleLines: true,
+                onSave: { schools in
+                    viewModel.setEducation(schools)
+                    closeEditor()
+                },
+                onCancel: closeEditor
+            )
+        case .occupation:
+            FreeTextSheet(
+                title: "What is your current occupation?",
+                subtitle: "Put student if you are a student.",
+                placeholder: "Occupation",
+                current: viewModel.identity.occupation,
+                onSave: { occupation in
+                    viewModel.setOccupation(occupation)
                     closeEditor()
                 },
                 onCancel: closeEditor
@@ -704,9 +789,14 @@ struct DashboardView: View {
         }
     }
 
+    /// The card's own horizontal padding, named because one thing now has to
+    /// cancel it: the flirt dial divides *the card* into thirds, so it has to
+    /// know the card's outer width rather than its content width.
+    static let cardInset: CGFloat = 18
+
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, Self.cardInset)
             .padding(.vertical, 14)
             .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 24))
             .overlay {
@@ -891,6 +981,63 @@ struct DashboardView: View {
         }
     }
 
+    /// The two onboarding sliders, paired the way circadian and steps are.
+    ///
+    /// Side by side because they answer one question between them — how this
+    /// person wants to be talked to — and separating them would read as two
+    /// unrelated facts. Both or neither: they are set together in one screen, so
+    /// a row with one empty half would mean a bug rather than a gap.
+    @ViewBuilder
+    private var communicationSection: some View {
+        if let flirt = viewModel.identity.flirtLevel,
+           let response = viewModel.identity.responseTime {
+            HStack(spacing: 14) {
+                flirtCard(flirt)
+                responseCard(response)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func flirtCard(_ level: FlirtLevel) -> some View {
+        card {
+            cardLabel("FLIRT LEVEL") { OverlappingHearts() }
+
+            FlirtGauge(fraction: level.fraction, word: level.word)
+                // **Out to the card's edges**, cancelling the padding every
+                // other card keeps. The dial and its two captions are placed on
+                // thirds of the card, so they have to measure the card — given
+                // the content width instead they would land 6pt in from where
+                // they belong, and the legs with them.
+                .padding(.horizontal, -Self.cardInset)
+                .frame(maxWidth: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func responseCard(_ time: ResponseTime) -> some View {
+        card {
+            cardLabel("RESPONSE TIME", icon: "metronome")
+
+            Text(time.rawValue)
+                .font(BrandFont.title(30))
+                .foregroundStyle(GardenPalette.ink)
+                .lineLimit(1)
+                // "Prestissimo" is nearly twice "Largo", and the card is half a
+                // phone wide. It shrinks rather than truncating: a clipped tempo
+                // marking is unreadable, a small one is merely small.
+                .minimumScaleFactor(0.5)
+
+            Spacer(minLength: 10)
+
+            Text(time.note)
+                .font(.system(size: 12))
+                .foregroundStyle(GardenPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     @ViewBuilder
     private var circadianCard: some View {
         if let chronotype = viewModel.chronotype {
@@ -998,9 +1145,23 @@ struct DashboardView: View {
     /// The card's own name, small and quiet above the rule — "DAILY FORECAST"
     /// in the reference.
     private func cardLabel(_ text: String, icon: String) -> some View {
-        HStack(spacing: 6) {
+        cardLabel(text) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
+        }
+    }
+
+    /// The same label with a drawn glyph, for the ones SF Symbols hasn't got.
+    ///
+    /// The third such case in this app, after the message-in-a-bottle and the
+    /// potted plant on the tab bar — and the same judgement: `heart.fill` alone
+    /// is a *like*, which this row is not.
+    private func cardLabel<Icon: View>(
+        _ text: String,
+        @ViewBuilder icon: () -> Icon
+    ) -> some View {
+        HStack(spacing: 6) {
+            icon()
             Text(text)
                 .font(.system(size: 13, weight: .semibold))
                 .kerning(0.8)

@@ -71,6 +71,29 @@ struct PortraitPlaceholder: View {
     }
 }
 
+/// A seed for somebody who has no `discovery_cards` row to take one from.
+///
+/// Real accounts have none — that table is written only by
+/// `tools/seed_synthetic.py` — so an admirer or a chat partner arrives with a
+/// name and nothing to draw. The initial is what identifies them either way;
+/// this only has to be *stable*, so the same person is not a different colour on
+/// two screens.
+///
+/// Folded by hand rather than through `hashValue`, which Swift seeds per process:
+/// it would give one person a different portrait on every launch, and a different
+/// one again on the other device.
+enum PortraitSeed {
+    static func stable(for userID: String) -> Int {
+        var accumulated: UInt64 = 5381
+        for byte in userID.utf8 {
+            accumulated = accumulated &* 33 &+ UInt64(byte)
+        }
+        // Small and positive: `PortraitPlaceholder.warm` takes `abs(seed)` into a
+        // `UInt64`, so a negative or enormous value is a crash rather than a hue.
+        return Int(accumulated % 1000)
+    }
+}
+
 /// What the feed actually asks for: a picture for a seed.
 ///
 /// One place to change when photographs arrive.

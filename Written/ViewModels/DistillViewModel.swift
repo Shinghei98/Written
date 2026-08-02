@@ -38,6 +38,22 @@ final class DistillViewModel: ObservableObject {
     /// from one location fix.
     @Published private(set) var identity = IdentitySummary()
 
+    /// Why the last biographics edit didn't take, or `nil` if it did.
+    ///
+    /// The rows that own a column on `public.users` — name, age, gender,
+    /// location — write the server first and the device only if it accepted, so
+    /// that nothing is ever shown that Postgres never heard of. The cost of that
+    /// trade was that a refusal looked *exactly* like the confirm button not
+    /// working: the sheet closed, the row stayed empty, and nothing said why.
+    /// Somebody hit it during onboarding and had no way to tell a rejected write
+    /// from a broken button.
+    ///
+    /// So the trade keeps its good half and loses its bad one. The value still
+    /// doesn't appear until the server has it; the *reason* it didn't appear now
+    /// does. `SyncService.lastError` was already recorded for exactly this and
+    /// simply never read — see the known gap in CLAUDE.md.
+    @Published var biographicsError: String?
+
     /// The example match on the profile screen. Derived from `identity` and the
     /// records together, so it is recomputed alongside everything else rather
     /// than being built in the view — a `body` that ranks songs would rebuild
@@ -159,6 +175,10 @@ final class DistillViewModel: ObservableObject {
         BanList.clear()
         RecordStore.clear()
         LifestyleStore.clear()
+        // The chat cache holds *other people's* words, which makes it the one
+        // store on this device with somebody else's data in it. If this line is
+        // ever dropped it becomes the only thing that survives a sign-out.
+        ChatStore.clear()
         UserDefaults.standard.removeObject(forKey: Self.treeSeedKey)
         clearInMemoryState()
     }
@@ -251,6 +271,11 @@ final class DistillViewModel: ObservableObject {
         Task {
             guard let snapshot = await RestoreService.shared.hydrate() else { return }
             apply(snapshot)
+            // After the server's version has landed, not before: adopting first
+            // would compare against an empty cache, write two rows, and then be
+            // overwritten by the very snapshot it should have been checked
+            // against. Idempotent, so the shell's own call costs nothing here.
+            adoptStoredCommunicationStyle()
         }
     }
 
@@ -647,8 +672,9 @@ final class DistillViewModel: ObservableObject {
         // Exact, because they typed it — this is the one path that knows the day
         // as well as the year, and `birth_date` wins over `birth_year` on read.
         Task {
-            guard await SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year)
-            else { return }
+            guard await accepted(
+                SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year)
+            ) else { return }
             let record = DistilledRecord(
                 source: "user", dataType: "age", itemID: "age",
                 name: "\(age)", creator: "", detail: "",
@@ -663,13 +689,93 @@ final class DistillViewModel: ObservableObject {
     /// The two are not the same question, and only one of them was asked here.
     func setGender(_ label: String) {
         Task {
-            guard await SyncService.shared.pushUserObject(sex: label) else { return }
+            guard await accepted(SyncService.shared.pushUserObject(sex: label)) else { return }
             let record = DistilledRecord(
                 source: "user", dataType: "gender", itemID: "gender",
                 name: label, creator: "", detail: "", extra: "entered_by_user=1", collectedAt: Date()
             )
             replaceRecords(from: "user", with: userRecords(replacing: "gender", with: record))
         }
+    }
+
+    /// The two onboarding sliders, written as one pass.
+    ///
+    /// One `replaceRecords` rather than two `setUserFact` calls: that would sync
+    /// the `user` source twice for a single act, and the second run would send
+    /// the first's row up again for the change-only trigger to discard. Same
+    /// result, twice the round trips.
+    ///
+    /// Local-first and instant, like `setEducation` and for the same reason —
+    /// neither owns a column on `public.users`, so there is no server value for
+    /// a local one to contradict. That matters more here than there: this is
+    /// collected during onboarding, and onboarding must not depend on a network.
+    func setCommunicationStyle(_ style: CommunicationStyle) {
+        let flirt = DistilledRecord(
+            source: "user", dataType: "flirt_level", itemID: "flirt_level",
+            name: style.flirt.rawValue, creator: "", detail: "",
+            // The position rides in `extra`, which is where platform-specific
+            // context belongs rather than widening the schema. It restores the
+            // slider; the band is the answer.
+            extra: "position=\(String(format: "%.3f", style.flirtPosition));entered_by_user=1",
+            collectedAt: Date()
+        )
+        let response = DistilledRecord(
+            source: "user", dataType: "response_time", itemID: "response_time",
+            name: style.response.rawValue, creator: "", detail: "",
+            extra: "position=\(String(format: "%.3f", style.responsePosition));entered_by_user=1",
+            collectedAt: Date()
+        )
+        let untouched = records.filter {
+            $0.source == "user" && !["flirt_level", "response_time"].contains($0.dataType)
+        }
+        replaceRecords(from: "user", with: untouched + [flirt, response])
+    }
+
+    /// Copies what onboarding collected into the record system, once.
+    ///
+    /// The sliders are answered before `AppShell` exists, so they land in
+    /// `CommunicationStyleStore` with no view model to put them in. This is the
+    /// hand-off, and it runs on every launch because it is also the repair: a
+    /// sync that failed, or a reinstall whose restore has not yet landed, leaves
+    /// the store holding an answer the records don't have.
+    ///
+    /// Guarded on the records already agreeing, so a launch that has nothing to
+    /// do writes nothing — otherwise every launch would push two rows for the
+    /// change-only trigger to throw away.
+    func adoptStoredCommunicationStyle() {
+        guard let stored = CommunicationStyleStore.saved else { return }
+        guard identity.flirtLevel != stored.flirt || identity.responseTime != stored.response
+        else { return }
+        setCommunicationStyle(stored)
+    }
+
+    /// Every school somebody has attended, as they wrote it.
+    func setEducation(_ text: String) { setUserFact("education", text) }
+
+    /// What they do now — "Student" included, which is why the sheet says so.
+    func setOccupation(_ text: String) { setUserFact("occupation", text) }
+
+    /// The shared half of the two rows above.
+    ///
+    /// **No `pushUserObject` here, unlike `setGender` and `setPlace`.** Those
+    /// mirror a column on `public.users` and so have to wait for the server to
+    /// accept before showing anything. These two have no column: they travel as
+    /// ordinary `user` records, which `replaceRecords` already syncs through
+    /// `append_source_records` — so they need no migration, and the change-only
+    /// trigger means retyping the same answer writes nothing.
+    ///
+    /// The consequence is that they apply locally first and reconcile after,
+    /// which is the opposite trade from the biographics that own a column. It is
+    /// the right one here: there is no column for a stale value to contradict.
+    private func setUserFact(_ dataType: String, _ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let record = DistilledRecord(
+            source: "user", dataType: dataType, itemID: dataType,
+            name: trimmed, creator: "", detail: "", extra: "entered_by_user=1",
+            collectedAt: Date()
+        )
+        replaceRecords(from: "user", with: userRecords(replacing: dataType, with: record))
     }
 
     /// Where the phone is, for centring the map. `nil` when location is off.
@@ -679,9 +785,31 @@ final class DistillViewModel: ObservableObject {
 
     /// Somewhere the user picked on the map, rather than where the phone is.
     func setPlace(at coordinate: CLLocationCoordinate2D) async {
-        guard let record = try? await location.place(at: coordinate) else { return }
-        guard await SyncService.shared.pushUserObject(place: record.name) else { return }
+        guard let record = try? await location.place(at: coordinate) else {
+            biographicsError = "Couldn't look that place up. Try again."
+            return
+        }
+        guard await accepted(SyncService.shared.pushUserObject(place: record.name)) else { return }
         replaceRecords(from: "location", with: [record])
+    }
+
+    /// Records why a biographics write was refused, and answers whether it was.
+    ///
+    /// Written as a filter over the push's own result so the call sites keep
+    /// reading as one line — `guard await accepted(...) else { return }` — and so
+    /// there is exactly one place that decides what a failure says.
+    private func accepted(_ didPush: Bool) async -> Bool {
+        guard !didPush else {
+            biographicsError = nil
+            return true
+        }
+        // `lastError` is the transport or PostgREST message. It is absent when
+        // the push never got as far as trying — no session, or nothing to send —
+        // which from the outside is the same "it didn't save" and wants saying.
+        let reason = await SyncService.shared.lastError
+        biographicsError = reason.map { "Couldn't save that — \($0)" }
+            ?? "Couldn't save that. Check your connection and try again."
+        return false
     }
 
     /// `replaceRecords` clears a whole source, and the user source holds more

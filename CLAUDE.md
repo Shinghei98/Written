@@ -263,6 +263,54 @@ generated tree takes over. Four briefly shared the bough, before there was art
 for it — worth knowing because falling through to generated geometry at 4 is what
 that avoided, and it reads as the drawing breaking rather than as growth.
 
+**The badges' bob is driven by a clock, not by `repeatForever`.** It used to be
+`withAnimation(.easeInOut.repeatForever())` started in `onAppear`, and **any
+other explicit transaction touching the badge replaced it** — permanently, since
+nothing restarted it. Its own arrival is one: `hasBadgeArrived` and
+`hasShootBadgeArrived` flip inside `withAnimation(.spring(…))`, so a badge
+stopped floating a moment after it appeared, and the filling progress ring did
+the same. What survived looked arbitrary — whichever badge had most recently
+escaped a transaction was the one still moving, which is how it was reported
+("only the new icons float"). `ModalityBadge` now offsets by a sine of
+`TimelineView`'s date: a pure function of time, with no animation to interrupt.
+
+Two things about it. The schedule is **paused when the garden is not the visible
+tab** (`isVisible`, as `ChatView` and `DashboardTab` already take one) — every tab
+stays mounted, so an unpaused clock would redraw four badges at display rate
+behind Explore for the life of the app.
+
+And **every badge reads the same clock with no phase offset, so they rise and
+fall together.** Staggering them was tried and rejected. The argument for it was
+that the old per-badge `onAppear` repeats were never synchronised, so syncing
+them was a change in character — but what a stagger actually looks like is four
+things drifting independently, which reads as the badges being loose. In step
+they read as one plant breathing, which is the thing they hang off.
+
+**Badge positions must be read off `leafLift`, never off `displayedSkeleton`.**
+`SeedlingArt.shoots(by:)` does not only filter by stage — past 3 it *blends*
+every shoot toward its canopy shape, so one shoot id has different reach and
+turn at bough and at canopy. The badge `ForEach` read the discrete
+`stage.extended`, so that blend landed the instant `displayedSkeleton` was
+assigned — which happens outside any transaction, leaving `.position` nothing to
+interpolate. Bough-to-canopy therefore looked like the badges vanishing and
+coming back somewhere else. `leafLift` holds the same number and is set inside
+`withAnimation(extensionAnimation)`, and it is what `shootExtent` already used:
+the list and the positions were reading the plant at two different moments.
+
+**The first shoot's badge is dropped further than the others** (`firstShootDrop`,
++0.031). Every other badge is spaced from its neighbour by the pitch between two
+shoots, which the drawing sets; shoot 0's neighbour is the *cotyledon* badge,
+which hangs off the leaves rather than off a shoot and so is spaced by nothing.
+At stage 1 the two sat 7.5pt apart on 48pt badges and read as one object; they
+are 14.7pt apart now, with the other stages' closest pairs at 19.0, 29.1 and
+46.3pt. Dropping *every* shoot instead would have left the crowding exactly as
+it was, since they would all have moved together.
+
+Measuring these is easier than it looks: a badge's translucent disc is
+`(236,231,223)` against `(243,239,233)` parchment, which finds filled and
+unfilled badges alike — the gold ring only exists once a modality is connected,
+so looking for gold finds half of them.
+
 Two things about the fourth badge. It sits *above* its shoot rather than beside
 it (`shootBadge`), and it needs **full** outward travel: tucking it toward the
 stem, which seems right with no neighbouring badge to clear, puts it on the
@@ -307,17 +355,152 @@ than the change. These rules exist because each was paid for once already.
   simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`, then
   reopen — one more reason to take fewer screenshots.
 
+## The layout audit: what proves nothing overlaps
+
+    ./tools/run_layout_audit.sh          # 5 iPhone widths x 2 text sizes
+    python3 tools/layout_audit.py out/layout/*/
+
+`WrittenUITests` dumps the accessibility frames of every reachable screen;
+`tools/layout_audit.py` does the geometry. A screenshot proves a screen looked
+right *where somebody looked*, which is how the badge bug survived: the plant's
+four badges overlapped each other and buried the seedling on an iPhone SE while
+a 17 Pro looked perfect. That was found by measuring, and this generalises it.
+
+Five things about it, each of which cost a run to learn:
+
+- **A UI test runner's `print` never reaches `xcodebuild`.** A clean 14-screen
+  run reports `** TEST EXECUTE SUCCEEDED **` and not one marker. The dumps come
+  out of the result bundle — `xcresulttool export attachments` — and the driver
+  script does that for you. Both channels are still written; only one works.
+- **`-solo 1` is required, and it is not a convenience.** `AppShell` mounts all
+  five tabs and hides four with `opacity(0)`, `allowsHitTesting(false)` and
+  `accessibilityHidden(true)`. **XCUITest honours none of the three.** Without
+  the flag every dump contains Explore's empty state and Wish's note stacked on
+  whatever you asked for: 543 overlaps, none of them real.
+- **Never `descendants(matching: .any)`.** It kills the accessibility server —
+  `(ipc/mig) server died` after 167 seconds. Ask per element type instead.
+- **The system keyboard is Apple's layout.** Its keys overlap each other by
+  design, so anything inside `app.keyboards` is dropped. What is *kept* is the
+  useful half: one of our own controls intersecting the keyboard frame is
+  reported as `under-keyboard`, which is a real hazard on a 667pt screen.
+- **The allowlist is judgement, not bookkeeping.** This app overlaps on purpose
+  — the tab bar draws over content, pinned headers have content sliding under
+  them — so `tools/layout_allowlist.json` records those once, by widget identity
+  rather than by coordinate. Regenerating it with `--update-allowlist` and not
+  reading the diff is how the next real overlap gets buried.
+
+Two axes, and the second is where the bodies are. Widths from 375 to 440 catch
+geometry; the accessibility text size catches the fact that **this app mixes two
+font systems** — `BrandFont` uses `.custom(…, relativeTo:)` and scales, the 165
+`.system(size:)` calls do not. Ten files use both.
+
+Discovery is **not** covered: it has no sample-data path and needs a real
+signed-in session, unlike Chat's `-chat sample`. Say so rather than implying the
+sweep is complete.
+
 ## The two halves of the app
 
 **Onboarding is a line; regular use is a tab bar.** They are different products
 wearing one binary, and most of the layout rules below only make sense once that
 is clear.
 
-Onboarding runs sign in → name → photos → grow the plant → "People you will
-see", and ends the moment **Explore** is tapped there. Through all of it the tab
+Onboarding runs sign in → name → communication style → photos → grow the plant →
+"People you will see", and ends the moment **Explore** is tapped there.
+
+**The communication step is two sliders, and three things about it are
+deliberate.** It asks flirt level and response time, because both are
+*boundaries* and a boundary set after the fact has already failed at its job —
+which is also why it comes before anything can message anyone. Each bar is
+continuous under the finger and one of **four bands** to everything else
+(`StyleBand.count`): nobody can honestly place themselves at 0.62 of a flirt, and
+a number that precise invites a matcher to believe it. The exact position is kept
+beside the band purely so the slider can be put back, which is a drawing concern
+rather than a fact about the person.
+
+Flirt level carries **two vocabularies** and both are needed. The stored
+`rawValue` is flat — `Low` … `Extremely High` — and the dashboard shows
+`Platonic` / `Mild` / `Flirty` / `Freaky`. "Freaky" is a good thing to read about
+yourself on your own profile and a poor thing to sort a database by. Response
+time is stored as its tempo, and the sentence under it on the card is what
+actually sets the expectation.
+
+**The flirt dial's geometry is fixed by one constraint, not chosen.** The
+captions sit on **thirds of the card** and the arc's two legs stand directly
+above them, which is what sets the opening angle:
+`halfOpening = asin((0.5 - 1/3) / (diameter/2))`. So the gap is not a free
+choice, and — the counter-intuitive part — **shrinking the dial widens it**,
+because smaller legs still have to reach the same two points.
+
+Note this is *not* what the reference does: its legs are at ±29% of the card
+width against captions at ±17%, so its arc oversails them. Aligning the two was
+asked for.
+
+`diameterRatio` is 60%, arrived at from both sides — 54% read as a token sitting
+in a card rather than as the card's subject, and the reference's own 74% was
+overbearing on a card that is half a phone wide and has to share its row. The
+centre word is plain `.system(size: 14, weight: .semibold)`, matching
+`chronotype.label` beside it; scaled off the radius it grew with the dial and
+read as a headline rather than as the same kind of reading.
+
+Two things about the layout, each of which cost a pass:
+
+- **`FlirtGauge` owns its captions**, unlike every other card here. "The legs
+  stand above the words" is one geometric statement, and splitting it across two
+  views is how they drift apart. It is also the one thing that cancels the
+  card's padding (`DashboardView.cardInset`), because thirds of *the card* is
+  not thirds of the card's content — 6pt apart, and visible.
+- **They are a stack row, not `position`ed below the arc.** Placed by absolute
+  offset they landed past the bottom of the gauge's own frame, so they hung into
+  the card's padding and had no gap beneath them at all. Laid out as a row they
+  take their own height and the card's padding does its job.
+
+Measure it, don't look — but **on a screenshot showing the whole card**.
+`-scroll communication` pins the section under the pinned header, which hides the
+dial's upper half; measuring the diameter there reported 52% for a dial that was
+actually 76%. `-scroll photos` puts the card's top in view.
+
+Two traps, both paid for while building it:
+
+- **Adding a step re-opens onboarding for everyone who finished it.** The cached
+  `restoredStep` said `done`, and it was — for the steps that existed when it was
+  written. Left alone, an established user's shell would build with no tab bar
+  and correct itself a second later, which is exactly the disagreement `Route`
+  exists to prevent. `restoredStep` therefore answers `.communication` when the
+  cache says `done`/`exploring` and no style is stored, matching what
+  `onboardingStep` computes live. On finishing, the next route is **asked for**
+  rather than hardcoded to `.photos` — someone who onboarded before this page
+  existed has already seen those.
+- **The answers are collected before a view model exists**, two screens ahead of
+  `AppShell`. They go to `CommunicationStyleStore` (UserDefaults, account-scoped),
+  which is *also* what `needsCommunicationStyle` reads — so having an answer and
+  having been asked cannot disagree, unlike `hasSeenPhotoStep`, which needs its
+  own flag because that page finishes whether or not anything was picked.
+  `adoptStoredCommunicationStyle` copies them into `user` records, after
+  hydration rather than before, and is idempotent because it also runs on every
+  launch as the repair for a sync that never landed. Through all of it the tab
 bar is absent: a bar would offer four exits from a sequence whose whole point is
 that it has one. The garden therefore keeps an arrow at its foot and a pull-up
 gesture, because with no bar it has to carry the way onward itself.
+
+**That pull-up is a reveal, and two things make it one.** `AppShell.page` hides
+every unselected tab with `opacity(tab == which ? 1 : 0)`, which is right for a
+bar — you are on exactly one tab — and wrong for a drag, because during it *two*
+pages are on screen while `tab` still names the one being pulled away. Keying on
+the selected tab alone made the whole gesture reveal bare parchment: the
+dashboard did not appear until the drag committed and flipped the tab, which is
+after the reveal is over. `isDrawn` is the fix, and it is the same shape of bug
+as `DashboardTab` hiding the profile preview until its slide began — *a layer
+needed during a transition, gated on a flag that only moves at the end of it.*
+The second is **z-order**: the dashboard must be built before the garden, or
+being visible simply means covering the page the finger is lifting.
+
+Two smaller things fell out of it. Hit testing stays on `tab == which` even
+while both are drawn, so a finger travelling up the screen cannot press a row it
+is only sliding past. And `gardenLift` returns to **zero at rest** — parking the
+garden off-screen after a commit is one fewer moving part here and a trap
+everywhere else, since every future route out of the dashboard would have to
+remember to reset it, and the one that forgot would show an empty garden tab.
+`-reveal 0.5` holds the frame, because `simctl` can send no drag.
 
 Regular use is the reverse. The bar exists, so the garden gives up the arrow and
 the pull-up — a second route to a place a tab already reaches is chrome. The
@@ -452,6 +635,44 @@ build settings beat the `Info.plist` file**, so the display name has to change i
 
 Where the row appears in that sheet is iOS's business — ranked by use, no API.
 
+## Likes and chat, and the upsert that column grants forbid
+
+Proven end to end on a real device on 2026-08-01, against real rows rather than
+fixtures: a synthetic account likes you, the admirer appears, accepting creates
+the conversation, a message reaches it, a reply arrives on the four-second poll,
+and declining marks the row. `0009` is fully applied — the column grant and the
+`touch_conversation` trigger both confirmed by behaviour, which is the only way
+to see them: an anonymous caller is refused either way, so probing from outside
+cannot tell a missing grant from a working one.
+
+**`resolution=merge-duplicates` cannot be used on `likes`, `conversations` or
+`messages`.** It compiles to `on conflict do update`, and Postgres checks
+privileges when it *plans* a statement rather than when a conflict happens — so
+it demands `update` on every column being inserted, whether or not the row
+exists. `0009` revokes update on all three tables and grants back only the
+narrow columns each side may answer with (`status, responded_at`; `read_at`),
+precisely so a recipient cannot rewrite `liker_id` and forge a like. The
+privilege wins, and the failure is **42501 on every attempt**.
+
+That shipped: `LikeService.like` used it, so every double-tapped like in the feed
+was silently refused — silently because the heart fills optimistically and
+`lastError` is recorded and never shown. `ignore-duplicates` is the fix, giving
+the same idempotence through `on conflict do nothing`, which needs no update
+privilege. `ChatService.open` had already documented the identical trap for
+`conversations` and the lesson did not travel one file across.
+
+`SyncService` and `SupabaseAuth` still use `merge-duplicates` and are fine:
+`0009` is the only migration that revokes update, so every other table leaves
+`authenticated` its default privilege.
+
+**Two accounts are needed to test any of this**, because RLS makes each half of
+a conversation invisible to the other. `tools/chat_e2e.py` plays the second
+person over REST — `users`, `like`, `reply`, `state` — and the six synthetic
+accounts are real `auth.users` rows, so one of them can be it. A simulator
+cannot be the first person; Sign in with Apple needs a device. **Read the
+database after every step rather than trusting the screen**: the first accept in
+that run appeared to open a conversation while writing nothing at all.
+
 ## Known gaps
 
 Real, deliberate, and unfinished as of 2026-07-28. Ordered by what would hurt
@@ -489,20 +710,58 @@ works is a genuinely empty install — a fresh simulator or a reinstall — sign
 in and getting the garden back. Until that is done, "a new device starts empty"
 is fixed in code and unproven in practice.
 
-**Sync failures are invisible by design, and that has already cost time.**
-`SyncService.lastError` is recorded and never displayed. Deliberate — a failed
-upload must not interrupt the garden — but the next silent failure will look
-exactly like the last one: a table emptier than expected with nothing to say why.
+**A distillation's sync failures are still invisible, and that has cost time
+twice.** `SyncService.lastError` is recorded, and for the *upload of records* it
+is still never displayed. Deliberate — a failed upload must not interrupt the
+garden — but the next silent one will look exactly like the last: a table emptier
+than expected with nothing to say why.
 
-That silence is now the *only* consequence of a failed write, which is the
-deliberate trade: **Postgres is the record, so nothing is shown that the server
-did not accept.** The biographics rows used to apply locally and push in a
-detached task, so a rejected write left the device displaying an age or a gender
-the server had never heard of — true until the next restore quietly replaced it.
-`pushUserObject` returns whether the row landed, and `setBirthday`, `setGender`
-and `setPlace` write the local record only if it did. A failure therefore looks
-like the edit not happening, with no message; that is the cost of never showing
-something untrue, and it is the side chosen on purpose.
+**The biographics half of that silence is closed, because it cost a whole
+session.** The trade itself is right and stays: **Postgres is the record, so
+nothing is shown that the server did not accept.** Those rows used to apply
+locally and push in a detached task, so a rejected write left the device
+displaying an age or a gender the server had never heard of — true until the next
+restore quietly replaced it. `pushUserObject` returns whether the row landed, and
+`setBirthday`, `setGender` and `setPlace` write the local record only if it did.
+
+What was wrong was the *other* half. A refusal looked exactly like the confirm
+button being broken: the sheet closed, the row stayed on "Add your age", and
+nothing said why — which is precisely how it was reported ("no matter what i edit
+it doesnt save"). The value still waits for the server; the reason now surfaces
+through `DistillViewModel.biographicsError`, drawn by the one `statusBanner` in
+`AppShell` and carrying PostgREST's own message. `saveName` was the same bug in
+its cheapest form — a `try?` on the call site throwing the message away.
+
+**What it turned out to be, once the message was on screen: "no session to write
+a profile with" — thrown at a user who had one.** `upsertProfile` and
+`markPhotoStepSeen` guarded on the stored `accessToken` property; every other
+write in the app goes through `validAccessToken()`, which refreshes. The raw
+property is nil far more often than it looks — an access token lasts an hour, and
+a cold launch has none at all until `restoreSession()` has been round the
+network. `RootView` decides the first screen from the Keychain *precisely so it
+need not wait for that*, so someone can be legitimately signed in, looking at
+their garden, with the property still empty. Both now use the accessor.
+
+Three things generalise from it:
+
+- **Never guard a request on the stored `accessToken`.** `validAccessToken()`
+  exists because the in-memory token is a cache, not the session. `loadProfile`
+  is the one deliberate exception, and only because `restoreSession` calls it
+  having just exchanged a token — the accessor there could re-enter it.
+- **Read `userID` *after* awaiting the token, never before.** The refresh is what
+  fills the id in on a cold launch. Guarding on it first reports "not signed in"
+  for a session that is merely not restored yet — the same bug wearing different
+  words, and it was written into `pushUserObject` while fixing this one.
+- **Every `return false` on a push path must set `lastError` first**, or a dead
+  session reports itself as a network problem and sends the user to check their
+  signal.
+
+And **a value that needs the server should fail loudly, while a value that
+doesn't shouldn't wait** —
+`setEducation` and `setOccupation` own no column, so they travel as ordinary
+`user` records and apply locally at once. That asymmetry is the whole diagnosis:
+when the two column-backed rows failed and the two record-backed ones didn't, the
+refusal had to be on `rest/v1/users`.
 
 **Photos go nowhere.** `PhotoEntryView` picks, frames and displays correctly,
 then `onContinue` drops the media. Needs migration `0007`: a Storage bucket with
@@ -563,8 +822,35 @@ the argument for doing this at the time rather than noting it.
   silently fails while the app works.
 
 **Never commit `sb_secret_…`.** It is the successor to `service_role` and is
-subject to no row-level security whatsoever. `tools/seed_synthetic.py` needs one;
-it reads from the environment and has no default, and that is the pattern for
-anything like it.
+subject to no row-level security whatsoever. `tools/seed_synthetic.py` and
+`tools/chat_e2e.py` need one; both read `SUPABASE_SECRET_KEY` from the
+environment with no default, and that is the pattern for anything like it.
 
-**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 5 today.
+**A fourth exposure, 2026-08-01 — and it went the same way as the first three.**
+The secret key was pasted into a chat transcript during the two-party chat test,
+after being asked for in a file precisely so it would not be. Rotated the same
+day. Two things about it are worth keeping:
+
+- **The repo was never the problem, and never has been.** Checked rather than
+  assumed: not in the working tree, and `git log --all -S` found it in no commit.
+  All four exposures have been transcripts. That is where secrets get read long
+  after anyone is thinking about them, and the July pair were still live eight
+  months later.
+- **Nothing that ships was affected**, which is the standing design and the
+  reason a rotation here is cheap: both targets carry only
+  `AppConfig.supabaseAnonKey`, a `sb_publishable_…` value that is public by
+  intent. If rotating a secret ever *does* require a rebuild, something has been
+  put in the app that should not be.
+
+Revoke, then **verify the old key is dead with a request** rather than trusting
+the dashboard — a revoked key that still answers `200` is the failure this check
+exists for. `SUPABASE_SERVICE_ROLE_KEY` was retired as a variable name at the
+same time: `service_role` keys are disabled on this project, so the name
+described a credential that no longer exists while continuing to work, which is
+the shape of mistake that made the July rotation confusing.
+
+**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 8 today.
+It appears **six times** in `project.pbxproj` — Debug and Release for the app,
+the share extension and the UI tests — and all six have to move together. The app
+and its extension sharing a build number is a hard requirement of the upload,
+not a tidiness rule.

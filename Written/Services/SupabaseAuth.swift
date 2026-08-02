@@ -1,6 +1,7 @@
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import os
 
 /// Sign in with Apple, exchanged for a Supabase session.
 ///
@@ -47,6 +48,77 @@ final class SupabaseAuth: NSObject, ObservableObject {
     private var accessToken: String?
     private var accessTokenExpiry: Date?
 
+    /// The auth path is the one place here where a wrong guess is expensive: it
+    /// fails on a device, behind an Apple account no simulator can hold, and
+    /// every failure downstream of it looks like something else. A whole session
+    /// went into inferring which of four candidates was refusing a write.
+    ///
+    /// **Never log a token or a session body.** The refresh response carries
+    /// both an access token and a fresh refresh token, and the unified log is
+    /// readable by anyone with the phone plugged in. Status codes and Supabase's
+    /// `error_description` only.
+    ///
+    /// `nonisolated` because `KeychainStore` is not on the main actor and has
+    /// the most important thing here to report. Prefer `trace` over this
+    /// directly — see why there.
+    nonisolated static let log = Logger(subsystem: "com.written.auth", category: "session")
+
+    /// One line to both the unified log and stdout.
+    ///
+    /// Both, because neither alone can be read when it is needed. The unified
+    /// log survives a crash and can be pulled off the phone later, but current
+    /// macOS `log stream` has no device option, so a Mac cannot watch it live.
+    /// `devicectl device process launch --console` *can* watch stdout, which
+    /// `Logger` never writes to. Two channels, one call, and the same lesson the
+    /// layout audit learned about `print` never reaching `xcodebuild`.
+    nonisolated static func trace(_ message: String) {
+        log.error("\(message, privacy: .public)")
+#if DEBUG
+        print("[auth] \(message)")
+#endif
+    }
+
+    /// Why the last attempt to obtain an access token failed.
+    ///
+    /// `validAccessToken()` answers `String?`, which flattens three different
+    /// situations into one `nil` — and callers then have to invent a reason.
+    /// They invented the wrong one: a phone that could not reach Supabase was
+    /// told "no session to write a profile with", which reads as *signed out*
+    /// and sent an entire debugging session into the auth layer over what was a
+    /// network fault. The distinction already existed in `RestoreOutcome`; this
+    /// carries it out to whoever has to word the failure.
+    private(set) var lastTokenFailure: TokenFailure?
+
+    enum TokenFailure {
+        /// Nothing in the Keychain. Genuinely signed out.
+        case signedOut
+        /// Supabase answered and refused the refresh token.
+        case expired
+        /// Never got an answer — offline, DNS, a timeout, or Supabase down.
+        case unreachable
+
+        /// Lower-cased: these are appended to "Couldn't save that — ".
+        var message: String {
+            switch self {
+            case .signedOut:   return "you're signed out. Please sign in again."
+            case .expired:     return "your session expired. Please sign in again."
+            case .unreachable: return "couldn't reach the server. Check your connection."
+            }
+        }
+    }
+
+    /// The one refresh in flight, if there is one.
+    ///
+    /// **Supabase rotates refresh tokens**, and treats a token presented twice
+    /// as a possible theft — it can revoke the whole family, which would end the
+    /// session permanently rather than just failing one call. This class is
+    /// `@MainActor`, but `exchange` suspends on the network, so the twelve-odd
+    /// callers of `validAccessToken()` — `ChatService`'s four-second poll among
+    /// them — can interleave inside that suspension, each read the same stored
+    /// token and each post it. Funnelling them into one task makes that
+    /// impossible by construction.
+    private var refresh: Task<RestoreOutcome, Never>?
+
     private static let refreshTokenKey = "supabase_refresh_token"
 
     /// Carried between the Apple request and the Supabase exchange. Apple is
@@ -61,14 +133,35 @@ final class SupabaseAuth: NSObject, ObservableObject {
         case cancelled
         case noIdentityToken
         case server(String)
+        /// Supabase could not be reached at all — offline, DNS, a timeout, or the
+        /// service being down.
+        ///
+        /// **Distinct from `.server` on purpose, and the distinction is the whole
+        /// point.** A refresh that comes back 400 means the token is dead and the
+        /// person must sign in again; a refresh that never arrives means nothing
+        /// about the token. Collapsing the two signed people out for being on a
+        /// plane.
+        case unreachable
 
         var errorDescription: String? {
             switch self {
             case .cancelled: return "Sign in was cancelled."
             case .noIdentityToken: return "Apple didn't return an identity token."
             case .server(let message): return message
+            case .unreachable: return "Couldn't reach the server."
             }
         }
+    }
+
+    /// What a session restore concluded, which is not the same as whether it
+    /// succeeded.
+    enum RestoreOutcome {
+        /// The token was traded and the session is live.
+        case restored
+        /// Supabase answered and refused. The stored token is no good.
+        case rejected
+        /// Supabase never answered. The stored token is still presumed good.
+        case unreachable
     }
 
     var isSignedIn: Bool { userID != nil }
@@ -90,14 +183,31 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     /// The three-way branch every route into the app funnels through.
     enum OnboardingStep: String {
-        case name, photos, exploring, done
+        case name, communication, photos, exploring, done
     }
 
     var onboardingStep: OnboardingStep {
         if needsName { return .name }
+        if needsCommunicationStyle { return .communication }
         if needsPhotos { return .photos }
         if !hasExplored { return .exploring }
         return .done
+    }
+
+    /// Whether the flirt-level and response-time sliders still need asking.
+    ///
+    /// **Answered from the stored answers themselves**, rather than from a
+    /// separate "has been asked" flag. The two cannot then disagree, which is
+    /// the failure `hasSeenPhotoStep` has to work around — the photo page is
+    /// finished whether or not anything was picked, so it genuinely needs a flag
+    /// of its own. These sliders always produce an answer, so having one *is*
+    /// having been asked.
+    ///
+    /// Local, like `hasExplored` and for the same reason: this is a `user`
+    /// record rather than a column, so a reinstall asks once more before the
+    /// restore lands. Mild, and cheaper than a migration.
+    var needsCommunicationStyle: Bool {
+        userID != nil && CommunicationStyleStore.saved == nil
     }
 
     /// Whether "Explore" has been tapped on the profile preview, which is where
@@ -154,7 +264,20 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // A session with nothing recorded predates this cache. Treat it as
         // finished — those accounts already got through onboarding.
         guard let raw = UserDefaults.standard.string(forKey: onboardingStepKey) else { return .done }
-        return OnboardingStep(rawValue: raw)
+        let cached = OnboardingStep(rawValue: raw)
+        // **A step added after this account finished onboarding.**
+        //
+        // The cache says `done`, and it was — for the steps that existed when it
+        // was written. The sliders are new and still unanswered, so the honest
+        // answer is `.communication`, and giving it here rather than only in
+        // `onboardingStep` is what keeps the synchronous first frame and the
+        // live computation from disagreeing. They disagreeing is the failure
+        // `Route` exists to prevent: the shell would build with no tab bar for
+        // an established user, then correct itself a second later.
+        if cached == .exploring || cached == .done, CommunicationStyleStore.saved == nil {
+            return .communication
+        }
+        return cached
     }
 
     /// Mirrors the step locally. Called after anything that could move it.
@@ -185,13 +308,52 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     /// Restores a session from the Keychain, so a returning user never signs in
     /// twice — the same promise the OAuth sources make.
-    func restoreSession() async {
-        guard let refreshToken = KeychainStore.read(Self.refreshTokenKey) else { return }
-        try? await exchange(
-            grantType: "refresh_token",
-            body: ["refresh_token": refreshToken]
-        )
+    /// Trades the stored refresh token for a live session, and **says which kind
+    /// of failure it had** when it cannot.
+    ///
+    /// It used to be `try?` and return nothing, which made offline and revoked
+    /// indistinguishable to the caller — so launching in airplane mode dropped
+    /// straight to the sign-in screen with a perfectly good token in the
+    /// Keychain. The route is only allowed to give up on a `.rejected`.
+    @discardableResult
+    func restoreSession() async -> RestoreOutcome {
+        // Join the refresh already running rather than starting a second one;
+        // see `refresh` for why a duplicate is worse than a slow one.
+        if let refresh { return await refresh.value }
+        let task = Task<RestoreOutcome, Never> { await self.performRestore() }
+        refresh = task
+        let outcome = await task.value
+        refresh = nil
+        return outcome
+    }
+
+    private func performRestore() async -> RestoreOutcome {
+        guard let refreshToken = KeychainStore.read(Self.refreshTokenKey) else {
+            Self.trace("restore: no refresh token in the keychain")
+            lastTokenFailure = .signedOut
+            return .rejected
+        }
+        do {
+            try await exchange(
+                grantType: "refresh_token",
+                body: ["refresh_token": refreshToken]
+            )
+        } catch AuthError.unreachable {
+            Self.trace("restore: unreachable")
+            lastTokenFailure = .unreachable
+            return .unreachable
+        } catch {
+            // Supabase answered and said no. The token is spent — anything else
+            // would leave somebody stuck behind a credential that will never
+            // work again.
+            Self.trace("restore: rejected — \(error.localizedDescription)")
+            lastTokenFailure = .expired
+            return .rejected
+        }
+        Self.trace("restore: ok")
+        lastTokenFailure = nil
         if userID != nil, firstName == nil { await loadProfile() }
+        return .restored
     }
 
     func signOut() {
@@ -204,9 +366,12 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // asked for a name — the same defect `signOutLocalState` exists to stop.
         firstName = nil
         hasSeenPhotoStep = false
-        // Scoped to the account, so this clears that account's flag rather than
-        // whoever signs in next — the same reasoning as the two above.
+        // Scoped to the account, so these clear that account's answers rather
+        // than whoever signs in next — the same reasoning as the two above, and
+        // for the sliders it is the difference between the next person being
+        // asked their boundaries and inheriting a stranger's.
         UserDefaults.standard.removeObject(forKey: Self.hasExploredKey)
+        CommunicationStyleStore.clear()
     }
 
     /// Deletes the account and everything hanging off it.
@@ -279,6 +444,7 @@ final class SupabaseAuth: NSObject, ObservableObject {
     /// the caller has no good way to distinguish from a permissions problem.
     func validAccessToken() async -> String? {
         if let accessToken, let expiry = accessTokenExpiry, expiry.timeIntervalSinceNow > 60 {
+            lastTokenFailure = nil
             return accessToken
         }
         await restoreSession()
@@ -315,13 +481,30 @@ final class SupabaseAuth: NSObject, ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            // Never reached the server. Reported as such rather than as a
+            // failure of the credential, which is a different fact entirely.
+            Self.trace("token(\(grantType)): transport failed — \(error.localizedDescription)")
+            throw AuthError.unreachable
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        Self.trace("token(\(grantType)): HTTP \(status)")
+        // 5xx is the server having a bad day, not a verdict on this token.
+        guard status < 500 else { throw AuthError.unreachable }
+
+        guard status == 200 else {
             // Supabase puts the useful part in `error_description`, and a bare
             // status code here would be as unhelpful as the HealthKit hang was.
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
                 .flatMap { $0?["error_description"] as? String ?? $0?["msg"] as? String }
-            throw AuthError.server(detail ?? "Sign in failed (\((response as? HTTPURLResponse)?.statusCode ?? 0)).")
+            // Safe to log: this is the *error* body, so it carries no session.
+            Self.trace("token(\(grantType)): \(detail ?? "no error_description")")
+            throw AuthError.server(detail ?? "Sign in failed (\(status)).")
         }
 
         let session = try JSONDecoder().decode(Session.self, from: data)
@@ -391,9 +574,51 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        let isCancel = (error as? ASAuthorizationError)?.code == .canceled
-        continuation?.resume(throwing: isCancel ? AuthError.cancelled : error)
+        let ns = error as NSError
+        Self.trace("apple: \(ns.domain) \(ns.code) — \(ns.localizedDescription); underlying: \(String(describing: ns.userInfo[NSUnderlyingErrorKey]))")
+        continuation?.resume(throwing: Self.readable(error))
         continuation = nil
+    }
+
+    /// Apple's errors, in words that name a next action.
+    ///
+    /// `ASAuthorizationError` bridges to `NSError`, so passing it through gives
+    /// "The operation couldn't be completed. (…AuthorizationError error 1000.)"
+    /// — which is what a user was shown, and it says nothing about what to do or
+    /// even which side failed. 1000 is `.unknown`, and it is raised by Apple's
+    /// own sheet **before Supabase is contacted at all**, so it is never a
+    /// backend or provisioning fault when the entitlement is present. In
+    /// practice it means no working connection, no iCloud account on the device,
+    /// or Screen Time blocking account changes.
+    ///
+    /// The numeric code is kept in every message: it is what makes a report
+    /// searchable, and it is the only part Apple documents.
+    static func readable(_ error: Error) -> Error {
+        guard let apple = error as? ASAuthorizationError else { return error }
+
+        let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError
+        let detail = underlying.map { " (\($0.domain) \($0.code))" } ?? ""
+
+        switch apple.code {
+        case .canceled:
+            return AuthError.cancelled
+        case .unknown:
+            return AuthError.server(
+                "Apple couldn't complete the sign-in (1000)\(detail). Check that "
+                + "you're connected to the internet, signed in to iCloud in "
+                + "Settings, and that Screen Time isn't blocking account changes."
+            )
+        case .failed:
+            return AuthError.server("Apple wouldn't authorise the sign-in (1001)\(detail). Try again.")
+        case .invalidResponse:
+            return AuthError.server("Apple returned an unusable response (1002)\(detail).")
+        case .notHandled:
+            return AuthError.server("Apple couldn't handle the sign-in request (1003)\(detail).")
+        case .notInteractive:
+            return AuthError.server("The sign-in needs the screen unlocked (1005)\(detail).")
+        @unknown default:
+            return AuthError.server("Apple couldn't sign you in (\(apple.code.rawValue))\(detail).")
+        }
     }
 
     /// The profile row every other table's foreign key points at.
@@ -404,7 +629,29 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
     /// cause. Better to say so while the user is still looking at a sign-in
     /// screen.
     private func upsertProfile(name: PersonNameComponents?) async throws {
-        guard let userID, let accessToken else { throw AuthError.server("No session to write a profile with.") }
+        // **`validAccessToken()`, never the stored `accessToken`.**
+        //
+        // The raw property is what is in memory right now, and it is nil far
+        // more often than it looks: a Supabase access token lasts an hour, and a
+        // cold launch has none at all until `restoreSession()` has been round the
+        // network. `RootView` deliberately decides the first screen from the
+        // Keychain rather than from a refresh, so someone can be legitimately
+        // signed in, looking at their garden, with this still empty.
+        //
+        // Guarding on it therefore threw "No session to write a profile with"
+        // at a user who had one — and `NameSheet`'s `try?` swallowed the words.
+        // The row stayed on "Add your name" and the button looked broken.
+        // Every other write in the app already goes through the refreshing
+        // accessor; this was the odd one out. Order matters: `userID` is read
+        // *after* the await, because that is what sets it on a cold launch.
+        guard let accessToken = await validAccessToken(), let userID else {
+            // The reason, not a diagnosis. This used to say "no session to write
+            // a profile with" unconditionally, which asserts *signed out* — and
+            // said it to a phone that simply could not reach Supabase. Three
+            // rounds of this investigation went into the auth layer on the
+            // strength of that one sentence.
+            throw AuthError.server(lastTokenFailure?.message ?? "no session to write a profile with.")
+        }
 
         var request = URLRequest(url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/users"))
         request.httpMethod = "POST"
@@ -445,6 +692,11 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
     /// Reads the stored profile back, so a returning user isn't asked their name
     /// again on a device Apple has already stopped volunteering it to.
     private func loadProfile() async {
+        // The raw token here, deliberately, unlike the two writes above.
+        // `restoreSession` calls this the moment it has exchanged one, so the
+        // token is fresh by construction — and routing it through
+        // `validAccessToken()` would let a failed exchange call `restoreSession`
+        // from inside itself.
         guard let userID, let accessToken else { return }
         var components = URLComponents(
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/users"),
@@ -478,7 +730,12 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
     func markPhotoStepSeen() async {
         hasSeenPhotoStep = true
         cacheOnboardingStep()
-        guard let userID, let accessToken else { return }
+        // Refreshing accessor, for the reason spelled out on `upsertProfile`.
+        // This one is worse if it fails, not better: it returns silently, so a
+        // stale token meant `photos_added_at` never landed and the photo page
+        // came back on the next device — the local cache saying "seen" while the
+        // column that outlives the install said nothing.
+        guard let accessToken = await validAccessToken(), let userID else { return }
 
         var request = URLRequest(url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/users"))
         request.httpMethod = "POST"

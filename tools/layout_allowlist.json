@@ -1,0 +1,9 @@
+{
+  "_comment": "Overlaps this app makes on purpose, as widget-identity pairs rather than coordinates — coordinates are exactly what differs between phones, so a coordinate-keyed list would only work on the phone that generated it. Reviewed by hand. Regenerating this with --update-allowlist and not reading the diff is how the next real overlap gets buried.",
+  "_entries": {
+    "Advance growth stage / Grow your profile": "The stage stepper is DEBUG-only — GrowProfileView wraps it in #if DEBUG (the '↻ 2/4' control next to the export button). It clips the title by ~105pt² on a 375pt-wide screen, which no shipping build can show. Kept here rather than fixed so the audit stays quiet, and noted rather than deleted so nobody spends an afternoon on it."
+  },
+  "intentional_overlaps": [
+    ["button:Advance growth stage", "staticText:Grow your profile"]
+  ]
+}

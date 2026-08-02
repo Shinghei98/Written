@@ -19,6 +19,12 @@ struct GrowProfileView: View {
     /// route to the same place.
     var isOnboarding = false
 
+    /// Whether the garden is the tab on screen, as `ChatView` and `DashboardTab`
+    /// are each told. Only the badges read it, and only to stop their clock
+    /// while nobody is looking at them — every tab stays mounted, so a bob left
+    /// running behind Explore would redraw for the life of the app.
+    var isVisible = true
+
     var onRevealDrag: (CGFloat) -> Void = { _ in }
 
     /// The finger left the screen: `true` to go through to the dashboard,
@@ -100,6 +106,29 @@ struct GrowProfileView: View {
     /// between the garden and the rows *up* the screen, which lifts the plant
     /// and lets the rows start higher in one move.
     private static let promptsReserve: CGFloat = 44 * 2 + 76 + 48 + 8 * 3 + barRow
+
+    /// What the badge and the sparkles are, as a fraction of the garden square.
+    ///
+    /// **Measured, and the reference is written down because the whole point is
+    /// that it can be re-derived.** The square is `min(width, height)` of the
+    /// space this page gives the garden, and it is *height*-limited on every
+    /// iPhone — logged at **257.67pt on an iPhone 17 Pro**, which works out at
+    /// ~127pt on an SE (3rd gen) and ~339pt on a 17 Pro Max from the badge
+    /// spacing on screenshots of all three.
+    ///
+    /// So these are the tuned point sizes over 257.67. A 17 Pro therefore
+    /// renders exactly what it rendered before — 48pt badges, 13 and 9pt
+    /// sparkles — and every other phone now gets the same badge *relative to the
+    /// plant* instead of the same badge in points. The art was hand-tuned on a
+    /// 3x device (`shootBadge` still talks in "24px of a 144px badge", which is
+    /// 48pt at 3x), which is why that is the one held fixed.
+    ///
+    /// If the garden's height budget ever changes, these do not need touching —
+    /// they are ratios. What would need re-measuring is the 257.67, and only if
+    /// somebody wants to keep the 17 Pro pinned to 48pt exactly.
+    private static let badgeRatio: CGFloat = 48.0 / 257.666667
+    private static let sparkleLarge: CGFloat = 13.0 / 257.666667
+    private static let sparkleSmall: CGFloat = 9.0 / 257.666667
 
     /// The gap between the header and the plant.
     ///
@@ -476,11 +505,19 @@ struct GrowProfileView: View {
                 .opacity(treeOpacity)
 
             GeometryReader { geometry in
+                // The same `side` every other part of the illustration is built
+                // from — `TreeGeometry.scale` takes exactly this of the frame it
+                // is handed, and the badges' own positions come through
+                // `TreeGeometry.illustration`. Anything sized in raw points
+                // inside this reader is the odd one out, which is how the badges
+                // came to overlap on a small phone.
+                let side = min(geometry.size.width, geometry.size.height)
+
                 // Clear of the badge, which now sits at ~0.83 × 0.36 beside the
                 // right-hand leaf.
-                SparkleView(size: 13, delay: 0.0)
+                SparkleView(size: Self.sparkleLarge * side, delay: 0.0)
                     .position(x: geometry.size.width * 0.87, y: geometry.size.height * 0.14)
-                SparkleView(size: 9, delay: 1.2)
+                SparkleView(size: Self.sparkleSmall * side, delay: 1.2)
                     .position(x: geometry.size.width * 0.12, y: geometry.size.height * 0.44)
 
                 // Pinned to the right-hand leaf rather than to the screen, so
@@ -490,7 +527,8 @@ struct GrowProfileView: View {
                 // music note once connected rather than turning into whatever
                 // is offered next.
                 if displayedSkeleton.illustrated != nil {
-                    ModalityBadge(modality: .music, progress: badgeProgress(.music))
+                    ModalityBadge(modality: .music, progress: badgeProgress(.music),
+                                  diameter: Self.badgeRatio * side, isFloating: isVisible)
                         .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size)))
                         // Arrives once the plant has finished opening, not with
                         // it: the seedling is the thing to look at first, and
@@ -502,10 +540,24 @@ struct GrowProfileView: View {
                 // One per shoot, in the order the modalities unlock — each
                 // beside the growth it belongs to, and only once that shoot has
                 // finished unfolding.
-                if let stage = displayedSkeleton.illustrated {
-                    ForEach(SeedlingArt.shoots(by: stage.extended)) { shoot in
+                // **`leafLift`, not `stage.extended`** — and that is the whole
+                // of the bough-to-canopy jump.
+                //
+                // `shoots(by:)` does not just filter: past 3 it *blends* every
+                // shoot toward its canopy shape, so the same shoot id has
+                // different reach and turn at 3 and at 4. Read off the discrete
+                // stage, that blend landed the instant `displayedSkeleton` was
+                // assigned — which happens outside any transaction, so
+                // `.position` had nothing to interpolate and the badges simply
+                // reappeared somewhere else. `leafLift` carries the same number
+                // but is set inside `withAnimation(extensionAnimation)`, so the
+                // move animates, and it is what `shootExtent` below already
+                // used — the two were reading the plant at different moments.
+                if displayedSkeleton.illustrated != nil {
+                    ForEach(SeedlingArt.shoots(by: leafLift)) { shoot in
                         if let modality = shootModality(shoot) {
-                            ModalityBadge(modality: modality, progress: badgeProgress(modality))
+                            ModalityBadge(modality: modality, progress: badgeProgress(modality),
+                                          diameter: Self.badgeRatio * side, isFloating: isVisible)
                                 .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size)))
                                 .scaleEffect(hasShootBadgeArrived[shoot.id] == true ? 1 : 0.72)
                                 .opacity(hasShootBadgeArrived[shoot.id] == true ? 1 : 0)
@@ -852,13 +904,29 @@ struct GrowProfileView: View {
     /// Beside the tip of the right-hand cotyledon, offset out and a little down
     /// so the badge clears the blade instead of sitting on it. The generated
     /// tree has no cotyledons, so it keeps the old fixed spot.
+    /// How much further from the stem every badge sits than the growth it marks.
+    ///
+    /// **One constant, applied with the sign of the side it is on**, so the left
+    /// column moves left exactly as far as the right column moves right. Adding
+    /// it per-site would let the two drift apart, and a plant whose badges are
+    /// 4pt further out on one side than the other reads as crooked long before
+    /// anybody works out why.
+    ///
+    /// In unit space, so it scales with the garden square like everything else
+    /// the illustration is built from — 0.05 is about 13pt on a 17 Pro and 6pt
+    /// on an SE, which is the right relationship: the gap should grow with the
+    /// plant rather than staying a fixed number of points.
+    private static let badgeSpread: CGFloat = 0.05
+
     private func cotyledonBadge(in rect: CGRect) -> CGPoint {
         guard displayedSkeleton.illustrated != nil else {
             return CGPoint(x: rect.width * 0.74, y: rect.height * 0.58)
         }
         let tip = SeedlingArt.cotyledonTip(mirrored: true, extended: leafLift)
+        // The cotyledon badge is always the right-hand one, so the spread is
+        // always added rather than signed.
         return TreeGeometry.illustration(
-            CGPoint(x: tip.x + 0.074, y: tip.y + 0.082),
+            CGPoint(x: tip.x + 0.074 + Self.badgeSpread, y: tip.y + 0.082),
             in: rect
         )
     }
@@ -867,7 +935,10 @@ struct GrowProfileView: View {
     /// side of the stem.
     private func shootBadge(_ shoot: SeedlingArt.Shoot, in rect: CGRect) -> CGPoint {
         let extent = SeedlingArt.shootExtent(of: shoot, extended: leafLift)
-        let outward: CGFloat = shoot.reach.width < 0 ? -0.082 : 0.082
+        // Signed by the side the shoot is on, so both columns move out by the
+        // same distance rather than one drifting relative to the other.
+        let side: CGFloat = shoot.reach.width < 0 ? -1 : 1
+        let outward: CGFloat = side * (0.082 + Self.badgeSpread)
 
         // The topmost shoot carries its badge *above* rather than beside it:
         // this is the newest growth, drawn with a bud at its tip, and a badge
@@ -885,16 +956,37 @@ struct GrowProfileView: View {
         // clearance per pixel of travel — and this lands ~55px clear while
         // staying well above the badge below it.
         if shoot.id == Self.boughShootID {
+            // The 1.15 applies to the tuned 0.082 only. Multiplying the spread
+            // by it as well would push this one badge 15% further out than its
+            // neighbours, which is exactly the asymmetry the single constant is
+            // meant to prevent.
             return TreeGeometry.illustration(
-                CGPoint(x: extent.x + outward * 1.15, y: extent.y - 0.028),
+                CGPoint(x: extent.x + side * (0.082 * 1.15 + Self.badgeSpread), y: extent.y - 0.028),
                 in: rect
             )
         }
 
         return TreeGeometry.illustration(
-            CGPoint(x: extent.x + outward, y: extent.y + 0.010),
+            CGPoint(x: extent.x + outward, y: extent.y + 0.010 + Self.firstShootDrop(shoot)),
             in: rect
         )
+    }
+
+    /// Extra clearance for the lowest shoot's badge, and nothing else's.
+    ///
+    /// Every other badge is spaced from its neighbour by the pitch between two
+    /// shoots, which the drawing sets. The first one's neighbour is the
+    /// *cotyledon* badge, which hangs off the leaves rather than off a shoot and
+    /// so is not spaced by anything — at stage 1 the two sat 6pt apart, on 48pt
+    /// badges, and read as one object.
+    ///
+    /// Applied to shoot 0 alone for that reason. Dropping every shoot would
+    /// leave the crowding it is meant to fix exactly as it was, since the shoots
+    /// would move together, and would push the upper ones off their own growth.
+    /// Sign is positive because the illustration's y runs down the page, and the
+    /// cotyledon badge sits above this one.
+    private static func firstShootDrop(_ shoot: SeedlingArt.Shoot) -> CGFloat {
+        shoot.id == 0 ? 0.031 : 0
     }
 
     /// The third and last shoot, added at `.bough`. Named rather than written
@@ -1261,18 +1353,66 @@ struct ModalityBadge: View {
     /// One size for every badge, whichever part of the plant it marks. They are
     /// a set — a row of sources the user is working through — and sizing each
     /// to the leaf beside it made them read as a hierarchy instead.
-    private let diameter: CGFloat = 48
-    private let ringWidth: CGFloat = 3
+    ///
+    /// **Passed in rather than fixed, and that is a bug fix.** It was a hard 48
+    /// while every *position* around it — `cotyledonBadge`, `shootBadge`, the
+    /// leaves, the branch strokes — scales with the garden square. The square is
+    /// height-limited on every iPhone, so it is 127pt on an SE, 258pt on a 17
+    /// Pro and 339pt on a Pro Max: a 2.7× range. A constant diameter across that
+    /// made the badge 37.7% of the plant on the small phone against 14.2% on the
+    /// big one, and on the SE the four badges overlapped each other and sat on
+    /// the leaves. Measured, not guessed — the same pair of badges is 88pt apart
+    /// on a 17 Pro and 43.5pt apart on an SE, against a 48pt badge.
+    ///
+    /// See `GrowProfileView.badgeDiameter(in:)` for the ratio and where it comes
+    /// from.
+    var diameter: CGFloat = 48
+
+    /// Everything else the badge is made of follows the diameter, so one number
+    /// scales the whole thing. These are the fractions the tuned 48pt badge had:
+    /// a 3pt ring and a 6pt bob.
+    private var ringWidth: CGFloat { diameter * (3.0 / 48.0) }
+    private var bob: CGFloat { diameter * (6.0 / 48.0) }
 
     /// One flat gold, not a gradient: any variation around the rim reads as a
     /// glint travelling as the badge bobs, which is the shimmer this is meant to
     /// be free of. Brighter and more saturated than `GardenPalette.gold`, which
     /// is a muted khaki — right for text on parchment, dull as a ring.
-    private static let ringGold = Color(red: 0.831, green: 0.667, blue: 0.212)
+    /// Now `GardenPalette.badgeGold`, because the chat bubble uses the same
+    /// gold and two copies of one colour drift apart the first time either moves.
+    private static let ringGold = GardenPalette.badgeGold
 
-    @State private var isRaised = false
+    /// Whether the garden is the tab on screen.
+    ///
+    /// The clock below runs on the display refresh, and every tab in `AppShell`
+    /// stays mounted — so without this the badges would redraw sixty times a
+    /// second behind Explore, Chat and the dashboard, forever.
+    var isFloating = true
+
+    /// One full up-and-down, in seconds. Slow enough to be ambient: a bob you
+    /// can time is a progress indicator, and nothing here is in progress.
+    private static let bobPeriod: Double = 5.2
 
     var body: some View {
+        // **A clock, not `withAnimation(.repeatForever())`.**
+        //
+        // The bob used to be a repeating animation started in `onAppear`, and
+        // any *other* explicit transaction touching this view replaced it —
+        // permanently, because nothing restarted it. The badges' own arrival is
+        // one: `hasBadgeArrived` flips inside a `withAnimation(.spring(…))`, so
+        // a badge stopped floating a moment after it appeared. The filling
+        // progress ring did it too. What was left looked arbitrary — whichever
+        // badge had most recently escaped a transaction was the one still
+        // moving, which is exactly how it was reported.
+        //
+        // Derived from the date, the offset is a pure function of time. There is
+        // no animation to interrupt, so nothing can interrupt it.
+        TimelineView(.animation(paused: !isFloating)) { context in
+            badge.offset(y: offset(at: context.date))
+        }
+    }
+
+    private var badge: some View {
         Image(systemName: modality.systemImage)
             .font(.system(size: diameter * 0.32))
             .foregroundStyle(GardenPalette.gold)
@@ -1284,10 +1424,23 @@ struct ModalityBadge: View {
                 Circle().strokeBorder(GardenPalette.gold.opacity(0.35), lineWidth: 1)
             }
             .overlay { ring }
-            .offset(y: isRaised ? -6 : 6)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2.6).repeatForever()) { isRaised = true }
-            }
+    }
+
+    /// A sine of the wall clock — **the same one for every badge, with no phase
+    /// offset**, so they rise and fall together.
+    ///
+    /// Staggering them was tried and is wrong. The argument for it was that the
+    /// old per-badge `onAppear` repeats were never synchronised, so a shared
+    /// clock would be a change in character; but what it actually looked like
+    /// was four things drifting independently, which reads as the badges being
+    /// loose. In step they read as one plant breathing, which is what they hang
+    /// off.
+    ///
+    /// A shared clock is also what keeps them together over a long session: the
+    /// offset is computed from the date, not accumulated, so nothing drifts.
+    private func offset(at date: Date) -> CGFloat {
+        let turns = date.timeIntervalSinceReferenceDate / Self.bobPeriod
+        return -bob * CGFloat(sin(turns * 2 * .pi))
     }
 
     /// The gold arc along the badge's edge.

@@ -58,7 +58,10 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case .music: return "Music"
         case .media: return "Media"
         case .lifestyle: return "Lifestyle"
-        case .plans: return "Plans"
+        // The case stays `.plans` and the label says "Events". Renaming the case
+        // would touch every switch over `Modality` and every persisted raw value
+        // for a word nobody sees — `label` is the only thing a user reads.
+        case .plans: return "Events"
         }
     }
 

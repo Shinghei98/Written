@@ -234,7 +234,11 @@ struct PhotoGrid: View {
     /// picker was configured to allow — `supportedContentTypes` is the item's
     /// own answer, and asking it is what stops a video being loaded down the
     /// image path and coming back undrawable.
-    private static func load(_ item: PhotosPickerItem) async -> PickedMedia? {
+    /// Internal rather than private: the chat's compose bar picks media too, and
+    /// a second copy of this would be a second place for the video path's traps
+    /// to be got wrong — `loadTransferable(type: Data.self)` silently failing on
+    /// movies is the one this already documents.
+    static func load(_ item: PhotosPickerItem) async -> PickedMedia? {
         let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
 
         if isVideo {

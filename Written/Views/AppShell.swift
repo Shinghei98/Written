@@ -45,23 +45,15 @@ struct AppShell: View {
 
             page(.explore) { DiscoveryView() }
             page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
-            page(.chat) { ComingSoonView(tab: .chat, note: "Where a commonality turns into a conversation.") }
-            page(.distill) {
-                GrowProfileView(
-                    viewModel: viewModel,
-                    isOnboarding: isOnboarding,
-                    // Only ever used during onboarding — `canReveal` is false
-                    // afterwards, so these are never called in regular use.
-                    onRevealDrag: { gardenLift = -$0 },
-                    onRevealEnd: { committed in
-                        withAnimation(.easeInOut(duration: 0.4)) {
-                            gardenLift = 0
-                            if committed { tab = .dashboard }
-                        }
-                    }
-                )
-                .offset(y: gardenLift)
+            page(.chat) {
+                ChatView(isVisible: tab == .chat, hidesTabBar: $isThreadOpen)
             }
+            // **Before the garden, not after it.** The pull-up during onboarding
+            // slides the garden off to reveal this underneath, and a ZStack
+            // draws later children on top — so in the old order making the
+            // dashboard visible mid-drag would have covered the very page being
+            // pulled. Z-order between these two matters only while both are on
+            // screen, which is only during that drag.
             page(.dashboard) {
                 DashboardTab(
                     viewModel: viewModel,
@@ -73,11 +65,108 @@ struct AppShell: View {
                     isOnboarding: isOnboarding
                 )
             }
+            page(.distill) {
+                GrowProfileView(
+                    viewModel: viewModel,
+                    isOnboarding: isOnboarding,
+                    isVisible: tab == .distill,
+                    // Only ever used during onboarding — `canReveal` is false
+                    // afterwards, so these are never called in regular use.
+                    onRevealDrag: { gardenLift = -$0 },
+                    onRevealEnd: { committed in
+                        guard committed else {
+                            withAnimation(.easeInOut(duration: 0.4)) { gardenLift = 0 }
+                            return
+                        }
+                        // Carry it all the way off, rather than dropping it back
+                        // to zero as this used to. That was invisible while the
+                        // dashboard only appeared at the end — but now that it
+                        // is there from the first millimetre of the drag, a
+                        // garden returning to its place would read as the pull
+                        // having failed, at the exact moment it succeeded.
+                        withAnimation(.easeInOut(duration: 0.34)) {
+                            gardenLift = -revealTravel
+                        }
+                        // Then swap, once it has left. Both changes land in one
+                        // tick and neither can be seen: the garden is already
+                        // off-screen when it is hidden, and the offset it
+                        // returns to is the offset of a hidden view.
+                        //
+                        // **`gardenLift` is zero at rest, always.** Leaving it
+                        // parked off-screen would be one fewer moving part here
+                        // and a trap everywhere else — every future route out of
+                        // the dashboard would have to remember to reset it, and
+                        // the one that forgot would show an empty garden tab.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+                            tab = .dashboard
+                            gardenLift = 0
+                        }
+                    }
+                )
+                .offset(y: gardenLift)
+            }
 
             if !isOnboarding {
-                MainTabBar(selection: $tab)
+                MainTabBar(selection: $tab, isHidden: isThreadOpen)
                     .padding(.bottom, MainTabBar.bottomInset)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        // Measured, not guessed, and in a `background` so it costs no layout
+        // height — the one rule the bottom of this screen cannot bend, since
+        // `promptsReserve` is what the plant is positioned against. A constant
+        // tall enough for a Pro Max would leave an SE's garden gone long before
+        // the animation ended; one sized for an SE would strand a Pro Max's
+        // partway off. The slack covers the safe areas the ZStack excludes.
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        revealTravel = proxy.size.height + 120
+#if DEBUG
+                        // `-reveal 0.5` on the launch line; see `DebugLaunch`.
+                        if let fraction = DebugLaunch.revealFraction, isOnboarding {
+                            gardenLift = -proxy.size.height * CGFloat(fraction)
+                        }
+#endif
+                    }
+                    .onChange(of: proxy.size.height) { revealTravel = $0 + 120 }
+            }
+        )
+        // The onboarding sliders reach the record system here, because this is
+        // the first moment a view model exists to put them in — they are
+        // answered two screens before this view is built. Idempotent, and
+        // `restoreFromServer` calls it again once the server's version lands.
+        .task { viewModel.adoptStoredCommunicationStyle() }
+        // One placement for every tab, rather than five that can disagree — the
+        // same argument `isOnboarding` makes for owning the bar here.
+        //
+        // An overlay, so it costs no layout height and the garden underneath
+        // does not move when it appears. `safeAreaInset` reads more naturally
+        // and is precisely the modifier that would break `promptsReserve`.
+        //
+        // Offline first when both apply: "you're offline" explains the refusal
+        // that follows it, and a PostgREST message underneath would only be the
+        // same fact in worse words.
+        .statusBanner(
+            reachability.isOnline ? viewModel.biographicsError : "You're offline. Changes won't save.",
+            isWarning: true
+        )
+        // A refusal is a moment, not a state — unlike being offline, which ends
+        // when it ends. Left up, it would still be there long after the row it
+        // referred to had scrolled away.
+        .onChange(of: viewModel.biographicsError) { message in
+            guard message != nil else { return }
+            Task {
+                // Something just failed, which is the one moment worth spending
+                // a request to find out whether the connection is real — the
+                // path monitor calls a joined-but-dead network "satisfied", so
+                // without this the offline banner stays hidden in exactly the
+                // situation it was built for.
+                await reachability.verify()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard viewModel.biographicsError == message else { return }
+                viewModel.biographicsError = nil
             }
         }
 #if DEBUG
@@ -100,6 +189,25 @@ struct AppShell: View {
     /// garden moving rather than a reveal of anything.
     @State private var gardenLift: CGFloat = 0
 
+    /// How far the garden must travel to be entirely gone. Set from the shell's
+    /// own height; the initial value only stands for the frame before that
+    /// arrives, and is generous rather than accurate on purpose — too far is
+    /// invisible here, too short leaves a strip of the garden hanging.
+    @State private var revealTravel: CGFloat = 1200
+
+    /// Whether a conversation is covering the Chat tab.
+    ///
+    /// The bar draws *over* every page, so a thread's compose field would sit
+    /// underneath it — and a bar offering four ways out of a conversation is the
+    /// same mistake as a bar during onboarding, one level down. `MainTabBar.isHidden`
+    /// already exists for "another gesture owns the bottom of the screen"; this is
+    /// the second thing that does. Owned here rather than by `ChatView` for the
+    /// reason `isOnboarding` is: the thing that hides the bar and the bar itself
+    /// must not be able to disagree.
+    @State private var isThreadOpen = false
+
+    @ObservedObject private var reachability = Reachability.shared
+
     /// "Explore" on the profile preview: the one moment onboarding ends.
     ///
     /// The bar arrives and the garden gives up its arrow together, which is why
@@ -120,10 +228,49 @@ struct AppShell: View {
         _ which: MainTab,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        content()
-            .opacity(tab == which ? 1 : 0)
-            .allowsHitTesting(tab == which)
-            .accessibilityHidden(tab != which)
+        // Under `-solo 1` the other four tabs are not built at all. The three
+        // modifiers below are what normally hides them, and XCUITest honours
+        // none of them — see `DebugLaunch.auditsOneTabAtATime`. This changes
+        // nothing outside an audit run: in Release the flag compiles to `false`.
+        if isAuditingOneTab && tab != which {
+            EmptyView()
+        } else {
+            content()
+                .opacity(isDrawn(which) ? 1 : 0)
+                // Still the selected tab, not merely the drawn one. Mid-pull the
+                // dashboard is visible but must not take a tap, or a finger
+                // travelling up the screen could press a row it is only sliding
+                // past — and the garden is the page the gesture belongs to.
+                .allowsHitTesting(tab == which)
+                .accessibilityHidden(tab != which)
+        }
+    }
+
+    /// Whether this page has to be on screen this frame, which is not the same
+    /// as whether it is the selected tab.
+    ///
+    /// For one moment it isn't: during onboarding the garden is pulled up off
+    /// the dashboard, so both are visible while `tab` still says `.distill`.
+    /// Keying visibility on the selected tab alone is what made that pull reveal
+    /// bare parchment — the dashboard did not appear until the gesture committed
+    /// and flipped the tab, which is precisely when the reveal was already over.
+    ///
+    /// The same shape of bug as `DashboardTab` hiding the profile preview until
+    /// its slide began: a layer needed *during* a transition, gated on a flag
+    /// that only moves at the end of it.
+    private func isDrawn(_ which: MainTab) -> Bool {
+        if tab == which { return true }
+        return gardenLift != 0 && (which == .dashboard || which == .distill)
+    }
+
+    /// Constant-folded away outside DEBUG, so the branch above costs a release
+    /// build nothing.
+    private var isAuditingOneTab: Bool {
+#if DEBUG
+        DebugLaunch.auditsOneTabAtATime
+#else
+        false
+#endif
     }
 }
 

@@ -36,7 +36,17 @@ enum KeychainStore {
         return query
     }
 
-    static func save(_ value: String, for key: String) {
+    /// Answers whether the item actually landed.
+    ///
+    /// `SecItemAdd`'s `OSStatus` used to be discarded, which makes a failed save
+    /// completely silent — and a silently failed save of a *refresh token* is
+    /// among the nastiest bugs this app could have: signing in appears to work,
+    /// everything functions for the hour the in-memory access token lasts, and
+    /// then the session is simply gone on the next launch with nothing to say
+    /// why. `-34018` (missing entitlement) and `-25308` (locked device) are both
+    /// reachable here and both look exactly like that.
+    @discardableResult
+    static func save(_ value: String, for key: String) -> Bool {
         let data = Data(value.utf8)
         let query = self.query(key)
         SecItemDelete(query as CFDictionary)
@@ -47,7 +57,11 @@ enum KeychainStore {
         var attributes = query
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(attributes as CFDictionary, nil)
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        if status != errSecSuccess {
+            SupabaseAuth.trace("keychain: save of \(key) failed, OSStatus \(status)")
+        }
+        return status == errSecSuccess
     }
 
     static func read(_ key: String) -> String? {

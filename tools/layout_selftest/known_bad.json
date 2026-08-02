@@ -1,0 +1,25 @@
+{
+  "_comment": "A deliberately broken screen, so `layout_audit.py` can be shown to still find things. A sweep that reports zero defects is only worth reading if the thing reporting it can fail — and this analyzer drops a lot on purpose (containment, same-label pairs, keyboard furniture, scrolled-away content), any one of which could be widened until nothing survives. Run `python3 tools/layout_audit.py tools/layout_selftest` and expect exactly two findings: one overlap of 840, one offscreen-x.",
+  "screen": "selftest",
+  "screenBounds": { "x": 0, "y": 0, "w": 375, "h": 667 },
+  "elements": [
+    {
+      "kind": "staticText",
+      "type": 48,
+      "label": "Connect Lifestyle",
+      "frame": { "x": 20, "y": 300, "w": 160, "h": 22 }
+    },
+    {
+      "kind": "staticText",
+      "type": 48,
+      "label": "3 sources ready",
+      "frame": { "x": 120, "y": 308, "w": 150, "h": 22 }
+    },
+    {
+      "kind": "button",
+      "type": 9,
+      "label": "Runs off the side",
+      "frame": { "x": 300, "y": 400, "w": 120, "h": 40 }
+    }
+  ]
+}

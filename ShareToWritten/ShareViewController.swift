@@ -64,22 +64,32 @@ class ShareViewController: SLComposeServiceViewController {
     /// The message is optional; the link is not.
     override func isContentValid() -> Bool { videoID != nil }
 
+    /// SHARING IS SWITCHED OFF, and this is the half that matters most.
+    ///
+    /// The app's own share sheet is commented out in `DiscoveryView`, but the
+    /// extension is a *separate binary* that talks to PostgREST directly — so
+    /// leaving it live would keep writing `shared_posts` rows for a feed that no
+    /// longer reads them, and would refill the table after it is emptied.
+    ///
+    /// The whole body is kept below rather than deleted; restoring is dropping
+    /// the `complete()` and uncommenting it.
     override func didSelectPost() {
-        var message = contentText ?? ""
-        // Belt and braces: if the field somehow still holds the link — restored
-        // by the system, or pasted back by hand — that is not a caption.
-        if let received, message.trimmingCharacters(in: .whitespacesAndNewlines) == received
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
-            message = ""
-        }
-        if let link, message.trimmingCharacters(in: .whitespacesAndNewlines) == link {
-            message = ""
-        }
-        guard let link else { return complete() }
-        Task {
-            await SharePoster.post(link: link, message: message)
-            await MainActor.run { complete() }
-        }
+        complete()
+//        var message = contentText ?? ""
+//        // Belt and braces: if the field somehow still holds the link — restored
+//        // by the system, or pasted back by hand — that is not a caption.
+//        if let received, message.trimmingCharacters(in: .whitespacesAndNewlines) == received
+//            .trimmingCharacters(in: .whitespacesAndNewlines) {
+//            message = ""
+//        }
+//        if let link, message.trimmingCharacters(in: .whitespacesAndNewlines) == link {
+//            message = ""
+//        }
+//        guard let link else { return complete() }
+//        Task {
+//            await SharePoster.post(link: link, message: message)
+//            await MainActor.run { complete() }
+//        }
     }
 
     override func configurationItems() -> [Any]! { [] }

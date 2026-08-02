@@ -11,6 +11,67 @@ enum GardenPalette {
     static let gold = Color(red: 0.549, green: 0.478, blue: 0.333)
     static let card = Color(red: 0.988, green: 0.980, blue: 0.965)
 
+    /// The two sides of a conversation. Both carry white text.
+    ///
+    /// **Chosen against the chat photograph, measured rather than picked.** The
+    /// background is a bright Santorini sunset, and a bubble whose fill matches
+    /// what is behind it stops being a bubble. Sampling the photo: sky blue never
+    /// collides anywhere — there is no saturated blue of that value in it — but
+    /// grey sits right in its mid-tones, matching **6.8%** of the raw image.
+    ///
+    /// That is what sets the wash in `ConversationView`, and the direction is the
+    /// opposite of the obvious one: *darkening* the photo makes grey worse, up to
+    /// 43% of the screen at half strength, because it drags the whole image down
+    /// through grey on the way. Lightening lifts it clear instead.
+    ///
+    /// White text is the reason both are this dark. A true sky blue is far
+    /// paler, and white on it is unreadable — these are the darkest values that
+    /// still read as "sky" and "grey": 3.6:1 and 4.4:1 against white. The blue is
+    /// short of WCAG's 4.5 for body text, which is a deliberate and well-trodden
+    /// trade — every platform's chat bubble makes it — and the alternative is a
+    /// navy nobody would call sky.
+    /// The badge gold, shared rather than copied.
+    ///
+    /// `ModalityBadge` drew this and kept it private; the chat bubble is meant to
+    /// be *the same gold as the tree's domain icons*, so it reads the same
+    /// constant. Two literals with the same three numbers drift the first time
+    /// one of them is nudged.
+    ///
+    /// Brighter and more saturated than `gold`, which is a muted khaki — right
+    /// for text on parchment, dull as a ring or a bubble.
+    static let badgeGold = Color(red: 0.831, green: 0.667, blue: 0.212)
+
+    static let bubbleMine = badgeGold
+
+    /// A faint warm grey, not a neutral one.
+    ///
+    /// It sits on parchment, and a neutral grey next to a warm off-white reads
+    /// as slightly blue. This keeps parchment's warmth and steps a little darker
+    /// — far enough to be plainly a bubble rather than a shadow, close enough to
+    /// stay quiet beside the gold.
+    static let bubbleTheirs = Color(red: 0.851, green: 0.843, blue: 0.827)
+
+    /// What each bubble's text is written in.
+    ///
+    /// Both sides are ink now that both fills are light.
+    ///
+    /// It was white on grey while that grey was a mid-tone. On the faint grey it
+    /// would be about **1.2:1** — invisible. Ink gives **14.8:1** there and
+    /// **7.97:1** on the gold, so the two sides are told apart by fill alone,
+    /// which is what the reference does.
+    ///
+    /// Kept as two names rather than collapsed into one, because the gold is
+    /// only just light enough to carry ink: if either fill is ever darkened,
+    /// this is where that shows up as a decision rather than a surprise.
+    static let bubbleMineText = ink
+    static let bubbleTheirsText = ink
+
+    /// A filled heart, and the only saturated colour in the app.
+    ///
+    /// Deliberately not `.red`: the system red is a cool 255,59,48 that reads as
+    /// an alert against parchment. This is warmer and slightly darker, so a liked
+    /// card looks marked rather than errored.
+    static let heart = Color(red: 0.839, green: 0.235, blue: 0.239)
 }
 
 /// The garden page: square but for its bottom corners, which are rounded so it

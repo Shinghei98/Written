@@ -28,7 +28,7 @@ struct RootView: View {
     /// on the photo page would get the sign-in screen behind it — which is the
     /// flash this routing exists to remove.
     enum Route {
-        case signIn, name, photos, home
+        case signIn, name, communication, photos, home
     }
 
     /// Seeded synchronously, so the first frame is already the right screen.
@@ -53,6 +53,7 @@ struct RootView: View {
 #if DEBUG
         switch DebugLaunch.forcedRoute {
         case "name": return .name
+        case "communication": return .communication
         case "photos": return .photos
         case "home": return .home
         case "signIn": return .signIn
@@ -61,6 +62,7 @@ struct RootView: View {
 #endif
         switch SupabaseAuth.restoredStep {
         case .name: return .name
+        case .communication: return .communication
         case .photos: return .photos
         // Both land on the shell. What differs is what the shell *shows* —
         // `exploring` keeps the tab bar away and leaves the garden its arrow.
@@ -87,21 +89,27 @@ struct RootView: View {
         hasRestored = true
         guard SupabaseAuth.hasStoredSession else { return }
 
-        await SupabaseAuth.shared.restoreSession()
-        // The server has the last word. The synchronous guess above assumed a
-        // stored token still works and that the cached step is current; if the
-        // token has been revoked they go back to sign-in, and if the profile
-        // moved on elsewhere the route catches up here.
-        guard SupabaseAuth.shared.isSignedIn else {
-            route = .signIn
+        let outcome = await SupabaseAuth.shared.restoreSession()
+
+        // The server has the last word — **but only when it speaks.** The
+        // synchronous guess above assumed a stored token still works; a refusal
+        // corrects it, and silence must not. Sending somebody to sign in because
+        // their phone is in airplane mode throws away a working session and
+        // everything scoped to it, for a fact nobody established.
+        switch outcome {
+        case .unreachable:
             return
+        case .rejected:
+            route = .signIn
+        case .restored:
+            route = Self.route(for: SupabaseAuth.shared.onboardingStep)
         }
-        route = Self.route(for: SupabaseAuth.shared.onboardingStep)
     }
 
     private static func route(for step: SupabaseAuth.OnboardingStep) -> Route {
         switch step {
         case .name: return .name
+        case .communication: return .communication
         case .photos: return .photos
         case .exploring, .done: return .home
         }
@@ -133,8 +141,29 @@ struct RootView: View {
                         // worth a complaint, not a locked door — the account is
                         // real and the profile row already exists.
                         try? await SupabaseAuth.shared.saveName(first: first, last: last)
-                        route = .photos
+                        route = .communication
                     }
+                }
+
+            case .communication:
+                // Saved here rather than in the view, because storing the answer
+                // is what marks the step done — `needsCommunicationStyle` reads
+                // the store. Doing it anywhere else would let someone arrive at
+                // the photo page and be asked their boundaries again next launch.
+                //
+                // Local and instant, like `setEducation`: these are `user`
+                // records with no column behind them, so nothing here waits on a
+                // network that onboarding has no business depending on. They
+                // reach Postgres when the shell materialises them.
+                CommunicationStyleView(initial: CommunicationStyleStore.saved ?? .unset) { style in
+                    CommunicationStyleStore.save(style)
+                    // Asked, not assumed. Someone reaching this page from
+                    // sign-up goes on to the photos; someone who onboarded
+                    // before this page existed has already seen them, and
+                    // sending them there again would be a step backwards for
+                    // answering a new question. `onboardingStep` knows which,
+                    // and the save above is what moves it on.
+                    route = Self.route(for: SupabaseAuth.shared.onboardingStep)
                 }
 
             case .photos:

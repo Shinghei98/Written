@@ -18,6 +18,13 @@
 			remoteGlobalIDString = 9E1CCFE5301AA8FA00DFEB22;
 			remoteInfo = ShareToWritten;
 		};
+		B200000B301AA8FA00DFEB22 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A100000A2E10000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000062E100006;
+			remoteInfo = Written;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -37,6 +44,7 @@
 /* Begin PBXFileReference section */
 		9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareToWritten.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000052E100005 /* Written.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Written.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2000005301AA8FA00DFEB22 /* WrittenUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WrittenUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -63,6 +71,11 @@
 			path = Written;
 			sourceTree = "<group>";
 		};
+		B2000006301AA8FA00DFEB22 /* WrittenUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WrittenUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +93,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B2000003301AA8FA00DFEB22 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -88,6 +108,7 @@
 			children = (
 				A10000012E100001 /* Written */,
 				9E1CCFE7301AA8FA00DFEB22 /* ShareToWritten */,
+				B2000006301AA8FA00DFEB22 /* WrittenUITests */,
 				A10000042E100004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -97,6 +118,7 @@
 			children = (
 				A10000052E100005 /* Written.app */,
 				9E1CCFE6301AA8FA00DFEB22 /* ShareToWritten.appex */,
+				B2000005301AA8FA00DFEB22 /* WrittenUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -150,6 +172,29 @@
 			productReference = A10000052E100005 /* Written.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B2000001301AA8FA00DFEB22 /* WrittenUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B2000007301AA8FA00DFEB22 /* Build configuration list for PBXNativeTarget "WrittenUITests" */;
+			buildPhases = (
+				B2000002301AA8FA00DFEB22 /* Sources */,
+				B2000003301AA8FA00DFEB22 /* Frameworks */,
+				B2000004301AA8FA00DFEB22 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B200000A301AA8FA00DFEB22 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B2000006301AA8FA00DFEB22 /* WrittenUITests */,
+			);
+			name = WrittenUITests;
+			packageProductDependencies = (
+			);
+			productName = WrittenUITests;
+			productReference = B2000005301AA8FA00DFEB22 /* WrittenUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -165,6 +210,10 @@
 					};
 					A10000062E100006 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					B2000001301AA8FA00DFEB22 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A10000062E100006;
 					};
 				};
 			};
@@ -184,6 +233,7 @@
 			targets = (
 				A10000062E100006 /* Written */,
 				9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */,
+				B2000001301AA8FA00DFEB22 /* WrittenUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -197,6 +247,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A10000092E100009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B2000004301AA8FA00DFEB22 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -220,6 +277,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B2000002301AA8FA00DFEB22 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -227,6 +291,11 @@
 			isa = PBXTargetDependency;
 			target = 9E1CCFE5301AA8FA00DFEB22 /* ShareToWritten */;
 			targetProxy = 9E1CCFEE301AA8FA00DFEB22 /* PBXContainerItemProxy */;
+		};
+		B200000A301AA8FA00DFEB22 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000062E100006 /* Written */;
+			targetProxy = B200000B301AA8FA00DFEB22 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -236,7 +305,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
@@ -266,7 +335,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
@@ -417,13 +486,15 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar to see the events you go to u2014 gigs, classes, the things you book u2014 so your profile reflects how you actually spend your time.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
@@ -451,13 +522,15 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar to see the events you go to u2014 gigs, classes, the things you book u2014 so your profile reflects how you actually spend your time.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
@@ -475,6 +548,42 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B2000008301AA8FA00DFEB22 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 8;
+				DEVELOPMENT_TEAM = 947DHTL37S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.written.datingapp.WrittenUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Written;
+			};
+			name = Debug;
+		};
+		B2000009301AA8FA00DFEB22 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 8;
+				DEVELOPMENT_TEAM = 947DHTL37S;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.written.datingapp.WrittenUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Written;
 			};
 			name = Release;
 		};
@@ -504,6 +613,15 @@
 			buildConfigurations = (
 				A100000C2E10000C /* Debug */,
 				A100000D2E10000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B2000007301AA8FA00DFEB22 /* Build configuration list for PBXNativeTarget "WrittenUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B2000008301AA8FA00DFEB22 /* Debug */,
+				B2000009301AA8FA00DFEB22 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

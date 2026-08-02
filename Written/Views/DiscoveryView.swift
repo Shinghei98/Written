@@ -15,6 +15,11 @@ import SwiftUI
 /// be on screen at once and the feed can rest anywhere between them.
 struct DiscoveryView: View {
     @StateObject private var model = DiscoveryModel()
+    /// Nothing sets this while sharing is switched off. Kept declared rather than
+    /// commented out with its two call sites, because `shareButton` below reads
+    /// it — removing it would mean commenting that out too, and the point of
+    /// leaving both intact is that restoring the feature is uncommenting call
+    /// sites rather than reassembling views.
     @State private var isSharing = false
 
     /// Which shared video is nearest the middle of the screen, and so the one
@@ -46,22 +51,30 @@ struct DiscoveryView: View {
                     )
                 }
 
-                shareButton
+                // Sharing a video is switched off; see `DiscoveryModel.load`.
+                // The button goes with it rather than being left to open a sheet
+                // whose result the feed would no longer show.
+//                shareButton
             }
-            .overlay {
-                if isSharing {
-                    ShareLinkSheet(
-                        onShared: { post in
-                            // Straight to the top rather than waiting for a
-                            // reload to find it. Sharing something and not
-                            // seeing it reads as a failure.
-                            model.prepend(post)
-                            isSharing = false
-                        },
-                        onCancel: { isSharing = false }
-                    )
-                }
-            }
+            // Drawn whether or not the feed is empty. It used to live only
+            // inside the empty state, so with cards on screen a refused like
+            // recorded its reason somewhere nobody could see — the heart simply
+            // emptied again.
+            .statusBanner(model.failure)
+//            .overlay {
+//                if isSharing {
+//                    ShareLinkSheet(
+//                        onShared: { post in
+//                            // Straight to the top rather than waiting for a
+//                            // reload to find it. Sharing something and not
+//                            // seeing it reads as a failure.
+//                            model.prepend(post)
+//                            isSharing = false
+//                        },
+//                        onCancel: { isSharing = false }
+//                    )
+//                }
+//            }
         }
         .preferredColorScheme(.light)
         .task { await model.load() }
@@ -74,7 +87,16 @@ struct DiscoveryView: View {
                     Group {
                         switch item {
                         case .profile(let profile):
-                            DiscoveryCard(profile: profile, containerWidth: width)
+                            DiscoveryCard(
+                                profile: profile,
+                                containerWidth: width,
+                                // Keyed by person, not by card. The same person
+                                // returns every few items with different photos,
+                                // and a heart that emptied on the way past would
+                                // read as the like having been dropped.
+                                isLiked: model.hasLiked(profile.personID),
+                                onLike: { model.like(profile.personID) }
+                            )
                         case .shared(let post, _):
                             SharedPostCard(
                                 post: post,
@@ -161,7 +183,9 @@ struct DiscoveryView: View {
             Text("Nobody to see yet")
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(GardenPalette.ink)
-            Text(model.failure ?? "Profiles will appear here as people join.")
+            // Just the neutral line now — the banner above carries any failure,
+            // and printing it in both places says it twice.
+            Text("Profiles will appear here as people join.")
                 .font(.system(size: 14))
                 .foregroundStyle(GardenPalette.muted)
                 .multilineTextAlignment(.center)
@@ -176,21 +200,81 @@ final class DiscoveryModel: ObservableObject {
     @Published private(set) var items: [DiscoveryFeed.Item] = []
     @Published private(set) var failure: String?
 
+    /// Who this account has liked, by person id.
+    ///
+    /// Read from the server on load rather than kept only here: the feed draws a
+    /// filled heart from it, and a relaunch that forgot would show every liked
+    /// card as untouched.
+    @Published private(set) var liked: Set<String> = []
+
     private var feed: DiscoveryFeed?
+
+    func hasLiked(_ personID: String) -> Bool { liked.contains(personID) }
+
+    /// Like-only, and idempotent — there is no unlike. The row's primary key is
+    /// the pair, so a second tap rewrites what is already there, and nothing in
+    /// this schema is ever deleted.
+    func like(_ personID: String) {
+        guard !liked.contains(personID) else { return }
+        // Shown immediately, taken back if the write fails. A heart that waits
+        // for a round trip feels broken at exactly the moment it matters.
+        liked.insert(personID)
+        Task {
+            let landed = await LikeService.shared.like(personID: personID)
+            guard !landed else { return }
+            liked.remove(personID)
+            // **Say why.** Reverting the heart on its own is the app taking
+            // something back without explaining, which reads as the tap not
+            // having registered rather than as a failure. Offline gets its own
+            // wording because "not signed in" — what the request layer reports
+            // when it cannot get a token — is actively misleading on a plane.
+            if !Reachability.shared.isOnline {
+                failure = "You're offline — that like didn't save."
+            } else {
+                failure = await LikeService.shared.lastError ?? "That like didn't save."
+            }
+            await clearFailureShortly()
+        }
+    }
+
+    /// Takes the message away again after a moment.
+    ///
+    /// A banner about one tap that stays until the next launch stops being
+    /// information and becomes furniture. The offline banner in `AppShell` is
+    /// the opposite case and correctly persists — it describes a condition
+    /// rather than an event.
+    private func clearFailureShortly() async {
+        let shown = failure
+        try? await Task.sleep(for: .seconds(4))
+        // Only if nothing newer replaced it in the meantime.
+        if failure == shown { failure = nil }
+    }
 
     func load() async {
         guard items.isEmpty else { return }
-        // Both at once: the shared posts are a small query and waiting for them
-        // serially would show a feed of profiles that then reshuffled itself.
+        // SHARED VIDEOS ARE SWITCHED OFF. The query goes with the display rather
+        // than being left running: fetching rows for a feed that cannot show
+        // them is a round trip on every launch buying nothing.
+        //
+        // Both at once, and it was three: the likes decide what is already
+        // filled in on first draw, and waiting for them serially would show a
+        // feed that then reshuffled itself.
         async let peopleTask = DiscoveryService.shared.people()
-        async let postsTask = SharedPostService.shared.posts()
-        let (people, posts) = await (peopleTask, postsTask)
+//        async let postsTask = SharedPostService.shared.posts()
+        async let likedTask = LikeService.shared.likedPersonIDs()
+        let people = await peopleTask
+        liked = await likedTask
 
         guard !people.isEmpty else {
             failure = await DiscoveryService.shared.lastError
             return
         }
-        var feed = DiscoveryFeed(people: people, posts: posts)
+        // The whole switch is this one omitted argument. `posts:` defaults to
+        // empty and `DiscoveryFeed.nextItem` emits a `.shared` case only when it
+        // is non-empty, so nothing downstream needs touching — restoring the
+        // feature is putting `posts: posts` back.
+        var feed = DiscoveryFeed(people: people)
+//        var feed = DiscoveryFeed(people: people, posts: posts)
         items = feed.nextItems(12)
         self.feed = feed
         failure = nil
@@ -231,7 +315,17 @@ struct DiscoveryCard: View {
     /// `aspectRatio`, so something has to tell it how tall to be.
     let containerWidth: CGFloat
 
+    var isLiked = false
+    var onLike: () -> Void = {}
+
     @State private var page = 0
+
+    /// The big heart that flashes over the photo on a double tap.
+    ///
+    /// Not decoration. The heart that records the like is below the fold of the
+    /// photo, so without this a double tap in the middle of a picture has no
+    /// feedback where the finger actually was, and reads as not having registered.
+    @State private var isFlashing = false
 
     private static let horizontalPadding: CGFloat = 20
 
@@ -310,6 +404,34 @@ struct DiscoveryCard: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(height: photoHeight)
         .overlay(alignment: .bottom) { dots }
+        .overlay { flash }
+        // A tap count, and deliberately no `DragGesture` of any kind. The pager
+        // underneath is a UIKit paging scroll view and the feed above is another
+        // one; the header comment on this file describes three rounds of
+        // arbitrating hand-rolled drags between them, and a tap needs none of it.
+        .onTapGesture(count: 2) { likeFromPhoto() }
+        .accessibilityAction(named: "Like") { likeFromPhoto() }
+    }
+
+    private func likeFromPhoto() {
+        onLike()
+        // Plays even when the person was already liked. The gesture happened, and
+        // silence would read as the tap having missed.
+        isFlashing = true
+        withAnimation(.easeOut(duration: 0.55)) { isFlashing = false }
+    }
+
+    @ViewBuilder
+    private var flash: some View {
+        Image(systemName: "heart.fill")
+            .font(.system(size: 86))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.25), radius: 12)
+            // Scale and opacity both driven off the one flag, so there is a single
+            // animation to cancel if a second double tap arrives mid-flight.
+            .scaleEffect(isFlashing ? 1 : 1.35)
+            .opacity(isFlashing ? 0.95 : 0)
+            .allowsHitTesting(false)
     }
 
     /// Which of the two you are on. Drawn over the photo rather than under it,
@@ -331,22 +453,44 @@ struct DiscoveryCard: View {
         }
     }
 
-    /// Decorative, as on the example card: none of these do anything, so they
-    /// take no taps and are hidden from VoiceOver.
+    /// The heart is the only one of these that does anything.
+    ///
+    /// The other three stayed decorative when it went live, and that is a choice
+    /// rather than an omission: they are furniture borrowed from the post format
+    /// so a stranger's card reads as somebody's words. Wiring one of them up
+    /// without somewhere for it to go would be worse than leaving it inert.
+    /// They keep `allowsHitTesting(false)` and stay out of VoiceOver; the heart
+    /// has neither.
     private var actionRow: some View {
         HStack(spacing: 16) {
-            Image(systemName: "heart")
-            Image(systemName: "bubble.right")
-            Image(systemName: "paperplane")
-            Spacer(minLength: 0)
-            Image(systemName: "bookmark")
+            Button(action: likeFromPhoto) {
+                Image(systemName: isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(isLiked ? GardenPalette.heart : GardenPalette.ink.opacity(0.75))
+                    // A short squeeze on the way in. Symbol-only, so it costs
+                    // nothing when the card is rebuilt already liked.
+                    .scaleEffect(isLiked ? 1.08 : 1)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.55), value: isLiked)
+                    // The glyph is 19 points; the target is not.
+                    .frame(width: 30, height: 30, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isLiked ? "Liked \(profile.name)" : "Like \(profile.name)")
+
+            Group {
+                Image(systemName: "bubble.right")
+                Image(systemName: "paperplane")
+                Spacer(minLength: 0)
+                Image(systemName: "bookmark")
+            }
+            .font(.system(size: 19, weight: .regular))
+            .foregroundStyle(GardenPalette.ink.opacity(0.75))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .font(.system(size: 19, weight: .regular))
-        .foregroundStyle(GardenPalette.ink.opacity(0.75))
         .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .padding(.top, 6)
     }
 
     private var caption: some View {

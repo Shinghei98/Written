@@ -43,7 +43,7 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "stages") == "all"
     }
 
-    /// `-tab explore` / `-tab wish` / `-tab chat` / `-tab settings` → open the
+    /// `-tab explore` / `-tab wish` / `-tab chat` / `-tab dashboard` → open the
     /// shell on that tab. The bar can only be reached by tapping, and `simctl`
     /// cannot tap, so without this every tab but Distill is unscreenshottable.
     static var forcedTab: String? {
@@ -92,6 +92,17 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "edit")
     }
 
+    /// `-bio education` / `-bio occupation` / `-bio name` … → open that
+    /// biographics editor shortly after the dashboard appears.
+    ///
+    /// The rows are reachable only by tapping one, and `simctl` cannot tap — the
+    /// same argument `-edit` and `-pick` make. Without this the sheets can only
+    /// be seen on a device, which means a title or a subtitle can be wrong for
+    /// as long as nobody happens to open one.
+    static var biographicsTarget: String? {
+        UserDefaults.standard.string(forKey: "bio")
+    }
+
     /// `-pick music` / `-pick media` / `-pick lifestyle` → open that modality's
     /// source picker shortly after launch. The sheet is only reachable through
     /// a "Connect …" button, and `simctl` can send no tap.
@@ -104,8 +115,9 @@ enum DebugLaunch {
         }
     }
 
-    /// `-route name` / `-route photos` / `-route home` → open straight on that
-    /// screen, standing in for a session that was force-quit there.
+    /// `-route name` / `-route communication` / `-route photos` / `-route home`
+    /// → open straight on that screen, standing in for a session that was
+    /// force-quit there.
     ///
     /// The onboarding pages are otherwise only reachable by signing in with a
     /// real Apple account, which the simulator cannot do — so without this the
@@ -119,6 +131,75 @@ enum DebugLaunch {
     /// which `simctl` cannot tap, and the state is transient besides.
     static var pickLoading: String? {
         UserDefaults.standard.string(forKey: "loading")
+    }
+
+    /// `-chat sample` → fill the Chat tab with fabricated admirers and threads.
+    /// `-chat admirers` → the same, then open the admirers list.
+    /// `-chat thread` → the same, then open the newest conversation.
+    ///
+    /// The real ones need two accounts, an applied migration and somebody on the
+    /// other end. The *layout* needs none of that, and two things on this screen
+    /// are wrong-by-one in ways only a look catches: the banner draws five faces
+    /// and then a "+", and `RelativeTime` switches units three times. Seven
+    /// admirers spread across an hour, a day, a month and beyond exercises every
+    /// branch of both in one screenshot.
+    ///
+    /// The two pushed pages are behind the same flag rather than a second one
+    /// because neither is reachable without the sample data, and both are behind
+    /// a tap `simctl` cannot send — the same argument `-screen dashboard` makes.
+    static var chatTarget: String? {
+        UserDefaults.standard.string(forKey: "chat")
+    }
+
+    static var showsSampleChat: Bool {
+        ["sample", "admirers", "thread", "typing"].contains(chatTarget ?? "")
+    }
+
+    /// Long enough for the list underneath to have drawn, so a screenshot taken
+    /// before it catches the page it was pushed from.
+    static let chatPushDelay: Double = 1.0
+
+    /// `-chat typing` → open the newest thread with the other side mid-sentence.
+    ///
+    /// The real thing needs presence, which needs a live channel this app does
+    /// not have — see `ConversationView.isPartnerTyping`. The *animation* needs
+    /// none of that, and it is the part that is easy to get subtly wrong: three
+    /// dots rising together read as a spinner, and only one rising after another
+    /// reads as somebody typing.
+    static var showsTypingIndicator: Bool {
+        chatTarget == "typing"
+    }
+
+    /// `-reveal 0.5` → hold the garden partway through its onboarding pull-up.
+    ///
+    /// The gesture is a drag and `simctl` can send none, so the one frame that
+    /// matters here — garden lifted, dashboard showing underneath — is otherwise
+    /// only reachable on a device with a finger on it. It is also the frame that
+    /// was wrong: the reveal showed bare parchment all the way up, because the
+    /// dashboard was gated on the tab having already changed.
+    ///
+    /// A fraction of the full travel, not a point value, so the same number
+    /// means the same thing on an SE and a Pro Max.
+    static var revealFraction: Double? {
+        UserDefaults.standard.string(forKey: "reveal").flatMap(Double.init)
+    }
+
+    /// `-solo 1` → build only the tab you are on, and none of the other four.
+    ///
+    /// For `WrittenUITests`, and it is not a convenience. `AppShell` mounts all
+    /// five tabs and hides the four you are not on with `opacity(0)`,
+    /// `allowsHitTesting(false)` and `accessibilityHidden(true)`. **XCUITest
+    /// honours none of the three**: `app.staticTexts` walks straight through
+    /// them, so a dump of the garden also contains Explore's "Nobody to see yet"
+    /// and Wish's note, stacked at the same coordinates. Every pair of those is
+    /// an overlap that is not real — 543 of them on the first run, burying the
+    /// findings that were.
+    ///
+    /// Auditing one tab at a time is also the honest question: "does anything on
+    /// the Chat page overlap" is about the Chat page. Nothing is lost, because
+    /// each tab gets its own run.
+    static var auditsOneTabAtATime: Bool {
+        UserDefaults.standard.string(forKey: "solo") == "1"
     }
 
     /// `-scroll media` → open the dashboard already scrolled to that card.

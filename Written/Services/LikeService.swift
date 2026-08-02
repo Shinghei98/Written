@@ -1,0 +1,159 @@
+import Foundation
+
+/// Likes, and the admirers they make.
+///
+/// Shaped like `DiscoveryService`: an actor, one `lastError`, and rows dropped
+/// rather than half-built. See `0009_likes_and_chat.sql` for the policies — the
+/// short version is that a like is visible to exactly two people, only the
+/// recipient may answer it, and nothing is ever deleted.
+actor LikeService {
+
+    static let shared = LikeService()
+
+    /// Somebody who has liked you and is still waiting for an answer.
+    struct Admirer: Identifiable, Equatable {
+        /// Their user id, which is also what identifies the like: the primary key
+        /// is `(liker_id, liked_id)` and the second half is always you.
+        let id: String
+        let name: String
+        let photoSeed: Int
+        let likedAt: Date
+    }
+
+    private(set) var lastError: String?
+
+    // MARK: - Liking
+
+    /// Everyone this account has already liked, whatever came of it.
+    ///
+    /// Read back rather than remembered locally, and that is the point: the feed
+    /// draws a filled heart from this, so a relaunch or a second device has to be
+    /// able to arrive at the same answer.
+    func likedPersonIDs() async -> Set<String> {
+        guard let me = await SupabaseAuth.shared.userID else { return [] }
+        do {
+            let rows = try await PostgREST.rows("rest/v1/likes", query: [
+                "liker_id": "eq.\(me)",
+                "select": "liked_id",
+            ])
+            lastError = nil
+            return Set(rows.compactMap { $0["liked_id"] as? String })
+        } catch {
+            lastError = error.localizedDescription
+            return []
+        }
+    }
+
+    /// Likes a person. Idempotent — `(liker_id, liked_id)` is the primary key, so
+    /// a second tap upserts the row it already wrote rather than failing on it.
+    ///
+    /// The name and seed travel with the row because the recipient cannot look
+    /// them up: `public.users` is closed and a real account has no
+    /// `discovery_cards` row to read. See the migration's header.
+    func like(personID: String) async -> Bool {
+        guard let me = await SupabaseAuth.shared.userID else { return false }
+        let myName = await SupabaseAuth.shared.firstName ?? "Someone"
+
+        do {
+            try await PostgREST.insert(
+                "rest/v1/likes",
+                body: [[
+                    "liker_id": me,
+                    "liked_id": personID,
+                    "liker_name": myName,
+                    "liker_photo_seed": PortraitSeed.stable(for: me),
+                ]],
+                // Merge rather than fail: tapping a heart twice is a person being
+                // unsure, not an error to show them.
+                // **`ignore-duplicates`, never `merge-duplicates`.** Both read as
+                // "upsert", and only one of them can work here.
+                //
+                // `merge-duplicates` compiles to `on conflict do update`, and
+                // Postgres checks privileges when it plans the statement rather
+                // than when a conflict happens — so it needs `update` on every
+                // column being inserted, whether or not the row already exists.
+                // `0009` revokes update on this table and grants back only
+                // `(status, responded_at)`, precisely so a recipient cannot
+                // rewrite `liker_id` and forge a like. The two are in direct
+                // conflict, and the privilege wins: **every like was refused with
+                // 42501**, silently, because the heart fills optimistically and
+                // the error is recorded and never shown.
+                //
+                // `ignore-duplicates` compiles to `on conflict do nothing`, which
+                // needs no update privilege and gives the same idempotence — a
+                // second tap is a no-op rather than a rewrite of a row whose
+                // contents cannot have changed anyway.
+                //
+                // `ChatService.open` documents this same trap for
+                // `conversations`. It is the second time this schema's column
+                // grants have caught an upsert.
+                prefer: "resolution=ignore-duplicates,return=minimal"
+            )
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    // MARK: - Being liked
+
+    /// The people waiting for an answer, newest first.
+    func admirers() async -> [Admirer] {
+        guard let me = await SupabaseAuth.shared.userID else { return [] }
+        do {
+            let rows = try await PostgREST.rows("rest/v1/likes", query: [
+                "liked_id": "eq.\(me)",
+                "status": "eq.pending",
+                "select": "liker_id,liker_name,liker_photo_seed,created_at",
+                "order": "created_at.desc",
+            ])
+            lastError = nil
+            return rows.compactMap { row in
+                guard let id = row["liker_id"] as? String,
+                      let name = row["liker_name"] as? String,
+                      let created = row["created_at"] as? String,
+                      let likedAt = PostgREST.date(created)
+                else { return nil }
+                return Admirer(
+                    id: id,
+                    name: name,
+                    photoSeed: row["liker_photo_seed"] as? Int ?? PortraitSeed.stable(for: id),
+                    likedAt: likedAt
+                )
+            }
+        } catch {
+            lastError = error.localizedDescription
+            return []
+        }
+    }
+
+    /// Answers a like. Accepting is what authorises the conversation — the
+    /// insert policy on `conversations` looks for exactly this row.
+    ///
+    /// Declining marks the row and leaves their card in the feed, which is the
+    /// decision recorded in the plan: a decline removes them from the list
+    /// without hiding them, and they are never told.
+    func respond(to likerID: String, accept: Bool) async -> Bool {
+        guard let me = await SupabaseAuth.shared.userID else { return false }
+        do {
+            try await PostgREST.update(
+                "rest/v1/likes",
+                query: [
+                    "liker_id": "eq.\(likerID)",
+                    "liked_id": "eq.\(me)",
+                ],
+                body: [
+                    "status": accept ? "accepted" : "declined",
+                    "responded_at": PostgREST.string(Date()),
+                ]
+            )
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+}

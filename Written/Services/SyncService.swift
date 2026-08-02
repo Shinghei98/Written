@@ -127,9 +127,28 @@ actor SyncService {
         place: String? = nil,
         treeSeed: UInt64? = nil
     ) async -> Bool {
-        guard let token = await SupabaseAuth.shared.validAccessToken(),
-              let userID = await SupabaseAuth.shared.userID
-        else { return false }
+        // Both early returns record *why*, because `lastError` is now read and
+        // shown. Returning false without setting it made a session that could
+        // not be refreshed report itself as a network problem, which is the one
+        // wrong answer here: it sends the user to look at their signal when the
+        // fix is to sign in again.
+        // The token first and `userID` second, never the other way round: on a
+        // cold launch both are empty until `validAccessToken()` has been through
+        // `restoreSession()`, and that call is what fills in the id. Reading the
+        // id first reports "not signed in" for a session that is merely not yet
+        // restored — the same mistake `upsertProfile` made for real.
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            // Whichever of the three it actually was — signed out, expired, or
+            // unreachable. Guessing here is what made a network fault read as a
+            // dead session.
+            lastError = await SupabaseAuth.shared.lastTokenFailure?.message
+                ?? "your session couldn't be refreshed."
+            return false
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "you're not signed in."
+            return false
+        }
 
         var row: [String: Any] = ["id": userID]
         if let birthDate { row["birth_date"] = Self.day.string(from: birthDate) }
@@ -137,7 +156,12 @@ actor SyncService {
         if let sex { row["sex"] = sex }
         if let place { row["place"] = place }
         if let treeSeed { row["tree_seed"] = Int64(bitPattern: treeSeed) }
-        guard row.count > 1 else { return false }
+        // Nothing but the id: no caller does this, but a stale `lastError` from
+        // a previous push would be reported as this one's reason.
+        guard row.count > 1 else {
+            lastError = "there was nothing to save."
+            return false
+        }
 
         do {
             _ = try await post(

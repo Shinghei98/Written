@@ -7,14 +7,21 @@ and video records, health signals and calendar events, and finally the
 `discovery_cards` row derived from all of it — so a synthetic person is built
 the same way a real one is rather than being a card with nothing behind it.
 
-    SUPABASE_SERVICE_ROLE_KEY=... python3 tools/seed_synthetic.py
-    SUPABASE_SERVICE_ROLE_KEY=... python3 tools/seed_synthetic.py --wipe
+    SUPABASE_SECRET_KEY=... python3 tools/seed_synthetic.py
+    SUPABASE_SECRET_KEY=... python3 tools/seed_synthetic.py --wipe
 
-**The service-role key must never reach the app or this repo.** It bypasses row
-level security completely, and RLS is the whole authorisation layer here — a
-copy of that key is a copy of every account. It is read from the environment,
-has no default, and is never printed. Run this from a shell, not from the app,
-and not from anything that logs its environment.
+**The secret key must never reach the app or this repo.** It bypasses row level
+security completely, and RLS is the whole authorisation layer here — a copy of
+that key is a copy of every account. It is read from the environment, has no
+default, and is never printed. Run this from a shell, not from the app, and not
+from anything that logs its environment.
+
+The variable was `SUPABASE_SERVICE_ROLE_KEY` and is not any more, because
+`service_role` keys were **disabled** on this project — the name described a
+kind of credential that no longer exists. It kept working, which was the danger:
+an `sb_secret_…` value sitting in a variable called `SERVICE_ROLE_KEY` quietly
+misdescribes what it is, and confusing those two is what made the last rotation
+harder than it needed to be. `tools/chat_e2e.py` uses the same name.
 
 `--wipe` deletes the six synthetic auth users first, which cascades every table.
 It matches on the seeded email domain and will not touch a real account.
@@ -115,10 +122,10 @@ CALENDAR_PLAN = [
 
 
 def env_key() -> str:
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    key = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
     if not key:
         sys.exit(
-            "SUPABASE_SERVICE_ROLE_KEY is not set.\n\n"
+            "SUPABASE_SECRET_KEY is not set.\n\n"
             "It bypasses row level security entirely, so it lives in your shell "
             "for the length of this run and nowhere else — not in the repo, not "
             "in the app, not in a file."
