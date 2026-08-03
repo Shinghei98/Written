@@ -63,26 +63,29 @@ exposes; consult it before adding a source). Implemented today:
   `spotify*` constants in `AppConfig`. Everything carries a "beta only" comment
   so `grep -rn "beta only"` finds the set. It was removed once already in
   `be4eea1` and restored from `be4eea1^`, so the diff to reverse is on record.
-**Whether Apple Podcasts can be read is still open, and the first attempt to
-settle it is a lesson in itself.** `MPMediaQuery.podcasts()` is the exact
-analogue of what `AppleMusicDistiller` does — same framework, same
-`NSAppleMusicUsageDescription` — so if it works, podcasts are a permanent
-one-tap source. On a device, 2026-08-03: **329 songs, 0 podcast items, 0
-shows**, and that was written up here as proof the framework does not expose
-them.
+**Apple Podcasts *is* readable through `MPMediaQuery.podcasts()`** — measured on
+a device on 2026-08-03. Same framework as `AppleMusicDistiller`, same
+`NSAppleMusicUsageDescription` already declared, so it is a permanent one-tap
+source with no OAuth and no third party.
 
-It proves nothing of the sort. **The phone's Podcasts app had never been
-opened.** The songs count was included precisely to stop a zero being misread —
-it rules out an unauthorized or unreadable library — but songs come from the
-Music library and podcasts would come from a different provider into the same
-one, so it cannot rule out "there was nothing to find". Two confounds, one
-control, and the conclusion was drawn anyway. **A zero is a finding only when
-something ought to have been found**, which is the same rule HealthKit teaches
-and it was broken here while explicitly citing it.
+**What it sees is downloaded episodes**, which is the limit to design around
+rather than a detail: someone who streams everything may have nothing in it.
+Whether a followed show with no download registers is not yet known — the test
+device had both, so the two cannot be told apart from that run.
 
-Re-running against a followed show with a **downloaded** episode is what would
-settle it — the download being the part that matters, since it was downloaded
-episodes that appeared in the library back when any did.
+**The way this was nearly lost is worth more than the finding.** A first run
+returned 329 songs and 0 podcasts, and that was written up here as proof the
+framework does not expose them. The phone's Podcasts app had never been opened.
+The songs count existed *precisely* to stop a zero being misread — and it only
+rules out one confound, an unauthorized or unreadable library. Songs come from
+the Music library; podcasts come from a different provider into the same one, so
+one says nothing about the other. Two confounds, one control, conclusion drawn
+anyway. Following one show and downloading one episode turned 0 into 2.
+
+**A zero is a finding only when something ought to have been found** — the same
+rule HealthKit teaches, broken here while citing it. Any probe of the form "does
+this API return anything" needs a positive control *in the thing being asked
+about*, not merely nearby.
 
 Everything else was considered and ruled out. MusicKit has no podcast types
 (Podcasts is a separate service that never got it). iCloud sync uses Apple's
