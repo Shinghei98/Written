@@ -8,10 +8,48 @@ struct WrittenApp: App {
 
     var body: some Scene {
         WindowGroup {
+#if DEBUG
+            // **At the root, and in an alert.** `-probe podcasts` first hung off
+            // `GrowProfileView.onAppear`, which only fires if the garden happens
+            // to be the screen you land on — and anyone past onboarding lands on
+            // a tab bar that may show something else entirely. It reported
+            // through the status banner too, which dismisses itself after a
+            // moment. So it could fail to run, and could run and be missed, and
+            // both look identical to a probe that found nothing.
+            //
+            // Here it runs whatever the route, and the alert stays until it is
+            // read. Delete with `PodcastProbe`.
+            RootView().modifier(PodcastProbeAlert())
+#else
             RootView()
+#endif
         }
     }
 }
+
+#if DEBUG
+/// Runs `PodcastProbe` once on launch and holds the answer on screen.
+private struct PodcastProbeAlert: ViewModifier {
+    @State private var verdict: String?
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                guard DebugLaunch.probeTarget == "podcasts",
+                      DebugLaunch.firesOnce("probe") else { return }
+                verdict = await PodcastProbe.run()
+            }
+            .alert(
+                "Podcast probe",
+                isPresented: Binding(get: { verdict != nil }, set: { if !$0 { verdict = nil } })
+            ) {
+                Button("OK", role: .cancel) { verdict = nil }
+            } message: {
+                Text(verdict ?? "")
+            }
+    }
+}
+#endif
 
 /// Decides which of the four screens the app is on: sign-in, the two onboarding
 /// steps, or the garden.
