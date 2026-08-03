@@ -133,6 +133,21 @@ struct DashboardTab: View {
                 lift = 0
                 isShowingProfiles = false
             }
+            // The district row is meant to be there without being asked for, so
+            // the fix is taken when this screen is first *looked at* — not when
+            // it is first mounted, which `AppShell` does for all five tabs at
+            // launch. `.task(id:)` re-runs on the change and
+            // `captureLocationIfNeeded` is idempotent, so arriving here twice
+            // costs nothing and a decline is never re-asked.
+            //
+            // Moved from `DashboardView` because a permission alert raised from
+            // an unopened tab does not merely startle: it owns the screen, and
+            // HealthKit — which presents its sheet out of another process —
+            // cannot draw over it and times out instead. See the note there.
+            .task(id: isVisible) {
+                guard isVisible else { return }
+                viewModel.captureLocationIfNeeded()
+            }
 #if DEBUG
             // `-screen profiles` on the launch line; see `DebugLaunch`. The
             // dashboard itself is now `-tab dashboard` and needs no delay.

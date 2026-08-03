@@ -106,6 +106,26 @@ struct GrowProfileView: View {
     /// banner and left the ring on the tapped badge sitting at a full circle —
     /// no progress anywhere, which reads as the tap having done nothing.
     @State private var requestedModality: Modality?
+
+    /// The last branch a distillation was actually started for, kept **after**
+    /// that distillation ends.
+    ///
+    /// **This is the difference between a failure being reported and a failure
+    /// being swallowed.** The prompt card was built for `nextModality` and asked
+    /// *that* branch what went wrong, which is right only while the two agree.
+    /// Connect a source out of sequence — Lifestyle first, when Media is next —
+    /// and the error is recorded against Lifestyle while the card interrogates
+    /// Media, gets nil, and draws "Ready to grow?" as though nothing had been
+    /// tried. The watering can runs, the screen returns to exactly how it was,
+    /// and nothing anywhere says why: reported as "it just keeps loading and
+    /// never ended", because with no ending drawn there is no way to tell that
+    /// it ended.
+    ///
+    /// `requestedModality` already knows the answer and is deliberately cleared
+    /// when the run finishes (`onChange` below) so the next run cannot inherit
+    /// it — which is the same moment the error needs it. Hence a second
+    /// property that outlives the run and is replaced only by the next attempt.
+    @State private var lastAttempted: Modality?
     @State private var distillProgress: Double = 0
     @State private var progressWalk: Task<Void, Never>?
 
@@ -359,6 +379,10 @@ struct GrowProfileView: View {
                 // paths that start a distillation without going through a
                 // picker — `-connect health` and the preview stepper.
                 distillingModality = requestedModality ?? viewModel.treeState.nextModality
+                // Survives the run, unlike the two above. Set here rather than
+                // at the tap so every route in — picker, badge, `-connect` —
+                // records it in one place.
+                lastAttempted = distillingModality
                 isWatering = true
                 distillProgress = 0
                 progressWalk?.cancel()
@@ -647,10 +671,14 @@ struct GrowProfileView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
-                    if let next = viewModel.treeState.nextModality {
-                        promptCard(for: next)
+                    // The branch that just failed takes the card back, ahead of
+                    // whichever one the sequence would offer. Its message, its
+                    // Connect button — so the retry is on the thing that broke
+                    // rather than on the next thing along.
+                    if let prompt = promptModality {
+                        promptCard(for: prompt)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
-                            .id(next)
+                            .id(prompt)
                     }
 
                     // Something to scroll *to*. Anchoring on the last real row
@@ -803,6 +831,20 @@ struct GrowProfileView: View {
             }
     }
 
+
+    /// Which branch the prompt card speaks for: the one that just failed if it
+    /// did, otherwise the next in the sequence.
+    ///
+    /// The failure has to be re-read rather than remembered — `lastAttempted`
+    /// records what was tried, not how it went, so a branch that succeeded and
+    /// became a `ConnectedBar` must not go on holding the card.
+    private var promptModality: Modality? {
+        if let attempted = lastAttempted,
+           viewModel.failureMessage(for: attempted) != nil {
+            return attempted
+        }
+        return viewModel.treeState.nextModality
+    }
 
     private func promptCard(for next: Modality) -> some View {
         let first = viewModel.treeState.isSeedling

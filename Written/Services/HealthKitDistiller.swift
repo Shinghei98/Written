@@ -1,5 +1,8 @@
 import Foundation
 import HealthKit
+// For `applicationState` alone — see `waitUntilActive`. The rest of this file
+// knows nothing about UIKit and should stay that way.
+import UIKit
 
 /// Distills the signals listed for Apple Watch / HealthKit in written_api.xlsx:
 /// recorded sport type and duration, and activity intensity and duration.
@@ -26,11 +29,16 @@ struct HealthKitDistiller {
 
     enum HealthError: LocalizedError {
         case unavailable
-        /// Nothing came back. Named for the symptom rather than the cause on
-        /// purpose: HealthKit never says which reads were refused, so a declined
-        /// permission and an empty Health app are the same answer here, and the
-        /// message has to cover both without guessing which one it is.
-        case noData
+        /// Nothing came back, and whether the user had been asked before.
+        ///
+        /// HealthKit never says which reads were refused — a declined permission
+        /// and an empty Health app are the same answer — so this used to carry
+        /// one sentence covering both, which is unhelpful in both. What *can* be
+        /// known is whether a sheet was ever put in front of them, and
+        /// `getRequestStatusForAuthorization` answers exactly that. With it the
+        /// two cases split: already asked means the switches are the thing to
+        /// go and check, never asked means there is simply nothing recorded.
+        case noData(alreadyAnswered: Bool)
         /// A query that failed or never returned, carrying which one it was, how
         /// long it ran and the underlying domain/code.
         ///
@@ -52,18 +60,21 @@ struct HealthKitDistiller {
                 #else
                 return message
                 #endif
-            case .noData:
-                // **Short, and it names the right place.** This used to spell
-                // out "Health › Profile › Apps › Written" — three levels, the
-                // wrong ones, and the length is what overflowed the prompt card
-                // and pushed its own button out of sight. The switches are under
-                // Data Access & Devices, and the card's button now goes there.
-                //
-                // It does not claim a refusal. A read that returns nothing is
-                // either a denied permission or an empty Health app, and
-                // HealthKit will not say which — so the sentence has to carry
-                // both without picking one.
-                return "Nothing came back from Apple Health. Turn Written's categories on under Data Access & Devices, or there may be no workouts recorded yet."
+            // **Short, and it names the right place.** Both of these used to be
+            // one sentence spelling out "Health › Profile › Apps › Written" —
+            // three levels, the wrong ones, and the length is what overflowed
+            // the prompt card and pushed its own button out of sight. The
+            // switches are under Data Access & Devices.
+            case .noData(alreadyAnswered: true):
+                // Still does not claim a refusal, because HealthKit will not say
+                // — but it can say the question was already put, which makes the
+                // switches worth going to look at.
+                return "Written has already asked for Apple Health. Turn its categories on under Data Access & Devices in the Health app, then try again."
+            case .noData(alreadyAnswered: false):
+                // Permission was granted this minute, so the switches are not
+                // the problem and sending anyone to check them would be a wild
+                // goose chase.
+                return "Nothing came back from Apple Health — there may be no workouts or activity recorded yet."
             }
         }
     }
@@ -106,20 +117,38 @@ struct HealthKitDistiller {
         // every other stage the app simply spun with nothing to report.
         let store = self.store
         let types = Self.readTypes
-        try await Self.stage("authorize") {
-            // The completion-handler API, bridged by hand, rather than the async
-            // overload. `DistillViewModel` is `@MainActor`, so the async version
-            // is awaited *from* the main actor — and HealthKit delivers this
-            // particular callback on the main queue, which is the shape of a
-            // deadlock: the main thread is suspended waiting for a result that
-            // needs the main thread to arrive. Bridging explicitly means the
-            // continuation resumes from HealthKit's own queue instead.
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                store.requestAuthorization(toShare: [], read: types) { _, error in
+
+        // **Whether a sheet is needed at all, before trying to raise one.**
+        // Read authorization is otherwise invisible: `authorizationStatus(for:)`
+        // reports sharing and says nothing about reading, which is why a refusal
+        // and an empty database have always been the same answer here. This is
+        // the one thing HealthKit will tell us — not what was allowed, but
+        // whether the question has ever been put — and it is enough to stop the
+        // failure message guessing.
+        // **A probe, and never a gate — which it was for one build.** Wrapped in
+        // a plain `try await`, its own failure aborted the distillation before
+        // the sheet was ever asked for: on a freshly erased simulator it answers
+        // `[com.apple.healthkit 4]` in a tenth of a second, and Apple Health then
+        // "didn't respond" without anything having been asked. A question about
+        // whether to ask must not be able to prevent asking.
+        //
+        // So: unanswerable means ask. The cost of guessing wrong is one extra
+        // call that HealthKit returns from immediately; the cost of the other
+        // default is a permission that can never be granted.
+        let alreadyAnswered = (try? await Self.stage("request-status") {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                store.getRequestStatusForAuthorization(toShare: [], read: types) { status, error in
                     if let error { continuation.resume(throwing: error) }
-                    else { continuation.resume() }
+                    else { continuation.resume(returning: status == .unnecessary) }
                 }
             }
+        }) ?? false
+
+        // Nothing to present, so nothing to present *badly* — skipping the
+        // request is not an optimisation, it removes the only step here that
+        // depends on another process launching.
+        if !alreadyAnswered {
+            try await Self.requestAuthorization(store: store, types: types)
         }
 
         // Two windows, because the two kinds of data cost wildly different
@@ -144,6 +173,12 @@ struct HealthKitDistiller {
         var records = demographics()
         records += try await Self.stage("workouts") { try await workouts(since: workoutsSince) }
         records += try await Self.stage("activity") { try await activityDays(since: activitySince) }
+
+        // **Thrown here rather than checked by the caller**, because the reason
+        // an empty result is worth naming depends on whether the user was ever
+        // asked — and this is the only place that knows. `DistillViewModel` used
+        // to make this call and had to construct the error blind.
+        guard !records.isEmpty else { throw HealthError.noData(alreadyAnswered: alreadyAnswered) }
         return records
     }
 
@@ -163,17 +198,44 @@ struct HealthKitDistiller {
     ) async throws -> T {
         let started = Date()
         do {
-            return try await withThrowingTaskGroup(of: T.self) { group in
-                group.addTask { try await work() }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(stageTimeout * 1_000_000_000))
-                    throw HealthError.stageFailed("\(name) timed out after \(Int(stageTimeout))s")
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                let baton = StageBaton()
+
+                // **Unstructured, and abandoned rather than awaited — which is
+                // the entire point.** This was a `withThrowingTaskGroup` racing
+                // the work against a sleeper, and it could not do the one job it
+                // was written for. A task group *waits for every child before it
+                // returns*: the sleeper would throw at twenty seconds, the body
+                // would exit, and the group would then sit waiting on the work
+                // task forever. `cancelAll()` does not help, because a task
+                // suspended inside `withCheckedThrowingContinuation` never
+                // observes cancellation — the only thing that can resume it is
+                // the callback that never came.
+                //
+                // So the timeout worked for a call that was merely slow and was
+                // useless for a call that never returns, which is the only case
+                // it exists for. Structured concurrency is exactly wrong here:
+                // surviving a continuation nobody will resume means declining to
+                // wait for it, and that requires a task nothing is awaiting.
+                let worker = Task.detached(priority: .userInitiated) {
+                    do {
+                        let value = try await work()
+                        if baton.claim() { continuation.resume(returning: value) }
+                    } catch {
+                        if baton.claim() { continuation.resume(throwing: error) }
+                    }
                 }
-                guard let first = try await group.next() else {
-                    throw HealthError.stageFailed("\(name) returned nothing")
+
+                Task.detached {
+                    try? await Task.sleep(nanoseconds: UInt64(stageTimeout * 1_000_000_000))
+                    guard baton.claim() else { return }
+                    // Best effort, and expected to do nothing in the case that
+                    // matters. It is here for the stages that *are* cancellable.
+                    worker.cancel()
+                    continuation.resume(
+                        throwing: HealthError.stageFailed("\(name) timed out after \(Int(stageTimeout))s")
+                    )
                 }
-                group.cancelAll()
-                return first
             }
         } catch let error as HealthError {
             throw error
@@ -183,6 +245,112 @@ struct HealthKitDistiller {
                 "\(name) failed after \(Self.seconds(since: started)) "
                     + "[\(nsError.domain) \(nsError.code)]"
             )
+        }
+    }
+
+    /// Puts the sheet up, and puts it up a second time if the *system* lost a
+    /// cold-start race the first time.
+    ///
+    /// HealthKit does not draw its own sheet: it asks SpringBoard to launch
+    /// `com.apple.HealthPrivacyService` and hosts a remote view from it. On a
+    /// device where that process has never run, the launch can take longer than
+    /// HealthKit's own patience. Caught in the simulator log, on a device
+    /// erased seconds earlier:
+    ///
+    ///     10:00:29.740  Asking defaultShell to open app viewservice com.apple.HealthPrivacyService
+    ///     10:00:32.555  FAILED prompting authorization request …, error Authorization session timed out
+    ///     10:00:36.338  Request successful: <BSProcessHandle: HealthPrivacySe:10724>
+    ///
+    /// — the service finishing its launch **four seconds after** HealthKit gave
+    /// up waiting for it. Nothing was refused and nothing is misconfigured; the
+    /// sheet simply never got drawn, and the user sees no question and no answer.
+    ///
+    /// One retry, because by then the process is warm. A loop would be
+    /// superstition: a second failure is a real one.
+    private static func requestAuthorization(
+        store: HKHealthStore, types: Set<HKObjectType>
+    ) async throws {
+        for attempt in 1...2 {
+            do {
+                // **Frontmost first.** The session does not survive the app
+                // resigning active, so asking while something else owns the
+                // screen is asking for the failure above.
+                await waitUntilActive()
+                try await stage(attempt == 1 ? "authorize" : "authorize-retry") {
+                    // The completion-handler API, bridged by hand, rather than
+                    // the async overload. `DistillViewModel` is `@MainActor`, so
+                    // the async version is awaited *from* the main actor — and
+                    // HealthKit delivers this particular callback on the main
+                    // queue, which is the shape of a deadlock: the main thread
+                    // suspended waiting for a result that needs the main thread
+                    // to arrive. Bridging explicitly means the continuation
+                    // resumes from HealthKit's own queue instead.
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                        store.requestAuthorization(toShare: [], read: types) { _, error in
+                            if let error { continuation.resume(throwing: error) }
+                            else { continuation.resume() }
+                        }
+                    }
+                }
+                return
+            } catch {
+                // Retried on *any* error rather than on that one message,
+                // because a refusal does not arrive as one — HealthKit reports a
+                // denied read as success and no data. An error here is always
+                // infrastructural, so a second go is always worth having.
+                //
+                // Except our own timeout: if twenty seconds bought nothing, a
+                // further twenty is forty seconds of spinner for the same
+                // answer.
+                if case HealthError.stageFailed = error { throw error }
+                guard attempt == 1 else { throw error }
+            }
+        }
+    }
+
+    /// Holds until the app is frontmost, or gives up after `seconds`.
+    ///
+    /// **"Authorization session timed out" is not about elapsed time.** Two runs
+    /// on identically erased simulators: the one that worked waited *six
+    /// seconds* for `HealthPrivacyService` and drew its sheet; the one that
+    /// failed died two seconds after `App will resign active`. HealthKit
+    /// abandons the session when the app it would present over stops being
+    /// active — so the question is never how long it took, only whether anything
+    /// else took the screen.
+    ///
+    /// Nothing in this app can any more: every remaining permission request is
+    /// user-initiated and the picker connects one source at a time. This makes
+    /// that precondition explicit rather than assumed, and covers what we do not
+    /// control — a call, a system alert — by waiting for it to pass instead of
+    /// asking into it.
+    ///
+    /// Bounded, because a user who backgrounded the app is not coming back to a
+    /// sheet: five seconds and then the attempt proceeds anyway, so this can
+    /// only ever improve the odds and never becomes another way to hang.
+    @MainActor
+    private static func waitUntilActive(upTo seconds: TimeInterval = 5) async {
+        var waited: TimeInterval = 0
+        while UIApplication.shared.applicationState != .active, waited < seconds {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            waited += 0.2
+        }
+    }
+
+    /// Lets exactly one of two racers resume a continuation.
+    ///
+    /// A lock rather than an actor because the claim is made from inside
+    /// `withCheckedThrowingContinuation`'s body, which is not async and so has
+    /// nothing to await an actor on.
+    private final class StageBaton: @unchecked Sendable {
+        private let lock = NSLock()
+        private var taken = false
+
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if taken { return false }
+            taken = true
+            return true
         }
     }
 

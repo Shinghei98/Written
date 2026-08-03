@@ -200,10 +200,20 @@ struct DashboardView: View {
         )
         .overlay { biographicsSheet }
         .preferredColorScheme(.light)
-        // The district row is meant to be there without being asked for, so the
-        // fix is taken when the screen that shows it first appears — once only,
-        // see `captureLocationIfNeeded`.
-        .task { viewModel.captureLocationIfNeeded() }
+        // **The location fix is asked for by `DashboardTab`, not here.** This
+        // was a `.task` on this view, and `AppShell` mounts every tab at launch
+        // — so the district row's permission alert appeared over the *garden*,
+        // seconds into a first run, from a screen the user had never opened.
+        //
+        // Which is worse than merely startling. A system alert owns the screen
+        // while it is up, and HealthKit draws its own sheet by launching another
+        // process and hosting a view from it: asked to present underneath this
+        // one, it cannot, and gives up with "Authorization session timed out" —
+        // no sheet, no refusal, nothing to react to. Connecting Apple Health as
+        // a first-time user failed for exactly this reason.
+        //
+        // See `DashboardTab.isVisible`, which is the flag that already knows
+        // whether this screen is the one being looked at.
     }
 
     /// Signs off on what was collected. The editing above is the reason this

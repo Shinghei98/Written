@@ -104,7 +104,65 @@ simulator**, but its database starts empty, so add samples in the simulator's
 Health app or every distill comes back empty. On device it needs HealthKit
 enabled on the App ID — and note that with no `DEVELOPMENT_TEAM` set, Xcode
 silently strips the entitlement at packaging (the built `.xcent` is empty), so a
-device build fails to read Health with no obvious cause.
+device build fails to read Health with no obvious cause. **`CODE_SIGNING_ALLOWED=NO`
+does the same thing to a simulator build**, and HealthKit reports the result as
+`Missing com.apple.developer.healthkit entitlement` through `log show` and as an
+ordinary authorization failure on screen — so it looks like a bug in the app.
+Two verification runs were spent on that. `xcodebuild test` signs correctly;
+building with that flag and hand-installing from DerivedData does not.
+
+**HealthKit does not draw its own permission sheet, and that is the whole of the
+first-run bug.** It asks SpringBoard to launch `com.apple.HealthPrivacyService`
+and hosts a remote view from it. If anything else owns the screen, or that
+process is still cold-starting, it cannot present — and it does not report a
+refusal or wait. It gives up:
+
+    Asking defaultShell to open app viewservice com.apple.HealthPrivacyService
+    App will resign active
+    FAILED prompting authorization request …, error Authorization session timed out
+    Request successful: <BSProcessHandle: HealthPrivacySe:10724>
+
+— the service finishing its launch *four seconds after* HealthKit stopped
+waiting. Three consequences, each paid for:
+
+- **Never raise another permission alert near this one.** The alert that was
+  stealing the screen was the location fix, fired from `DashboardView.task` —
+  and `AppShell` mounts all five tabs, so it ran at launch from a screen the user
+  had never opened. Any permission asked for on `.task`/`.onAppear` in this app
+  must be gated on that tab's `isVisible`.
+- **One retry is worth having**, since the service is warm the second time. A
+  refusal never arrives as an error here — a denied read is reported as success
+  with no data — so an error from `requestAuthorization` is always
+  infrastructural.
+- **It only happens to people who have never been asked**, which is why it
+  survived so long: on any device that has answered once, the call returns
+  instantly with nothing to present. Testing Health on your own phone proves
+  nothing about a new user's phone.
+
+**A failure has to be drawn against the branch that was attempted.**
+`GrowProfileView`'s prompt card asked `nextModality` what went wrong, which is
+right only while the two agree. Connect a source out of sequence — Lifestyle when
+Media is next — and the error is recorded against Lifestyle while the card
+interrogates Media, gets nil, and draws "Ready to grow?" as though nothing had
+been tried. That is what the whole first-run report reduced to: the watering can
+runs, the screen returns to exactly how it was, and with no ending drawn there is
+no way to tell that it ended. Reported as "it just keeps loading and never
+ended".
+
+**A `withThrowingTaskGroup` cannot impose a timeout on a call that never
+returns.** `HealthKitDistiller.stage` raced the work against a sleeper and
+claimed to survive a hung callback; it could not. A task group **awaits every
+child before it returns**, `cancelAll()` only sets a flag, and a task suspended
+in `withCheckedThrowingContinuation` never observes it — so the group waited
+forever on the one case the timeout existed for. Surviving a continuation nobody
+will resume means declining to wait for it, which requires an unstructured task
+that is deliberately abandoned.
+
+**Resetting HealthKit for a first-run test:** deleting the app does **not** do
+it — Health keeps the app listed with its toggles and a reinstall inherits them —
+and `simctl privacy` has no `health` service. `xcrun simctl erase` is the
+simulator's only reset; Settings → General → Transfer or Reset iPhone → Reset →
+**Reset Location & Privacy** is the device's, and it is device-wide.
 
 Testability differs and this trips people up: **YouTube works in the simulator**
 (it authenticates against a web account inside a browser sheet).

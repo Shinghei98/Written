@@ -460,13 +460,12 @@ final class DistillViewModel: ObservableObject {
                 }.value
 
                 // HealthKit reports a declined read as no data rather than as an
-                // error, so a zero-record distill is the one case worth naming:
+                // error, so a zero-record distill is the one case worth naming —
                 // otherwise the branch grows on an empty permission and the user
-                // is told nothing.
-                guard !newRecords.isEmpty else {
-                    healthStatus = .failed(message: HealthKitDistiller.HealthError.noData.localizedDescription)
-                    return
-                }
+                // is told nothing. **That check now lives in the distiller**,
+                // which is the only place that knows whether the user was ever
+                // shown the sheet, and so the only place that can say which of
+                // the two empty results this is. It arrives through `catch`.
 
                 // Everything the lifestyle card shows is worked out here, while
                 // the raw rows still exist — because after the next line they
