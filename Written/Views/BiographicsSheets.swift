@@ -23,6 +23,10 @@ struct BiographicsSheet<Content: View>: View {
     let title: String
     var subtitle: String?
     var confirmEnabled = true
+    /// "Confirm" everywhere it is a biographics row. The report sheet says
+    /// "Report", because a button that names what it does is the difference
+    /// between confirming an edit and accusing somebody.
+    var confirmTitle = "Confirm"
     let onConfirm: () -> Void
     let onCancel: () -> Void
     @ViewBuilder var content: Content
@@ -51,7 +55,7 @@ struct BiographicsSheet<Content: View>: View {
                 content
 
                 Button(action: onConfirm) {
-                    Text("Confirm")
+                    Text(confirmTitle)
                 }
                 .buttonStyle(
                     PressShrinkButtonStyle(

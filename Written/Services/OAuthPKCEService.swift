@@ -37,6 +37,22 @@ struct OAuthProvider {
             configHint: "AppConfig.googleClientID"
         )
     }
+
+    /// Restored for the data-collection beta; see `AppConfig.spotifyClientID`.
+    static var spotify: OAuthProvider {
+        OAuthProvider(
+            name: "Spotify",
+            authorizationURL: "https://accounts.spotify.com/authorize",
+            tokenURL: "https://accounts.spotify.com/api/token",
+            clientID: AppConfig.spotifyClientID,
+            redirectScheme: AppConfig.spotifyRedirectScheme,
+            redirectURI: AppConfig.spotifyRedirectURI,
+            scope: AppConfig.spotifyScope,
+            extraAuthParameters: [:],
+            configHint: "AppConfig.spotifyClientID"
+        )
+    }
+
 }
 
 /// One-tap sign-in using ASWebAuthenticationSession + PKCE.

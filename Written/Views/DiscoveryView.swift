@@ -14,6 +14,11 @@ import SwiftUI
 /// rubber-banding all come with it. Cards are their own height now, so two can
 /// be on screen at once and the feed can rest anywhere between them.
 struct DiscoveryView: View {
+    /// Only for the ban list. The feed is its own model; this is the one thing
+    /// it needs that lives elsewhere, and it lives elsewhere because a block is
+    /// pushed and restored with everything else the user has struck off.
+    @ObservedObject var viewModel: DistillViewModel
+
     @StateObject private var model = DiscoveryModel()
     /// Nothing sets this while sharing is switched off. Kept declared rather than
     /// commented out with its two call sites, because `shareButton` below reads
@@ -77,7 +82,11 @@ struct DiscoveryView: View {
 //            }
         }
         .preferredColorScheme(.light)
-        .task { await model.load() }
+        .task { await model.load(hiding: viewModel.bans.keys(.person)) }
+        // Somebody unmatched from the Chat tab while this feed was already
+        // built. `load` will not run again — it guards on `items.isEmpty` — so
+        // the purge has to be driven by the ban itself.
+        .onChange(of: viewModel.bans) { list in model.hide(list.keys(.person)) }
     }
 
     private func feed(width: CGFloat, viewportCentre: CGFloat) -> some View {
@@ -207,6 +216,15 @@ final class DiscoveryModel: ObservableObject {
     /// card as untouched.
     @Published private(set) var liked: Set<String> = []
 
+    /// Who this account has blocked, by person id, lowercased.
+    ///
+    /// Kept beside `liked` and filtered in the same three places, because the
+    /// two rules differ only in when they apply: a like leaves the feed on the
+    /// next scroll, deliberately, so the heart can be seen filling. A block
+    /// leaves at once — there is no feedback to preserve and the whole point is
+    /// not seeing them.
+    private var banned: Set<String> = []
+
     private var feed: DiscoveryFeed?
 
     func hasLiked(_ personID: String) -> Bool { liked.contains(personID) }
@@ -219,6 +237,15 @@ final class DiscoveryModel: ObservableObject {
         // Shown immediately, taken back if the write fails. A heart that waits
         // for a round trip feels broken at exactly the moment it matters.
         liked.insert(personID)
+
+        // **`items` is deliberately not touched here.** Pulling this person's
+        // cards out on the tap took the post out from under the reader's thumb
+        // and hid the one piece of feedback the gesture has — a heart they never
+        // got to see fill. They leave on the next scroll instead; see `extend`.
+        //
+        // It also makes the failure path below honest again: nothing was
+        // removed, so nothing has to be put back.
+
         Task {
             let landed = await LikeService.shared.like(personID: personID)
             guard !landed else { return }
@@ -250,7 +277,8 @@ final class DiscoveryModel: ObservableObject {
         if failure == shown { failure = nil }
     }
 
-    func load() async {
+    func load(hiding blocked: Set<String> = []) async {
+        banned = blocked
         guard items.isEmpty else { return }
         // SHARED VIDEOS ARE SWITCHED OFF. The query goes with the display rather
         // than being left running: fetching rows for a feed that cannot show
@@ -269,15 +297,39 @@ final class DiscoveryModel: ObservableObject {
             failure = await DiscoveryService.shared.lastError
             return
         }
+
+        // **Two different kinds of empty, and only one of them is a problem.**
+        // No rows at all is handled above and reports whatever went wrong. Rows
+        // that are all people you have already liked is not a fault — it is
+        // having got to the end — so it must leave `failure` nil and let the
+        // empty state say so, rather than complaining about a network that
+        // worked perfectly.
+        let unliked = people.filter { !liked.contains($0.id) && !banned.contains($0.id.lowercased()) }
+        guard !unliked.isEmpty else {
+            items = []
+            failure = nil
+            return
+        }
         // The whole switch is this one omitted argument. `posts:` defaults to
         // empty and `DiscoveryFeed.nextItem` emits a `.shared` case only when it
         // is non-empty, so nothing downstream needs touching — restoring the
         // feature is putting `posts: posts` back.
-        var feed = DiscoveryFeed(people: people)
-//        var feed = DiscoveryFeed(people: people, posts: posts)
+        var feed = DiscoveryFeed(people: unliked)
+//        var feed = DiscoveryFeed(people: unliked, posts: posts)
         items = feed.nextItems(12)
         self.feed = feed
         failure = nil
+    }
+
+    /// Applies a block to a feed that is already on screen.
+    ///
+    /// Unlike the like purge this takes items *above* the viewport too, which
+    /// moves what is being read — accepted, because the alternative is leaving
+    /// somebody just blocked one scroll away.
+    func hide(_ blocked: Set<String>) {
+        guard blocked != banned else { return }
+        banned = blocked
+        items.removeAll(where: isBannedProfile)
     }
 
     /// Puts a just-shared video at the top, rather than waiting for a reload to
@@ -291,10 +343,52 @@ final class DiscoveryModel: ObservableObject {
     /// Grows the feed as the reader nears its end. The rotation rules already
     /// make it endless; the list only has to keep up.
     func extend(reaching index: Int) {
+        // **The purge runs on every row, above the near-the-end guard.** A row
+        // appearing is the only scroll signal this view has, and "they go on the
+        // next scroll" needs all of them, not just the last three.
+        //
+        // Strictly *after* `index`, which is the whole of the care here.
+        // Removing an item above the viewport shifts everything below it upward
+        // and moves what is being read mid-scroll. So the card just liked stays
+        // where it is — scroll back and it is still there, heart filled — and
+        // what goes is every appearance still ahead.
+        if items.count > index + 1 {
+            let ahead = items[(index + 1)...]
+            if ahead.contains(where: isLikedProfile) {
+                items = Array(items[...index]) + ahead.filter { !isLikedProfile($0) }
+            }
+        }
+
         guard var feed, index >= items.count - 3 else { return }
-        items += feed.nextItems(6)
+
+        // The rotation still holds everyone it was built with — `people` is
+        // `let`, and rebuilding it here would reshuffle the whole feed under
+        // somebody mid-scroll. Filtering its *output* costs nothing and leaves
+        // the rotation's spacing rule intact.
+        //
+        // **Bounded.** Asking until six survive would spin forever once
+        // everything left in the rotation has been liked, which is reachable:
+        // there are six synthetic accounts. A fixed number of attempts means the
+        // list simply stops growing instead, which is the truth.
+        var fresh: [DiscoveryFeed.Item] = []
+        for _ in 0..<4 {
+            fresh += feed.nextItems(6).filter { !isLikedProfile($0) && !isBannedProfile($0) }
+            if fresh.count >= 6 { break }
+        }
+        items += fresh
         self.feed = feed
     }
+
+    private func isLikedProfile(_ item: DiscoveryFeed.Item) -> Bool {
+        guard case .profile(let profile) = item else { return false }
+        return liked.contains(profile.personID)
+    }
+
+    private func isBannedProfile(_ item: DiscoveryFeed.Item) -> Bool {
+        guard case .profile(let profile) = item else { return false }
+        return banned.contains(profile.personID.lowercased())
+    }
+
 }
 
 /// One person, as an Instagram post — the same furniture as

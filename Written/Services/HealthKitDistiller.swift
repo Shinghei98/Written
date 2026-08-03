@@ -46,25 +46,31 @@ struct HealthKitDistiller {
                 return "Apple Health isn't available on this device."
             case .stageFailed(let detail):
                 let message = "Apple Health didn't respond. Try again — and if it keeps happening, "
-                    + "check Health › Profile › Apps › Written, or Settings › Privacy & Security › Health."
+                    + "open Health and check Data Access & Devices › Written."
                 #if DEBUG
                 return "\(message)\n[\(detail)]"
                 #else
                 return message
                 #endif
             case .noData:
-                // Names Privacy & Security first because that is the switch that
-                // actually gates it — with Health off there, the permission
-                // sheet never appears at all and the request simply never
-                // returns, which is indistinguishable from the app being stuck.
-                return "Nothing came back from Apple Health. Open Health › Profile › Apps › Written and turn the categories on — then try again. If they are already on, there may be no workouts or activity recorded yet, or Health itself may be switched off for Written under Settings › Privacy & Security."
+                // **Short, and it names the right place.** This used to spell
+                // out "Health › Profile › Apps › Written" — three levels, the
+                // wrong ones, and the length is what overflowed the prompt card
+                // and pushed its own button out of sight. The switches are under
+                // Data Access & Devices, and the card's button now goes there.
+                //
+                // It does not claim a refusal. A read that returns nothing is
+                // either a denied permission or an empty Health app, and
+                // HealthKit will not say which — so the sentence has to carry
+                // both without picking one.
+                return "Nothing came back from Apple Health. Turn Written's categories on under Data Access & Devices, or there may be no workouts recorded yet."
             }
         }
     }
 
     /// Everything we ask to read. Workouts carry the sport and its duration;
     /// exercise minutes and active energy carry the intensity.
-    private var readTypes: Set<HKObjectType> {
+    private static var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = [
             HKObjectType.workoutType(),
             // Characteristics, not samples: written once when the user set up
@@ -99,7 +105,7 @@ struct HealthKitDistiller {
         // own sake: this call once hung indefinitely, and because it sits before
         // every other stage the app simply spun with nothing to report.
         let store = self.store
-        let types = readTypes
+        let types = Self.readTypes
         try await Self.stage("authorize") {
             // The completion-handler API, bridged by hand, rather than the async
             // overload. `DistillViewModel` is `@MainActor`, so the async version

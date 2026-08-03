@@ -87,6 +87,37 @@ enum RelativeTime {
         return formatter
     }()
 
+    /// The label on a chat's day separator: "Today", "Yesterday", "Monday",
+    /// or "Fri, 24 Jun" once it is further back than that.
+    ///
+    /// **Calendar days, not elapsed hours.** A message at 11pm and one at 1am
+    /// are two hours apart and belong to different days, which is the whole
+    /// reason the separator exists; anything counting seconds would put them
+    /// together. `isDateInToday` and friends ask the calendar, so this is also
+    /// right across a daylight-saving change, where a "day" is 23 or 25 hours.
+    ///
+    /// Weekday names stop at six days back. Beyond that "Monday" is ambiguous —
+    /// there is more than one — and a date is shorter than explaining which.
+    static func daySeparator(for date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: date),
+            to: calendar.startOfDay(for: now)
+        ).day ?? 0
+        if (0...6).contains(days) { return weekday.string(from: date) }
+
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        return (sameYear ? dayAndMonth : dayMonthYear).string(from: date)
+    }
+
+    private static let weekday = formatter(template: "EEEE")
+    private static let dayAndMonth = formatter(template: "EEE d MMM")
+    private static let dayMonthYear = formatter(template: "EEE d MMM y")
+
     /// "12 Mar" while it is still this year, "12 Mar 2025" once it is not —
     /// carrying the year on everything would make the common case noisier for the
     /// sake of the rare one.

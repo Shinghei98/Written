@@ -19,6 +19,19 @@ struct BanList: Codable, Equatable {
         /// A workout type — "Yoga", "Running". Health is the most personal of
         /// the three branches, so being able to strike one off matters most here.
         case sport
+        /// Somebody unmatched or reported, keyed by their user id.
+        ///
+        /// **The odd one out, and it earns its place here.** The other three
+        /// strike content off your own distillation; this hides a person. What
+        /// they share is everything that made adding it a single line: the list
+        /// is cached locally so a block applies with no round trip, pushed by
+        /// `SyncService.pushBans`, restored by `RestoreService`, and covered by
+        /// an RLS policy that is already `auth.uid() = user_id`. `bans.kind` is
+        /// plain text with no check constraint, so this needed no migration.
+        ///
+        /// Keyed by id rather than by name because two people share a name and
+        /// neither should inherit the other's block.
+        case person
     }
 
     struct Entry: Codable, Hashable {
@@ -36,6 +49,12 @@ struct BanList: Codable, Equatable {
     func contains(_ kind: Kind, _ key: String) -> Bool {
         let needle = key.lowercased()
         return entries.contains { $0.kind == kind && $0.key.lowercased() == needle }
+    }
+
+    /// Every key struck off under one kind, lowercased so callers can test
+    /// membership as cheaply as `contains` does.
+    func keys(_ kind: Kind) -> Set<String> {
+        Set(entries.filter { $0.kind == kind }.map { $0.key.lowercased() })
     }
 
     mutating func add(_ kind: Kind, _ key: String) {

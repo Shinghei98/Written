@@ -136,6 +136,11 @@ enum DebugLaunch {
     /// `-chat sample` → fill the Chat tab with fabricated admirers and threads.
     /// `-chat admirers` → the same, then open the admirers list.
     /// `-chat thread` → the same, then open the newest conversation.
+    /// `-chat swiped` → the same, with the first row swiped open. The unmatch
+    /// and report buttons are behind a drag, and `simctl` sends taps but not
+    /// drags — so without this the one thing worth looking at is the one thing
+    /// a screenshot cannot reach. `-chat report` opens the report sheet, which
+    /// is two taps beyond that drag.
     ///
     /// The real ones need two accounts, an applied migration and somebody on the
     /// other end. The *layout* needs none of that, and two things on this screen
@@ -152,7 +157,9 @@ enum DebugLaunch {
     }
 
     static var showsSampleChat: Bool {
-        ["sample", "admirers", "thread", "typing"].contains(chatTarget ?? "")
+        // `-memo` implies it: the voice sheet is inside a thread, and a thread
+        // needs a conversation to be inside.
+        memoState != nil || ["sample", "admirers", "thread", "typing", "swiped", "report"].contains(chatTarget ?? "")
     }
 
     /// Long enough for the list underneath to have drawn, so a screenshot taken
@@ -182,6 +189,18 @@ enum DebugLaunch {
     /// means the same thing on an SE and a Pro Max.
     static var revealFraction: Double? {
         UserDefaults.standard.string(forKey: "reveal").flatMap(Double.init)
+    }
+
+    /// `-memo review` / `-memo empty` / `-memo holding` → open a chat thread with
+    /// the voice-memo sheet already up, in that state.
+    ///
+    /// The sheet is reached by *holding* the microphone, and `simctl` can send
+    /// neither a hold nor a tap — so without this its proportions can only be
+    /// judged on a device, by eye, which is how they came out wrong twice. With
+    /// it the pill, the send button and the retry glyph can be measured against
+    /// the reference the same way everything else in this project is.
+    static var memoState: String? {
+        UserDefaults.standard.string(forKey: "memo")
     }
 
     /// `-solo 1` → build only the tab you are on, and none of the other four.

@@ -205,8 +205,39 @@ struct SeedlingView: View {
 
     // MARK: - Growing
 
+    /// Everything at its finished value, with nothing animating.
+    ///
+    /// **A plant that was already grown when the app opened must not grow
+    /// again.** The entrance is the story of it appearing, and it is worth
+    /// watching exactly once — on a relaunch it is a two-second wait to arrive
+    /// at the picture that was already true, and it reads as the screen loading
+    /// rather than as anything alive.
+    private func settle() {
+        stemProgress = 1
+        leafScale = 1
+        leafOpacity = 1
+        extended = stage.extended
+        shootProgress = 1
+        for shoot in SeedlingArt.shoots {
+            for (index, leaflet) in shoot.leaflets.enumerated() {
+                // Only what this stage has actually put out. A leaflet belonging
+                // to a shoot the plant has not reached stays closed, or stepping
+                // back through the stages would leave it hanging in mid-air.
+                let grown = shoot.stage.rawValue <= stage.rawValue
+                    && SeedlingArt.isOpen(leaflet, extended: stage.extended)
+                leafletScale[shoot.id][index] = grown ? 1 : 0.05
+                leafletOpacity[shoot.id][index] = grown ? 1 : 0
+            }
+        }
+    }
+
     /// First appearance: out of the soil, then the pair of cotyledons opens.
     private func play() {
+        // Arriving with a grown plant means this is a relaunch, not a beginning.
+        // A bare sprout still emerges — there is nothing to spoil, and that one
+        // *is* the story.
+        guard stage == .sprout else { return settle() }
+
         withAnimation(.easeOut(duration: 1.15).delay(Self.stemDelay)) {
             stemProgress = 1
         }

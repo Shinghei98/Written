@@ -37,6 +37,20 @@ struct ConversationView: View {
     @State private var isSending = false
     @State private var failure: String?
 
+    /// The recorder, and whether its sheet is up.
+    ///
+    /// Two pieces rather than one, because they end at different moments: the
+    /// finger comes off the microphone and the recording stops, but the sheet
+    /// stays for as long as it takes to decide whether to keep the take.
+    @StateObject private var memo = VoiceMemo()
+    @State private var isMemoOpen = false
+    /// Whether the take running now began at the composer's microphone.
+    ///
+    /// The sheet draws a different row for a held take than for a tapped one —
+    /// see `VoiceMemoBanner.isHeld` — and only this view knows which gesture
+    /// started it.
+    @State private var isMemoHeld = false
+
     /// Whether the other person is typing right now.
     ///
     /// **Nothing sets this yet, and that is a gap rather than an oversight.**
@@ -74,11 +88,75 @@ struct ConversationView: View {
             ChatBackground()
 
             thread
+                // **A tap anywhere in the thread puts the keyboard away.**
+                //
+                // `contentShape` first, because without it only the bubbles are
+                // hit-testable and the gaps between them — most of the screen in
+                // a short conversation — would swallow the tap. The whole
+                // message area is the target, which is the point.
+                //
+                // `simultaneousGesture`, not `onTapGesture`: an attachment is
+                // tappable and a plain tap gesture here would eat it. This runs
+                // alongside whatever the tap was also for, and a drag is
+                // untouched, so scrolling still works.
+                //
+                // Attached to `thread` rather than to the `ZStack` so it covers
+                // exactly the right region on its own — the banner is drawn
+                // above and keeps its own taps, and the composer sits outside in
+                // a `safeAreaInset`.
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    // **Anywhere outside the sheet closes it and gives the
+                    // keyboard back**, which is the same tap that dismisses the
+                    // keyboard when no memo is open. One gesture, two meanings,
+                    // decided by what is currently covering the composer.
+                    if isMemoOpen { closeMemo() } else { dismissKeyboard() }
+                })
 
             // Last in the stack, so the chat passes beneath it.
             banner
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        // **The composer stays mounted and the sheet is layered over it.**
+        //
+        // Swapping one for the other is the obvious arrangement and it broke the
+        // whole gesture: the microphone button carries the `DragGesture`, and
+        // replacing the composer *destroys that button the instant recording
+        // starts*. A destroyed recogniser never delivers `.onEnded`, so lifting
+        // the finger did nothing at all and the take ran on to its sixty-second
+        // cap. The touch is already being tracked by the time the sheet appears,
+        // so as long as the view still exists the release arrives.
+        //
+        // It is also what the reference shows. The gold disc in the sheet's
+        // corner sits exactly where the microphone is, because the finger has
+        // never left the microphone.
+        .safeAreaInset(edge: .bottom) {
+            ZStack(alignment: .bottom) {
+                composer
+
+                if isMemoOpen {
+                    VoiceMemoBanner(
+                        memo: memo,
+                        isHeld: isMemoHeld,
+                        onStartTapped: {
+                            isMemoHeld = false
+                            Task { await memo.startRecording() }
+                        },
+                        onStopTapped: { memo.stopRecording() },
+                        onRetry: { memo.discard() },
+                        onSend: {
+                            // Sendable mid-take, which the reference allows: the
+                            // arrow is on screen while a tapped recording runs.
+                            // Stop first, or the file would be uploaded while
+                            // still being written to.
+                            if memo.isRecording { memo.stopRecording() }
+                            sendMemo()
+                        }
+                    )
+                    .transition(.move(edge: .bottom))
+                }
+            }
+        }
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isMemoOpen)
         .photosPicker(
             isPresented: $isPickingMedia,
             selection: $picked,
@@ -111,6 +189,12 @@ struct ConversationView: View {
             // failed and one side of the conversation quietly vanished — with
             // both sides grey, which is exactly what a broken side looks like.
             if DebugLaunch.showsSampleChat, myID == nil { myID = Self.sampleMe }
+            // `-memo review|empty|holding`; see `DebugLaunch.memoState`.
+            if let state = DebugLaunch.memoState {
+                memo.seedForPreview(state)
+                isMemoHeld = state == "holding"
+                isMemoOpen = true
+            }
 #endif
             await reload()
             // Cancelled with the view. A `while true` here would be a leak; this
@@ -121,6 +205,19 @@ struct ConversationView: View {
                 await reload()
             }
         }
+    }
+
+    /// Puts the keyboard away without owning the focus.
+    ///
+    /// The composer's field manages its own first responder — there is no
+    /// `FocusState` here to set to `nil` — so this asks whoever holds it to give
+    /// it up, the same way `DashboardView.closeEditor` does for the biographics
+    /// sheets. Sending to `nil` walks the responder chain, which is what lets a
+    /// view that does not know about the field dismiss it.
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
     }
 
     // MARK: - The thread
@@ -146,7 +243,14 @@ struct ConversationView: View {
                 // The earlier pair — 2 and 14 — had the between-speaker gap
                 // about right and the within-run one less than half what it
                 // should be, which read as cramped rather than grouped.
-                LazyVStack(spacing: 5) {
+                // **`pinnedViews: [.sectionHeaders]` is the sticky behaviour.**
+                //
+                // One section per calendar day, and SwiftUI keeps the current
+                // day's pill at the top of the viewport until the next one
+                // pushes it off — which is what WhatsApp does and what a
+                // hand-rolled overlay would have to reimplement badly, by
+                // tracking scroll offsets against message frames.
+                LazyVStack(spacing: 5, pinnedViews: [.sectionHeaders]) {
                     // Reaching the oldest message on screen asks for the page
                     // before it. Safe here for the reason `DiscoveryView`'s
                     // `onAppear` paging is: a `LazyVStack` builds only what is
@@ -158,29 +262,43 @@ struct ConversationView: View {
                             .onAppear { loadOlder(before: oldest.sentAt) }
                     }
 
-                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        let previous = index > 0 ? messages[index - 1] : nil
-                        // **A photo ends the run.** The rule was "same sender as
-                        // the message before", which is right until the message
-                        // before is an attachment — those draw no bubble and
-                        // carry no tail, so the text under a photo looked like
-                        // the *middle* of a run and lost its tail while plainly
-                        // beginning one. Anything that did not draw a tailed
-                        // bubble has to break the group.
-                        let startsRun = previous == nil
-                            || previous?.senderID != message.senderID
-                            || previous?.attachmentPath != nil
+                    ForEach(Self.days(in: messages)) { day in
+                        Section {
+                            ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
+                                let previous = index > 0 ? day.messages[index - 1] : nil
+                                // **A photo ends the run.** The rule was "same
+                                // sender as the message before", which is right
+                                // until the message before is an attachment —
+                                // those draw no bubble and carry no tail, so the
+                                // text under a photo looked like the *middle* of
+                                // a run and lost its tail while plainly
+                                // beginning one. Anything that did not draw a
+                                // tailed bubble has to break the group.
+                                //
+                                // A new day breaks it too, and falls out for
+                                // free: `previous` is nil at the top of a
+                                // section, so the first message after a
+                                // separator always starts a run.
+                                let startsRun = previous == nil
+                                    || previous?.senderID != message.senderID
+                                    || previous?.attachmentPath != nil
 
-                        MessageBubble(
-                            message: message,
-                            isMine: message.senderID == myID,
-                            containerWidth: width,
-                            startsRun: startsRun
-                        )
-                        .id(message.id)
-                        // Brings a change of speaker to the measured 13pt: 5
-                        // from the stack plus 8 here. A run stays at 5.
-                        .padding(.top, startsRun && index > 0 ? 8 : 0)
+                                MessageBubble(
+                                    message: message,
+                                    isMine: message.senderID == myID,
+                                    containerWidth: width,
+                                    startsRun: startsRun
+                                )
+                                .id(message.id)
+                                // Brings a change of speaker to the measured
+                                // 13pt: 5 from the stack plus 8 here. A run
+                                // stays at 5. Not on the first of a section —
+                                // the separator above it is already the gap.
+                                .padding(.top, startsRun && index > 0 ? 8 : 0)
+                            }
+                        } header: {
+                            DayDivider(label: day.label)
+                        }
                     }
 
                     if isPartnerTyping {
@@ -196,8 +314,21 @@ struct ConversationView: View {
                 // precisely so a message part-way behind it still reads as a
                 // message rather than as a clipped edge — but the *first* one
                 // should start below it, not under it.
-                .padding(.top, Self.bannerHeight + 14)
+                //
+                // Padding alone is no longer enough. A pinned section header
+                // sticks to the **scroll view's** top edge, which is behind the
+                // banner, so the day pill parked itself under it and could not
+                // be read. Content padding does not move that edge; a safe-area
+                // inset does.
+                .padding(.top, 14)
                 .padding(.bottom, 10)
+            }
+            // Where the day pill comes to rest. `Color.clear` rather than the
+            // banner itself: the banner is drawn in the `ZStack` above so that
+            // the chat passes beneath it, and this only has to reserve the
+            // height so the scroll view's top edge lands below it.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: Self.bannerHeight)
             }
             // The end of the thread is where a conversation is read from, so it
             // opens there rather than at its beginning.
@@ -387,7 +518,40 @@ struct ConversationView: View {
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
                 } else {
                     HStack(spacing: 4) {
+                        // **Hold, not tap.** A `Button` reports a press and a
+                        // release together as one event, so it cannot say when
+                        // the finger went down — which is the only thing this
+                        // control needs to know. A zero-distance drag can.
+                        //
+                        // The sheet opens on the way down, so it is already
+                        // there when the first sample arrives; the keyboard goes
+                        // at the same moment, because the composer it belongs to
+                        // is about to be replaced.
                         composerIcon("mic", label: "Record a voice message")
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { _ in
+                                        guard !isMemoOpen else { return }
+                                        // The first hold ever only asks. The
+                                        // prompt takes the touch, so a take
+                                        // started behind it would begin after
+                                        // the finger had lifted and would have
+                                        // no release to end it. Ask now, record
+                                        // on the next hold.
+                                        guard memo.isPermissionDecided else {
+                                            Task { _ = await memo.hasPermission() }
+                                            return
+                                        }
+                                        dismissKeyboard()
+                                        isMemoOpen = true
+                                        isMemoHeld = true
+                                        Task { await memo.startRecording() }
+                                    }
+                                    // Straight to the take the instant the
+                                    // finger lifts, which is the whole gesture:
+                                    // hold to speak, let go to be done.
+                                    .onEnded { _ in memo.stopRecording() }
+                            )
 
                         // Presented from a plain view rather than using a
                         // `PhotosPicker` label directly — the same arrangement
@@ -443,6 +607,60 @@ struct ConversationView: View {
     }
 
     // MARK: - Sending
+
+    /// Closes the sheet and throws away whatever was in it.
+    ///
+    /// Tapping outside is a way *out*, not a way to park a recording — leaving
+    /// a take alive behind a closed sheet would mean the next tap on the
+    /// microphone found somebody else's audio already loaded.
+    private func closeMemo() {
+        isMemoOpen = false
+        memo.reset()
+    }
+
+    /// The up arrow: upload the take, write the message, close the sheet.
+    ///
+    /// Nothing optimistic here, unlike a text message. A voice bubble drawn
+    /// before its bytes exist would have nothing to play, and a bubble that
+    /// cannot be played is worse than a moment's wait — the same reasoning
+    /// `send()` gives for photographs.
+    private func sendMemo() {
+        guard let url = memo.recording, !isSending else { return }
+        let seconds = memo.duration
+        isSending = true
+        memo.stopPlayback()
+
+        Task {
+            guard let upload = await MediaService.shared.uploadVoice(at: url, to: conversation.id) else {
+                isSending = false
+                failure = await MediaService.shared.lastError
+                return
+            }
+            // The bytes are already on this device, so file them against the
+            // path they were uploaded to rather than fetching them back to play
+            // a recording we made ourselves.
+            if let data = try? Data(contentsOf: url) {
+                await MediaService.shared.seedCache(data, for: upload.path)
+            }
+            // The length rides in the body, which is otherwise empty for an
+            // attachment. `messages_have_content` allows that — a row needs a
+            // body *or* a path — and it saves the reader downloading the file
+            // to find out how long it is before deciding to hear it.
+            let sent = await ChatService.shared.send(
+                VoiceMemoBanner.clock(seconds),
+                in: conversation.id,
+                attachment: upload
+            )
+            isSending = false
+            guard sent else {
+                failure = await ChatService.shared.lastError ?? "That message didn't send."
+                return
+            }
+            isMemoOpen = false
+            memo.reset()
+            await reload()
+        }
+    }
 
     private func send() {
         guard hasDraft, !isSending else { return }
@@ -608,8 +826,18 @@ extension ConversationView {
     /// typing indicator show something.
     static func sampleMessages(mine: String) -> [ChatService.Message] {
         let them = "sample-partner"
+        // Spread across four calendar days on purpose, so every branch of
+        // `RelativeTime.daySeparator` is on one screen: a date beyond a week, a
+        // weekday name, Yesterday and Today. A thread that all happened this
+        // afternoon would draw one separator and prove nothing.
+        let day: TimeInterval = 86_400
         let script: [(String, String, TimeInterval)] = [
-            (them, "ok but you cannot claim to like Ravel and then say that", 8_400),
+            (them, "did you ever listen to the thing I sent", 9 * day),
+            (mine, "not yet. it is 40 minutes long", 9 * day - 900),
+            (them, "it is FOUR minutes long", 3 * day),
+            (mine, "then I have listened to it", 3 * day - 600),
+            (them, "you have not", day),
+            (mine, "ok but you cannot claim to like Ravel and then say that", 8_400),
             (mine, "say what", 8_100),
             (them, "that the Bolero is the good one", 7_900),
             (mine, "it IS the good one", 7_700),
@@ -617,7 +845,7 @@ extension ConversationView {
             (mine, "and yet you have listened to it four times this month, which I know, because this app told me", 5_900),
             (them, "that feels like a violation of something", 5_600),
         ]
-        return script.enumerated().map { index, line in
+        var messages = script.enumerated().map { index, line in
             ChatService.Message(
                 id: "sample-\(index)",
                 senderID: line.0,
@@ -625,9 +853,97 @@ extension ConversationView {
                 sentAt: Date().addingTimeInterval(-line.2)
             )
         }
+        // One of each side, so the voice bubble can be judged in both fills —
+        // gold has a much narrower contrast margin than grey and is where a
+        // too-faint waveform would show first.
+        //
+        // The path points at nothing on purpose. `VoiceBubble` asks
+        // `MediaService` for the file and draws an empty waveform when it gets
+        // nothing, which is the layout question this is here to answer; playing
+        // it back needs a real conversation and a real recording.
+        for (index, entry) in [(mine, "00:04", 5_200.0), (them, "01:12", 4_800.0)].enumerated() {
+            messages.append(
+                ChatService.Message(
+                    id: "sample-voice-\(index)",
+                    senderID: entry.0,
+                    body: entry.1,
+                    sentAt: Date().addingTimeInterval(-entry.2),
+                    attachmentPath: "sample/voice-\(index).m4a",
+                    attachmentKind: "audio"
+                )
+            )
+        }
+        return messages.sorted { $0.sentAt < $1.sentAt }
     }
 }
 #endif
+
+extension ConversationView {
+
+    /// One calendar day of the thread.
+    struct Day: Identifiable {
+        /// The start of the day, which is both the identity and the sort key.
+        let id: Date
+        let label: String
+        let messages: [ChatService.Message]
+    }
+
+    /// Splits the thread on calendar-day boundaries, in order.
+    ///
+    /// Grouped here rather than in `body`. It walks the whole thread, and a
+    /// SwiftUI body runs on any state change — an image finishing, a scroll
+    /// tick, the four-second poll — which is the same argument
+    /// `DistillViewModel` makes for deriving the dashboard once per
+    /// distillation instead of once per frame.
+    ///
+    /// `messages` is already sorted by `sentAt` (see `merge`), so one pass is
+    /// enough and nothing has to be re-sorted.
+    static func days(in messages: [ChatService.Message]) -> [Day] {
+        let calendar = Calendar.current
+        var days: [Day] = []
+        for message in messages {
+            let start = calendar.startOfDay(for: message.sentAt)
+            if let last = days.last, last.id == start {
+                days[days.count - 1] = Day(
+                    id: last.id, label: last.label, messages: last.messages + [message]
+                )
+            } else {
+                days.append(
+                    Day(
+                        id: start,
+                        label: RelativeTime.daySeparator(for: message.sentAt),
+                        messages: [message]
+                    )
+                )
+            }
+        }
+        return days
+    }
+}
+
+/// The day label between two messages, and the one that sticks to the top.
+///
+/// It is a section header, so the same view does both jobs — inline when its
+/// day is on screen, pinned while you scroll through it. That is why it is
+/// opaque rather than translucent: messages pass *underneath* it, and a
+/// material would let a bubble's text ghost through the words.
+struct DayDivider: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(GardenPalette.muted)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(GardenPalette.card, in: Capsule())
+            .overlay { Capsule().strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1) }
+            .shadow(color: .black.opacity(0.06), radius: 3, y: 1)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
 
 // MARK: - The background
 
@@ -837,14 +1153,24 @@ struct MessageBubble: View {
             if isMine { Spacer(minLength: 0) }
 
             VStack(alignment: isMine ? .trailing : .leading, spacing: 4) {
-                if message.attachmentPath != nil {
+                if message.isVoice {
+                    // Asked first, because `AttachmentThumbnail` would try to
+                    // decode an m4a as an image and draw the broken-file
+                    // placeholder. A voice memo is a player, not a picture.
+                    VoiceBubble(message: message, isMine: isMine)
+                } else if message.attachmentPath != nil {
                     AttachmentThumbnail(message: message)
                 }
                 // A photo sent without a caption has an empty body, which the
                 // `messages_have_content` constraint allows precisely so this
                 // case exists. Drawing it would put an empty bubble under the
                 // picture.
-                if !message.body.trimmingCharacters(in: .whitespaces).isEmpty {
+                //
+                // A voice memo carries its length in the body and draws it
+                // inside the player, so it must not also get a bubble of its
+                // own saying "00:03" underneath.
+                if !message.isVoice,
+                   !message.body.trimmingCharacters(in: .whitespaces).isEmpty {
                     bubble
                 }
             }

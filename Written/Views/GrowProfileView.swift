@@ -10,6 +10,21 @@ struct GrowProfileView: View {
     /// records, and the two have to be looking at one distillation.
     @ObservedObject var viewModel: DistillViewModel
 
+    init(
+        viewModel: DistillViewModel,
+        isOnboarding: Bool = false,
+        isVisible: Bool = true,
+        onRevealDrag: @escaping (CGFloat) -> Void = { _ in },
+        onRevealEnd: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.viewModel = viewModel
+        self.isOnboarding = isOnboarding
+        self.isVisible = isVisible
+        self.onRevealDrag = onRevealDrag
+        self.onRevealEnd = onRevealEnd
+        _displayedSkeleton = State(initialValue: viewModel.skeleton)
+    }
+
     @Environment(\.scenePhase) private var scenePhase
 
     /// Whether this is the first time through, before "Explore" has been
@@ -47,7 +62,21 @@ struct GrowProfileView: View {
     /// The tree currently on screen, which lags the view model's by one
     /// watering: the new shape must not appear until the can has poured, or the
     /// tree visibly grows before anything waters it.
-    @State private var displayedSkeleton = TreeSkeleton.make(from: .empty, seed: DistillViewModel.treeSeed)
+    /// The plant currently drawn, seeded from the view model in `init`.
+    ///
+    /// **Not `.empty`, and that is the whole of the re-assembling bug.** Starting
+    /// bare meant `SeedlingView` first appeared at `.sprout` and played its
+    /// entrance — a seed pushing out of the soil — before `growTree` set the real
+    /// skeleton a moment later and it grew the rest of the way. So every launch
+    /// replayed a plant the reader had already grown, and no amount of settling
+    /// inside `SeedlingView` could help: by the time the true stage arrived the
+    /// sprout was already climbing.
+    ///
+    /// `DistillViewModel.init` loads `RecordStore` and `LifestyleStore`
+    /// synchronously, so the skeleton is right here before the first frame — the
+    /// same reason `ConversationView` seeds its messages in `init` rather than in
+    /// `.task`, which runs one frame too late.
+    @State private var displayedSkeleton: TreeSkeleton
     @State private var treeOpacity: Double = 1
 
     /// How far up its climb the stem is, mirroring `SeedlingView`'s own value so
@@ -68,6 +97,15 @@ struct GrowProfileView: View {
     /// moment the records land, and the banner would rename itself while it was
     /// still fading out.
     @State private var distillingModality: Modality?
+    /// Which branch the user actually asked for, as opposed to which one the
+    /// plant would grow next.
+    ///
+    /// **These stopped being the same thing when the badges became tappable.**
+    /// A re-distillation of an already-connected source is not the next step in
+    /// the sequence, so reading `nextModality` named the wrong branch in the
+    /// banner and left the ring on the tapped badge sitting at a full circle —
+    /// no progress anywhere, which reads as the tap having done nothing.
+    @State private var requestedModality: Modality?
     @State private var distillProgress: Double = 0
     @State private var progressWalk: Task<Void, Never>?
 
@@ -189,30 +227,6 @@ struct GrowProfileView: View {
     /// this twice over and still leaves the rows better off than before.
     private static let handleHeight: CGFloat = 28
 
-    /// Where a refused permission is actually turned back on, per source.
-    ///
-    /// `x-apple-health://` is a public scheme and opens the Health app, which
-    /// owns the read toggles under Profile › Apps › Written. It is not an exact
-    /// deep link — nothing sanctioned is — but it lands in the app that holds
-    /// the switch, which Settings › Written does not. The `prefs:root=` URLs
-    /// that would land exactly are private API and a documented rejection
-    /// reason, so they are not an option.
-    ///
-    /// Falls back to Settings if Health cannot be opened, which is what happens
-    /// on an iPad or anywhere Health is not installed.
-    private static func openPermissions(for modality: Modality) -> () -> Void {
-        {
-            let health = URL(string: "x-apple-health://")
-            if modality.opensHealthApp, let health, UIApplication.shared.canOpenURL(health) {
-                UIApplication.shared.open(health)
-                return
-            }
-            if let settings = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(settings)
-            }
-        }
-    }
-
     /// Bumped when the app comes back to the front, so a permission changed
     /// while it was away is re-read. See `promptCard`.
     @State private var permissionTick = 0
@@ -322,6 +336,10 @@ struct GrowProfileView: View {
             if let source = DebugLaunch.connectSource, DebugLaunch.firesOnce("connect") {
                 Task {
                     try? await Task.sleep(nanoseconds: delay)
+                    // So `-connect` exercises the same attribution a tap does,
+                    // rather than falling back to `nextModality` and testing a
+                    // path no user takes.
+                    requestedModality = Modality.owning(source: source)
                     viewModel.distill(source: source)
                 }
             }
@@ -337,7 +355,10 @@ struct GrowProfileView: View {
         // come back, so it covers the whole wait — OAuth sheet included.
         .onChange(of: viewModel.isDistilling) { running in
             if running {
-                distillingModality = viewModel.treeState.nextModality
+                // What was asked for, falling back to the sequence for the
+                // paths that start a distillation without going through a
+                // picker — `-connect health` and the preview stepper.
+                distillingModality = requestedModality ?? viewModel.treeState.nextModality
                 isWatering = true
                 distillProgress = 0
                 progressWalk?.cancel()
@@ -371,6 +392,9 @@ struct GrowProfileView: View {
                     try? await Task.sleep(nanoseconds: 400_000_000)
                     distillingModality = nil
                     distillProgress = 0
+                    // Cleared with the rest, or the *next* run inherits this
+                    // one's branch and animates the wrong ring.
+                    requestedModality = nil
                 }
             }
         }
@@ -527,14 +551,32 @@ struct GrowProfileView: View {
                 // music note once connected rather than turning into whatever
                 // is offered next.
                 if displayedSkeleton.illustrated != nil {
-                    ModalityBadge(modality: .music, progress: badgeProgress(.music),
+                    // Whatever comes first in the sequence, not music by name.
+                    // The cotyledons are the plant's first growth, so they carry
+                    // the first modality — which is media now.
+                    ModalityBadge(modality: Self.firstModality,
+                                  progress: badgeProgress(Self.firstModality),
                                   diameter: Self.badgeRatio * side, isFloating: isVisible)
+                        // **Before `.position`, and that is not a style choice.**
+                        // `position` returns a view that fills its parent and
+                        // merely draws the child at a point — so a tap attached
+                        // after it covers the whole garden, not the badge. Four
+                        // of those overlap completely and the last in the ZStack
+                        // takes every tap, which is why every icon opened Events.
+                        .modifier(BadgeTap(modality: Self.firstModality,
+                                           isEnabled: !viewModel.isDistilling) {
+                            connect(Self.firstModality)
+                        })
                         .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size)))
                         // Arrives once the plant has finished opening, not with
                         // it: the seedling is the thing to look at first, and
                         // the badge is an invitation to what comes next.
                         .scaleEffect(hasBadgeArrived ? 1 : 0.72)
                         .opacity(hasBadgeArrived ? 1 : 0)
+                        // An opacity of 0 still takes taps in SwiftUI, unlike in
+                        // UIKit — so without this the badge is pressable during
+                        // the half second before it is visible.
+                        .allowsHitTesting(hasBadgeArrived)
                 }
 
                 // One per shoot, in the order the modalities unlock — each
@@ -558,9 +600,15 @@ struct GrowProfileView: View {
                         if let modality = shootModality(shoot) {
                             ModalityBadge(modality: modality, progress: badgeProgress(modality),
                                           diameter: Self.badgeRatio * side, isFloating: isVisible)
+                                // Before `.position` — see the note on the music
+                                // badge above.
+                                .modifier(BadgeTap(modality: modality, isEnabled: !viewModel.isDistilling) {
+                                    connect(modality)
+                                })
                                 .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size)))
                                 .scaleEffect(hasShootBadgeArrived[shoot.id] == true ? 1 : 0.72)
                                 .opacity(hasShootBadgeArrived[shoot.id] == true ? 1 : 0)
+                                .allowsHitTesting(hasShootBadgeArrived[shoot.id] == true)
                         }
                     }
                 }
@@ -653,6 +701,18 @@ struct GrowProfileView: View {
                     proxy.scrollTo(Self.promptsFoot, anchor: .bottom)
                 }
             }
+            // **A failure grows the card and changes nothing about the tree.**
+            //
+            // Which is why the line above never fired for one: `treeState` is
+            // the same before and after a distillation that returned nothing.
+            // The card got ~95pt taller inside a fixed 288pt window and the new
+            // content — the message's last lines, and the button under it —
+            // went below the fold, where it stayed for a week. Keyed on the
+            // statuses because that is what a failure actually moves.
+            .onChange(of: viewModel.healthStatus) { _ in scrollToFoot(proxy) }
+            .onChange(of: viewModel.calendarStatus) { _ in scrollToFoot(proxy) }
+            .onChange(of: viewModel.appleMusicStatus) { _ in scrollToFoot(proxy) }
+            .onChange(of: viewModel.youtubeStatus) { _ in scrollToFoot(proxy) }
         }
         .animation(.spring(response: 0.6, dampingFraction: 0.85), value: viewModel.treeState)
     }
@@ -660,6 +720,12 @@ struct GrowProfileView: View {
     /// The foot of the scrolling stack, which is where it should sit whenever
     /// the set of connections changes.
     private static let promptsFoot = "prompts-foot"
+
+    private func scrollToFoot(_ proxy: ScrollViewProxy) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) {
+            proxy.scrollTo(Self.promptsFoot, anchor: .bottom)
+        }
+    }
 
     /// The arrow at the foot of the page: the only sign that there is anything
     /// under it.
@@ -791,6 +857,18 @@ struct GrowProfileView: View {
 
                 Spacer(minLength: 0)
 
+                // **One button, and only ever one.**
+                //
+                // A failure used to grow a second button underneath explaining
+                // itself, which then sat below the fold of the 288pt reserve and
+                // was never seen by anybody. Whatever the card has to offer goes
+                // here, where the finger already is.
+                //
+                // It stays "Try again" for Health even though a retry cannot
+                // *grant* anything — HealthKit shows its sheet once. What a
+                // retry is for is re-reading after the switch has been changed
+                // in Health, which is the actual sequence: read the message, go
+                // and turn it on, come back and tap.
                 Button(action: { connect(next) }) {
                     HStack(spacing: 6) {
                         if viewModel.isDistilling {
@@ -856,28 +934,6 @@ struct GrowProfileView: View {
                     // reader find that place themselves is the difference
                     // between a dead end and a fix.
                     //
-                    // Where that place is differs by source, which is the part
-                    // this got wrong for a while. `openSettingsURLString` lands
-                    // on Written's own Settings page, and the Calendars switch
-                    // *is* there — one tap. Health is not on that page at all:
-                    // it lives under Privacy & Security, or in the Health app
-                    // under Profile › Apps. So the message named one place and
-                    // the button went to another.
-                    Button(action: Self.openPermissions(for: next)) {
-                        HStack(spacing: 5) {
-                            Image(systemName: next.opensHealthApp ? "heart" : "gearshape")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(next.opensHealthApp ? "Open Health" : "Open Settings")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(GardenPalette.gold)
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
-                        .overlay {
-                            Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1)
-                        }
-                    }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -989,6 +1045,13 @@ struct GrowProfileView: View {
         shoot.id == 0 ? 0.031 : 0
     }
 
+    /// The modality the cotyledon badge stands for: the first one connected.
+    ///
+    /// Read from the sequence rather than written as `.music`, which is what it
+    /// used to be — the order is now `Modality.allCases`' business alone, and a
+    /// name hardcoded here would quietly disagree with it.
+    private static var firstModality: Modality { Modality.allCases[0] }
+
     /// The third and last shoot, added at `.bough`. Named rather than written
     /// as `2` at the one place it is used, because it is a fact about the
     /// drawing rather than an arbitrary index.
@@ -1025,6 +1088,10 @@ struct GrowProfileView: View {
     /// also where "no apps available on this device" can be said at all.
     private func connect(_ modality: Modality) {
         pickedModality = modality
+        // Remembered here rather than worked out when the distillation starts:
+        // by then the only thing left to go on is `nextModality`, which is a
+        // different question and the wrong answer for a re-distill.
+        requestedModality = modality
     }
 
     private func growTree() async {
@@ -1050,10 +1117,33 @@ struct GrowProfileView: View {
             withAnimation(.easeIn(duration: 0.28)) { treeOpacity = 0 }
             try? await Task.sleep(nanoseconds: 280_000_000)
         }
+        // **A relaunch onto a grown plant is not a beginning.** `SeedlingView`
+        // settles rather than replaying its entrance in that case, and the
+        // badges have to agree — left as they were they would still pop in on
+        // their own timers, half a second after a plant that never grew, which
+        // reads worse than either behaviour on its own.
+        //
+        // Computed before `hasDrawnOnce` is set, since that is the flag being
+        // asked about.
+        let isRelaunchOntoGrown = !hasDrawnOnce && (next.illustrated ?? .sprout) != .sprout
+
         hasDrawnOnce = true
 
         displayedSkeleton = next
         treeOpacity = 1
+
+        if isRelaunchOntoGrown {
+            hasBadgeArrived = true
+            if let stage = next.illustrated {
+                for shoot in SeedlingArt.shoots(by: stage.extended) {
+                    hasShootBadgeArrived[shoot.id] = true
+                }
+            }
+            // Straight to full extension too. The animated form below is in step
+            // with a stem that, this time, is not climbing.
+            leafLift = next.illustrated?.extended ?? 1
+            return
+        }
 
         if !hasBadgeArrived {
             Task {
@@ -1245,10 +1335,35 @@ struct ConnectedBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("Connected to \(modality.label)")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(GardenPalette.ink)
-                .lineLimit(1)
+            // **Every label takes the width of the widest one**, so the app
+            // marks beside them form a column instead of landing wherever their
+            // own text happens to end. Several of these stack up, and four marks
+            // at four different x read as a mistake rather than as a list.
+            //
+            // A `ZStack` is the whole mechanism: it takes the size of its
+            // largest child, so the column lands on "Lifestyle" — the longest of
+            // the four — on its own. No measured constant, and it stays right if
+            // a fifth modality arrives with a longer name.
+            //
+            // The alternative, a fixed `minWidth`, would be wrong at every text
+            // size but the one it was measured at. This app mixes two font
+            // systems and only one of them scales; hardcoding a width here is
+            // exactly the class of thing the Dynamic Type axis of the layout
+            // audit exists to catch.
+            ZStack(alignment: .leading) {
+                ForEach(Modality.allCases) { other in
+                    Text("Connected to \(other.label)")
+                        .hidden()
+                        .accessibilityHidden(true)
+                }
+                Text("Connected to \(modality.label)")
+            }
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(GardenPalette.ink)
+            .lineLimit(1)
+            // The sizing copies must not be squeezed by a narrow row, or the
+            // column they define would move with whichever label is real.
+            .fixedSize(horizontal: true, vertical: false)
 
             HStack(spacing: 6) {
                 ForEach(sources, id: \.self) { source in
@@ -1339,6 +1454,41 @@ private struct StepProgressBar: View {
         }
     }
 }
+
+/// Makes a badge on the plant do what its row in the stack below does.
+///
+/// The badges were decoration — the only way to connect or re-distil a source
+/// was the button in the prompt card, and the icon *for* that source, sitting
+/// on the plant it grew, did nothing when pressed. Tapping the thing you mean
+/// is the shorter route, and it is the one people try first.
+///
+/// `onTapGesture` rather than wrapping the badge in a `Button`, for two
+/// reasons. A button styles and animates its label, which would fight the
+/// badge's own bob and its arrival spring. And the garden carries a pull-up
+/// `DragGesture` during onboarding — a tap gesture leaves drags alone, where a
+/// button's own gesture recogniser competes for them, and a badge that
+/// swallowed the pull would be a worse loss than a shortcut is a gain.
+struct BadgeTap: ViewModifier {
+    let modality: Modality
+    let isEnabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // The whole disc, not just the glyph and the ring: the badge is
+            // mostly empty space and a tap that only lands on the note would
+            // read as the icon being unreliable rather than untappable.
+            .contentShape(Circle())
+            .onTapGesture {
+                guard isEnabled else { return }
+                action()
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Connect \(modality.label)")
+            .accessibilityHint("Opens the list of apps for this branch")
+    }
+}
+
 
 /// The floating badge beside the shoot: the branch on offer next.
 struct ModalityBadge: View {

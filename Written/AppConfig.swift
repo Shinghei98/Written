@@ -3,6 +3,26 @@ import Foundation
 /// Central configuration for Written's distillation sources.
 enum AppConfig {
 
+    // MARK: Spotify OAuth
+
+    /// **Restored for the beta only.** Spotify was dropped when Postgres became
+    /// the source of truth, and the reason has not gone away — see the note in
+    /// CLAUDE.md. It is back so the data-collection beta has a second music
+    /// source, and it comes out before the App Store build.
+    ///
+    /// Client ID from the Spotify Developer Dashboard
+    /// (https://developer.spotify.com/dashboard → Create app).
+    /// Add the exact redirect URI below to the app's Redirect URIs there,
+    /// and enable the "iOS" platform with this app's bundle identifier.
+    static let spotifyClientID = "3a0ed3c9d39c40c3bdc3c62b91f78e8b"
+
+    static let spotifyRedirectScheme = "written"
+    static let spotifyRedirectURI = "written://spotify-callback"
+
+    /// Read-only scopes covering written_api.xlsx: top artists/tracks,
+    /// recently played, followed artists, playlists.
+    static let spotifyScope = "user-top-read user-read-recently-played user-follow-read playlist-read-private"
+
     // MARK: Supabase
 
     /// The project's REST and auth host.

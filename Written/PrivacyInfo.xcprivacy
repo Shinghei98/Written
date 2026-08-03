@@ -133,6 +133,28 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+
+		<!-- Messages, which now includes recorded audio.
+		     A voice memo is a message like any other: it is held to record, kept
+		     on the device until the send arrow is tapped, then uploaded to the
+		     private `chat-media` bucket and readable only by the two people in
+		     that conversation. Discarding a take deletes the file.
+		     Declared here rather than left under "other" because audio is the
+		     kind of thing a reader of this manifest would look for by name, and
+		     a manifest that is technically complete but hard to search is the
+		     kind that ages into a rejection. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 	</array>
 
 	<key>NSPrivacyAccessedAPITypes</key>

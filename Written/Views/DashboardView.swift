@@ -88,9 +88,18 @@ struct DashboardView: View {
                             .id("media")
                         lifestyleSection
                             .id("lifestyle")
-                        confirmButton
-                            .padding(.top, 8)
-                        if !isOnboarding {
+                        // **Onboarding only**, like the "Garden" button in the
+                        // header and for the same reason. Confirm means "I am
+                        // done building this, show me who I will see" — it is a
+                        // step in a line that has one way forward. In regular
+                        // use there is nothing to confirm: the page is a record
+                        // you visit, the profile preview it led to is reachable
+                        // from the tab bar, and a button that finishes something
+                        // already finished is chrome.
+                        if isOnboarding {
+                            confirmButton
+                                .padding(.top, 8)
+                        } else {
                             signOutButton
                                 .padding(.top, 6)
                             deleteAccountButton

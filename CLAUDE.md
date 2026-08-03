@@ -41,14 +41,28 @@ exposes; consult it before adding a source). Implemented today:
 - **Apple Music** (`AppleMusicDistiller`) — library songs/albums/artists/music
   videos, playlists + contents, recently added, recently played, heavy rotation,
   personalized recommendations, like/dislike ratings.
-- **Spotify was dropped** and should not be added back without a reason that
-  answers both of these. Its Developer Terms forbid storing Spotify Content in a
-  third-party database, so once Postgres became the source of truth it was the
-  one source that could never be restored to a new device. And it could never
-  have left development mode anyway: five test users, the developer must hold
-  Premium, and extended quota needs 250,000 monthly active users — closed to
-  individuals since May 2025. **Apple Music is the music source the product
-  depends on.**
+- **Spotify was dropped, and is back for the beta only — take it out before the
+  App Store build.** Both original objections stand and neither is fixed. Its
+  Developer Terms forbid storing Spotify Content in a third-party database, so
+  once Postgres became the source of truth it was the one source that could
+  never be restored to a new device — and its rows *are* synced like every other
+  source's, which is the part the terms do not allow. It also cannot leave
+  development mode: five test users, the developer must hold Premium, and
+  extended quota needs 250,000 monthly active users, closed to individuals since
+  May 2025. **Apple Music is still the music source the product depends on.**
+
+  What changed is only the purpose. The TestFlight beta exists to gather
+  listening data, five testers is enough for that, and a second music source is
+  worth a few weeks of it. That is a reason to run it *now*, not a reason the
+  objections went away.
+
+  **Removal is a condition of shipping, not a tidy-up.** It is one commit:
+  `SpotifyDistiller.swift`, the `spotify` case in `Modality.sources`,
+  `displayName` and `systemImage`, `spotifyStatus` / `spotifyOAuth` /
+  `distillSpotify` in `DistillViewModel`, `OAuthProvider.spotify`, and the four
+  `spotify*` constants in `AppConfig`. Everything carries a "beta only" comment
+  so `grep -rn "beta only"` finds the set. It was removed once already in
+  `be4eea1` and restored from `be4eea1^`, so the diff to reverse is on record.
 - **Apple Calendar** (`CalendarDistiller`) — **the first source not in
   `written_api.xlsx`.** The reasoning is that a calendar collects two things
   nothing else reaches: bookings that ticketing sites write in by themselves
@@ -573,6 +587,30 @@ with whoever ended the last" guard that looked sufficient. A repeated
 permutation gives exactly `n - 1` every time, which is the most any ordering can
 offer.
 
+**A like removes that person from the feed, but not on the tap — on the next
+scroll.** Removing their cards the instant you double-tap was tried and is
+wrong: it takes the post out from under the reader's thumb and hides the one
+piece of feedback the gesture has, a heart they never see fill. `like` therefore
+touches nothing but `liked`, which also keeps its failure path honest — nothing
+was removed, so an offline like that reverts has nothing to put back.
+
+`DiscoveryFeed` is not where the removal happens either. Its `people` is `let`,
+so rebuilding the rotation to drop someone would reshuffle everybody mid-scroll.
+`DiscoveryModel` filters the *output* instead, in three places that have to
+agree: `load` builds the feed from the unliked, `extend` purges liked people from
+`items`, and `extend` also drops them from each newly generated batch — miss that
+last one and they return the moment the list grows.
+
+Three things it is easy to get wrong. The purge sits **above** `extend`'s
+near-the-end guard, because a row appearing is the only scroll signal this view
+has and "they go on the next scroll" needs all of them, not just the last three.
+It removes only indices **strictly after** the one that appeared: taking out an
+item above the viewport shifts everything below it upward and moves what is being
+read. And the top-up loop is **bounded** — asking until six survive spins forever
+once everything left has been liked, which is reachable with six synthetic
+accounts. An all-liked feed is not a failure either: `load` must leave `failure`
+nil there so the empty state shows rather than a network complaint.
+
 Shared videos are interleaved every fourth item rather than mixed into that
 machinery, since the separation rule is about people and a video is not one.
 Their ids carry an **appearance number** for the same reason profiles' do: one
@@ -849,24 +887,83 @@ same time: `service_role` keys are disabled on this project, so the name
 described a credential that no longer exists while continuing to work, which is
 the shape of mistake that made the July rotation confusing.
 
-**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 8 today.
+**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 9 today.
 It appears **six times** in `project.pbxproj` — Debug and Release for the app,
 the share extension and the UI tests — and all six have to move together. The app
 and its extension sharing a build number is a hard requirement of the upload,
 not a tidiness rule.
 
-**This machine cannot upload to TestFlight, and the reason is not the project.**
-Checked on 2026-08-02: `Release` archives cleanly and the archive is correct —
-both bundle ids at the same build, `PrivacyInfo.xcprivacy` present, and the App
-Group *and* shared keychain group on **both** targets, which is the thing Xcode
-has silently dropped here before. What is missing is credentials:
+**"Uploaded" is four states short of "a tester has it", and the gap is silent
+at every step.** Testers reported on 2026-08-03 that they were still on build 1.
+Build 8 had been uploaded six days after it and had processed cleanly; what it
+had never been was **submitted for Beta App Review**, so App Store Connect held
+it at **Ready to Submit** while build 1 stayed the one marked **Testing**. The
+local archive records prove only the upload leg — read the TestFlight tab for the
+rest. The full ladder, and a build can die on any rung with no notification:
+
+    archived -> uploaded -> processed -> in a tester group -> review-approved -> Testing
+
+Build 6 died on the third rung: **Failed** in the build-uploads list on
+2026-07-30, never a candidate for anything downstream. Its reason is the one
+below, and it was fixed in passing by `eac98a8` — which is why build 8, archived
+three days later, processed cleanly and nobody ever learned what had happened to
+6.
+
+**A purpose string is demanded for the API you *could* call, not the one you
+do — and the deployment target decides which key's name.** Twice now:
+
+- Build 1, `NSHealthUpdateUsageDescription`, for an app that never writes to
+  Health. The HealthKit entitlement permits writing, so the string is required;
+  ours says plainly that nothing is written.
+- Build 6, `NSCalendarsUsageDescription`, when
+  `NSCalendarsFullAccessUsageDescription` was already there.
+  `requestFullAccessToEvents` is iOS 17+, but the app deploys to **16.0**, so the
+  legacy key is required as well. Having only the modern one is what failed.
+
+Both are `ITMS-90683`, both arrive after a successful upload, and both name the
+missing key outright — so the error is easy once seen and invisible until then.
+Adding a source that touches protected data means adding *every* key its
+framework can reach, back to the deployment target.
+
+**Separately, an embedded extension's `IPHONEOS_DEPLOYMENT_TARGET` must not
+exceed the app's.** Xcode gives a new target the *SDK* version by default, so
+`ShareToWritten` was created at **26.5** against the app's 16.0 and shipped that
+way in builds 6 and 8 — anyone below 26.5 gets an app with no share extension in
+it. This was found while diagnosing the above and is *not* what stranded the
+testers; it is a real defect that the symptom happened to lead to. Check the
+bundles, not the build settings, because it only becomes visible once baked in:
+
+    A="$(ls -dt ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)"
+    plutil -p "$A/Products/Applications/Written.app/Info.plist" | grep MinimumOSVersion
+    plutil -p "$A/Products/Applications/Written.app/PlugIns/ShareToWritten.appex/Info.plist" \
+        | grep -E "MinimumOSVersion|CFBundleVersion"
+
+Both must read the same minimum and the same build number. It costs nothing and
+it catches this before a round of processing does.
+
+**Whether a build was ever sent is answerable offline**, from the
+`Distributions` array inside each `.xcarchive/Info.plist`. Three builds have gone
+up from this machine — 1 on 2026-07-27, 6 on 07-30 and 8 on 08-02 — and all three
+are recorded there as `Uploaded to Apple / success`, along with build 1's first
+two attempts, which failed validation on a missing
+`NSHealthUpdateUsageDescription` before the CLI re-archive passed. Read it rather
+than trusting memory. But read it for what it is: **`success` there means the
+bytes reached Apple**, nothing further. Build 6 carries exactly that stamp and
+still shows **Failed** in App Store Connect's own build-uploads list.
+
+**What fails here is the *unattended* upload, not uploading.** An earlier note
+in this file said the machine could not upload at all; it was written from a CLI
+export that failed seven minutes before an Organizer upload succeeded. The
+distinction is credentials:
 
     error: exportArchive No Accounts
     error: exportArchive No signing certificate "iOS Distribution" found
 
-Development signing works only because a certificate and profile are already on
-disk; no Apple ID is signed in to Xcode, so nothing can mint a *distribution*
-certificate. Two ways out, and the second is the one worth doing:
+`xcodebuild -exportArchive` sees no Apple ID and no App Store Connect API key, so
+it cannot mint or use a *distribution* certificate; the only codesigning identity
+in the keychain is `Apple Development`. Xcode's Organizer signs in interactively
+and re-mints what it needs, which is why the GUI route works and the scripted one
+does not. Two ways out, and the second is the one worth doing:
 
 - Xcode → Settings → Accounts → sign in, then Product → Archive → Distribute App
   → **App Store Connect**. Needs 2FA every time and cannot be scripted.

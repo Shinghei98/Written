@@ -52,7 +52,38 @@ actor MediaService {
             lastError = "That file couldn't be prepared for sending."
             return nil
         }
+        return await put(payload, to: conversationID, token: token)
+    }
 
+    /// A voice memo, already recorded to a file by `VoiceMemo`.
+    ///
+    /// Separate from `upload(_:to:)` because there is nothing to prepare: the
+    /// recorder wrote AAC in an m4a container straight to disk at the bitrate we
+    /// want, so re-encoding it would cost time and quality to arrive at the same
+    /// file. Everything after the payload is identical, which is what `put`
+    /// exists for.
+    func uploadVoice(at url: URL, to conversationID: String) async -> Upload? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "You're not signed in."
+            return nil
+        }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
+            lastError = "That recording couldn't be read."
+            return nil
+        }
+        // `audio/mp4`, not `audio/m4a` — the latter is not a registered type and
+        // Storage hands it back on download as something no player will open.
+        return await put(
+            (data: data, ext: "m4a", mime: "audio/mp4", kind: "audio"),
+            to: conversationID, token: token
+        )
+    }
+
+    private func put(
+        _ payload: (data: Data, ext: String, mime: String, kind: String),
+        to conversationID: String,
+        token: String
+    ) async -> Upload? {
         let path = "\(conversationID)/\(UUID().uuidString).\(payload.ext)"
 
         // Built as a string, **not** with `appendingPathComponent`. That method

@@ -305,13 +305,13 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Written;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -335,13 +335,13 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareToWritten/ShareToWritten.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareToWritten/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Written;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -486,7 +486,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -498,6 +498,7 @@
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Written records voice messages when you hold the microphone in a chat. Nothing is recorded until you hold it, and nothing is sent until you tap send.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -522,7 +523,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Written.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -534,6 +535,7 @@
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Written records voice messages when you hold the microphone in a chat. Nothing is recorded until you hold it, and nothing is sent until you tap send.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -555,7 +557,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -573,7 +575,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 947DHTL37S;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;

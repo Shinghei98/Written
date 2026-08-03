@@ -16,7 +16,9 @@ displayed.
 
     python3 tools/chat_e2e.py users              # who exists, and their ids
     python3 tools/chat_e2e.py like   <from> <to> # synthetic likes you
-    python3 tools/chat_e2e.py reply  <from> "…"  # synthetic answers in the thread
+    python3 tools/chat_e2e.py reply  <from> "…" <to>   # synthetic answers you
+                                                 # <to> is required once that
+                                                 # account has two threads
     python3 tools/chat_e2e.py state  <a> <b>     # every row about the pair
 
 The key bypasses row level security completely. It lives in your shell for the
@@ -130,8 +132,18 @@ def stable_seed(user_id: str) -> int:
     return accumulated % 1000
 
 
-def reply(key, sender, body):
-    """A message from the synthetic side into whatever thread they are in."""
+def reply(key, sender, body, to=None):
+    """A message from the synthetic side, into a named thread.
+
+    **`to` matters as soon as an account has been in two conversations**, which
+    happens the first time one synthetic is used for a second run. This took
+    `rows[0]` and no ordering, so a message meant for you went into an old
+    synthetic-to-synthetic thread and reported success — the id in the output was
+    the only sign, and only if you knew what it should have been.
+
+    Ambiguity is now an error rather than a guess. The key ignores RLS, so a
+    wrong guess writes into somebody else's conversation with nothing to stop it.
+    """
     rows = request(
         "GET",
         f"/rest/v1/conversations?or=(user_a.eq.{sender},user_b.eq.{sender})"
@@ -144,6 +156,22 @@ def reply(key, sender, body):
             "Accept the like on the device first — the insert policy on "
             "`conversations` requires an accepted like, and that is one of the "
             "two things this run exists to prove."
+        )
+
+    if to:
+        rows = [r for r in rows if to in (r["user_a"], r["user_b"])]
+        if not rows:
+            sys.exit(f"{sender[:8]}… and {to[:8]}… have no conversation.")
+    if len(rows) > 1:
+        listing = "\n".join(
+            f"    {r['id']}  with {(r['user_b'] if r['user_a'] == sender else r['user_a'])}"
+            f"   last={r['last_message']!r}"
+            for r in rows
+        )
+        sys.exit(
+            f"{sender[:8]}… is in {len(rows)} conversations. Name the other "
+            f"party so this cannot go to the wrong one:\n\n"
+            f"    reply <from> \"…\" <to>\n\n{listing}"
         )
     thread = rows[0]["id"]
     request("POST", "/rest/v1/messages", key,
@@ -205,8 +233,8 @@ def main():
         users(key)
     elif command == "like" and len(args) == 2:
         like(key, args[0], args[1])
-    elif command == "reply" and len(args) == 2:
-        reply(key, args[0], args[1])
+    elif command == "reply" and len(args) in (2, 3):
+        reply(key, args[0], args[1], args[2] if len(args) == 3 else None)
     elif command == "state" and len(args) == 2:
         state(key, args[0], args[1])
     else:

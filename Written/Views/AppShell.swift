@@ -43,10 +43,10 @@ struct AppShell: View {
         ZStack(alignment: .bottom) {
             GardenPalette.parchment.ignoresSafeArea()
 
-            page(.explore) { DiscoveryView() }
+            page(.explore) { DiscoveryView(viewModel: viewModel) }
             page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
             page(.chat) {
-                ChatView(isVisible: tab == .chat, hidesTabBar: $isThreadOpen)
+                ChatView(viewModel: viewModel, isVisible: tab == .chat, hidesTabBar: $isThreadOpen)
             }
             // **Before the garden, not after it.** The pull-up during onboarding
             // slides the garden off to reveal this underneath, and a ZStack

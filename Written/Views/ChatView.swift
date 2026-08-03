@@ -11,6 +11,10 @@ import SwiftUI
 /// sliding *under* it, rather than a `safeAreaInset`, which would take layout
 /// height and is the regression `MainTabBar` documents four times over.
 struct ChatView: View {
+    /// Only for the ban list — unmatching somebody is the same kind of act as
+    /// striking an artist off, and travels the same way.
+    @ObservedObject var viewModel: DistillViewModel
+
     /// Whether this tab is the one on screen. `AppShell` keeps every tab mounted,
     /// so `.task` fires once at launch and never again — this is what makes
     /// arriving at the tab reload it.
@@ -30,6 +34,14 @@ struct ChatView: View {
     @State private var openThread: ChatService.Conversation?
     @State private var isShowingThread = false
 
+    /// Which row is swiped open. One at a time, so the list never has two sets
+    /// of red buttons showing.
+    @State private var openRowID: String?
+    /// The person a confirm alert or the report sheet is about.
+    @State private var pendingUnmatch: ChatService.Conversation?
+    @State private var pendingReport: ChatService.Conversation?
+    @State private var isReporting = false
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
@@ -43,17 +55,23 @@ struct ChatView: View {
                         // announce "No conversations yet" and then replace it —
                         // which is what read as the chat disappearing. Nothing
                         // is drawn until there is something true to say.
-                        if model.conversations.isEmpty {
+                        if visibleConversations.isEmpty {
                             if model.hasLoaded { empty }
                         } else {
-                            ForEach(model.conversations) { conversation in
-                                Button {
-                                    openThread = conversation
-                                    isShowingThread = true
-                                } label: {
-                                    ConversationRow(conversation: conversation)
-                                }
-                                .buttonStyle(.plain)
+                            ForEach(visibleConversations) { conversation in
+                                SwipeableConversationRow(
+                                    conversation: conversation,
+                                    openRowID: $openRowID,
+                                    onTap: {
+                                        openThread = conversation
+                                        isShowingThread = true
+                                    },
+                                    onUnmatch: { pendingUnmatch = conversation },
+                                    onReport: {
+                                        pendingReport = conversation
+                                        isReporting = true
+                                    }
+                                )
                             }
                         }
                     }
@@ -90,6 +108,59 @@ struct ChatView: View {
                         .navigationBarHidden(true)
                 }
             }
+            // **Confirmed, unlike Report.** Nothing in this schema is ever
+            // deleted, so there is no undo to offer, and a swipe is easy to
+            // start by accident on a list you scroll. Report confirms by way of
+            // its own sheet — a form you have to write in and submit is not
+            // something a stray thumb completes.
+            .alert(
+                "Unmatch \(pendingUnmatch?.partnerName ?? "them")?",
+                isPresented: Binding(
+                    get: { pendingUnmatch != nil },
+                    set: { if !$0 { pendingUnmatch = nil } }
+                ),
+                presenting: pendingUnmatch
+            ) { person in
+                Button("Cancel", role: .cancel) { pendingUnmatch = nil }
+                Button("Unmatch", role: .destructive) {
+                    viewModel.banPerson(person.partnerID)
+                    pendingUnmatch = nil
+                }
+            } message: { person in
+                Text("\(person.partnerName) will be gone from Explore and from your chats. This can't be undone.")
+            }
+            .overlay {
+                if isReporting, let person = pendingReport {
+                    ReportSheet(
+                        name: person.partnerName,
+                        onSend: { text in
+                            let id = person.partnerID
+                            let name = person.partnerName
+                            // **Blocked here, not on the server's answer.** The
+                            // report is worth retrying; getting away from
+                            // somebody is not something to make conditional on
+                            // a network. If the insert fails the block still
+                            // stands and the banner says the words did not
+                            // arrive.
+                            viewModel.banPerson(id)
+                            isReporting = false
+                            pendingReport = nil
+                            Task {
+                                let landed = await ChatService.shared.report(id, named: name, body: text)
+                                guard !landed else { return }
+                                await model.reportFailed(
+                                    await ChatService.shared.lastError
+                                        ?? "That report didn't send. They're still blocked."
+                                )
+                            }
+                        },
+                        onCancel: {
+                            isReporting = false
+                            pendingReport = nil
+                        }
+                    )
+                }
+            }
         }
         .preferredColorScheme(.light)
         .task(id: isVisible) {
@@ -98,12 +169,20 @@ struct ChatView: View {
 #if DEBUG
             // `-chat admirers` / `-chat thread`; see `DebugLaunch`. After the load,
             // so the pushed page has something in it.
-            guard let target = DebugLaunch.chatTarget, DebugLaunch.firesOnce("chat") else { return }
+            // `-memo` needs the thread open too, and says so itself rather than
+            // making the caller remember to pass `-chat thread` alongside it.
+            let target = DebugLaunch.chatTarget ?? (DebugLaunch.memoState != nil ? "thread" : nil)
+            guard let target, DebugLaunch.firesOnce("chat") else { return }
             try? await Task.sleep(for: .seconds(DebugLaunch.chatPushDelay))
             switch target {
             case "admirers": isShowingAdmirers = true
             // `typing` opens the same page as `thread`; the difference is inside
             // `ConversationView`, which reads the flag itself.
+            case "swiped":
+                openRowID = model.conversations.first?.id
+            case "report":
+                pendingReport = model.conversations.first
+                isReporting = pendingReport != nil
             case "thread", "typing":
                 openThread = model.conversations.first
                 isShowingThread = openThread != nil
@@ -123,22 +202,46 @@ struct ChatView: View {
         }
     }
 
+    /// Conversations minus anybody blocked.
+    ///
+    /// Filtered on the way to the screen rather than out of `ChatModel`, because
+    /// the server goes on returning the thread — the block is one-sided and only
+    /// this device knows about it. Removing them from the model would mean
+    /// re-filtering after every four-second poll and after every restore; doing
+    /// it here means the ban list is the only thing that has to be right.
+    private var visibleConversations: [ChatService.Conversation] {
+        let blocked = viewModel.bans.keys(.person)
+        guard !blocked.isEmpty else { return model.conversations }
+        return model.conversations.filter { !blocked.contains($0.partnerID.lowercased()) }
+    }
+
     /// The pinned block's height, a constant rather than a measurement.
     ///
     /// The content is inset by it, so measuring it would mean the list re-laying
     /// out every time the admirers row appeared or emptied — the same reason
     /// `DashboardView.expandedHeaderHeight` is a number.
-    private var headerHeight: CGFloat { model.admirers.isEmpty ? 74 : 132 }
+    ///
+    /// **Measured, though, not guessed.** Both numbers were 15pt smaller when
+    /// the title was `BrandFont.title(34)`; taking it to 46 to match the garden
+    /// moved the divider from y=532 to y=577 on a 3x screen, which is where the
+    /// 15 comes from. Re-measure the same way if the title's size changes again
+    /// — a constant that is only *nearly* right hides the first conversation
+    /// under the header, and does it silently.
+    private var headerHeight: CGFloat { model.admirers.isEmpty ? 89 : 147 }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Chat")
-                // The same *face* as "Memories" on the dashboard, at this
-                // screen's own size. The two top-level titles were set in
-                // different type — `.system` here against `BrandFont` there —
-                // which also meant one scaled with Dynamic Type and the other
-                // did not. Only the typeface changes; 34 stays 34.
-                .font(BrandFont.title(34))
+                // The same face *and* size as "Grow your profile" on the garden.
+                // The top-level titles were set in three different type sizes
+                // before — and in two different type systems, so one scaled with
+                // Dynamic Type and the others did not. This is the size the
+                // plant page uses, which is the one a reader arrives from.
+                //
+                // `headerHeight` below is measured against this. Changing it
+                // without changing that number puts the first conversation under
+                // the title.
+                .font(BrandFont.title(46))
                 .foregroundStyle(GardenPalette.ink)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -235,6 +338,135 @@ struct AdmirersBanner: View {
 
 // MARK: - A conversation row
 
+/// A chat row you can swipe left to unmatch or report.
+///
+/// **Hand-rolled, because this list is a `LazyVStack` and not a `List`.**
+/// `.swipeActions` is a `List` modifier and nothing else, and converting the
+/// list would mean giving up the pinned admirers banner and the inset the
+/// header depends on for a gesture.
+///
+/// The two buttons sit *beside* the row inside one `HStack` and travel with it,
+/// rather than being fixed to the screen's trailing edge. That ordering is the
+/// requirement rather than an implementation detail: anchored to the edge, the
+/// rightmost button is uncovered first, which would reveal Report before
+/// Unmatch. Carried along by the row, Unmatch clears the edge first and Report
+/// follows it.
+struct SwipeableConversationRow: View {
+
+    let conversation: ChatService.Conversation
+    /// Which row is open, shared across the list so only one ever is.
+    @Binding var openRowID: String?
+    var onTap: () -> Void
+    var onUnmatch: () -> Void
+    var onReport: () -> Void
+
+    @State private var drag: CGFloat = 0
+
+    private let actionWidth: CGFloat = 92
+    private var revealed: CGFloat { actionWidth * 2 }
+    private var isOpen: Bool { openRowID == conversation.id }
+    /// Where the row sits: the drag while a finger is down, the open position
+    /// otherwise. Clamped so it cannot be pulled past the buttons or to the
+    /// right of home — there is nothing on that side.
+    private var offset: CGFloat { min(0, max(-revealed, isOpen ? -revealed + drag : drag)) }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // **Not a `Button`.** A button claims the touch, and a gesture on an
+            // ancestor is resolved *after* a child's own — so wrapping the row
+            // in one is what stopped the swipe registering at all. A tap gesture
+            // on plain content competes with the drag on equal terms, and the
+            // 15pt minimum below is what separates them.
+            ConversationRow(conversation: conversation)
+                .frame(width: rowWidth)
+                .contentShape(Rectangle())
+                .onTapGesture { isOpen ? close() : onTap() }
+
+            action("Unmatch", fill: GardenPalette.badgeGold, ink: GardenPalette.ink) {
+                close(); onUnmatch()
+            }
+            action("Report", fill: Self.reportRed, ink: .white) {
+                close(); onReport()
+            }
+        }
+        .offset(x: offset)
+        // **A fixed width with a leading alignment, and both halves matter.**
+        // The HStack is `rowWidth + 2 * actionWidth` wide, and a child wider
+        // than its frame is *centred* by default — which drew the buttons on
+        // screen with no swipe at all and pushed every name half off the left
+        // edge. Pinned leading, the overflow is where it belongs: off the
+        // trailing edge, waiting.
+        .frame(width: rowWidth, alignment: .leading)
+        .clipped()
+        .contentShape(Rectangle())
+        // **`simultaneousGesture`, and it is the whole reason this works inside a
+        // `ScrollView`.** An exclusive `.gesture` has to win the touch outright,
+        // and the scroll view's pan is what it would have to win it from — so
+        // either the list stops scrolling or the rows stop swiping, and which one
+        // you get is not yours to choose.
+        //
+        // Running alongside it costs nothing here because **this scroll view has
+        // one axis**. A vertical drag scrolls and is discarded below; a
+        // horizontal one the scroll view ignores entirely, and only this reads
+        // it. The two gestures never want the same drag.
+        .simultaneousGesture(
+            // **`.global`, as `GrowProfileView.revealDrag` documents.** A drag
+            // measured in the local space of a view the drag is moving changes
+            // the frame it is measured against, which changes the translation,
+            // which moves the view again — on device that reads as the row
+            // shaking under the finger.
+            //
+            // 15pt rather than 12: the same threshold has to be far enough that
+            // a tap on the row is not read as a one-pixel swipe, since the tap
+            // gesture above is now a peer rather than a button.
+            DragGesture(minimumDistance: 15, coordinateSpace: .global)
+                .onChanged { value in
+                    // Horizontal only. Without this the list cannot be scrolled
+                    // without rows sliding open under the thumb.
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    drag = value.translation.width
+                    if openRowID != nil, openRowID != conversation.id { openRowID = nil }
+                }
+                .onEnded { value in
+                    // Where the finger was going, not where it stopped, so a
+                    // flick and a slow drag settle the same way.
+                    let projected = (isOpen ? -revealed : 0) + value.predictedEndTranslation.width
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        openRowID = projected < -revealed / 2 ? conversation.id : nil
+                        drag = 0
+                    }
+                }
+        )
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isOpen)
+    }
+
+    /// The row keeps the full width so the buttons start off screen.
+    private var rowWidth: CGFloat { UIScreen.main.bounds.width }
+
+    private static let reportRed = Color(red: 0.78, green: 0.24, blue: 0.20)
+
+    private func close() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { openRowID = nil }
+    }
+
+    private func action(
+        _ title: String, fill: Color, ink: Color, perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(ink)
+                .frame(width: actionWidth)
+                .frame(maxHeight: .infinity)
+                .background(fill)
+        }
+        .buttonStyle(.plain)
+        // Unreachable until the row is open, or a tap near the edge of a closed
+        // row would unmatch somebody.
+        .allowsHitTesting(isOpen)
+    }
+}
+
 struct ConversationRow: View {
     let conversation: ChatService.Conversation
 
@@ -253,7 +485,17 @@ struct ConversationRow: View {
     @ViewBuilder
     private var lastLine: some View {
         if let text = conversation.lastMessage {
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if conversation.lastMessageKind == "audio" {
+                // The body of a voice memo *is* its duration, so the summary
+                // already carries the number — it only needed saying what it is.
+                HStack(spacing: 4) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 11))
+                    Text("Voice message (\(VoiceBubble.compact(text)))")
+                        .font(.system(size: 14))
+                }
+                .foregroundStyle(GardenPalette.muted)
+            } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "camera.fill")
                         .font(.system(size: 11))
@@ -331,6 +573,13 @@ final class ChatModel: ObservableObject {
     /// Which admirer is mid-answer, so their two buttons can be disabled without
     /// freezing the rest of the list.
     @Published private(set) var answering: String?
+
+    /// Says a report did not reach us. Through the same banner every other
+    /// failure on this screen uses, because it is one — and because the block
+    /// *did* happen, so silence here would read as the whole action failing.
+    func reportFailed(_ message: String) {
+        failure = message
+    }
 
     func load() async {
 #if DEBUG
@@ -472,6 +721,17 @@ extension ChatModel {
             partnerPhotoSeed: PortraitSeed.stable(for: "Soo-ah"),
             lastMessage: "ok but you cannot claim to like Ravel and then say that",
             lastMessageAt: Date().addingTimeInterval(-3 * 86400)
+        ),
+        // A thread whose last word was spoken, so the microphone row can be
+        // seen without recording anything.
+        ChatService.Conversation(
+            id: "sample-5",
+            partnerID: "sample-tomas",
+            partnerName: "Tomás",
+            partnerPhotoSeed: PortraitSeed.stable(for: "Tomás"),
+            lastMessage: "00:07",
+            lastMessageAt: Date().addingTimeInterval(-25 * 60),
+            lastMessageKind: "audio"
         ),
     ]
 }

@@ -21,6 +21,14 @@ actor ChatService {
         let partnerPhotoSeed: Int
         let lastMessage: String?
         let lastMessageAt: Date?
+        /// `photo` | `video` | `audio`, or `nil` when the last message was text.
+        ///
+        /// Kept on the summary rather than worked out from `lastMessage`. The
+        /// chat list used to read an empty body as "a photo with no caption",
+        /// which a voice memo breaks: its body is a duration, so it is not
+        /// empty, and `\d\d:\d\d` is also how somebody writes half past
+        /// twelve. See `0013`.
+        var lastMessageKind: String?
     }
 
     struct Message: Identifiable, Equatable, Codable {
@@ -43,6 +51,9 @@ actor ChatService {
         var attachmentKind: String?
 
         var isVideo: Bool { attachmentKind == "video" }
+        /// A voice memo. Drawn as a player rather than as a thumbnail, so it has
+        /// to be asked about before the attachment is treated as a picture.
+        var isVoice: Bool { attachmentKind == "audio" }
     }
 
     /// The newest messages a thread loads. Capped for the reason every fetch in
@@ -60,7 +71,7 @@ actor ChatService {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "or": "(user_a.eq.\(me),user_b.eq.\(me))",
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
-                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at",
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
                 // Newest conversation first, and a thread nobody has written in
                 // yet sits at the top rather than falling off the end — it is the
                 // one waiting for a first line.
@@ -91,8 +102,38 @@ actor ChatService {
             partnerPhotoSeed: (iAmA ? row["user_b_photo_seed"] : row["user_a_photo_seed"]) as? Int
                 ?? PortraitSeed.stable(for: partnerID),
             lastMessage: row["last_message"] as? String,
-            lastMessageAt: (row["last_message_at"] as? String).flatMap(PostgREST.date)
+            lastMessageAt: (row["last_message_at"] as? String).flatMap(PostgREST.date),
+            lastMessageKind: row["last_message_kind"] as? String
         )
+    }
+
+    // MARK: - Reporting
+
+    /// Files a report about somebody. See `0014_reports.sql`.
+    ///
+    /// Separate from the block, and both happen: `BanList` is what makes them
+    /// disappear, this is what tells us why. A block that quietly also filed a
+    /// report would be reporting people who only wanted to unmatch.
+    func report(_ personID: String, named name: String, body: String) async -> Bool {
+        guard let me = await SupabaseAuth.shared.userID else {
+            lastError = "You're not signed in."
+            return false
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        do {
+            try await PostgREST.insert("rest/v1/reports", body: [[
+                "reporter_id": me,
+                "reported_id": personID,
+                "reported_name": name,
+                "body": trimmed,
+            ]], prefer: "return=minimal")
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
     }
 
     // MARK: - Opening one
@@ -165,7 +206,7 @@ actor ChatService {
                 "user_a": "eq.\(pair[0])",
                 "user_b": "eq.\(pair[1])",
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
-                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at",
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
             ])
             return rows.first.flatMap { Self.conversation(from: $0, me: me) }
         } catch {

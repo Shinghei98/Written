@@ -9,6 +9,8 @@ final class DistillViewModel: ObservableObject {
     @Published var appleMusicStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
+    /// Beta only; removed before the App Store build. See `Modality.sources`.
+    @Published var spotifyStatus: SourceStatus = .idle
     @Published private(set) var records: [DistilledRecord] = []
 
     @Published var isExporterPresented = false
@@ -82,6 +84,7 @@ final class DistillViewModel: ObservableObject {
     @Published private(set) var bans = BanList.load()
 
     private let googleOAuth = OAuthPKCEService(provider: .google)
+    private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
     init() {
         // The last snapshot, before anything draws. A connection is a durable
@@ -97,6 +100,16 @@ final class DistillViewModel: ObservableObject {
             hourlyActivity = cached.hourlyActivity
             sports = cached.sports
             averageDailySteps = cached.averageDailySteps
+            // **And it counts as a connection.** This cache exists precisely so
+            // Health does not have to wait for a round trip — see its own note —
+            // but the figures were being restored without the *fact* that Health
+            // was ever connected, and `connectedSources` reads that fact rather
+            // than these values. Health leaves no rows in `records`, so unlike
+            // every other source it has nothing else to be inferred from: its
+            // mark was absent from the connected bar on every launch until
+            // `source_connections` came back over the network, which is the
+            // second or two somebody watches it appear in.
+            knownConnections.insert("health")
         }
         if !records.isEmpty || chronotype != nil { recomputeDerived() }
 
@@ -119,6 +132,7 @@ final class DistillViewModel: ObservableObject {
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
+            || spotifyStatus.isRunning
     }
 
     func status(for source: String) -> SourceStatus {
@@ -127,7 +141,27 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": return appleMusicStatus
         case "health": return healthStatus
         case "apple_calendar": return calendarStatus
+        case "spotify": return spotifyStatus
         default: return .idle
+        }
+    }
+
+    /// Beta only; removed before the App Store build. Shaped like the other
+    /// OAuth distillers, and its records sync like every other source's — which
+    /// is the part Spotify's Developer Terms do not allow and the reason this
+    /// has a removal date rather than a home. See CLAUDE.md.
+    func distillSpotify() {
+        guard !spotifyStatus.isRunning else { return }
+        spotifyStatus = .running
+        Task {
+            do {
+                let distiller = SpotifyDistiller(oauth: spotifyOAuth)
+                let newRecords = try await distiller.distill()
+                replaceRecords(from: "spotify", with: newRecords)
+                spotifyStatus = .done(count: newRecords.count)
+            } catch {
+                spotifyStatus = .failed(message: error.localizedDescription)
+            }
         }
     }
 
@@ -138,6 +172,7 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": distillAppleMusic()
         case "health": distillHealth()
         case "apple_calendar": distillCalendar()
+        case "spotify": distillSpotify()
         default: break
         }
     }
@@ -400,6 +435,14 @@ final class DistillViewModel: ObservableObject {
 #endif
     }
 
+    /// **A Health retry always runs, even though it cannot grant anything.**
+    ///
+    /// A guard here once refused to re-distil after an empty run, on the
+    /// reasoning that HealthKit shows its permission sheet only once so nothing
+    /// could change. True of the *permission* and wrong about the *point*: the
+    /// sequence that matters is read the message, go and turn the categories on
+    /// in Health, come back and tap. Blocking the retry breaks precisely the
+    /// person who did what they were told.
     func distillHealth() {
         guard !healthStatus.isRunning else { return }
         healthStatus = .running
@@ -868,6 +911,26 @@ final class DistillViewModel: ObservableObject {
         // the server needs telling separately that this sport is gone.
         syncLifestyle()
     }
+
+    /// Blocks a person: they leave Explore and the chat list, for good.
+    ///
+    /// **Nothing touches the records**, unlike the other three. Those strike
+    /// content out of your own distillation, so each has to re-map the rows and
+    /// re-save the snapshot; this one hides somebody else, which no record of
+    /// yours mentions. The ban list is the whole of the state.
+    ///
+    /// **One-sided, and that is a gap rather than a simplification.** Their side
+    /// is untouched, so somebody you reported can still write into a thread you
+    /// can no longer see. Making it mutual needs a policy that lets one account
+    /// affect another's reads, which this schema does not have anywhere — see
+    /// the Discovery section of CLAUDE.md for why that bar is set where it is.
+    func banPerson(_ personID: String) {
+        bans.add(.person, personID)
+        bans.save()
+        syncBans()
+    }
+
+    func hasBanned(_ personID: String) -> Bool { bans.contains(.person, personID) }
 
     /// Marks a record removed if it belongs to something banned. Rows are kept
     /// and annotated rather than deleted — see `DistilledRecord.markedRemoved`.
