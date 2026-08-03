@@ -363,6 +363,16 @@ struct GrowProfileView: View {
                     viewModel.distill(source: source)
                 }
             }
+            // `-probe podcasts`. Answers a question rather than exercising a
+            // path, so it is deleted with `PodcastProbe` once it has.
+            if DebugLaunch.probeTarget == "podcasts", DebugLaunch.firesOnce("probe") {
+                Task {
+                    try? await Task.sleep(nanoseconds: delay)
+                    // The banner is the convenience; the log is the record, and
+                    // it outlives the banner's own dismissal.
+                    viewModel.biographicsError = await PodcastProbe.run()
+                }
+            }
             if let modality = DebugLaunch.pickTarget, DebugLaunch.firesOnce("pick") {
                 Task {
                     try? await Task.sleep(nanoseconds: delay)
