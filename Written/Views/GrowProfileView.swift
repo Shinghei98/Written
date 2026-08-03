@@ -1262,9 +1262,17 @@ struct AppMark: View {
     var diameter: CGFloat = 26
 
     var body: some View {
+        // **A source without a case here draws a blank disc**, because `unknown`
+        // is a faint circle and nothing else. That is what happened to Apple
+        // Podcasts: the source shipped, distilled, joined the Media bar, and
+        // rendered as nothing. Adding a source means adding a mark, and the
+        // `default` is a placeholder for the genuinely unrecognised rather than
+        // a resting place for the newest one.
         switch source {
         case "youtube": youtube
         case "apple_music": appleMusic
+        case "apple_podcasts": applePodcasts
+        case "spotify": spotify
         case "health": health
         case "apple_calendar": calendar
         default: unknown
@@ -1345,6 +1353,44 @@ struct AppMark: View {
                 )
             Image(systemName: "music.note")
                 .font(.system(size: diameter * 0.48, weight: .medium))
+                .foregroundStyle(.white)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+
+    /// Apple Podcasts' mark: the purple tile, which is the part anyone
+    /// recognises at 26 points.
+    ///
+    /// Stylised like the others rather than reproduced — YouTube's is a red
+    /// rounded rectangle and a white triangle, not the real wordmark. The glyph
+    /// is `mic.fill` for the same reason `Modality.icon(forSource:)` uses it, so
+    /// the badge on the plant and the mark in the bar agree; Apple's own
+    /// concentric-arc figure has no SF Symbol equivalent and would read as mush
+    /// at this size anyway.
+    private var applePodcasts: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: diameter * 0.26)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.76, green: 0.45, blue: 0.93), Color(red: 0.55, green: 0.24, blue: 0.80)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            Image(systemName: "mic.fill")
+                .font(.system(size: diameter * 0.46, weight: .medium))
+                .foregroundStyle(.white)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+
+    /// Beta only, and goes with the rest of Spotify — but a blank disc in the
+    /// meantime is worse than twelve lines that get deleted together.
+    private var spotify: some View {
+        ZStack {
+            Circle().fill(Color(red: 0.11, green: 0.73, blue: 0.33))
+            Image(systemName: "waveform")
+                .font(.system(size: diameter * 0.46, weight: .semibold))
                 .foregroundStyle(.white)
         }
         .frame(width: diameter, height: diameter)
