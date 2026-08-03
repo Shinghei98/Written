@@ -72,12 +72,22 @@ struct AppShell: View {
                     isVisible: tab == .distill,
                     // Only ever used during onboarding — `canReveal` is false
                     // afterwards, so these are never called in regular use.
-                    onRevealDrag: { gardenLift = -$0 },
+                    onRevealDrag: {
+                        isRevealing = true
+                        gardenLift = -$0
+                    },
                     onRevealEnd: { committed in
                         guard committed else {
+                            isRevealing = false
                             withAnimation(.easeInOut(duration: 0.4)) { gardenLift = 0 }
                             return
                         }
+                        // Stays true through the commit animation below. It is
+                        // cleared where the lift is, because for that third of a
+                        // second the garden is deliberately displaced — and a
+                        // background-and-return in that window would otherwise
+                        // look like an abandoned drag and undo a pull that had
+                        // already succeeded.
                         // Carry it all the way off, rather than dropping it back
                         // to zero as this used to. That was invisible while the
                         // dashboard only appeared at the end — but now that it
@@ -100,6 +110,7 @@ struct AppShell: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
                             tab = .dashboard
                             gardenLift = 0
+                            isRevealing = false
                         }
                     }
                 )
@@ -152,6 +163,24 @@ struct AppShell: View {
             reachability.isOnline ? viewModel.biographicsError : "You're offline. Changes won't save.",
             isWarning: true
         )
+        // **The guard for a drag that never ended** — see `gardenLift`. Becoming
+        // active means nothing is touching the glass, so a lift still sitting
+        // here belongs to a gesture that died rather than to one in progress.
+        // Without an animation: this corrects a state that should never have
+        // persisted, and sliding it back would perform an exit the user never
+        // asked for and did not see begin.
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, !isRevealing, gardenLift != 0 else { return }
+            gardenLift = 0
+        }
+        // The same invariant from the other side. Any route that lands on a tab
+        // arrives with the garden in its place — so a future exit from the
+        // dashboard cannot inherit a lift, which is the trap the commit path
+        // already avoids by returning to zero rather than parking off-screen.
+        .onChange(of: tab) { _ in
+            guard !isRevealing, gardenLift != 0 else { return }
+            gardenLift = 0
+        }
         // A refusal is a moment, not a state — unlike being offline, which ends
         // when it ends. Left up, it would still be there long after the row it
         // referred to had scrolled away.
@@ -187,7 +216,28 @@ struct AppShell: View {
     /// How far the garden has been pulled up, during onboarding only. The
     /// dashboard is a sibling tab rather than a layer beneath, so this is the
     /// garden moving rather than a reveal of anything.
+    ///
+    /// **Zero at rest is an invariant, and nothing was enforcing it.**
+    /// `onRevealDrag` writes this straight from `onChanged`, and `onRevealEnd`
+    /// puts it back — but `DragGesture.onEnded` is not guaranteed to fire. Swipe
+    /// up to the Home screen mid-pull, take a call, or let the bars' scroll
+    /// gesture win (they are deliberately simultaneous), and the drag dies with
+    /// no end. This is `@State`, so it survives backgrounding, and the app
+    /// reopens with the whole page still displaced: the title under the status
+    /// bar, the dashboard showing beneath. Reported as "when I open the app it
+    /// often shows up as half-scrolled", which is exactly what a partial drag
+    /// looks like.
+    ///
+    /// SwiftUI offers no `onCancelled`, so `scenePhase` is the guard — see
+    /// `body`. Becoming active means no finger is on the glass, so resetting
+    /// then can never interrupt a real drag.
     @State private var gardenLift: CGFloat = 0
+
+    /// Set while a reveal drag is actually in progress, so the guard above can
+    /// tell a live gesture from an abandoned one.
+    @State private var isRevealing = false
+
+    @Environment(\.scenePhase) private var scenePhase
 
     /// How far the garden must travel to be entirely gone. Set from the shell's
     /// own height; the initial value only stands for the frame before that
