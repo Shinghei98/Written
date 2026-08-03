@@ -8,10 +8,42 @@ struct WrittenApp: App {
 
     var body: some Scene {
         WindowGroup {
+#if DEBUG
+            // At the root and in an alert, for the reason the podcast probe
+            // learned: hung off a screen's `onAppear` it may never fire, and
+            // reported through a self-dismissing banner it may never be read —
+            // and both look exactly like a survey that found nothing.
+            RootView().modifier(MediaSurveyAlert())
+#else
             RootView()
+#endif
         }
     }
 }
+
+#if DEBUG
+/// Runs `MediaFieldSurvey` once on launch and holds the outcome on screen.
+private struct MediaSurveyAlert: ViewModifier {
+    @State private var outcome: String?
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                guard DebugLaunch.surveyTarget == "media",
+                      DebugLaunch.firesOnce("survey") else { return }
+                outcome = await MediaFieldSurvey.run()
+            }
+            .alert(
+                "Media survey",
+                isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })
+            ) {
+                Button("OK", role: .cancel) { outcome = nil }
+            } message: {
+                Text(outcome ?? "")
+            }
+    }
+}
+#endif
 
 
 /// Decides which of the four screens the app is on: sign-in, the two onboarding

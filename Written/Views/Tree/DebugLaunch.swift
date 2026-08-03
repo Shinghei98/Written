@@ -85,6 +85,14 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "connect")
     }
 
+    /// `-survey media` → dump every field the media library exposes for
+    /// podcasts and audiobooks to `Documents/media-survey.json`, for pulling off
+    /// a connected device with `devicectl`. See `MediaFieldSurvey`; delete both
+    /// once the scope question is settled.
+    static var surveyTarget: String? {
+        UserDefaults.standard.string(forKey: "survey")
+    }
+
     /// `-edit artist` / `-edit channel` / `-edit sport` → open the dashboard with
     /// one entry of that kind already wobbling. `simctl` can send no long press,
     /// so this is the only way to screenshot the editing state.

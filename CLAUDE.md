@@ -68,10 +68,40 @@ a device on 2026-08-03. Same framework as `AppleMusicDistiller`, same
 `NSAppleMusicUsageDescription` already declared, so it is a permanent one-tap
 source with no OAuth and no third party.
 
-**What it sees is downloaded episodes**, which is the limit to design around
-rather than a detail: someone who streams everything may have nothing in it.
-Whether a followed show with no download registers is not yet known — the test
-device had both, so the two cannot be told apart from that run.
+**It returns downloaded episodes and nothing else**, and that is now evidenced
+rather than assumed. Four routes agree on the same two items — the unfiltered
+library, a raw `mediaType` predicate, a different grouping, and
+`MPMediaQuery.podcasts()` — so the convenience query hides nothing. The control
+that settles it is **304 cloud items in the same library**: it lists non-local
+content happily for music and holds zero cloud podcasts. Following a show does
+not enumerate its back catalogue either; *Crime Junkie* appeared with one item
+against hundreds of published episodes.
+
+**Which fields Apple actually fills in**, measured on two real episodes:
+
+- **Populated:** `podcastTitle`, `title`, `artist`/`albumArtist` (the publisher —
+  "Audiochuck", "The New York Times"), `releaseDate`, `dateAdded`,
+  `playbackDuration`, `bookmarkTime`, artwork, `assetURL`.
+- **Empty:** `genre`, `playCount`, `lastPlayedDate`, `skipCount`, `rating`,
+  `comments`, `composer`, `isExplicitItem`, `isCloudItem`.
+
+So there is **no play history** — `playCount` was 0 and `lastPlayedDate` nil on
+episodes that had demonstrably been played. `bookmarkTime` is the only
+behavioural fact available, and it is real: 50.8s of 4191.8s, 48.9s of 2381s.
+`genre` is absent, so a category would have to come from the iTunes Search API by
+show name.
+
+**Whether the source is worth having at all is unresolved**, and it turns on one
+question: does Apple Podcasts auto-download episodes of followed shows? If it
+does, the library is a rolling window over what somebody follows and costs them
+nothing. If it does not, it reflects only deliberate downloads — which almost
+nobody does — and the source would be empty for nearly every user. Both episodes
+on the test device were downloaded by hand, so there is no evidence either way
+yet. **Do not ship it until that is settled**; an empty source that looks
+connected is worse than no source.
+
+`MPMediaQuery.audiobooks()` is **untested, not unavailable** — it returned 0 on a
+phone with no audiobooks, which proves nothing. Same `MPMediaItem` fields apply.
 
 **The way this was nearly lost is worth more than the finding.** A first run
 returned 329 songs and 0 podcasts, and that was written up here as proof the
