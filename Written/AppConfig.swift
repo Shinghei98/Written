@@ -159,6 +159,10 @@ enum AppConfig {
     /// them; the *episodes* are instances of it, and past a point another fifty
     /// of the same podcast tell the ontology stage nothing it did not already
     /// have from the first ten. Same argument as `maxSongsRated`.
+    /// Books, not files: `AudiobookDistiller` groups by album, so a long book
+    /// with ninety parts counts once.
+    static let maxAudiobooks = 200
+
     static let maxPodcastShows = 200
     static let maxPodcastEpisodes = 500
 }

@@ -62,6 +62,12 @@ struct DashboardView: View {
     /// Which biographics row is being corrected, if any.
     @State private var editor: BiographicsEditor?
 
+    /// Which "what did we miss" sheet is open, by the kind it asks about —
+    /// "artist", "podcast". Nil is closed.
+    @State private var favouriteKind: String?
+    @State private var favouriteText = ""
+
+
     /// The centred artist plus the list under them — six in all, as the card is
     /// designed for. Ranked by the view model when the records changed, not here:
     /// this is read on every body pass.
@@ -86,6 +92,12 @@ struct DashboardView: View {
                         musicSection
                         mediaSection
                             .id("media")
+                        podcastSection
+                            .id("podcasts")
+                        audiobookSection
+                            .id("audiobooks")
+                        eventsSection
+                            .id("events")
                         lifestyleSection
                             .id("lifestyle")
                         // **Onboarding only**, like the "Garden" button in the
@@ -199,6 +211,7 @@ struct DashboardView: View {
             }
         )
         .overlay { biographicsSheet }
+        .overlay { favouriteSheet }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
         // was a `.task` on this view, and `AppShell` mounts every tab at launch
@@ -617,6 +630,47 @@ struct DashboardView: View {
         }
     }
 
+    /// "What did we miss?" — the one place a person adds something their phone
+    /// could not observe.
+    ///
+    /// Built on `BiographicsSheet` like every other sheet here, so it inherits
+    /// the dimmed backdrop, the tap-outside-to-cancel and the confirm button's
+    /// disabled state rather than reproducing them. `ReportSheet` does the same.
+    @ViewBuilder
+    private var favouriteSheet: some View {
+        if let kind = favouriteKind {
+            BiographicsSheet(
+                title: "What's your favorite \(kind)?",
+                subtitle: "Tell us what we missed.",
+                // Nothing to save is nothing to do — the same rule the report
+                // sheet applies to an empty account of what happened.
+                confirmEnabled: !favouriteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                confirmTitle: "Save",
+                onConfirm: {
+                    viewModel.addFavourite(kind: kind, favouriteText)
+                    favouriteText = ""
+                    withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
+                },
+                onCancel: {
+                    // Discarded rather than kept: reopening the sheet to find
+                    // somebody else's half-typed answer in it would be worse
+                    // than typing it again.
+                    favouriteText = ""
+                    withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
+                }
+            ) {
+                TextField("", text: $favouriteText)
+                    .font(BrandFont.body(16))
+                    .foregroundStyle(GardenPalette.ink)
+                    .multilineTextAlignment(.center)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+            }
+            .transition(.opacity)
+        }
+    }
+
     /// Whichever row is being corrected. Closing always goes through here, so
     /// the number pad can't be left holding first responder and eating the next
     /// tap on the page — which looks exactly like a row that stopped working.
@@ -813,6 +867,62 @@ struct DashboardView: View {
     /// know the card's outer width rather than its content width.
     static let cardInset: CGFloat = 18
 
+    /// How tall a stack of entries may get before it scrolls inside the card.
+    ///
+    /// The cards used to show six of everything and stop. Showing all of it
+    /// makes some cards hundreds of rows long, which turns the page into a
+    /// scroll through one person's music library — so the list scrolls within
+    /// its own bounds and the page keeps its shape.
+    ///
+    /// Roughly five rows: enough that it plainly *is* a list and plainly has
+    /// more in it, which is what makes somebody try to scroll it.
+    private static let stackHeight: CGFloat = 232
+
+    /// The scrolling half of a card: every entry, bounded.
+    ///
+    /// **Nested inside the page's own scroll view, which is a real cost.** Two
+    /// vertical scrollers in the same gesture space means a drag that starts
+    /// here does not move the page, and a fast flick can be caught by the wrong
+    /// one. It is accepted because the alternative is worse: a card holding
+    /// every artist somebody has ever played would be several screens tall, and
+    /// the biographics below it unreachable.
+    ///
+    /// The placeholder is deliberately **not** in here — see `addYourOwn`. It
+    /// belongs to the card, not to the list, and a row that scrolls away is a
+    /// row nobody finds.
+    @ViewBuilder
+    private func entryStack<Content: View>(@ViewBuilder rows: () -> Content) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 0, content: rows)
+        }
+        .frame(maxHeight: Self.stackHeight)
+        // Only when there is something to scroll. A short list inside a bouncing
+        // scroller reads as broken — it springs under a finger that meant to
+        // move the page.
+        .modifier(NoIdleBounce())
+    }
+
+    /// The circle-and-cross under a stack: "we missed one, tell us".
+    ///
+    /// Pinned below the scrolling rows rather than at the end of them, because
+    /// the end of a list of two hundred artists is somewhere nobody goes. It is
+    /// the one control in these cards that adds rather than removes, and it is
+    /// the only way anything a phone cannot observe gets into a profile.
+    private func addYourOwn(kind: String) -> some View {
+        Button {
+            favouriteKind = kind
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(GardenPalette.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add a favourite \(kind)")
+    }
+
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)
             .padding(.horizontal, Self.cardInset)
@@ -839,17 +949,27 @@ struct DashboardView: View {
                 .foregroundStyle(GardenPalette.ink)
                 .padding(.bottom, 4)
 
-            // The runners-up: everyone the headliner beat, in order.
-            ForEach(Array(artists.dropFirst().enumerated()), id: \.element.id) { index, artist in
-                if index > 0 {
-                    Divider().overlay(GardenPalette.ink.opacity(0.06))
-                }
-                artistRow(artist, peak: runnerUpPeak)
-                    .removable(editing: editingEntry == key(artist: artist), index: index + 1) {
-                        remove { viewModel.banArtist(artist.name) }
+            // The runners-up: everyone the headliner beat, in order, scrolling
+            // within the card rather than running down the page.
+            entryStack {
+                ForEach(Array(artists.dropFirst().enumerated()), id: \.element.id) { index, artist in
+                    if index > 0 {
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
                     }
-                    .editableOnLongPress($editingEntry, key: key(artist: artist))
+                    artistRow(artist, peak: runnerUpPeak)
+                        .removable(editing: editingEntry == key(artist: artist), index: index + 1) {
+                            remove { viewModel.banArtist(artist.name) }
+                        }
+                        .editableOnLongPress($editingEntry, key: key(artist: artist))
+                }
+                ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
+                    Divider().overlay(GardenPalette.ink.opacity(0.06))
+                    ownRow(name)
+                }
             }
+
+            Divider().overlay(GardenPalette.ink.opacity(0.08))
+            addYourOwn(kind: "artist")
         } else {
             Text("Connect Apple Music and your most-played artists appear here.")
                 .font(.system(size: 14))
@@ -969,6 +1089,170 @@ struct DashboardView: View {
         .accessibilityLabel(
             "\(channel.name), \(channel.likes) liked\(channel.subscribed ? ", subscribed" : "")"
         )
+    }
+
+    // MARK: - Podcasts, audiobooks, events
+
+    private var shows: [ListeningHighlights.Show] { viewModel.podcastShows }
+    private var books: [ListeningHighlights.Book] { viewModel.audiobooks }
+    private var events: [ListeningHighlights.Event] { viewModel.calendarEvents }
+
+    /// The shows they follow, ranked by having actually started one.
+    ///
+    /// Carries the placeholder, like music — a podcast somebody loves and has
+    /// not downloaded is invisible to the distillation, and this is where they
+    /// say so.
+    @ViewBuilder
+    private var podcastSection: some View {
+        if !shows.isEmpty || !viewModel.favourites(kind: "podcast").isEmpty {
+            card {
+                cardLabel("PODCASTS", icon: "mic.fill")
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+                entryStack {
+                    ForEach(Array(shows.enumerated()), id: \.element.id) { index, show in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        showRow(show)
+                    }
+                    ForEach(viewModel.favourites(kind: "podcast"), id: \.self) { name in
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        ownRow(name)
+                    }
+                }
+
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                addYourOwn(kind: "podcast")
+            }
+        }
+    }
+
+    private func showRow(_ show: ListeningHighlights.Show) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(show.name)
+                    .font(.system(size: 16))
+                    .foregroundStyle(GardenPalette.ink)
+                    .lineLimit(1)
+                if !show.publisher.isEmpty {
+                    Text(show.publisher)
+                        .font(.system(size: 12))
+                        .foregroundStyle(GardenPalette.muted)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            // The share bar measures how far into an episode they got, which is
+            // the only behavioural fact Apple exposes here — there is no play
+            // count and no last-played date, measured on a real library.
+            ShareBar(fraction: show.progress)
+                .frame(width: 72, height: 8)
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(show.name), \(Int(show.progress * 100))% through an episode")
+    }
+
+    /// Books, ranked by how far in they are — an audiobook is a commitment
+    /// measured in hours, so the one they are two thirds through says more than
+    /// six untouched.
+    @ViewBuilder
+    private var audiobookSection: some View {
+        if !books.isEmpty {
+            card {
+                cardLabel("AUDIOBOOKS", icon: "book.fill")
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+                entryStack {
+                    ForEach(Array(books.enumerated()), id: \.element.id) { index, book in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(book.name)
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(GardenPalette.ink)
+                                    .lineLimit(1)
+                                if !book.author.isEmpty {
+                                    Text(book.author)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(GardenPalette.muted)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            ShareBar(fraction: book.progress)
+                                .frame(width: 72, height: 8)
+                        }
+                        .padding(.vertical, 9)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(book.name), \(Int(book.progress * 100))% through")
+                    }
+                }
+            }
+        }
+    }
+
+    /// What they arranged, soonest first.
+    ///
+    /// **Public calendars are already gone by here** — filtered at the distiller
+    /// and again in `ListeningHighlights.events`, because a year of national
+    /// holidays is identical for everybody who subscribes to them and would
+    /// swamp the handful of things this person actually did.
+    @ViewBuilder
+    private var eventsSection: some View {
+        if !events.isEmpty {
+            card {
+                cardLabel("EVENTS", icon: Modality.plans.systemImage)
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+                entryStack {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(event.name)
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(GardenPalette.ink)
+                                    .lineLimit(1)
+                                if let start = event.start {
+                                    Text(RelativeTime.daySeparator(for: start))
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(GardenPalette.muted)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            // A ticketing site wrote this one in by itself,
+                            // which cost money and a Saturday — a far stronger
+                            // claim than something typed as a reminder.
+                            if event.booked {
+                                Image(systemName: "ticket.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(GardenPalette.gold)
+                            }
+                        }
+                        .padding(.vertical, 9)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(event.name)\(event.booked ? ", booked" : "")")
+                    }
+                }
+            }
+        }
+    }
+
+    /// A row the person typed in rather than one their phone observed. Marked,
+    /// because the two are different kinds of evidence and a card that blurred
+    /// them would be claiming more than it knows.
+    private func ownRow(_ name: String) -> some View {
+        HStack(spacing: 10) {
+            Text(name)
+                .font(.system(size: 16))
+                .foregroundStyle(GardenPalette.ink)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text("you added")
+                .font(.system(size: 11))
+                .foregroundStyle(GardenPalette.muted)
+        }
+        .padding(.vertical, 9)
     }
 
     // MARK: - Lifestyle

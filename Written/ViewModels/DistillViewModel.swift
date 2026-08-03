@@ -8,6 +8,7 @@ final class DistillViewModel: ObservableObject {
     @Published var youtubeStatus: SourceStatus = .idle
     @Published var appleMusicStatus: SourceStatus = .idle
     @Published var podcastStatus: SourceStatus = .idle
+    @Published var audiobookStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
     /// Beta only; removed before the App Store build. See `Modality.sources`.
@@ -32,6 +33,11 @@ final class DistillViewModel: ObservableObject {
     /// rather than drawing an empty one.
     @Published private(set) var musicGenres: [MusicHighlights.Genre] = []
     @Published private(set) var mediaChannels: [MediaHighlights.Channel] = []
+    /// The three cards added alongside Media's channels. Derived on the same
+    /// terms as everything above: once when the records change, never in a body.
+    @Published private(set) var podcastShows: [ListeningHighlights.Show] = []
+    @Published private(set) var audiobooks: [ListeningHighlights.Book] = []
+    @Published private(set) var calendarEvents: [ListeningHighlights.Event] = []
     @Published private(set) var chronotype: LifestyleHighlights.Chronotype?
     @Published private(set) var hourlyActivity: [Double] = []
     @Published private(set) var sports: [LifestyleHighlights.Sport] = []
@@ -133,7 +139,7 @@ final class DistillViewModel: ObservableObject {
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
-            || podcastStatus.isRunning
+            || podcastStatus.isRunning || audiobookStatus.isRunning
             || spotifyStatus.isRunning
     }
 
@@ -143,6 +149,7 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": return appleMusicStatus
         case "health": return healthStatus
         case "apple_podcasts": return podcastStatus
+        case "apple_audiobooks": return audiobookStatus
         case "apple_calendar": return calendarStatus
         case "spotify": return spotifyStatus
         default: return .idle
@@ -175,11 +182,15 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": distillAppleMusic()
         case "health": distillHealth()
         case "apple_podcasts": distillPodcasts()
+        case "apple_audiobooks": distillAudiobooks()
         case "apple_calendar": distillCalendar()
         case "spotify": distillSpotify()
         default: break
         }
     }
+
+    /// How deep the dashboard's ranked lists go, now that they scroll.
+    static let rankedEntries = 60
 
     private static var treeSeedKey: String { AccountScope.key("written.tree.seed") }
 
@@ -403,6 +414,23 @@ final class DistillViewModel: ObservableObject {
 
     /// Apple Podcasts, through the media library. Shaped like Apple Music
     /// because it is the same framework family and the same one system dialog.
+    /// Audiobooks, from the same media library as podcasts — see
+    /// `AudiobookDistiller` for why they are a separate source sharing one
+    /// permission rather than more rows under the podcast name.
+    func distillAudiobooks() {
+        guard !audiobookStatus.isRunning else { return }
+        audiobookStatus = .running
+        Task {
+            do {
+                let newRecords = try await AudiobookDistiller().distill()
+                replaceRecords(from: "apple_audiobooks", with: newRecords)
+                audiobookStatus = .done(count: newRecords.count)
+            } catch {
+                audiobookStatus = .failed(message: Self.detail(of: error))
+            }
+        }
+    }
+
     func distillPodcasts() {
         guard !podcastStatus.isRunning else { return }
         podcastStatus = .running
@@ -885,6 +913,49 @@ final class DistillViewModel: ObservableObject {
         replaceRecords(from: "user", with: userRecords(replacing: dataType, with: record))
     }
 
+    /// Something the distillation missed, typed in by the person themselves.
+    ///
+    /// **Added rather than replaced**, unlike `setUserFact` above: education and
+    /// occupation are single answers that a second one corrects, and a favourite
+    /// is a list — somebody naming a second band has not changed their mind
+    /// about the first. So the item id is the answer itself, which also makes
+    /// naming the same thing twice a no-op rather than a duplicate.
+    ///
+    /// Travels as a `user` record for the same reason those two do: it owns no
+    /// column, so it needs no migration, and the change-only trigger means
+    /// re-entering an answer writes nothing.
+    ///
+    /// **Kept apart from the distilled rows it sits beside**, by `entered_by_user`
+    /// — the ontology stage should be able to tell what somebody's phone
+    /// observed from what they claimed about themselves, and those are different
+    /// kinds of evidence.
+    func addFavourite(kind: String, _ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let dataType = "favorite_\(kind)"
+        let record = DistilledRecord(
+            source: "user",
+            dataType: dataType,
+            itemID: "\(dataType):\(trimmed.lowercased())",
+            name: trimmed,
+            creator: "",
+            detail: "",
+            extra: "entered_by_user=1",
+            collectedAt: Date()
+        )
+        var kept = records.filter { $0.source == "user" }
+        kept.removeAll { $0.itemID == record.itemID }
+        kept.append(record)
+        replaceRecords(from: "user", with: kept)
+    }
+
+    /// What the user has named for a kind, most recent last.
+    func favourites(kind: String) -> [String] {
+        records
+            .filter { $0.source == "user" && $0.dataType == "favorite_\(kind)" && !$0.isRemovedByUser }
+            .map(\.name)
+    }
+
     /// Where the phone is, for centring the map. `nil` when location is off.
     func currentCoordinate() async -> CLLocationCoordinate2D? {
         try? await location.currentCoordinate()
@@ -1044,9 +1115,17 @@ final class DistillViewModel: ObservableObject {
         )
         treeState = state
         skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
-        musicArtists = MusicHighlights.topArtists(in: records)
+        // **Sixty, not six.** The cards ranked six and stopped, which was right
+        // while the list ran down the page — it is now a bounded scroller, so
+        // the ceiling is about what is worth ranking rather than what fits.
+        // Sixty is deep enough that somebody can find a band they half remember
+        // and shallow enough that the tail of one-play artists stays out.
+        musicArtists = MusicHighlights.topArtists(in: records, limit: Self.rankedEntries)
         musicGenres = MusicHighlights.genreShare(in: records)
-        mediaChannels = MediaHighlights.topChannels(in: records)
+        mediaChannels = MediaHighlights.topChannels(in: records, limit: Self.rankedEntries)
+        podcastShows = ListeningHighlights.shows(in: records)
+        audiobooks = ListeningHighlights.books(in: records)
+        calendarEvents = ListeningHighlights.events(in: records)
         // The lifestyle figures are deliberately absent. They used to be
         // recomputed here like everything else, which stopped working the moment
         // the raw HealthKit rows were discarded rather than stored: this method

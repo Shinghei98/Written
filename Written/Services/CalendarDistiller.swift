@@ -69,8 +69,28 @@ struct CalendarDistiller {
 
         let calendars = store.calendars(for: .event)
         var records = calendars.map(Self.record(for:))
-        records += try await events(in: calendars)
+        records += try await events(in: calendars.filter(Self.isPersonal))
         return records
+    }
+
+    /// Whether a calendar's events say anything about *this* person.
+    ///
+    /// **Subscribed calendars are excluded, and that is the whole point of
+    /// having this.** A public calendar — national holidays, a football
+    /// fixture list, phases of the moon — is identical for everyone who
+    /// subscribes to it, so its events carry no information about the
+    /// subscriber while swamping the ones that do: a year of holidays is dozens
+    /// of rows against a handful of things somebody actually arranged.
+    ///
+    /// Birthdays go too. They are generated from Contacts rather than arranged,
+    /// and every one of them is another person's name — which this table already
+    /// stores more of than is comfortable.
+    ///
+    /// The *calendar list* is still recorded in full by `record(for:)` above:
+    /// which calendars exist is a fact about the person, and it is one row each
+    /// rather than hundreds.
+    static func isPersonal(_ calendar: EKCalendar) -> Bool {
+        calendar.type != .subscription && calendar.type != .birthday
     }
 
     /// iOS 17 split calendar access into full and write-only, and asking with
@@ -146,6 +166,13 @@ struct CalendarDistiller {
     private static func record(for event: EKEvent) -> DistilledRecord {
         var extras: [String] = []
         extras.append("calendar=\(event.calendar?.title ?? "")")
+        // Recorded as well as filtered on. `distill` already declines to collect
+        // subscribed and birthday calendars, but rows written before it did are
+        // in the database and in every restore — so anything reading these needs
+        // to be able to tell them apart without re-distilling.
+        if let type = event.calendar?.type {
+            extras.append("cal_type=\(Self.name(for: type))")
+        }
         extras.append("start=\(iso.string(from: event.startDate ?? Date()))")
         if let end = event.endDate {
             extras.append("end=\(iso.string(from: end))")
