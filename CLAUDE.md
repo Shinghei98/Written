@@ -134,6 +134,13 @@ appears in Apple Podcasts' share sheet, since its activation rule takes any web
 URL — resolved by the public iTunes Search API for show, artist and genre; or
 Spotify's `/me/shows`, which inherits Spotify's removal date.
 
+- **Apple Podcasts** (`PodcastDistiller`) and **Audiobooks**
+  (`AudiobookDistiller`) — both through `MPMediaQuery`, sharing one
+  `MPMediaLibrary` permission, so connecting the second costs a tap and no
+  dialog. Separate sources rather than one, because podcasts come from Apple
+  Podcasts and audiobooks from Apple Books, and filing one under the other's
+  name would be a lie in the column that says where a fact came from. Audiobooks
+  are **untested** — the one device tried had none.
 - **Apple Calendar** (`CalendarDistiller`) — **the first source not in
   `written_api.xlsx`.** The reasoning is that a calendar collects two things
   nothing else reaches: bookings that ticketing sites write in by themselves
@@ -721,6 +728,28 @@ this schema where a mistake is silent.
 Six synthetic accounts populate it, seeded by `tools/seed_synthetic.py` with
 full datasets rather than bare cards. It needs the `service_role` key, which is
 why it is a script you run and not something the app can do.
+
+**And for a long time they were the *only* people in it.** `DiscoveryService`
+reads `discovery_cards`, the seeder writes six, and **nothing in the app ever
+wrote one** — so every real signup was invisible, reported as "I could not find
+the new test accounts in the discovery page". Not a bug in the feed: `0007` has
+carried `own row` insert and update policies from the start and only the caller
+was missing. `DiscoveryCardService.publish` is it, called from
+`DistillViewModel.sync` so a card rides the same moment as everything else that
+leaves the device — a card is worth publishing once there is a distillation
+behind it.
+
+**Subjects only**, per that migration's own header: artist and channel names,
+things a sentence can be *about*. Nothing that could rebuild a distillation. This
+is the one table every signed-in user can read, and it stays worth that by
+staying thin.
+
+**The feed also never excluded the viewer.** Harmless while the only cards were
+synthetic — no real account had one to be shown its own — and immediately wrong
+once everybody publishes. Filtered in the query with `user_id=neq.…` so it never
+crosses the wire, rather than after it: `DiscoveryModel` already filters likes in
+three places that have to agree, and a fourth thing to remember is a fourth thing
+to forget.
 
 ### The feed's rotation
 
