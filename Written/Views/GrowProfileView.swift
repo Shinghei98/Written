@@ -1678,7 +1678,7 @@ struct SourcePickerSheet: View {
     static func note(forSource source: String) -> String? {
         switch source {
         case "health": return "Switch on what you'll share — or Turn On All — then Allow."
-        case "apple_podcasts": return "Reads episodes downloaded to this phone."
+        case "apple_podcasts": return "Reads podcast episodes saved on this phone — usually the recent ones from shows you follow."
         default: return nil
         }
     }

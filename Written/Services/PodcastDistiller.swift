@@ -57,8 +57,12 @@ struct PodcastDistiller {
             guard let item = collection.representativeItem,
                   let show = item.podcastTitle ?? item.albumTitle else { continue }
 
-            var extra = ["episodes_on_device=\(collection.count)"]
-            if let genre = item.genre { extra.append("genre=\(genre)") }
+            // No `genre`: measured nil on every episode of both shows. Apple
+            // does not write a podcast category into the media library at all,
+            // so a category would have to come from the iTunes Search API by
+            // show name — a network call and a name match, and not obviously
+            // worth either.
+            let extra = ["episodes_on_device=\(collection.count)"]
 
             records.append(DistilledRecord(
                 source: "apple_podcasts",
@@ -82,21 +86,32 @@ struct PodcastDistiller {
         for item in episodes.prefix(AppConfig.maxPodcastEpisodes) {
             guard let title = item.title else { continue }
 
-            // **Everything optional is skipped rather than defaulted.** A zero
-            // play count and an unknown play count are different facts, and
-            // writing `plays=0` for the second would hand the ontology stage a
-            // confident lie. Which of these the media library actually fills in
-            // varies, so the row carries what it has and says nothing about the
-            // rest.
+            // **Only the fields the library was measured to fill in.**
+            // `playCount`, `lastPlayedDate` and `genre` were nil or zero on
+            // every sampled episode — including ones demonstrably played — so
+            // Apple keeps no play history here whatever. They were written
+            // conditionally at first, which is harmless but dishonest about what
+            // this source can offer; the survey settled it and they are gone.
+            //
+            // Everything remaining is still skipped when absent rather than
+            // defaulted. A zero and an unknown are different facts, and writing
+            // one for the other hands the ontology stage a confident lie.
             var extra: [String] = []
             if item.playbackDuration > 0 { extra.append("duration_s=\(Int(item.playbackDuration))") }
-            if item.playCount > 0 { extra.append("plays=\(item.playCount)") }
             if item.bookmarkTime > 0 { extra.append("resume_s=\(Int(item.bookmarkTime))") }
-            if let played = item.lastPlayedDate { extra.append("last_played=\(Self.day.string(from: played))") }
             if let released = item.releaseDate { extra.append("released=\(Self.day.string(from: released))") }
-            // The one derived figure worth keeping: a downloaded-but-unplayed
-            // episode and one listened to the end are opposite signals, and the
-            // ratio says which without the ontology stage having to divide.
+            // **When it arrived on the phone, which under auto-download is a
+            // fact about the show rather than the episode.** Apple keeps the
+            // recent episodes of followed shows without being asked, so a fresh
+            // `added` date means the show is still publishing and still
+            // followed — where `released` only says when the world got it.
+            // Non-optional, unlike everything else here — the library always
+            // knows when it took something in.
+            extra.append("added=\(Self.day.string(from: item.dateAdded))")
+            // **The only behavioural fact this source has.** With no play count
+            // and no last-played, the resume position is all that separates an
+            // episode delivered automatically from one somebody actually
+            // started. Measured real: 50.8s of 4191.8s, 48.9s of 2381s.
             if item.playbackDuration > 0, item.bookmarkTime > 0 {
                 let share = min(1, item.bookmarkTime / item.playbackDuration)
                 extra.append("progress=\(String(format: "%.2f", share))")
