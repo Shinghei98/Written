@@ -42,10 +42,24 @@ actor DiscoveryService {
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/discovery_cards"),
             resolvingAgainstBaseURL: false
         )
-        components?.queryItems = [
+        var query = [
             URLQueryItem(name: "select", value: "user_id,display_name,age,district,photo_seeds,interests"),
             URLQueryItem(name: "order", value: "updated_at.desc"),
         ]
+        // **Everybody but you.** Nothing excluded the viewer, which cost
+        // nothing while the only cards were the six synthetic ones — no real
+        // account had a card to be shown its own. `DiscoveryCardService` now
+        // publishes one for every user, so without this the first thing a person
+        // would meet in Explore is themselves.
+        //
+        // Filtered in the query rather than after it, so the viewer's own card
+        // never crosses the wire and cannot be missed by a later code path —
+        // `DiscoveryModel` already filters three separate places for likes, and
+        // a fourth thing to remember is a fourth thing to forget.
+        if let userID = await SupabaseAuth.shared.userID {
+            query.append(URLQueryItem(name: "user_id", value: "neq.\(userID)"))
+        }
+        components?.queryItems = query
         guard let url = components?.url else { return [] }
 
         var request = URLRequest(url: url)

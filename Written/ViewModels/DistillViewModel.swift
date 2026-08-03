@@ -683,6 +683,51 @@ final class DistillViewModel: ObservableObject {
             // everything the user rejected.
             await SyncService.shared.pushBans(currentBans)
         }
+
+        publishDiscoveryCard()
+    }
+
+    /// Puts this person into the pool other people are shown from.
+    ///
+    /// **This is the half of discovery that never existed.** `DiscoveryService`
+    /// reads `discovery_cards`, `tools/seed_synthetic.py` writes six of them
+    /// with the secret key, and the app wrote none — so the synthetic accounts
+    /// were discoverable and every real signup was invisible. `0007` has carried
+    /// the `own row` insert and update policies since the beginning; only the
+    /// caller was missing.
+    ///
+    /// Called from `sync` so it rides the same moment as everything else that
+    /// leaves the device — a card is only worth publishing once there is a
+    /// distillation behind it, and this is where one has just landed.
+    ///
+    /// **Subjects only.** Artist names, channel names, show names: things a
+    /// sentence can be *about*. The songs, videos and episodes they came from
+    /// stay behind the policy that has always guarded them. See the header of
+    /// `0007_discovery.sql` — this table is readable by every signed-in user,
+    /// which is true of nothing else in this schema, and it stays worth that
+    /// only by staying this thin.
+    func publishDiscoveryCard() {
+        guard let name = SupabaseAuth.shared.firstName, !name.isEmpty else { return }
+
+        var interests: [(domain: String, subject: String)] = []
+        interests += musicArtists.map { (Ontology.Domain.music.rawValue, $0.name) }
+        interests += mediaChannels.compactMap { channel in
+            // Classified from the channel's own name, which is the only thing
+            // travelling anyway. An unclassifiable channel is dropped rather
+            // than filed under a guess.
+            guard let domain = Ontology.classify(title: "", channel: channel.name, detail: "") else { return nil }
+            return (domain.rawValue, channel.name)
+        }
+
+        let card = DiscoveryCardService.Card(
+            displayName: name,
+            age: identity.age,
+            district: identity.place,
+            interests: interests
+        )
+        Task.detached(priority: .utility) {
+            await DiscoveryCardService.shared.publish(card)
+        }
     }
 
     /// One location fix, the first time the dashboard needs it.
