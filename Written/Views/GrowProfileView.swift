@@ -1665,24 +1665,29 @@ struct SourcePickerSheet: View {
     /// hiding whatever app happens not to be installed.
     private var sources: [String] { SourceAvailability.sources(for: modality) }
 
-    /// The height the sheet asks for: the header, plus a row each.
+    /// The line under a source's name, for the one case where tapping it leads
+    /// somewhere the name does not prepare you for.
     ///
-    /// Computed rather than fixed at 280, which was sized for music's two rows
-    /// and left a single-app modality sitting in a half-empty sheet.
-    /// The line under a source's name, where tapping it leads somewhere the
-    /// name alone does not prepare you for.
+    /// **Health only, and it stays a dead end without it.** Its sheet opens with
+    /// every category off and keeps "Allow" *disabled* until one is switched on,
+    /// so a tester tapped Allow, nothing happened, and reported the app frozen.
+    /// Nothing can be drawn over that sheet and no message afterwards reaches
+    /// somebody who never got past it, so it has to be said here or not at all.
     ///
-    /// Both of these were written after a tester hit the thing they warn about.
-    /// A source earns one only if a reasonable person would otherwise be
-    /// surprised — this is not a place to describe what a source does.
+    /// Podcasts had one describing what it reads, and it is gone: nothing about
+    /// tapping it fails or surprises. That is the bar — a note earns its place
+    /// by preventing a dead end, not by explaining a source.
     static func note(forSource source: String) -> String? {
         switch source {
         case "health": return "Switch on what you'll share — or Turn On All — then Allow."
-        case "apple_podcasts": return "Reads podcast episodes saved on this phone — usually the recent ones from shows you follow."
         default: return nil
         }
     }
 
+    /// The height the sheet asks for: the header, plus a row each.
+    ///
+    /// Computed rather than fixed at 280, which was sized for music's two rows
+    /// and left a single-app modality sitting in a half-empty sheet.
     var detentHeight: CGFloat {
         let rows = CGFloat(max(sources.count, 1)) * 56
         // Every row carrying a second line needs its own room — see
