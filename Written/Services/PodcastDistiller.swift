@@ -24,23 +24,15 @@ struct PodcastDistiller {
     /// completion handler that never fires.
     private static let library = MPMediaLibrary.default()
 
+    /// **Only a refusal is an error here.** There is deliberately no case for an
+    /// empty library — see the note above `distill`'s return.
     enum PodcastError: LocalizedError {
         case denied
-        /// Authorized, and nothing came back.
-        ///
-        /// Named for the symptom, but unlike HealthKit this one can say *why*
-        /// with confidence: the media library holds **downloaded** episodes, so
-        /// somebody who streams everything genuinely has none. That is the
-        /// common case rather than an edge, which is why it is a failure with a
-        /// sentence rather than a branch that silently grows on nothing.
-        case noDownloads
 
         var errorDescription: String? {
             switch self {
             case .denied:
                 return "Written needs access to your media library to read Apple Podcasts. You can turn it on in Settings › Written."
-            case .noDownloads:
-                return "No downloaded podcast episodes found. Apple only lets apps see episodes saved to your phone — download one in Podcasts and try again."
             }
         }
     }
@@ -122,9 +114,19 @@ struct PodcastDistiller {
             ))
         }
 
-        // Surfaced rather than silently growing an empty branch — the rule
-        // HealthKit taught, and here the reason can actually be given.
-        guard !records.isEmpty else { throw PodcastError.noDownloads }
+        // **Empty is returned, not thrown, and that is deliberate — the Health
+        // rule does not carry over.**
+        //
+        // Health surfaces an empty distill as a failure because it is the only
+        // source on its branch: connect it, get nothing, and the plant refuses
+        // to move with no explanation. Podcasts sits beside YouTube on Media, so
+        // an empty result leaves nobody staring at a branch that would not grow.
+        //
+        // And the only sentence there is to say — "download an episode and try
+        // again" — asks somebody to change how they listen in order to feed our
+        // database. Someone who streams everything has not failed at anything.
+        // The picker row says what this reads *before* it is tapped, which is
+        // where an expectation belongs; complaining afterwards would be nagging.
         return records
     }
 
