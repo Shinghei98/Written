@@ -85,6 +85,17 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "connect")
     }
 
+    /// `-probe podcasts` → run `PodcastProbe` shortly after launch and report
+    /// what the media library holds.
+    ///
+    /// **Only meaningful on a device**, and only until it has answered: the
+    /// simulator's media library is empty, so it can only ever return the one
+    /// verdict that proves nothing. See `PodcastProbe`, which should be deleted
+    /// along with this flag once the question is settled.
+    static var probeTarget: String? {
+        UserDefaults.standard.string(forKey: "probe")
+    }
+
     /// `-edit artist` / `-edit channel` / `-edit sport` → open the dashboard with
     /// one entry of that kind already wobbling. `simctl` can send no long press,
     /// so this is the only way to screenshot the editing state.

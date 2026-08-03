@@ -63,15 +63,26 @@ exposes; consult it before adding a source). Implemented today:
   `spotify*` constants in `AppConfig`. Everything carries a "beta only" comment
   so `grep -rn "beta only"` finds the set. It was removed once already in
   `be4eea1` and restored from `be4eea1^`, so the diff to reverse is on record.
-**Apple Podcasts cannot be read, and this was measured rather than recalled.**
-`MPMediaQuery.podcasts()` is the exact analogue of what `AppleMusicDistiller`
-does — same framework, same `NSAppleMusicUsageDescription` — so if it worked,
-podcasts would be a permanent one-tap source. On a device, 2026-08-03: **329
-songs, 0 podcast items, 0 shows.** The songs count is the whole point of that
-measurement and not a curiosity: zero podcasts alone is indistinguishable from a
-library that cannot be read, which is the same trap HealthKit sets. 329 proves
-the library was readable and Apple Podcasts genuinely puts nothing in it — it
-keeps its own container and stopped using the media library around iOS 11.
+**Whether Apple Podcasts can be read is still open, and the first attempt to
+settle it is a lesson in itself.** `MPMediaQuery.podcasts()` is the exact
+analogue of what `AppleMusicDistiller` does — same framework, same
+`NSAppleMusicUsageDescription` — so if it works, podcasts are a permanent
+one-tap source. On a device, 2026-08-03: **329 songs, 0 podcast items, 0
+shows**, and that was written up here as proof the framework does not expose
+them.
+
+It proves nothing of the sort. **The phone's Podcasts app had never been
+opened.** The songs count was included precisely to stop a zero being misread —
+it rules out an unauthorized or unreadable library — but songs come from the
+Music library and podcasts would come from a different provider into the same
+one, so it cannot rule out "there was nothing to find". Two confounds, one
+control, and the conclusion was drawn anyway. **A zero is a finding only when
+something ought to have been found**, which is the same rule HealthKit teaches
+and it was broken here while explicitly citing it.
+
+Re-running against a followed show with a **downloaded** episode is what would
+settle it — the download being the part that matters, since it was downloaded
+episodes that appeared in the library back when any did.
 
 Everything else was considered and ruled out. MusicKit has no podcast types
 (Podcasts is a separate service that never got it). iCloud sync uses Apple's
