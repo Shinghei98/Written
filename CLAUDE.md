@@ -130,10 +130,31 @@ waiting. Three consequences, each paid for:
   and `AppShell` mounts all five tabs, so it ran at launch from a screen the user
   had never opened. Any permission asked for on `.task`/`.onAppear` in this app
   must be gated on that tab's `isVisible`.
-- **One retry is worth having**, since the service is warm the second time. A
-  refusal never arrives as an error here — a denied read is reported as success
-  with no data — so an error from `requestAuthorization` is always
-  infrastructural.
+- **One retry is not optional, it is how the sheet gets drawn at all.** Measured
+  on an erased simulator with nothing else on screen: request at 12:33:39,
+  `HealthPrivacyService` bootstrap success at 12:33:49, `Authorization session
+  timed out` at 12:33:49.991. HealthKit allows its sheet host about **ten
+  seconds** to launch and a genuinely cold start can take all of it, so the first
+  attempt loses on its own. The second finds the process warm and the sheet
+  appears — verified. A refusal never arrives as an error here (a denied read is
+  reported as success with no data), so an error from `requestAuthorization` is
+  always infrastructural and always worth one more go.
+- **Distinguish our timeout from a wrapped one.** `stage` wraps *every*
+  underlying error as `stageFailed`, so a retry guard reading "don't retry
+  `stageFailed`" refuses `[com.apple.healthkit 100]` — the one error it exists
+  for. That shipped in a build and the retry never ran once.
+  `HealthError.stageTimedOut` is now a separate case and only it is terminal.
+
+**The sheet's Allow button is disabled until a category is switched on**, and
+nothing about that is obvious. Every toggle opens off, "Turn On All" is a link
+rather than a default, and `Allow` renders as a grey pill while `Don't Allow`
+stays white and live. A user who reads the list and taps Allow gets nothing, taps
+again, gets nothing — and reports the app as frozen, which is exactly how it was
+reported. Nothing can be drawn over the sheet once it is up, and no message
+afterwards reaches somebody who never got past it, so the only place to say so is
+**before**: `SourcePickerSheet.row` carries a second line on the Health row
+alone. `detentHeight` counts it, because that detent is a fixed height and would
+otherwise crop the very sentence that prevents the dead end.
 - **It only happens to people who have never been asked**, which is why it
   survived so long: on any device that has answered once, the call returns
   instantly with nothing to present. Testing Health on your own phone proves

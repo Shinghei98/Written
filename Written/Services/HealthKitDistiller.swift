@@ -47,12 +47,18 @@ struct HealthKitDistiller {
         /// six queries was at fault — but `[com.apple.healthkit 5]` is not a
         /// sentence to put in front of a tester either.
         case stageFailed(String)
+        /// **Our** twenty-second ceiling, as distinct from a call that failed on
+        /// its own. The two were one case, and it cost the retry below its whole
+        /// purpose: `stage` wraps every underlying error as `stageFailed`, so a
+        /// guard meaning "don't retry our own timeout" refused to retry
+        /// `[com.apple.healthkit 100]` — the one error it was written for.
+        case stageTimedOut(String)
 
         var errorDescription: String? {
             switch self {
             case .unavailable:
                 return "Apple Health isn't available on this device."
-            case .stageFailed(let detail):
+            case .stageFailed(let detail), .stageTimedOut(let detail):
                 let message = "Apple Health didn't respond. Try again — and if it keeps happening, "
                     + "open Health and check Data Access & Devices › Written."
                 #if DEBUG
@@ -233,7 +239,7 @@ struct HealthKitDistiller {
                     // matters. It is here for the stages that *are* cancellable.
                     worker.cancel()
                     continuation.resume(
-                        throwing: HealthError.stageFailed("\(name) timed out after \(Int(stageTimeout))s")
+                        throwing: HealthError.stageTimedOut("\(name) timed out after \(Int(stageTimeout))s")
                     )
                 }
             }
@@ -299,10 +305,14 @@ struct HealthKitDistiller {
                 // denied read as success and no data. An error here is always
                 // infrastructural, so a second go is always worth having.
                 //
-                // Except our own timeout: if twenty seconds bought nothing, a
-                // further twenty is forty seconds of spinner for the same
-                // answer.
-                if case HealthError.stageFailed = error { throw error }
+                // Except our own ceiling — `stageTimedOut`, not `stageFailed`.
+                // If twenty seconds bought nothing, a further twenty is forty
+                // seconds of spinner for the same answer. Written as
+                // `stageFailed` first time round, which `stage` puts on *every*
+                // wrapped error, so this refused the very case it exists for:
+                // `[com.apple.healthkit 100]` after 10.8s, measured, with no
+                // retry attempted.
+                if case HealthError.stageTimedOut = error { throw error }
                 guard attempt == 1 else { throw error }
             }
         }

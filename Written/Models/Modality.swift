@@ -3,9 +3,15 @@ import Foundation
 /// One branch of the profile tree: a facet of the user's digital footprint.
 ///
 /// `rawValue` is the invasiveness order, lowest first — asking what someone
-/// listens to is the smallest thing we can ask for, so music is the shoot's
-/// first branch. That same order is the order branches unlock in, so
-/// `Modality.allCases` is the onboarding sequence.
+/// listens to is the smallest thing we can ask for, so music is case zero.
+///
+/// **It is no longer the unlock order, and the two must not be confused.**
+/// `allCases` is given explicitly below and the raw values stay where they are,
+/// because `TreeSkeleton` derives each branch's attachment height from
+/// `rawValue`. Anything asking "in what order does the user meet these?" reads
+/// `allCases`; only the drawing reads `rawValue`. `TreeState.connectedModalities`
+/// got this wrong for one build and sent music to the top of the stack the
+/// moment it was connected.
 ///
 /// Four, against an illustration with four stages — bare soil plus one per
 /// connected modality — so the fourth does not grow the plant again. It lights

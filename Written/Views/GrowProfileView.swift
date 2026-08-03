@@ -1668,7 +1668,12 @@ struct SourcePickerSheet: View {
     /// and left a single-app modality sitting in a half-empty sheet.
     var detentHeight: CGFloat {
         let rows = CGFloat(max(sources.count, 1)) * 56
-        return 116 + rows + (sources.isEmpty ? 12 : 0)
+        // Apple Health's row carries a second line — see `row(for:)`. Counted
+        // here because the detent is a *fixed* height: a row that outgrows its
+        // 56 points is simply cropped, and the cropped part would be the very
+        // sentence that stops somebody meeting a dead Allow button.
+        let healthNote: CGFloat = sources.contains("health") ? 18 : 0
+        return 116 + rows + healthNote + (sources.isEmpty ? 12 : 0)
     }
 
     var body: some View {
@@ -1750,9 +1755,34 @@ struct SourcePickerSheet: View {
                     .foregroundStyle(GardenPalette.gold)
                     .frame(width: 28)
 
-                Text(Modality.displayName(forSource: source))
-                    .font(.system(size: 17))
-                    .foregroundStyle(GardenPalette.ink)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Modality.displayName(forSource: source))
+                        .font(.system(size: 17))
+                        .foregroundStyle(GardenPalette.ink)
+
+                    // **Apple Health alone, and it is not a decoration.** Its
+                    // sheet opens with every category switched off and keeps
+                    // "Allow" *disabled* until one is turned on — verified on a
+                    // clean sheet, not inferred. So a user who reads the list,
+                    // taps Allow and gets nothing has met a dead button with
+                    // nothing to explain it, and reports the app as frozen.
+                    // Which is exactly how it was reported.
+                    //
+                    // It has to be said here because once the sheet is up the
+                    // app cannot draw over it, and no message afterwards reaches
+                    // somebody who never got past it. "Turn On All" is the
+                    // sheet's own wording, so it names the control they will see.
+                    //
+                    // Music and Calendar get nothing: both present a single
+                    // yes/no alert with no switches, and a note there would be
+                    // noise on the two that already work.
+                    if source == "health" {
+                        Text("Switch on what you'll share — or Turn On All — then Allow.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(GardenPalette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 Spacer()
 
