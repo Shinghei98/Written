@@ -63,6 +63,33 @@ exposes; consult it before adding a source). Implemented today:
   `spotify*` constants in `AppConfig`. Everything carries a "beta only" comment
   so `grep -rn "beta only"` finds the set. It was removed once already in
   `be4eea1` and restored from `be4eea1^`, so the diff to reverse is on record.
+**Apple Podcasts cannot be read, and this was measured rather than recalled.**
+`MPMediaQuery.podcasts()` is the exact analogue of what `AppleMusicDistiller`
+does — same framework, same `NSAppleMusicUsageDescription` — so if it worked,
+podcasts would be a permanent one-tap source. On a device, 2026-08-03: **329
+songs, 0 podcast items, 0 shows.** The songs count is the whole point of that
+measurement and not a curiosity: zero podcasts alone is indistinguishable from a
+library that cannot be read, which is the same trap HealthKit sets. 329 proves
+the library was readable and Apple Podcasts genuinely puts nothing in it — it
+keeps its own container and stopped using the media library around iOS 11.
+
+Everything else was considered and ruled out. MusicKit has no podcast types
+(Podcasts is a separate service that never got it). iCloud sync uses Apple's
+private container. Now Playing metadata for another app is private API.
+`DeviceActivity` can measure time spent in Podcasts but seals it inside an
+extension, names no shows, and needs the Family Controls entitlement. The Data &
+Privacy export (privacy.apple.com → Apple Media Services) *does* hold full
+subscriptions and play history, but arrives as an emailed ZIP days later, which
+is the opposite of the prime constraint. `JournalingSuggestions` (iOS 17.2+)
+vends real listened-to podcasts, but one user-picked item at a time, above this
+app's deployment target, and through a framework meant for journaling.
+
+**So the only routes left are a share and a third party**, and neither is a
+library: `podcasts.apple.com` links through the share extension — which already
+appears in Apple Podcasts' share sheet, since its activation rule takes any web
+URL — resolved by the public iTunes Search API for show, artist and genre; or
+Spotify's `/me/shows`, which inherits Spotify's removal date.
+
 - **Apple Calendar** (`CalendarDistiller`) — **the first source not in
   `written_api.xlsx`.** The reasoning is that a calendar collects two things
   nothing else reaches: bookings that ticketing sites write in by themselves
