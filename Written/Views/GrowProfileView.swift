@@ -1669,14 +1669,30 @@ struct SourcePickerSheet: View {
     ///
     /// Computed rather than fixed at 280, which was sized for music's two rows
     /// and left a single-app modality sitting in a half-empty sheet.
+    /// The line under a source's name, where tapping it leads somewhere the
+    /// name alone does not prepare you for.
+    ///
+    /// Both of these were written after a tester hit the thing they warn about.
+    /// A source earns one only if a reasonable person would otherwise be
+    /// surprised — this is not a place to describe what a source does.
+    static func note(forSource source: String) -> String? {
+        switch source {
+        case "health": return "Switch on what you'll share — or Turn On All — then Allow."
+        case "apple_podcasts": return "Reads episodes downloaded to this phone."
+        default: return nil
+        }
+    }
+
     var detentHeight: CGFloat {
         let rows = CGFloat(max(sources.count, 1)) * 56
-        // Apple Health's row carries a second line — see `row(for:)`. Counted
-        // here because the detent is a *fixed* height: a row that outgrows its
-        // 56 points is simply cropped, and the cropped part would be the very
-        // sentence that stops somebody meeting a dead Allow button.
-        let healthNote: CGFloat = sources.contains("health") ? 18 : 0
-        return 116 + rows + healthNote + (sources.isEmpty ? 12 : 0)
+        // Every row carrying a second line needs its own room — see
+        // `note(forSource:)`. Counted rather than assumed because the detent is
+        // a *fixed* height: a row that outgrows its 56 points is simply cropped,
+        // and the cropped part would be the one sentence the row exists to add.
+        // Derived from the sources actually shown, so a third note later cannot
+        // silently overflow the way a hardcoded count would.
+        let notes = CGFloat(sources.filter { Self.note(forSource: $0) != nil }.count) * 18
+        return 116 + rows + notes + (sources.isEmpty ? 12 : 0)
     }
 
     var body: some View {
@@ -1763,24 +1779,30 @@ struct SourcePickerSheet: View {
                         .font(.system(size: 17))
                         .foregroundStyle(GardenPalette.ink)
 
-                    // **Apple Health alone, and it is not a decoration.** Its
-                    // sheet opens with every category switched off and keeps
-                    // "Allow" *disabled* until one is turned on — verified on a
-                    // clean sheet, not inferred. So a user who reads the list,
-                    // taps Allow and gets nothing has met a dead button with
-                    // nothing to explain it, and reports the app as frozen.
-                    // Which is exactly how it was reported.
+                    // **Two sources need a sentence before they are tapped, and
+                    // for the same underlying reason**: what happens next is not
+                    // what somebody would assume, and by the time it happens the
+                    // app can no longer say anything.
                     //
-                    // It has to be said here because once the sheet is up the
-                    // app cannot draw over it, and no message afterwards reaches
-                    // somebody who never got past it. "Turn On All" is the
-                    // sheet's own wording, so it names the control they will see.
+                    // Health, because its sheet opens with every category off
+                    // and keeps "Allow" *disabled* until one is turned on —
+                    // verified on a clean sheet, not inferred. Tap it and
+                    // nothing happens, which reads as a frozen app, and that is
+                    // exactly how it was reported. Nothing can be drawn over
+                    // that sheet, and no message afterwards reaches somebody who
+                    // never got past it.
                     //
-                    // Music and Calendar get nothing: both present a single
-                    // yes/no alert with no switches, and a note there would be
-                    // noise on the two that already work.
-                    if source == "health" {
-                        Text("Switch on what you'll share — or Turn On All — then Allow.")
+                    // Podcasts, because the media library only holds
+                    // **downloaded** episodes. Somebody who streams everything
+                    // connects it and gets nothing, and an empty result that was
+                    // never explained is the failure this project keeps paying
+                    // for. Said here, "nothing found" is a fact about their
+                    // downloads rather than a mystery.
+                    //
+                    // Music and Calendar get nothing: a single yes/no alert with
+                    // no switches and no precondition, so a note would be noise.
+                    if let note = Self.note(forSource: source) {
+                        Text(note)
                             .font(.system(size: 12))
                             .foregroundStyle(GardenPalette.muted)
                             .fixedSize(horizontal: false, vertical: true)

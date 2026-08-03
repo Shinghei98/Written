@@ -96,7 +96,10 @@
 		</dict>
 
 		<!-- What the distillation actually is: songs, artists, playlists,
-		     subscriptions and liked videos from the apps the user connected. -->
+		     subscriptions and liked videos from the apps the user connected,
+		     and now podcast shows and downloaded episodes — including how far
+		     through one somebody got, which is the same kind of usage fact as a
+		     play count and belongs under the same declaration. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>

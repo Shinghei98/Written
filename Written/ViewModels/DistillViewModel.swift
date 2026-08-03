@@ -7,6 +7,7 @@ final class DistillViewModel: ObservableObject {
 
     @Published var youtubeStatus: SourceStatus = .idle
     @Published var appleMusicStatus: SourceStatus = .idle
+    @Published var podcastStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
     /// Beta only; removed before the App Store build. See `Modality.sources`.
@@ -132,6 +133,7 @@ final class DistillViewModel: ObservableObject {
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
+            || podcastStatus.isRunning
             || spotifyStatus.isRunning
     }
 
@@ -140,6 +142,7 @@ final class DistillViewModel: ObservableObject {
         case "youtube": return youtubeStatus
         case "apple_music": return appleMusicStatus
         case "health": return healthStatus
+        case "apple_podcasts": return podcastStatus
         case "apple_calendar": return calendarStatus
         case "spotify": return spotifyStatus
         default: return .idle
@@ -171,6 +174,7 @@ final class DistillViewModel: ObservableObject {
         case "youtube": distillYouTube()
         case "apple_music": distillAppleMusic()
         case "health": distillHealth()
+        case "apple_podcasts": distillPodcasts()
         case "apple_calendar": distillCalendar()
         case "spotify": distillSpotify()
         default: break
@@ -393,6 +397,22 @@ final class DistillViewModel: ObservableObject {
                 youtubeStatus = .done(count: newRecords.count)
             } catch {
                 youtubeStatus = .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Apple Podcasts, through the media library. Shaped like Apple Music
+    /// because it is the same framework family and the same one system dialog.
+    func distillPodcasts() {
+        guard !podcastStatus.isRunning else { return }
+        podcastStatus = .running
+        Task {
+            do {
+                let newRecords = try await PodcastDistiller().distill()
+                replaceRecords(from: "apple_podcasts", with: newRecords)
+                podcastStatus = .done(count: newRecords.count)
+            } catch {
+                podcastStatus = .failed(message: Self.detail(of: error))
             }
         }
     }

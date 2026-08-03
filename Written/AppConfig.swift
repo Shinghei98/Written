@@ -151,4 +151,14 @@ enum AppConfig {
     /// carry the shape of the habit anyway, and an athlete with thousands of
     /// sessions shouldn't make the distill crawl.
     static let maxWorkouts = 400
+
+    /// Shows and episodes kept from Apple Podcasts.
+    ///
+    /// Generous on shows and tighter on episodes, because they answer different
+    /// questions. The *show* is the taste and there are only ever so many of
+    /// them; the *episodes* are instances of it, and past a point another fifty
+    /// of the same podcast tell the ontology stage nothing it did not already
+    /// have from the first ten. Same argument as `maxSongsRated`.
+    static let maxPodcastShows = 200
+    static let maxPodcastEpisodes = 500
 }

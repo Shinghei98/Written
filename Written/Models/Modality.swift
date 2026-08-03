@@ -75,7 +75,13 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // Apple Music first: it is the one the product depends on, and the
         // picker draws these in order.
         case .music: return ["apple_music", "spotify"]
-        case .media: return ["youtube"]
+        // YouTube first: it is the larger footprint and the one that has
+        // always been here. Apple Podcasts is the **second source not in
+        // `written_api.xlsx`**, after Apple Calendar — a podcast is hours of
+        // attention given to one show over weeks, which is a stronger claim
+        // about a person than a follow costs, and it belongs beside YouTube
+        // because it is the same kind of claim.
+        case .media: return ["youtube", "apple_podcasts"]
         // Not in `written_api.xlsx` — the first source that isn't. A calendar
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
@@ -125,6 +131,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         switch source {
         case "youtube": return "YouTube"
         case "apple_music": return "Apple Music"
+        case "apple_podcasts": return "Apple Podcasts"
         case "spotify": return "Spotify"
         case "health": return "Apple Health"
         case "apple_calendar": return "Apple Calendar"
@@ -137,6 +144,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         switch source {
         case "youtube": return "play.rectangle.fill"
         case "apple_music": return "music.note"
+        case "apple_podcasts": return "mic.fill"
         case "spotify": return "waveform"
         case "health": return "heart.fill"
         case "apple_calendar": return "calendar"
