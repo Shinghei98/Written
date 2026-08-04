@@ -42,6 +42,11 @@ actor DiscoveryService {
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/discovery_cards"),
             resolvingAgainstBaseURL: false
         )
+        // Read after the token, never before: the refresh is what fills the id
+        // in on a cold launch, and reading it first reports "not signed in" for
+        // a session that is merely not restored yet.
+        let me = await SupabaseAuth.shared.userID
+
         var query = [
             URLQueryItem(name: "select", value: "user_id,display_name,age,district,photo_seeds,interests"),
             URLQueryItem(name: "order", value: "updated_at.desc"),
@@ -52,12 +57,9 @@ actor DiscoveryService {
         // publishes one for every user, so without this the first thing a person
         // would meet in Explore is themselves.
         //
-        // Filtered in the query rather than after it, so the viewer's own card
-        // never crosses the wire and cannot be missed by a later code path —
-        // `DiscoveryModel` already filters three separate places for likes, and
-        // a fourth thing to remember is a fourth thing to forget.
-        if let userID = await SupabaseAuth.shared.userID {
-            query.append(URLQueryItem(name: "user_id", value: "neq.\(userID)"))
+        // Filtered in the query so the viewer's own card never crosses the wire.
+        if let me {
+            query.append(URLQueryItem(name: "user_id", value: "neq.\(me)"))
         }
         components?.queryItems = query
         guard let url = components?.url else { return [] }
@@ -75,7 +77,16 @@ actor DiscoveryService {
             }
             let rows = (try JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
             lastError = nil
-            return rows.compactMap(Self.person(from:))
+            // **And again here, because the query filter is conditional.** If
+            // the id were unavailable the `neq` above is simply not added, and
+            // the request comes back with the viewer's own card in it — a
+            // guard that silently does nothing is the shape of most of the bugs
+            // in this project. This one cannot: a row whose id matches is
+            // dropped whatever happened upstream, and if the id is unknown then
+            // no card can match it and nothing is lost.
+            return rows
+                .compactMap(Self.person(from:))
+                .filter { $0.id != me }
         } catch {
             lastError = error.localizedDescription
             return []
