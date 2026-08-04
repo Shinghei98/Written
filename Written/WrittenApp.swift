@@ -161,6 +161,18 @@ struct RootView: View {
             switch route {
             case .home:
                 AppShell(photos: $photos, onSignOut: {
+                    // **Before the session is dropped**, matching the rule the
+                    // account-scoped stores follow: afterwards `AccountScope`
+                    // resolves to `local` and clears the wrong things. This
+                    // array is not one of those stores, but one ordering is
+                    // easier to keep right than two.
+                    //
+                    // Nothing cleared it, and `@State` outlives a route change —
+                    // so signing in as somebody else in the same launch showed
+                    // them the previous account's photographs, which the
+                    // hydration pass could never correct because it only fills
+                    // slots that are empty.
+                    photos = Array(repeating: nil, count: 6)
                     SupabaseAuth.shared.signOut()
                     route = .signIn
                 })

@@ -68,9 +68,18 @@ struct PickedMovie: Transferable {
 /// distiller.
 struct PhotoEntryView: View {
 
-    /// Carries the chosen media out. Nothing is uploaded from here yet — the
-    /// same shape `NameEntryView` had before there was anywhere to put a name.
-    var onContinue: ([PickedMedia]) -> Void = { _ in }
+    /// Carries the media out **with its holes in**, all six slots.
+    ///
+    /// It used to hand over `chosen`, the compacted list — and
+    /// `PhotoService.upload` numbers what it is given by `enumerated()`, so
+    /// filling boxes 0, 3 and 5 saved them as 0, 1 and 2. The arrangement was
+    /// destroyed at the first save. It went unseen for as long as it did because
+    /// nothing ever drew the server's copy back; the moment the grid hydrated,
+    /// the photographs came back packed at the top.
+    ///
+    /// `chosen` stays for `chosen.isEmpty`, which is the question it was written
+    /// to answer — whether there is anything to continue *with*.
+    var onContinue: ([PickedMedia?]) -> Void = { _ in }
     var onSkip: () -> Void = {}
 
     /// What each slot asks for.
@@ -128,7 +137,7 @@ struct PhotoEntryView: View {
                 // Appears only once there is something to continue *with*.
                 // Before that the only way on is Skip, which asks first.
                 if !chosen.isEmpty {
-                    Button("Continue") { onContinue(chosen) }
+                    Button("Continue") { onContinue(media) }
                         .buttonStyle(PressShrinkButtonStyle())
                         .frame(width: 176)
                         .padding(.top, 4)
@@ -154,7 +163,7 @@ struct PhotoEntryView: View {
                 if chosen.isEmpty {
                     withAnimation(.easeOut(duration: 0.2)) { isConfirmingSkip = true }
                 } else {
-                    onContinue(chosen)
+                    onContinue(media)
                 }
             } label: {
                 Text("Skip")

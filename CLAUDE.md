@@ -1071,6 +1071,30 @@ Three things generalise, and the middle one is the reason this was invisible:
   loaded yet is six empty slots, and anything reconciling the array against the
   server would read it as *delete everything*.
 
+- **Onboarding numbered the slots wrong, and only a working grid could show
+  it.** `PhotoEntryView` handed over `chosen` — `media.compactMap { $0 }` — and
+  `PhotoService.upload` numbers what it is given by `enumerated()`, so boxes 0, 3
+  and 5 were saved as 0, 1 and 2. The arrangement was destroyed at the first
+  save. It survived because nothing ever drew the server's copy back; the moment
+  hydration landed, the photographs returned packed at the top. **A compacted
+  array is never the right thing to hand to something that assigns positions.**
+
+- **The grid outlived the account.** `photos` is `@State` on `RootView` and
+  nothing cleared it, so signing in as somebody else in the same launch showed
+  them the previous account's photographs — and hydration could never correct it,
+  because it only fills slots that are empty. Cleared in `onSignOut` *before*
+  `SupabaseAuth.signOut()`, matching the rule the account-scoped stores follow.
+  `pendingPhotos` needs no such clearing: it lives on `AppShell`'s `@StateObject`,
+  which is torn down with the route.
+
+- **A background assertion has to wrap the work, not the call.** It was taken in
+  `AppShell` around `flushPhotos()`, and a flush already running from the tab
+  change turned that call away at the re-entrancy guard — so the assertion
+  covered a function that returned immediately while the real upload ran
+  unprotected. It lives inside the flush now. Its expiration handler is not
+  optional either: a background task that runs out with no handler takes the app
+  down with it.
+
 - **The grid never loaded, either.** `photos` is `@State` on `RootView`, six
   nils, and nothing read the account's own back — so the pictures were in the
   bucket, on the discovery card, and absent from the one screen their owner goes

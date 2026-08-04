@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class DistillViewModel: ObservableObject {
@@ -830,6 +831,10 @@ final class DistillViewModel: ObservableObject {
     /// one gesture apart — and both would otherwise take the same entries.
     private var isFlushingPhotos = false
 
+    /// Keeps the app running long enough to finish, when the flush is the last
+    /// thing it does. See `beginPhotoBackgroundTask`.
+    private var photoBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+
     /// A photograph added or removed on the dashboard. Recorded, not sent.
     ///
     /// **Onboarding has a Continue button and this page does not**, which is why
@@ -863,7 +868,11 @@ final class DistillViewModel: ObservableObject {
     func flushPhotos() async {
         guard !isFlushingPhotos, !pendingPhotos.isEmpty else { return }
         isFlushingPhotos = true
-        defer { isFlushingPhotos = false }
+        beginPhotoBackgroundTask()
+        defer {
+            isFlushingPhotos = false
+            endPhotoBackgroundTask()
+        }
 
         let work = pendingPhotos
         pendingPhotos = [:]
@@ -901,6 +910,33 @@ final class DistillViewModel: ObservableObject {
         // Once per flush, not once per photograph: the card carries all the
         // paths, so republishing per file is six writes to say one thing.
         if landed { publishDiscoveryCard() }
+    }
+
+    /// Time to finish after the app leaves the foreground.
+    ///
+    /// **Taken here rather than around the call**, which is where it was and
+    /// where it protected nothing: a flush already running from the tab change
+    /// turned the backgrounding call away at the re-entrancy guard, so the
+    /// assertion was taken and released around a function that returned
+    /// immediately while the real work went unprotected. Around the work, every
+    /// trigger's flush is covered and a re-entrant call adds nothing.
+    ///
+    /// An unclaimed background gives a few seconds; this gives closer to thirty,
+    /// which is the difference between an upload finishing and being cut off.
+    /// The expiration handler is not optional — a task that runs out with no
+    /// handler takes the app down with it. Ending it there leaves whatever is
+    /// still queued for the next departure, which is what the retry is for.
+    private func beginPhotoBackgroundTask() {
+        guard photoBackgroundTask == .invalid else { return }
+        photoBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "photos") {
+            Task { @MainActor [weak self] in self?.endPhotoBackgroundTask() }
+        }
+    }
+
+    private func endPhotoBackgroundTask() {
+        guard photoBackgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(photoBackgroundTask)
+        photoBackgroundTask = .invalid
     }
 
     /// One location fix, the first time the dashboard needs it.

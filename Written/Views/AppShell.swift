@@ -223,15 +223,13 @@ struct AppShell: View {
             //
             // A crash or an instant kill can still lose a staged edit. That is
             // the accepted cost of batching rather than an oversight.
+            //
+            // The background assertion that keeps this alive is taken inside
+            // `flushPhotos`, around the work rather than around the call — see
+            // the note there. Held here, it protected a call that had already
+            // been turned away by the re-entrancy guard.
             if phase != .active {
-                // Without an assertion an app has a few seconds after leaving
-                // the foreground; with one it has closer to thirty, which is the
-                // difference between an upload finishing and being cut off.
-                let token = UIApplication.shared.beginBackgroundTask(withName: "photos")
-                Task {
-                    await viewModel.flushPhotos()
-                    if token != .invalid { UIApplication.shared.endBackgroundTask(token) }
-                }
+                Task { await viewModel.flushPhotos() }
             }
 
             guard phase == .active, !isRevealing, gardenLift != 0 else { return }
