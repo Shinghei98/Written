@@ -118,16 +118,29 @@ struct AppleMusicDistiller {
     ///
     /// A `user` record: no column, no migration, and the change-only trigger
     /// means a distillation that finds the same answer writes nothing.
+    /// The three answers `MusicSubscription` can give, kept apart.
+    ///
+    /// `canPlayCatalogContent` is what "subscribed" means here — the closest
+    /// available flag, and the one that matters, since the endpoints a
+    /// subscription unlocks are catalog-backed. It reads true for the Voice
+    /// plan and false during a lapsed renewal; both are recorded as what the
+    /// flag said rather than second-guessed, so the edge cases stay traceable.
+    enum Subscription: String {
+        case subscribed
+        case authorizedNoSubscription = "authorized_no_subscription"
+        /// The query itself failed. **Not the same as "no"** — it also covers a
+        /// region that cannot do Apple Music and a request that never left the
+        /// device, so flattening it into either would invent an answer.
+        case unknown
+    }
+
+    static func subscriptionState() async -> Subscription {
+        guard let subscription = try? await MusicSubscription.current else { return .unknown }
+        return subscription.canPlayCatalogContent ? .subscribed : .authorizedNoSubscription
+    }
+
     private static func subscriptionRecord() async -> DistilledRecord {
-        let subscription = try? await MusicSubscription.current
-        let state: String
-        if let subscription {
-            state = subscription.canPlayCatalogContent ? "subscribed" : "authorized_no_subscription"
-        } else {
-            // The query itself failing is a third answer and not the same as
-            // "no" — recorded as unknown rather than flattened into either.
-            state = "unknown"
-        }
+        let state = await subscriptionState().rawValue
 
         return DistilledRecord(
             source: "user",

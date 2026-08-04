@@ -460,14 +460,44 @@ final class DistillViewModel: ObservableObject {
                 failure = failure ?? Self.detail(of: error)
             }
 
-            // A failure only counts if nothing came back. One of the two
-            // returning rows is a success from the user's side, whatever the
-            // other did.
+            // **A failure only counts if nothing came back at all.** Not being
+            // subscribed is not a refusal and does not stop anything: the
+            // device library reads without one, and somebody with three hundred
+            // songs on their phone has a music branch whether or not they pay
+            // Apple monthly. So a subscription is never checked *before*
+            // distilling — only afterwards, and only to explain an empty result.
             if collected > 0 {
                 appleMusicStatus = .done(count: collected)
             } else {
-                appleMusicStatus = .failed(message: failure ?? "No music found.")
+                let reason = await Self.emptyMusicReason()
+                appleMusicStatus = .failed(message: failure ?? reason)
             }
+        }
+    }
+
+    /// Why a music distillation came back with nothing, said as precisely as
+    /// the frameworks allow.
+    ///
+    /// Reached only when **both** libraries returned zero rows, so it is
+    /// explaining an absence rather than a refusal — a refused permission throws
+    /// `MusicError.notAuthorized` long before this and carries its own sentence
+    /// about Settings.
+    ///
+    /// The subscription is checked *here* and nowhere earlier, which is the
+    /// whole shape of this: not paying Apple monthly is not a reason to refuse
+    /// somebody a music branch, it is only ever a reason a particular kind of
+    /// data is missing.
+    private static func emptyMusicReason() async -> String {
+        switch await AppleMusicDistiller.subscriptionState() {
+        case .authorizedNoSubscription:
+            return "No subscribed Apple Music account on this device, and no music saved to the phone either. Subscribe or add some music, then try again."
+        case .subscribed:
+            return "Apple Music is connected but your library came back empty."
+        case .unknown:
+            // Deliberately vague, because the state is. This fires for a region
+            // that cannot use Apple Music and for a request that never left the
+            // device, and naming either would be a guess.
+            return "Couldn't read anything from Apple Music. Try again."
         }
     }
 

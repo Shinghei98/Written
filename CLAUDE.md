@@ -30,6 +30,39 @@ The current sources honor this as follows:
 | Apple Health | HealthKit | One system sheet listing the four types read, no login. |
 | Apple Calendar | EventKit | One system sheet, no login. Works in the simulator, unlike MusicKit. |
 
+## The extraction rule: if it can be distilled, distil it
+
+**Take whatever is technically possible, whether or not it looks useful at first
+glance.** The ontology and embedding stages decide what matters, and they can
+only decide it about data that was kept. A field dropped at the parse cannot be
+recovered without re-distilling everybody, which is not something that can be
+done quietly — so the default is to keep, and the exception needs an argument.
+
+This has already cost something twice. `AppleMusicDistiller` fetched
+`composerName`, `albumName`, `releaseDate` and duration on every request and
+discarded all of them at one line; classical listening was invisible as a result,
+since the "artist" of a Bach partita is whoever performed it. YouTube's
+`categoryId` sat inside a snippet that was already being decoded.
+
+Two things this rule does **not** license, because they are different questions:
+
+- **It is not a licence to ask for more permissions.** Health's sheet lists only
+  the types actually read, and widening it for something speculative is the one
+  thing that rule exists to stop. "Technically possible" means with the consent
+  already given.
+- **It is not a licence to widen the list of what leaves the device.** That list
+  is kept short and complete on purpose, and `PrivacyInfo.xcprivacy` has to keep
+  agreeing with it.
+
+Within one already-granted permission, though, take everything: extra fields on a
+response already fetched, extra `part=` on a request already being made, a second
+query against a library already open.
+
+**And an absence is not a refusal.** Somebody who is not subscribed to Apple
+Music still has songs on their phone; somebody with no downloaded podcasts still
+follows shows. Distil what is reachable and explain what is missing — never stop
+because one route came back empty.
+
 ## Supported apps and what each yields
 
 Scope comes from `written_api.xlsx` (the source of truth for what each platform
