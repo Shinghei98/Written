@@ -49,12 +49,17 @@ private struct MediaSurveyAlert: ViewModifier {
 /// Decides which of the screens the app is on: sign-in, the onboarding steps,
 /// or the garden.
 ///
-/// **Both routes in now create a real account.** This note used to say the phone
-/// flow verified nothing — it accepted any six digits and sent no message — and
-/// that stayed true long enough for testers to sign up with it, reach the photo
-/// page with no session, and be told "You're not signed in". Phone goes through
-/// Supabase's Twilio Verify provider now, and returns the same session Apple
-/// does.
+/// **Create account and both sign-in routes now make a real account.** This note
+/// used to say the phone flow verified nothing — it accepted any six digits and
+/// sent no message — and that stayed true long enough for testers to sign up
+/// with it, reach the photo page with no session, and be told "You're not signed
+/// in". Phone goes through Supabase's Twilio Verify provider now and returns the
+/// same session Apple does.
+///
+/// **Google is the one that still does not**, and it says so rather than
+/// pretending: it used to set `route = .home` outright, which is the same lie in
+/// a shorter form. Supabase can do Google properly — a provider and an OAuth
+/// client — and until that exists the button reports itself unfinished.
 struct RootView: View {
     /// The one screen showing, rather than four booleans that could disagree.
     ///
@@ -284,30 +289,45 @@ struct RootView: View {
     private var signIn: some View {
         NavigationStack {
             SignInView(
-                onSignIn: {
-                    Task {
-                        do {
-                            try await SupabaseAuth.shared.signInWithApple()
-                            // Apple gives a name on the first sign-in only, and
-                            // lets the user withhold it — so a brand-new account
-                            // often arrives with nothing to call them. Ask rather
-                            // than carry an anonymous profile.
-                            //
-                            // Three separate questions, each off its own fact.
-                            // Chaining photos to the name step meant an account
-                            // that arrived already named — which is what Apple
-                            // does on a first sign-in — skipped straight past the
-                            // photo page forever. The same branch runs on
-                            // relaunch, from the cached step.
-                            route = Self.route(for: SupabaseAuth.shared.onboardingStep)
-                        } catch SupabaseAuth.AuthError.cancelled {
-                            // Backing out of Apple's sheet is not a failure.
-                        } catch {
-                            signInError = error.localizedDescription
+                onCreateAccount: { isEnteringPhone = true },
+                onSignIn: { method in
+                    switch method {
+                    case .phone:
+                        isEnteringPhone = true
+                    case .google:
+                        // **Says so rather than pretending.** This was
+                        // `route = .home` — no account, no session, straight
+                        // into the app — which is the same class of lie the
+                        // phone flow used to tell and cost two testers a
+                        // session each. Supabase can do Google properly; it
+                        // needs a provider configured and an OAuth client, and
+                        // until that exists the honest answer is a sentence.
+                        signInError = "Google sign-in isn't ready yet. Use Apple or your phone number."
+                    case .apple:
+                        Task {
+                            do {
+                                try await SupabaseAuth.shared.signInWithApple()
+                                // Apple gives a name on the first sign-in only,
+                                // and lets the user withhold it — so a brand-new
+                                // account often arrives with nothing to call
+                                // them. Ask rather than carry an anonymous
+                                // profile.
+                                //
+                                // Three separate questions, each off its own
+                                // fact. Chaining photos to the name step meant an
+                                // account that arrived already named — which is
+                                // what Apple does on a first sign-in — skipped
+                                // straight past the photo page forever. The same
+                                // branch runs on relaunch, from the cached step.
+                                route = Self.route(for: SupabaseAuth.shared.onboardingStep)
+                            } catch SupabaseAuth.AuthError.cancelled {
+                                // Backing out of Apple's sheet is not a failure.
+                            } catch {
+                                signInError = error.localizedDescription
+                            }
                         }
                     }
-                },
-                onPhone: { isEnteringPhone = true }
+                }
             )
             .alert("Couldn't sign in", isPresented: .constant(signInError != nil)) {
                 Button("OK") { signInError = nil }

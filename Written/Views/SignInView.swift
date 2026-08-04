@@ -1,34 +1,23 @@
 import SwiftUI
 
-/// Launch screen: the logo write-on plays once, then the one way in.
+enum SignInMethod {
+    case apple, google, phone
+}
+
+/// Launch screen: the logo write-on plays once, then the two entry points.
 ///
-/// **It offered four buttons and three of them signed nobody in.** "Create
-/// account" and "Sign in with Phone Number" both opened the phone flow, which
-/// ends at `route = .photos` with no authentication call anywhere — the screens
-/// are finished and were never wired to anything, because Twilio was rejected
-/// on cost. "Sign in with Google" set `route = .home` and did nothing else.
-///
-/// A tester took the biggest button on the screen, reached the photo page with
-/// no session, and was told "You're not signed in" — correctly. They never saw
-/// the communication style step either, because the phone path skips
-/// `route(for:)` and jumps straight to photos. Their account did not exist, so
-/// nothing they did could be saved and nobody could find them in Explore.
-///
-/// So: one provider, one button. **Sign in with Apple needs no separate
-/// sign-up** — the same call creates the account or signs into it — which is
-/// what leaves nothing for a second state to say. The toggle went with it.
-///
-/// `PhoneNumberView` and `VerificationCodeView` stay on disk, unreferenced.
-/// They are finished screens and the harm was in reaching them.
+/// Tapping "Sign in" swaps the bottom stack for the provider buttons. The stack
+/// is bottom-anchored, so the legal text and the trailing button ride upwards as
+/// the taller set of buttons takes their place, and the logo — positioned
+/// independently of the stack — stays exactly where it is.
 ///
 /// The background photo of the reference design is deliberately not here yet —
 /// the canvas matches the GIF's own off-white so the animation sits flush on it.
 struct SignInView: View {
-    var onSignIn: () -> Void = {}
-    /// Phone is back, and this time it authenticates. It sits second rather
-    /// than first because Apple costs nothing to run and every phone sign-in
-    /// costs an SMS — the free route should be the easy one to take.
-    var onPhone: () -> Void = {}
+    var onCreateAccount: () -> Void = {}
+    var onSignIn: (SignInMethod) -> Void = { _ in }
+
+    @State private var isChoosingProvider = false
 
     var body: some View {
         ZStack {
@@ -66,7 +55,10 @@ struct SignInView: View {
                     .padding(.bottom, 22)
 
                 buttonStack
-                    .padding(.bottom, 34)
+
+                trailingButton
+                    .padding(.top, 14)
+                    .padding(.bottom, 12)
             }
         }
         .preferredColorScheme(.light) // the palette and the GIF are light-only
@@ -74,46 +66,70 @@ struct SignInView: View {
 
     private var buttonInset: CGFloat { 40 }
 
-    /// Two routes in, both of which now actually create an account.
-    ///
-    /// It was a two-state stack — a black capsule re-titling itself between
-    /// "Create account" and "Sign in with Phone Number", with Apple and Google
-    /// fading in above it — and the care went into never letting two capsules
-    /// cross-fade, because that reads as a shake. All of it was in service of
-    /// three buttons that authenticated nobody. Neither provider here needs a
-    /// separate sign-up: each call creates the account or signs into it, so
-    /// there is nothing for a second state to say.
-    ///
-    /// Apple is the primary because it is free to run and instant. Phone is the
-    /// quieter one for people who will not use Sign in with Apple — and every
-    /// tap on it sends an SMS somebody pays for.
+    /// The black capsule is the *same* view in both states — it only re-titles
+    /// itself. Swapping it for a different black button instead would cross-fade
+    /// two capsules over each other while the stack resizes, which reads as a
+    /// shake. Only the two white buttons are inserted, and they fade with no
+    /// offset or scale of their own: any transform here rasterizes the label and
+    /// makes the text look blurry mid-animation.
     private var buttonStack: some View {
         VStack(spacing: 12) {
-            Button(action: onSignIn) {
-                Label {
-                    Text("Continue with Apple")
-                } icon: {
-                    Image(systemName: "applelogo")
-                        .font(.system(size: 19))
+            if isChoosingProvider {
+                Button(action: { onSignIn(.apple) }) {
+                    Label {
+                        Text("Sign in with Apple")
+                    } icon: {
+                        Image(systemName: "applelogo")
+                            .font(.system(size: 19))
+                    }
                 }
+                .buttonStyle(PressShrinkButtonStyle(fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline))
+                .transition(providerTransition)
+
+                Button(action: { onSignIn(.google) }) {
+                    Label {
+                        Text("Sign in with Google")
+                    } icon: {
+                        GoogleGlyph()
+                    }
+                }
+                .buttonStyle(PressShrinkButtonStyle(fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline))
+                .transition(providerTransition)
+            }
+
+            Button(action: isChoosingProvider ? { onSignIn(.phone) } : onCreateAccount) {
+                SwappingLabel(isChoosingProvider ? "Sign in with Phone Number" : "Create account")
             }
             .buttonStyle(PressShrinkButtonStyle())
-
-            Button(action: onPhone) {
-                Label {
-                    Text("Continue with phone")
-                } icon: {
-                    Image(systemName: "phone.fill")
-                        .font(.system(size: 17))
-                }
-            }
-            .buttonStyle(
-                PressShrinkButtonStyle(
-                    fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline
-                )
-            )
         }
         .padding(.horizontal, buttonInset)
+    }
+
+    /// Offset against the 0.3s layout move so the legal text is never seen
+    /// sliding through a button: on the way in the gap opens first and the
+    /// buttons fade into it, on the way out they clear before the text arrives.
+    private var providerTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.15)),
+            removal: .opacity.animation(.easeIn(duration: 0.12))
+        )
+    }
+
+    private var trailingButton: some View {
+        Button(action: {
+            // No bounce: a spring that overshoots on a bottom-anchored stack is
+            // exactly what looks like a shake.
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isChoosingProvider.toggle()
+            }
+        }) {
+            SwappingLabel(isChoosingProvider ? "Back" : "Sign in")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(SignInPalette.ink)
+                .padding(.vertical, 14)
+                .padding(.horizontal, 24)
+        }
+        .buttonStyle(.plain)
     }
 
     private var legalText: some View {
