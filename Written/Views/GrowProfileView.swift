@@ -1194,6 +1194,23 @@ struct GrowProfileView: View {
 
     private func growTree() async {
         let next = viewModel.skeleton
+
+        // **A plant arriving from the server has not grown.** While the restore
+        // is still in flight the tree is whatever the local cache held — nothing
+        // at all, on an account that has just signed in on this device — so
+        // drawing it and calling that "the first draw" makes the *real* plant,
+        // when it lands a moment later, look like growth: dissolve, regrow,
+        // badges popping in on their own timers. That is the reassembly people
+        // reported after switching accounts.
+        //
+        // Snapped, and deliberately without setting `hasDrawnOnce`, so the draw
+        // that follows hydration is still treated as the first one and takes the
+        // settle path below rather than the growth path.
+        if viewModel.isHydrating {
+            displayedSkeleton = next
+            treeOpacity = 1
+            return
+        }
         // Between illustrated stages the plant grows in place — `SeedlingView`
         // lengthens the stem and unfolds the shoot off the drawing that is
         // already on screen. Dissolving it first would throw away the one thing

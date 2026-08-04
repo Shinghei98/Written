@@ -46,12 +46,33 @@ actor RestoreService {
 
         var snapshot = Snapshot()
         do {
-            snapshot.records = try await allRecords(token: token)
+            // **Five independent reads, not five waits.** These were awaited one
+            // after another, so signing in cost the sum of every round trip
+            // rather than the longest — and the records leg is itself several
+            // serial pages, so everything else queued behind the slowest thing
+            // here. The garden and the chat list both wait on this, which is
+            // what "it takes a tremendous time to render" was.
+            //
+            // The same rule `AppleMusicDistiller` already follows and this
+            // file did not: independent fetches run concurrently. Nothing here
+            // reads anything another produces — only `lastCollectedAt` depends
+            // on the records, and that is computed after they land.
+            //
+            // Records stay internally serial: each page is asked for only once
+            // the previous one has proved to be full, which is the one ordering
+            // that cannot be lifted without a separate count.
+            async let records = allRecords(token: token)
+            async let profile = profileValues(token: token)
+            async let connections = connectionValues(token: token)
+            async let lifestyle = lifestyleValues(token: token)
+            async let bans = banValues(token: token)
+
+            snapshot.records = try await records
             snapshot.lastCollectedAt = snapshot.records.map(\.collectedAt).max()
-            try await loadProfile(into: &snapshot, token: token)
-            try await loadConnections(into: &snapshot, token: token)
-            try await loadLifestyle(into: &snapshot, token: token)
-            try await loadBans(into: &snapshot, token: token)
+            try await applyProfile(profile, to: &snapshot)
+            snapshot.connectedSources = try await connections
+            snapshot.lifestyle = try await lifestyle
+            snapshot.bans = try await bans
             lastError = nil
             return snapshot
         } catch {
@@ -159,13 +180,19 @@ actor RestoreService {
 
     // MARK: - The user object
 
-    private func loadProfile(into snapshot: inout Snapshot, token: String) async throws {
-        let rows = try await get(
+    /// Fetching and interpreting are separated so the fetch can run alongside
+    /// the others — see `hydrate`. The reasoning below is unchanged; only the
+    /// moment it runs is.
+    private func profileValues(token: String) async throws -> [String: Any]? {
+        try await get(
             path: "rest/v1/users",
             token: token,
             query: [URLQueryItem(name: "select", value: "birth_date,birth_year,sex,place,tree_seed")]
-        )
-        guard let row = rows.first else { return }
+        ).first
+    }
+
+    private func applyProfile(_ row: [String: Any]?, to snapshot: inout Snapshot) {
+        guard let row else { return }
 
         // Age is derived, never stored — a number written down on a birthday is
         // wrong the next one. See migration 0003.
@@ -193,18 +220,18 @@ actor RestoreService {
         }
     }
 
-    private func loadConnections(into snapshot: inout Snapshot, token: String) async throws {
+    private func connectionValues(token: String) async throws -> Set<String> {
         let rows = try await get(
             path: "rest/v1/source_connections",
             token: token,
             query: [URLQueryItem(name: "select", value: "source,last_distilled_at")]
         )
-        snapshot.connectedSources = Set(rows.compactMap { $0["source"] as? String })
+        return Set(rows.compactMap { $0["source"] as? String })
     }
 
     // MARK: - Health, derived only
 
-    private func loadLifestyle(into snapshot: inout Snapshot, token: String) async throws {
+    private func lifestyleValues(token: String) async throws -> Lifestyle? {
         let signalRows = try await get(
             path: "rest/v1/summary_health_signals",
             token: token,
@@ -225,7 +252,7 @@ actor RestoreService {
         // No row at all means Health was never connected on this account, which
         // is different from connected-and-empty; leave `lifestyle` nil so the
         // card draws nothing rather than drawing zeroes.
-        guard let signals = signalRows.first else { return }
+        guard let signals = signalRows.first else { return nil }
 
         var lifestyle = Lifestyle()
         if let label = signals["chronotype_label"] as? String,
@@ -248,12 +275,12 @@ actor RestoreService {
                 minutes: row["minutes"] as? Int ?? 0
             )
         }
-        snapshot.lifestyle = lifestyle
+        return lifestyle
     }
 
     // MARK: - Bans
 
-    private func loadBans(into snapshot: inout Snapshot, token: String) async throws {
+    private func banValues(token: String) async throws -> BanList {
         let rows = try await get(
             path: "rest/v1/bans",
             token: token,
@@ -268,7 +295,7 @@ actor RestoreService {
             else { continue }
             bans.add(kind, value)
         }
-        snapshot.bans = bans
+        return bans
     }
 
     // MARK: - Transport

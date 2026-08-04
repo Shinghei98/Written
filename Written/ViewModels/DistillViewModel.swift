@@ -343,10 +343,26 @@ final class DistillViewModel: ObservableObject {
     }
 
     /// Pulls the account down, replacing whatever the cache had.
+    /// True until the server's snapshot has landed (or failed to).
+    ///
+    /// **The garden needs this to tell a restore from a growth.** `GrowProfileView`
+    /// animates whenever `treeState` changes, which is right for a source being
+    /// connected and wrong for the moment a signed-in account's own plant
+    /// arrives. Without it the sequence on sign-in is: draw the seedling because
+    /// nothing has hydrated yet, mark that as the first draw, then hydrate — and
+    /// the second draw is treated as *growth*, so the plant dissolves, regrows
+    /// and pops its badges in on their timers. Reported as the plant
+    /// reassembling with the icons moving around until they land.
+    @Published private(set) var isHydrating = SupabaseAuth.hasStoredSession
+
     func restoreFromServer() {
         Task {
-            guard let snapshot = await RestoreService.shared.hydrate() else { return }
+            guard let snapshot = await RestoreService.shared.hydrate() else {
+                isHydrating = false
+                return
+            }
             apply(snapshot)
+            isHydrating = false
             // After the server's version has landed, not before: adopting first
             // would compare against an empty cache, write two rows, and then be
             // overwritten by the very snapshot it should have been checked
