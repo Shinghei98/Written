@@ -24,6 +24,13 @@ struct VerificationCodeView: View {
     /// Fires once the code is accepted and a session exists.
     var onVerified: () -> Void = {}
     var onResend: () -> Void = {}
+    /// Why the code could not be sent, if it could not.
+    ///
+    /// Owned by `PhoneNumberView` and shown here, because by the time a send
+    /// fails this is the screen the person is looking at — the send no longer
+    /// gates the push, so an alert attached to the screen that pushed would be
+    /// arguing with a view that has already gone.
+    @Binding var sendFailure: String?
 
     @State private var code = ""
     @State private var isConfirmingResend = false
@@ -96,6 +103,14 @@ struct VerificationCodeView: View {
             Button("OK") { failure = nil; isFocused = true }
         } message: {
             Text(failure ?? "")
+        }
+        // Separate from the one above on purpose: "we never sent it" and "that
+        // code is wrong" want different next actions, and the recovery for this
+        // one is already on this screen — "Didn't get a code?" sends again.
+        .alert("Couldn't send the code", isPresented: .constant(sendFailure != nil)) {
+            Button("OK") { sendFailure = nil }
+        } message: {
+            Text(sendFailure ?? "")
         }
     }
 
@@ -232,5 +247,9 @@ private struct CodeBox: View {
 }
 
 #Preview {
-    VerificationCodeView(phoneNumber: "+13149125096", displayNumber: "314 912 5096")
+    VerificationCodeView(
+        phoneNumber: "+13149125096",
+        displayNumber: "314 912 5096",
+        sendFailure: .constant(nil)
+    )
 }

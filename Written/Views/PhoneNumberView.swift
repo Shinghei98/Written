@@ -16,7 +16,6 @@ struct PhoneNumberView: View {
     @State private var isShowingNumberChangeInfo = false
     @State private var isShowingCountryPicker = false
     @State private var isVerifying = false
-    @State private var isSending = false
     @State private var sendFailure: String?
     @State private var error: EntryError?
     @FocusState private var isFieldFocused: Bool
@@ -74,8 +73,7 @@ struct PhoneNumberView: View {
                 // Always tappable: the field is validated on submit, so an empty
                 // or malformed number has to be able to reach `submit()` in
                 // order to say what is wrong with it.
-                Button(isSending ? "Sending…" : "Continue", action: submit)
-                    .disabled(isSending)
+                Button("Continue", action: submit)
                     .buttonStyle(PressShrinkButtonStyle())
                     .frame(width: 176)
 
@@ -114,15 +112,11 @@ struct PhoneNumberView: View {
                 onVerified: onSignedIn,
                 // Resending costs another message, so it goes through the same
                 // one place that sends the first.
-                onResend: { send(advancing: false) }
+                onResend: send,
+                sendFailure: $sendFailure
             )
             .navigationBarBackButtonHidden(true)
             .toolbar(.hidden, for: .navigationBar)
-        }
-        .alert("Couldn't send the code", isPresented: .constant(sendFailure != nil)) {
-            Button("OK") { sendFailure = nil }
-        } message: {
-            Text(sendFailure ?? "")
         }
         .alert("What if my number changes?", isPresented: $isShowingNumberChangeInfo) {
             Button("Got it", role: .cancel) {}
@@ -214,8 +208,6 @@ struct PhoneNumberView: View {
 
     private var digits: String { number.filter(\.isNumber) }
 
-    /// Validates on submit rather than as the user types: a number is not wrong
-    /// just because it is half-entered.
     /// E.164 — a `+`, the dial code, then the national digits, and nothing else.
     ///
     /// Built in one place because Supabase verifies a code against the number it
@@ -229,7 +221,8 @@ struct PhoneNumberView: View {
     ///
     /// **Validation before sending is a cost control, not politeness.** Every
     /// send is an SMS somebody pays for, so a number the country's own rules
-    /// reject must never reach Twilio.
+    /// reject must never reach Twilio. That is why this guard stays *ahead* of
+    /// the send even though nothing waits for the send any more.
     private func submit() {
         guard !digits.isEmpty else {
             showError(.missing)
@@ -243,28 +236,33 @@ struct PhoneNumberView: View {
         // Hand the keyboard over: without this the phone field keeps focus
         // behind the code screen, which then can't take it.
         isFieldFocused = false
-        send(advancing: true)
+        isVerifying = true
+        send()
     }
 
-    /// Sends the code, and only moves on if it was actually sent.
+    /// Asks for a code, and does not make anybody watch it happen.
     ///
-    /// `advancing` is false for a resend, where the code screen is already up.
-    /// Pushing on a failure is what the old flow did in effect — it never sent
-    /// anything and advanced regardless — and it leaves somebody staring at six
-    /// empty boxes waiting for a message that is not coming.
-    private func send(advancing: Bool) {
-        guard !isSending else { return }
-        isSending = true
+    /// **The screen advances first.** It used to wait for the send to succeed,
+    /// which put roughly ten seconds of spinner in front of every sign-in —
+    /// measured, and almost all of it Supabase waiting on Twilio Verify to hand
+    /// the message to a carrier. The network to Supabase is 80ms warm. Nothing
+    /// here can make that server-to-server call faster; what apps that feel
+    /// instant do is not wait for it, and spend the same seconds on a screen
+    /// that looks like progress.
+    ///
+    /// The comment this replaces argued for waiting, on the grounds that
+    /// advancing leaves somebody staring at six empty boxes for a message that
+    /// is not coming. That was written about the *fake* flow, which never sent
+    /// anything at all. A real send fails rarely, and when it does the code
+    /// screen is where the person already is — and it is the screen that
+    /// carries "Send again".
+    private func send() {
         let number = e164
         Task {
             do {
                 try await SupabaseAuth.shared.sendOTP(phone: number)
-                isSending = false
-                if advancing { isVerifying = true }
             } catch {
-                isSending = false
                 sendFailure = error.localizedDescription
-                if advancing { isFieldFocused = true }
             }
         }
     }
