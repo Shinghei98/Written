@@ -210,9 +210,16 @@ struct RootView: View {
                         // and framed; nothing about the next screen depends on
                         // them having landed.
                         //
-                        // The card is republished afterwards because it carries
-                        // the paths, and a card published before the upload
-                        // would say this person has no photographs.
+                        // **The card is not published here**, though it carries
+                        // the paths. `publishDiscoveryCard` needs interests and
+                        // a view model, neither of which exists yet — somebody
+                        // on this page has connected nothing. It rides the first
+                        // sync instead, which reads the paths back from the
+                        // server precisely so the two need not be simultaneous.
+                        //
+                        // A failure here is reported by `AppShell`, which asks
+                        // once on arrival; nothing on this page can draw a
+                        // banner, since it is about to be replaced.
                         Task {
                             await SupabaseAuth.shared.markPhotoStepSeen()
                             await PhotoService.shared.upload(picked)

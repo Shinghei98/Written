@@ -998,7 +998,7 @@ What was wrong was the *other* half. A refusal looked exactly like the confirm
 button being broken: the sheet closed, the row stayed on "Add your age", and
 nothing said why — which is precisely how it was reported ("no matter what i edit
 it doesnt save"). The value still waits for the server; the reason now surfaces
-through `DistillViewModel.biographicsError`, drawn by the one `statusBanner` in
+through `DistillViewModel.saveError`, drawn by the one `statusBanner` in
 `AppShell` and carrying PostgREST's own message. `saveName` was the same bug in
 its cheapest form — a `try?` on the call site throwing the message away.
 
@@ -1040,6 +1040,37 @@ meant, so re-picking slot 2 overwrites slot 2 rather than leaving a seventh
 photograph behind — and `DiscoveryCardService` carries the paths onto the card
 the same way it carries the name. Until the migration is applied every upload
 fails at a bucket that does not exist.
+
+**The dashboard's grid saved nothing, and it took a database query to see
+that.** `0015` applied cleanly, a photograph was added in Memories, and
+`public.photos` came back empty. `RootView` uploaded on the photo page's Continue
+button and **that was the only call site in the app** — the dashboard bound the
+same `PhotoGrid` to the same array and no one ever sent it. So a picture added
+there lived until the app was killed and had never left the phone.
+
+Three things generalise, and the middle one is the reason this was invisible:
+
+- **A page with no Continue button has to save on the edit.** `PhotoGrid` now
+  takes an optional `onEdit`, and which surface passes it *is* the difference
+  between the two: onboarding waits, because somebody arranging pictures may yet
+  skip; the dashboard saves, because there is nothing to wait for. The default of
+  doing nothing keeps onboarding exactly as it was.
+- **Every write is silent until somebody draws it.** `PhotoService.lastError` was
+  recorded and never read — the same defect as `SyncService.lastError`, in a file
+  written after that lesson was already in here. `upload(_:at:)` and `remove` now
+  return the reason rather than only storing it, and the banner is the same one
+  the biographics rows use (`saveError`, renamed from `biographicsError` because
+  it now carries both).
+- **Removal has two halves and only had one.** Setting a slot to nil cleared the
+  array and left the object and its row in place, so a photograph taken down was
+  still in the bucket and still on the discovery card. `remove` deletes the
+  object *first* — a row pointing at a missing file draws a broken picture, while
+  a file with no row is merely unreferenced — and reads the key back rather than
+  rebuilding `<position>.jpg` from a convention.
+
+The card is republished after either, since it carries the paths; a card still
+naming a withdrawn photograph would leave the feed drawing a face its owner took
+down.
 
 **The six boxes take photographs only, and that is a deliberate stop rather than
 a limitation.** `PhotoGrid` has one `.photosPicker` serving both onboarding and

@@ -65,7 +65,12 @@ final class DistillViewModel: ObservableObject {
     /// doesn't appear until the server has it; the *reason* it didn't appear now
     /// does. `SyncService.lastError` was already recorded for exactly this and
     /// simply never read — see the known gap in CLAUDE.md.
-    @Published var biographicsError: String?
+    ///
+    /// **Named for the failure, not for the row.** It began as the biographics
+    /// rows' banner and now carries the photographs' too, because they are the
+    /// same event: something the user changed did not reach the server, and one
+    /// banner in one place beats a second that can disagree with it.
+    @Published var saveError: String?
 
     /// The example match on the profile screen. Derived from `identity` and the
     /// records together, so it is recomputed alongside everything else rather
@@ -813,6 +818,39 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
+    /// A photograph added or removed on the dashboard, saved as it changes.
+    ///
+    /// **Onboarding has a Continue button and this page does not**, which is the
+    /// whole of why this exists. `RootView` uploaded on Continue and nothing
+    /// else ever did, so the six boxes in Memories edited an in-memory array
+    /// that no longer led anywhere: a photograph added there survived until the
+    /// app was killed and was never on the server at all. Found by querying
+    /// `public.photos` after adding one and getting no rows back — the upload
+    /// path is silent, which is the second half of the same bug.
+    ///
+    /// One slot at a time. Re-sending all six because one changed would spend a
+    /// person's connection re-uploading photographs that are already there.
+    ///
+    /// The card is republished afterwards because it carries the paths, and it
+    /// is republished on removal too — a card still naming a photograph that has
+    /// been taken down would leave the feed drawing a face its owner withdrew.
+    func savePhoto(_ media: PickedMedia?, at position: Int) {
+        Task {
+            let reason: String?
+            if let media {
+                reason = await PhotoService.shared.upload(media, at: position)
+            } else {
+                reason = await PhotoService.shared.remove(position: position)
+            }
+            if let reason {
+                saveError = "Couldn't save that photo — \(reason)"
+                return
+            }
+            saveError = nil
+            publishDiscoveryCard()
+        }
+    }
+
     /// One location fix, the first time the dashboard needs it.
     ///
     /// Not part of a distillation run: nothing else asks for a permission when a
@@ -1019,7 +1057,7 @@ final class DistillViewModel: ObservableObject {
     /// Somewhere the user picked on the map, rather than where the phone is.
     func setPlace(at coordinate: CLLocationCoordinate2D) async {
         guard let record = try? await location.place(at: coordinate) else {
-            biographicsError = "Couldn't look that place up. Try again."
+            saveError = "Couldn't look that place up. Try again."
             return
         }
         guard await accepted(SyncService.shared.pushUserObject(place: record.name)) else { return }
@@ -1033,14 +1071,14 @@ final class DistillViewModel: ObservableObject {
     /// there is exactly one place that decides what a failure says.
     private func accepted(_ didPush: Bool) async -> Bool {
         guard !didPush else {
-            biographicsError = nil
+            saveError = nil
             return true
         }
         // `lastError` is the transport or PostgREST message. It is absent when
         // the push never got as far as trying — no session, or nothing to send —
         // which from the outside is the same "it didn't save" and wants saying.
         let reason = await SyncService.shared.lastError
-        biographicsError = reason.map { "Couldn't save that — \($0)" }
+        saveError = reason.map { "Couldn't save that — \($0)" }
             ?? "Couldn't save that. Check your connection and try again."
         return false
     }

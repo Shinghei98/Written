@@ -521,8 +521,19 @@ struct DashboardView: View {
             cardLabel("PHOTOS", icon: "photo.on.rectangle")
             Divider().overlay(GardenPalette.ink.opacity(0.08))
 
-            PhotoGrid(media: $photos, columns: 3, cornerRadius: 16)
-                .padding(.top, 12)
+            // **The save is the edit here**, unlike onboarding, which waits for
+            // Continue. Without this the grid wrote to an in-memory array and
+            // nothing else, so a photograph added on this page was gone at the
+            // next launch and had never reached the bucket at all.
+            PhotoGrid(
+                media: $photos,
+                columns: 3,
+                cornerRadius: 16,
+                onEdit: { position, media in
+                    viewModel.savePhoto(media, at: position)
+                }
+            )
+            .padding(.top, 12)
         }
     }
 
@@ -693,9 +704,9 @@ struct DashboardView: View {
                     Task {
                         do {
                             try await auth.saveName(first: name, last: nil)
-                            viewModel.biographicsError = nil
+                            viewModel.saveError = nil
                         } catch {
-                            viewModel.biographicsError =
+                            viewModel.saveError =
                                 "Couldn't save that — \(error.localizedDescription)"
                         }
                     }

@@ -149,6 +149,18 @@ struct AppShell: View {
         // answered two screens before this view is built. Idempotent, and
         // `restoreFromServer` calls it again once the server's version lands.
         .task { viewModel.adoptStoredCommunicationStyle() }
+        // **The photo page's upload has no way to complain**: it fires as the
+        // route changes, and the screen it was started from is gone a frame
+        // later. So the shell asks on arrival instead.
+        //
+        // Read once and cleared, so it cannot resurface later attached to
+        // nothing. `lastError` lives in memory only, so on any launch that did
+        // not just run that upload it is nil and this costs an actor hop.
+        .task {
+            guard let reason = await PhotoService.shared.lastError else { return }
+            await PhotoService.shared.clearLastError()
+            viewModel.saveError = "Couldn't save your photos — \(reason)"
+        }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.
         //
@@ -160,7 +172,7 @@ struct AppShell: View {
         // that follows it, and a PostgREST message underneath would only be the
         // same fact in worse words.
         .statusBanner(
-            reachability.isOnline ? viewModel.biographicsError : "You're offline. Changes won't save.",
+            reachability.isOnline ? viewModel.saveError : "You're offline. Changes won't save.",
             isWarning: true
         )
         // **The guard for a drag that never ended** — see `gardenLift`. Becoming
@@ -184,7 +196,7 @@ struct AppShell: View {
         // A refusal is a moment, not a state — unlike being offline, which ends
         // when it ends. Left up, it would still be there long after the row it
         // referred to had scrolled away.
-        .onChange(of: viewModel.biographicsError) { message in
+        .onChange(of: viewModel.saveError) { message in
             guard message != nil else { return }
             Task {
                 // Something just failed, which is the one moment worth spending
@@ -194,8 +206,8 @@ struct AppShell: View {
                 // situation it was built for.
                 await reachability.verify()
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard viewModel.biographicsError == message else { return }
-                viewModel.biographicsError = nil
+                guard viewModel.saveError == message else { return }
+                viewModel.saveError = nil
             }
         }
 #if DEBUG

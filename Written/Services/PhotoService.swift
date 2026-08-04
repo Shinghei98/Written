@@ -27,6 +27,11 @@ actor PhotoService {
 
     private(set) var lastError: String?
 
+    /// Read-once, for the one caller that reports a failure it did not cause —
+    /// see `AppShell`. Clearing it is what stops the same refusal being drawn
+    /// again on a later trip through the shell.
+    func clearLastError() { lastError = nil }
+
     /// Uploads what the photo page collected and records the order.
     ///
     /// **Order is the point of the table.** A bucket knows names, not sequence,
@@ -54,20 +59,83 @@ actor PhotoService {
 
         for (position, item) in media.enumerated() {
             guard let item else { continue }
-            guard let payload = await encode(item) else { continue }
-            guard let path = await put(
-                payload, userID: userID, position: position, token: token
+            guard let path = await send(
+                item, position: position, userID: userID, token: token
             ) else { continue }
-
-            await record(
-                path: path, position: position, item: item,
-                userID: userID, token: token
-            )
             paths.append(path)
         }
 
         if !paths.isEmpty { lastError = nil }
         return paths
+    }
+
+    /// One slot, saved on its own.
+    ///
+    /// **The dashboard has no Continue button**, so a photograph changed there
+    /// has to save the moment it changes — and re-sending all six because one of
+    /// them moved would spend somebody's connection re-uploading pictures that
+    /// are already sitting in the bucket.
+    ///
+    /// Returns nil on success, or the reason it failed. A `String?` rather than
+    /// a throw because every caller wants the same thing with it — to put it in
+    /// front of the user — and `lastError` alone is what let this path stay
+    /// silent for as long as it did.
+    func upload(_ item: PickedMedia, at position: Int) async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "You're not signed in."
+            return lastError
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "No account id."
+            return lastError
+        }
+        guard await send(item, position: position, userID: userID, token: token) != nil else {
+            return lastError ?? "The photo didn't save."
+        }
+        lastError = nil
+        return nil
+    }
+
+    /// Takes a photograph down, from both halves.
+    ///
+    /// **The bucket and the table have to be cleared together**, and the object
+    /// goes first: a row pointing at a file that is gone draws a broken picture,
+    /// while a file with no row pointing at it is merely unreferenced. If the
+    /// second step fails, the first has already made the photograph unreadable.
+    ///
+    /// The path is read back rather than assumed to be `<position>.jpg`. It is
+    /// today, but it was `.mp4` for video and would be again — reconstructing a
+    /// key from a convention is how a delete silently misses.
+    func remove(position: Int) async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "You're not signed in."
+            return lastError
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "No account id."
+            return lastError
+        }
+
+        if let path = await path(position: position, userID: userID, token: token) {
+            _ = await delete(
+                url: URL(string: "\(AppConfig.supabaseURL.absoluteString)/storage/v1/object/\(Self.bucket)/\(path)"),
+                token: token
+            )
+        }
+
+        var components = URLComponents(
+            url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/photos"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "position", value: "eq.\(position)")
+        ]
+        guard await delete(url: components?.url, token: token) else {
+            return lastError ?? "Couldn't remove that photo."
+        }
+        lastError = nil
+        return nil
     }
 
     /// The photographs this account already has, newest state first — used on a
@@ -136,6 +204,72 @@ actor PhotoService {
     }
 
     // MARK: - The two halves
+
+    /// Encode, put, record — the three steps both entry points share.
+    private func send(
+        _ item: PickedMedia, position: Int, userID: String, token: String
+    ) async -> String? {
+        guard let payload = await encode(item) else {
+            lastError = "Couldn't prepare that photo."
+            return nil
+        }
+        guard let path = await put(
+            payload, userID: userID, position: position, token: token
+        ) else { return nil }
+
+        await record(
+            path: path, position: position, item: item,
+            userID: userID, token: token
+        )
+        return path
+    }
+
+    /// The object key currently recorded for one slot, if any.
+    private func path(position: Int, userID: String, token: String) async -> String? {
+        var components = URLComponents(
+            url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/photos"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "select", value: "object_path"),
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "position", value: "eq.\(position)")
+        ]
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        else { return nil }
+        return rows.first?["object_path"] as? String
+    }
+
+    /// One DELETE, against Storage or PostgREST — both answer the same shape.
+    private func delete(url: URL?, token: String) async -> Bool {
+        guard let url else {
+            lastError = "Couldn't build the address."
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request) else {
+            lastError = "Couldn't reach the server."
+            return false
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            lastError = (body?["message"] as? String) ?? "Delete failed (\(status))."
+            return false
+        }
+        return true
+    }
 
     /// Re-encoded on the way out, not on the way in.
     ///

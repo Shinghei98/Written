@@ -26,6 +26,16 @@ struct PhotoGrid: View {
     var columns: Int = 2
     var cornerRadius: CGFloat = 24
 
+    /// Called whenever one slot's contents change — the new media, or nil if it
+    /// was taken away.
+    ///
+    /// **Opt-in, and the two surfaces want opposite things.** Onboarding has a
+    /// Continue button, so nothing should be uploaded while somebody is still
+    /// arranging pictures they may yet skip; the dashboard has no such button,
+    /// so a change there is the save. Passing the callback is how a caller says
+    /// which it is, and the default of doing nothing keeps onboarding as it was.
+    var onEdit: ((Int, PickedMedia?) -> Void)?
+
     /// Which slot is choosing, and what it chose.
     ///
     /// A single presented picker rather than one `PhotosPicker` button per
@@ -49,6 +59,17 @@ struct PhotoGrid: View {
     @State private var editing: String?
 
     private func key(_ index: Int) -> String { "photo-\(index)" }
+
+    /// The only place a slot is written.
+    ///
+    /// Both mutations went straight to the binding, which is exactly how the
+    /// dashboard came to edit an array that led nowhere: there was no single
+    /// point at which "a photograph changed" was a thing that had happened.
+    /// Adding a second one later would be adding a second place to forget.
+    private func set(_ index: Int, to value: PickedMedia?) {
+        media[index] = value
+        onEdit?(index, value)
+    }
 
     /// The photo being framed, and the slot it will land in.
     private struct Crop: Identifiable {
@@ -132,14 +153,14 @@ struct PhotoGrid: View {
                     if crop.source.isVideo {
                         // The file is untouched; the rectangle is the crop, and
                         // the framed poster is what the grid draws meanwhile.
-                        media[crop.index] = PickedMedia(
+                        set(crop.index, to: PickedMedia(
                             url: crop.source.url,
                             thumbnail: framed,
                             isVideo: true,
                             cropRect: rect
-                        )
+                        ))
                     } else {
-                        media[crop.index] = Self.store(framed)
+                        set(crop.index, to: Self.store(framed))
                     }
                     cropping = nil
                 }
@@ -203,7 +224,7 @@ struct PhotoGrid: View {
         // outline would be offering to delete a hole.
         .removable(editing: editing == key(index) && media[index] != nil, index: index) {
             withAnimation(.easeOut(duration: 0.18)) {
-                media[index] = nil
+                set(index, to: nil)
                 editing = nil
             }
         }
