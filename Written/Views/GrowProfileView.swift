@@ -1200,6 +1200,28 @@ struct GrowProfileView: View {
         requestedModality = modality
     }
 
+    /// Draws a plant that is simply *there* — no entrance, no growth.
+    ///
+    /// Both callers need every one of these five, which is why it is one
+    /// function rather than two similar blocks: the skeleton, full opacity, the
+    /// cotyledon badge, every shoot badge this stage has, and `leafLift`. That
+    /// last one is not decoration — badge *positions* are read off it, so a
+    /// settled plant with `leafLift` at zero would put its icons in the wrong
+    /// place even once they were visible.
+    private func settle(to skeleton: TreeSkeleton) {
+        displayedSkeleton = skeleton
+        treeOpacity = 1
+        hasBadgeArrived = true
+        if let stage = skeleton.illustrated {
+            for shoot in SeedlingArt.shoots(by: stage.extended) {
+                hasShootBadgeArrived[shoot.id] = true
+            }
+        }
+        // Straight to full extension: the animated form is in step with a stem
+        // that, this time, is not climbing.
+        leafLift = skeleton.illustrated?.extended ?? 1
+    }
+
     private func growTree() async {
         let next = viewModel.skeleton
 
@@ -1214,9 +1236,16 @@ struct GrowProfileView: View {
         // Snapped, and deliberately without setting `hasDrawnOnce`, so the draw
         // that follows hydration is still treated as the first one and takes the
         // settle path below rather than the growth path.
+        //
+        // **Through `settle`, not by assigning the skeleton alone.** Written the
+        // short way this returned before the badges were told they had arrived —
+        // and they draw at `opacity(hasShootBadgeArrived ? 1 : 0)`, so they were
+        // invisible. Worse, `growTree` only re-runs when `treeState` *changes*:
+        // on a relaunch where the cache already matches the server it never
+        // changes, so nothing ever set the flags and the icons stayed gone for
+        // good. Reported within minutes of the build landing.
         if viewModel.isHydrating {
-            displayedSkeleton = next
-            treeOpacity = 1
+            settle(to: next)
             return
         }
         // Between illustrated stages the plant grows in place — `SeedlingView`
@@ -1252,21 +1281,13 @@ struct GrowProfileView: View {
 
         hasDrawnOnce = true
 
-        displayedSkeleton = next
-        treeOpacity = 1
-
         if isRelaunchOntoGrown {
-            hasBadgeArrived = true
-            if let stage = next.illustrated {
-                for shoot in SeedlingArt.shoots(by: stage.extended) {
-                    hasShootBadgeArrived[shoot.id] = true
-                }
-            }
-            // Straight to full extension too. The animated form below is in step
-            // with a stem that, this time, is not climbing.
-            leafLift = next.illustrated?.extended ?? 1
+            settle(to: next)
             return
         }
+
+        displayedSkeleton = next
+        treeOpacity = 1
 
         if !hasBadgeArrived {
             Task {
