@@ -492,10 +492,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written reads your music library and listening history — artists, songs, playlists, play counts — to build your dating profile. It is saved to your Written account so your profile survives a new phone.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written reads your workouts and activity to build your dating profile. Nothing is written back to Health, and your raw health records never leave this phone — only summaries such as your usual sport and typical wake time are saved to your account.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Written records voice messages when you hold the microphone in a chat. Nothing is recorded until you hold it, and nothing is sent until you tap send.";
@@ -529,10 +529,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written distills your Apple Music library and listening history to build your dating profile. Your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written reads your music library and listening history — artists, songs, playlists, play counts — to build your dating profile. It is saved to your Written account so your profile survives a new phone.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written distills your workouts and activity to build your dating profile. It only reads — nothing is written back to Health, and your data never leaves this device without your explicit decision.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Written reads your workouts and activity to build your dating profile. Nothing is written back to Health, and your raw health records never leave this phone — only summaries such as your usual sport and typical wake time are saved to your account.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Written never writes anything to Apple Health. It only reads your workouts and activity to build your profile.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Written shows the district you are in on your profile. It takes one reading, keeps only the district and city, and never follows your location.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Written records voice messages when you hold the microphone in a chat. Nothing is recorded until you hold it, and nothing is sent until you tap send.";
