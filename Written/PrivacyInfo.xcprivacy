@@ -95,11 +95,30 @@
 			</array>
 		</dict>
 
-		<!-- What the distillation actually is: songs, artists, playlists,
-		     subscriptions and liked videos from the apps the user connected,
-		     and now podcast shows and downloaded episodes — including how far
-		     through one somebody got, which is the same kind of usage fact as a
-		     play count and belongs under the same declaration. -->
+		<!-- What the distillation actually is, kept current as extraction has
+		     widened. This is the entry that has to be re-read every time a
+		     source is added or a field stops being discarded, because the whole
+		     value of the list in CLAUDE.md is that it stays short *and*
+		     complete.
+
+		     From the apps a person connected: songs, artists, albums,
+		     composers, playlists, play counts, skip counts, ratings and when
+		     each was last played; YouTube subscriptions, liked videos and the
+		     categories and topics YouTube assigns them; podcast shows and the
+		     downloaded episodes of each, including how far through one somebody
+		     got.
+
+		     Two things worth naming rather than leaving implied. The music comes
+		     from *two* places — the Apple Music account and the device's own
+		     library — which are different observations about the same person
+		     and are stored as different sources. And what somebody types into
+		     "what did we miss" travels here too: it is a claim rather than an
+		     observation, marked as such, but it is still collected.
+
+		     All of it is app functionality: it builds the profile the person
+		     came here to build. None of it is tracking, and none is shared with
+		     a third party — see the lyrics note in CLAUDE.md for the single
+		     exception, which sends one artist and one title and no identifier. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>
@@ -123,7 +142,20 @@
 		     someone who never agreed to anything. Events are kept whole rather
 		     than reduced to counts, the way HealthKit is, because the titles are
 		     the signal: a booking Eventbrite or Ticketmaster wrote into the
-		     calendar is the strongest interest claim this app can see. -->
+		     calendar is the strongest interest claim this app can see.
+
+		     **Stored whole, shown as shape.** The dashboard prints how much was
+		     arranged, how much was booked ahead, evenings, weekends and the
+		     busiest day — and never a title. That is a display decision and
+		     changes nothing here: every event is still collected and still
+		     synced, because the ontology stage will need them. This declaration
+		     describes what is *collected*, which is the stronger claim of the
+		     two and the one that has to be right.
+
+		     Subscribed and birthday calendars are no longer collected at all.
+		     A public calendar is identical for everyone who subscribes to it, so
+		     it says nothing about the subscriber, and a birthday list is
+		     somebody's contacts by another route. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDataTypes</string>

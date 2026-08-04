@@ -349,7 +349,6 @@ struct DashboardView: View {
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
     private func key(sport: LifestyleHighlights.Sport) -> String { "sport:\(sport.id)" }
     private func key(show: ListeningHighlights.Show) -> String { "show:\(show.id)" }
-    private func key(event: ListeningHighlights.Event) -> String { "event:\(event.id)" }
 
     /// Strike the entry off and put the page back to rest — the thing that was
     /// wobbling no longer exists, so leaving edit mode armed would hand its
@@ -1007,15 +1006,22 @@ struct DashboardView: View {
                         .foregroundStyle(GardenPalette.ink)
                         .padding(.bottom, 4)
 
-                    ForEach(Array(channels.dropFirst().enumerated()), id: \.element.id) { index, channel in
-                        if index > 0 {
-                            Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        }
-                        channelRow(channel, peak: channelPeak)
-                            .removable(editing: editingEntry == key(channel: channel), index: index + 1) {
-                                remove { viewModel.banChannel(channel) }
+                    // The headliner above plus four rows in view, the rest
+                    // behind a scroll — the same shape the artists card takes,
+                    // so the two read as one page rather than two designs.
+                    // `stackHeight` is roughly four of these rows, which is what
+                    // makes it plainly a list with more in it.
+                    entryStack {
+                        ForEach(Array(channels.dropFirst().enumerated()), id: \.element.id) { index, channel in
+                            if index > 0 {
+                                Divider().overlay(GardenPalette.ink.opacity(0.06))
                             }
-                            .editableOnLongPress($editingEntry, key: key(channel: channel))
+                            channelRow(channel, peak: channelPeak)
+                                .removable(editing: editingEntry == key(channel: channel), index: index + 1) {
+                                    remove { viewModel.banChannel(channel) }
+                                }
+                                .editableOnLongPress($editingEntry, key: key(channel: channel))
+                        }
                     }
                 }
             }
@@ -1094,7 +1100,6 @@ struct DashboardView: View {
     // MARK: - Podcasts, audiobooks, events
 
     private var shows: [ListeningHighlights.Show] { viewModel.podcastShows }
-    private var events: [ListeningHighlights.Event] { viewModel.calendarEvents }
 
     /// The shows they follow, ranked by having actually started one.
     ///
@@ -1155,61 +1160,67 @@ struct DashboardView: View {
         .accessibilityLabel("\(show.name), \(Int(show.progress * 100))% through an episode")
     }
 
-    /// What they arranged, soonest first.
+    /// The shape of a year's calendar, and never a title.
     ///
-    /// **Public calendars are already gone by here** — filtered at the distiller
-    /// and again in `ListeningHighlights.events`, because a year of national
-    /// holidays is identical for everybody who subscribes to them and would
-    /// swamp the handful of things this person actually did.
+    /// **Every event is still collected, stored and synced** — the titles are
+    /// the signal and the database keeps all of them for the ontology stage.
+    /// What changed is only what this page prints. A title is also a therapy
+    /// appointment, a doctor's name, dinner with somebody; collecting that is a
+    /// documented trade, and printing it on a profile page by default is a
+    /// different act that was never argued for.
+    ///
+    /// The habit is what a reader would actually take from a calendar anyway:
+    /// how much is arranged, how much of it was paid for in advance, and when it
+    /// happens. None of that needs a name attached.
     @ViewBuilder
     private var eventsSection: some View {
-        if !events.isEmpty {
+        let shape = viewModel.eventShape
+        if !shape.isEmpty {
             card {
                 cardLabel("EVENTS", icon: Modality.plans.systemImage)
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
 
-                entryStack {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(event.name)
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(GardenPalette.ink)
-                                    .lineLimit(1)
-                                if let start = event.start {
-                                    Text(RelativeTime.daySeparator(for: start))
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(GardenPalette.muted)
-                                }
-                            }
-                            Spacer(minLength: 8)
-                            // A ticketing site wrote this one in by itself,
-                            // which cost money and a Saturday — a far stronger
-                            // claim than something typed as a reminder.
-                            if event.booked {
-                                Image(systemName: "ticket.fill")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(GardenPalette.gold)
-                            }
-                        }
-                        .padding(.vertical, 9)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(event.name)\(event.booked ? ", booked" : "")")
-                        // **The card that most needed this.** These titles are a
-                        // therapy appointment, a doctor's name, dinner with
-                        // somebody — collected on a documented trade, and now
-                        // shown. A title nobody can take back is the wrong
-                        // default for the one source carrying other people's
-                        // names.
-                        .removable(editing: editingEntry == key(event: event), index: index) {
-                            remove { viewModel.banEvent(event) }
-                        }
-                        .editableOnLongPress($editingEntry, key: key(event: event))
+                VStack(spacing: 0) {
+                    shapeRow("Arranged", "\(shape.total)")
+                    // First among the readings because it is the strongest: a
+                    // ticketing site wrote it in, which cost money and a
+                    // Saturday.
+                    if shape.booked > 0 {
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        shapeRow("Booked ahead", "\(shape.booked)")
+                    }
+                    if shape.evening > 0 {
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        shapeRow("Evenings", "\(shape.evening)")
+                    }
+                    if shape.weekend > 0 {
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        shapeRow("Weekends", "\(shape.weekend)")
+                    }
+                    if let day = shape.busiestDay {
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        shapeRow("Busiest day", day)
                     }
                 }
             }
         }
+    }
+
+    /// A reading and its figure. No entry to long-press, because there is no
+    /// entry — striking one off is meaningless when nothing names it.
+    private func shapeRow(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 16))
+                .foregroundStyle(GardenPalette.ink)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(GardenPalette.muted)
+        }
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), \(value)")
     }
 
     /// A row the person typed in rather than one their phone observed. Marked,

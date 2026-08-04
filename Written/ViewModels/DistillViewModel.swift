@@ -35,7 +35,13 @@ final class DistillViewModel: ObservableObject {
     /// The three cards added alongside Media's channels. Derived on the same
     /// terms as everything above: once when the records change, never in a body.
     @Published private(set) var podcastShows: [ListeningHighlights.Show] = []
-    @Published private(set) var calendarEvents: [ListeningHighlights.Event] = []
+    /// **The shape, not the events.** The dashboard prints how much somebody
+    /// arranged and when, never what any of it was — while `records` keeps every
+    /// title, and sync sends them, because the titles are the signal the
+    /// ontology stage will read. See `ListeningHighlights.EventShape`.
+    @Published private(set) var eventShape = ListeningHighlights.EventShape(
+        total: 0, booked: 0, weekend: 0, evening: 0, busiestDay: nil
+    )
     @Published private(set) var chronotype: LifestyleHighlights.Chronotype?
     @Published private(set) var hourlyActivity: [Double] = []
     @Published private(set) var sports: [LifestyleHighlights.Sport] = []
@@ -1085,12 +1091,20 @@ final class DistillViewModel: ObservableObject {
 
     /// Strikes a calendar event off by its title.
     ///
-    /// **The card that most needed this.** Events are stored whole because the
-    /// titles are the signal, which means the titles are also a therapy
-    /// appointment, a doctor's name, or dinner with somebody — and they are now
-    /// on the dashboard, where before they were only ever collected. By title
-    /// rather than id so a recurring appointment stays gone; see
-    /// `BanList.Kind.event`.
+    /// **Nothing calls this today, and it is kept deliberately.** It was written
+    /// when the dashboard listed event titles; that card now shows only the
+    /// shape — how much was arranged, how much booked ahead, evenings, weekends
+    /// — so there is no row to long-press and nothing to strike.
+    ///
+    /// It stays because the *ban* still works: `applyingBans` honours
+    /// `BanList.Kind.event`, the list is synced and restored, and a ban set on
+    /// another device or in an earlier build still hides those rows here. Losing
+    /// this method would leave that kind unreachable while its effects remained,
+    /// which is worse than an uncalled function. If titles ever come back to a
+    /// screen, the strike-off is already built.
+    ///
+    /// By title rather than id, so a recurring appointment stays gone when next
+    /// week's occurrence arrives with a new id — see `BanList.Kind.event`.
     func banEvent(_ event: ListeningHighlights.Event) {
         bans.add(.event, event.name)
         bans.save()
@@ -1212,7 +1226,7 @@ final class DistillViewModel: ObservableObject {
         musicGenres = MusicHighlights.genreShare(in: records)
         mediaChannels = MediaHighlights.topChannels(in: records, limit: Self.rankedEntries)
         podcastShows = ListeningHighlights.shows(in: records)
-        calendarEvents = ListeningHighlights.events(in: records)
+        eventShape = ListeningHighlights.shape(in: records)
         // The lifestyle figures are deliberately absent. They used to be
         // recomputed here like everything else, which stopped working the moment
         // the raw HealthKit rows were discarded rather than stored: this method

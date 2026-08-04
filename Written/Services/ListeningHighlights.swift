@@ -71,6 +71,66 @@ enum ListeningHighlights {
 
     // MARK: - Events
 
+    /// What a year of somebody's calendar looks like, without saying what any of
+    /// it was.
+    ///
+    /// **The dashboard shows this and never the titles.** Events are stored
+    /// whole and synced — the titles *are* the signal and the database keeps
+    /// every one for the ontology stage — but a title is also a therapy
+    /// appointment, a doctor's name, or dinner with somebody, and putting those
+    /// on a profile page by default is a different act from collecting them.
+    /// The shape carries the habit, which is what a reader of a profile would
+    /// actually take from it, and none of the specifics.
+    ///
+    /// Counted from the pre-computed `extra` fields rather than re-derived from
+    /// timestamps, for the reason `CalendarDistiller` records them: a Saturday
+    /// evening is a different fact from a Tuesday morning, and working that out
+    /// of a date twice is how the two copies drift apart.
+    struct EventShape: Equatable {
+        let total: Int
+        /// Written in by a ticketing site rather than typed — it cost money and
+        /// a Saturday, which is the strongest claim in the whole distillation.
+        let booked: Int
+        let weekend: Int
+        /// Starting at 17:00 or later.
+        let evening: Int
+        /// The weekday with the most on it, already named.
+        let busiestDay: String?
+
+        var isEmpty: Bool { total == 0 }
+    }
+
+    static func shape(in records: [DistilledRecord]) -> EventShape {
+        let live = personalEvents(in: records)
+
+        var byWeekday: [Int: Int] = [:]
+        var booked = 0, weekend = 0, evening = 0
+
+        for record in live {
+            if record.extraValue("booked") == "1" { booked += 1 }
+            if record.extraValue("weekend") == "1" { weekend += 1 }
+            if let hour = Int(record.extraValue("hour") ?? ""), hour >= 17 { evening += 1 }
+            if let weekday = Int(record.extraValue("weekday") ?? "") {
+                byWeekday[weekday, default: 0] += 1
+            }
+        }
+
+        // `weekday` is Foundation's 1-based Sunday-first number, which is what
+        // `Calendar.current.dateComponents` gave the distiller.
+        let busiest = byWeekday.max { $0.value < $1.value }?.key
+        let names = DateFormatter().weekdaySymbols ?? []
+
+        return EventShape(
+            total: live.count,
+            booked: booked,
+            weekend: weekend,
+            evening: evening,
+            busiestDay: busiest.flatMap { index in
+                names.indices.contains(index - 1) ? names[index - 1] : nil
+            }
+        )
+    }
+
     struct Event: Identifiable, Hashable {
         var id: String { eventID }
         let eventID: String
@@ -92,15 +152,27 @@ enum ListeningHighlights {
     /// old enough to predate `cal_type=` are kept: they were collected when
     /// nothing was filtered, and dropping them on a missing field would hide
     /// real events too.
+    /// The rows both readings share: this person's own events, public calendars
+    /// excluded twice over — once at collection and again here for rows written
+    /// before the distiller started filtering.
+    private static func personalEvents(in records: [DistilledRecord]) -> [DistilledRecord] {
+        records.filter { record in
+            guard record.source == "apple_calendar",
+                  record.dataType == "event",
+                  !record.isRemovedByUser else { return false }
+            let type = record.extraValue("cal_type")
+            return type != "Subscription" && type != "Birthday"
+        }
+    }
+
+    /// The events themselves, titles and all.
+    ///
+    /// **Nothing on the dashboard calls this** — that card shows `shape` now.
+    /// It is kept because the titles are still collected, still synced and still
+    /// what the ontology stage will read, so the moment anything needs them in
+    /// the app they are one call away rather than a re-derivation.
     static func events(in records: [DistilledRecord]) -> [Event] {
-        records
-            .filter { record in
-                guard record.source == "apple_calendar",
-                      record.dataType == "event",
-                      !record.isRemovedByUser else { return false }
-                let type = record.extraValue("cal_type")
-                return type != "Subscription" && type != "Birthday"
-            }
+        personalEvents(in: records)
             .map { record in
                 Event(
                     eventID: record.itemID,
