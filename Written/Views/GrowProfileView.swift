@@ -691,8 +691,16 @@ struct GrowProfileView: View {
             ScrollView(.vertical) {
                 VStack(spacing: 8) {
                     ForEach(viewModel.treeState.connectedModalities) { modality in
-                        ConnectedBar(modality: modality, sources: viewModel.connectedSources(for: modality))
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        ConnectedBar(
+                            modality: modality,
+                            sources: viewModel.connectedSources(for: modality),
+                            // The same `connect` the badges and the prompt card
+                            // call, so all three routes to a source open the
+                            // same picker and record the same attribution.
+                            isEnabled: !viewModel.isDistilling,
+                            onTap: { connect(modality) }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     // The branch that just failed takes the card back, ahead of
@@ -1493,6 +1501,18 @@ struct ConnectedBar: View {
     /// The apps of this modality that actually returned records. Both of music's
     /// can be connected, and then both marks show.
     let sources: [String]
+    /// False while any distillation is running — the same guard the badges take.
+    /// Two at once would have them writing over each other's records.
+    var isEnabled: Bool = true
+    /// Re-open this branch's picker, to distil it again or to add its second app.
+    ///
+    /// **A finished bar was the only part of this screen that did nothing.** The
+    /// badge on the plant re-distils, the prompt card's button connects the next
+    /// branch, and the bar naming a branch you have already connected — the most
+    /// obvious thing to press when you want that branch again — was decoration.
+    /// Music's two apps make it worse: somebody who connected Apple Music and
+    /// later wants Spotify has the bar for exactly that in front of them.
+    var onTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1546,6 +1566,23 @@ struct ConnectedBar: View {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(GardenPalette.gold.opacity(0.22), lineWidth: 1)
         }
+        // The whole bar, including the gap between the label and the marks: a
+        // row that only answers on its text reads as unreliable rather than as
+        // untappable.
+        .contentShape(RoundedRectangle(cornerRadius: 18))
+        // `onTapGesture` rather than a `Button`, for the reasons `BadgeTap`
+        // gives: a button styles and animates its label, and the garden carries
+        // a pull-up `DragGesture` during onboarding that a button's own
+        // recogniser would compete for. A bar that swallowed the pull would
+        // cost more than the shortcut is worth.
+        .onTapGesture {
+            guard isEnabled else { return }
+            onTap()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Connected to \(modality.label)")
+        .accessibilityHint("Opens the list of apps for this branch, to distil it again")
     }
 }
 
