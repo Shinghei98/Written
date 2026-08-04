@@ -1,23 +1,30 @@
 import SwiftUI
 
-enum SignInMethod {
-    case apple, google, phone
-}
-
-/// Launch screen: the logo write-on plays once, then the two entry points.
+/// Launch screen: the logo write-on plays once, then the one way in.
 ///
-/// Tapping "Sign in" swaps the bottom stack for the provider buttons. The stack
-/// is bottom-anchored, so the legal text and the trailing button ride upwards as
-/// the taller set of buttons takes their place, and the logo — positioned
-/// independently of the stack — stays exactly where it is.
+/// **It offered four buttons and three of them signed nobody in.** "Create
+/// account" and "Sign in with Phone Number" both opened the phone flow, which
+/// ends at `route = .photos` with no authentication call anywhere — the screens
+/// are finished and were never wired to anything, because Twilio was rejected
+/// on cost. "Sign in with Google" set `route = .home` and did nothing else.
+///
+/// A tester took the biggest button on the screen, reached the photo page with
+/// no session, and was told "You're not signed in" — correctly. They never saw
+/// the communication style step either, because the phone path skips
+/// `route(for:)` and jumps straight to photos. Their account did not exist, so
+/// nothing they did could be saved and nobody could find them in Explore.
+///
+/// So: one provider, one button. **Sign in with Apple needs no separate
+/// sign-up** — the same call creates the account or signs into it — which is
+/// what leaves nothing for a second state to say. The toggle went with it.
+///
+/// `PhoneNumberView` and `VerificationCodeView` stay on disk, unreferenced.
+/// They are finished screens and the harm was in reaching them.
 ///
 /// The background photo of the reference design is deliberately not here yet —
 /// the canvas matches the GIF's own off-white so the animation sits flush on it.
 struct SignInView: View {
-    var onCreateAccount: () -> Void = {}
-    var onSignIn: (SignInMethod) -> Void = { _ in }
-
-    @State private var isChoosingProvider = false
+    var onSignIn: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -55,10 +62,7 @@ struct SignInView: View {
                     .padding(.bottom, 22)
 
                 buttonStack
-
-                trailingButton
-                    .padding(.top, 14)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 34)
             }
         }
         .preferredColorScheme(.light) // the palette and the GIF are light-only
@@ -66,70 +70,26 @@ struct SignInView: View {
 
     private var buttonInset: CGFloat { 40 }
 
-    /// The black capsule is the *same* view in both states — it only re-titles
-    /// itself. Swapping it for a different black button instead would cross-fade
-    /// two capsules over each other while the stack resizes, which reads as a
-    /// shake. Only the two white buttons are inserted, and they fade with no
-    /// offset or scale of their own: any transform here rasterizes the label and
-    /// makes the text look blurry mid-animation.
+    /// One button, because there is one way in.
+    ///
+    /// It was a two-state stack — a black capsule that re-titled itself between
+    /// "Create account" and "Sign in with Phone Number", with Apple and Google
+    /// fading in above it — and the care went into never letting the two
+    /// capsules cross-fade, because that reads as a shake. All of which was in
+    /// service of three buttons that authenticated nobody. With one real
+    /// provider there is no second state to animate to: Sign in with Apple both
+    /// creates the account and signs into it.
     private var buttonStack: some View {
-        VStack(spacing: 12) {
-            if isChoosingProvider {
-                Button(action: { onSignIn(.apple) }) {
-                    Label {
-                        Text("Sign in with Apple")
-                    } icon: {
-                        Image(systemName: "applelogo")
-                            .font(.system(size: 19))
-                    }
-                }
-                .buttonStyle(PressShrinkButtonStyle(fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline))
-                .transition(providerTransition)
-
-                Button(action: { onSignIn(.google) }) {
-                    Label {
-                        Text("Sign in with Google")
-                    } icon: {
-                        GoogleGlyph()
-                    }
-                }
-                .buttonStyle(PressShrinkButtonStyle(fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline))
-                .transition(providerTransition)
+        Button(action: onSignIn) {
+            Label {
+                Text("Continue with Apple")
+            } icon: {
+                Image(systemName: "applelogo")
+                    .font(.system(size: 19))
             }
-
-            Button(action: isChoosingProvider ? { onSignIn(.phone) } : onCreateAccount) {
-                SwappingLabel(isChoosingProvider ? "Sign in with Phone Number" : "Create account")
-            }
-            .buttonStyle(PressShrinkButtonStyle())
         }
+        .buttonStyle(PressShrinkButtonStyle())
         .padding(.horizontal, buttonInset)
-    }
-
-    /// Offset against the 0.3s layout move so the legal text is never seen
-    /// sliding through a button: on the way in the gap opens first and the
-    /// buttons fade into it, on the way out they clear before the text arrives.
-    private var providerTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.15)),
-            removal: .opacity.animation(.easeIn(duration: 0.12))
-        )
-    }
-
-    private var trailingButton: some View {
-        Button(action: {
-            // No bounce: a spring that overshoots on a bottom-anchored stack is
-            // exactly what looks like a shake.
-            withAnimation(.easeInOut(duration: 0.3)) {
-                isChoosingProvider.toggle()
-            }
-        }) {
-            SwappingLabel(isChoosingProvider ? "Back" : "Sign in")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(SignInPalette.ink)
-                .padding(.vertical, 14)
-                .padding(.horizontal, 24)
-        }
-        .buttonStyle(.plain)
     }
 
     private var legalText: some View {

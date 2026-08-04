@@ -79,7 +79,6 @@ struct RootView: View {
     /// They still go nowhere durable — see the photos gap in CLAUDE.md — so
     /// this is where they exist until something uploads them.
     @State private var photos: [PickedMedia?] = Array(repeating: nil, count: 6)
-    @State private var isEnteringPhone = false
     @State private var signInError: String?
 
     private static func initialRoute() -> Route {
@@ -260,42 +259,49 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.2), value: route)
     }
 
+    /// **One way in, and it is the only one that ever created an account.**
+    ///
+    /// This used to offer four routes. Three of them — "Create account", "Sign
+    /// in with Phone Number" and "Sign in with Google" — authenticated nobody:
+    /// the first two pushed `PhoneNumberView`, whose completion set
+    /// `route = .photos` with no call to anything, and Google set `route =
+    /// .home` outright. The phone screens were finished and never wired up,
+    /// because Twilio was rejected on cost.
+    ///
+    /// What that did to a tester who took the biggest button on the screen:
+    /// no session, so the photo page answered "You're not signed in"; no
+    /// `route(for:)`, so the name and communication style steps were skipped;
+    /// no `auth.users` row, so nothing they did could be saved and nobody could
+    /// find them in Explore. The account was gone by the next launch, because
+    /// `initialRoute()` reads the Keychain and nothing had been written to it.
+    ///
+    /// `NavigationStack` stays even with nothing to push: sign-in is still a
+    /// forward step and `PhoneNumberView` goes back in here the day phone auth
+    /// is bought rather than faked.
     private var signIn: some View {
-        // Pushed rather than presented: sign-up is a forward step in a flow,
-        // so it slides in from the trailing edge and can be swiped back,
-        // instead of rising from the bottom like a modal.
         NavigationStack {
             SignInView(
-                onCreateAccount: { isEnteringPhone = true },
-                onSignIn: { method in
-                    switch method {
-                    case .phone: isEnteringPhone = true
-                    case .apple:
-                        // The first sign-in that actually proves anything.
-                        // Everything else here still sets a boolean.
-                        Task {
-                            do {
-                                try await SupabaseAuth.shared.signInWithApple()
-                                // Apple gives a name on the first sign-in only,
-                                // and lets the user withhold it — so a brand-new
-                                // account often arrives with nothing to call
-                                // them. Ask rather than carry an anonymous
-                                // profile.
-                                //
-                                // Three separate questions, each off its own
-                                // fact. Chaining photos to the name step meant an
-                                // account that arrived already named — which is
-                                // what Apple does on a first sign-in — skipped
-                                // straight past the photo page forever. The same
-                                // branch runs on relaunch, from the cached step.
-                                route = Self.route(for: SupabaseAuth.shared.onboardingStep)
-                            } catch SupabaseAuth.AuthError.cancelled {
-                                // Backing out of Apple's sheet is not a failure.
-                            } catch {
-                                signInError = error.localizedDescription
-                            }
+                onSignIn: {
+                    Task {
+                        do {
+                            try await SupabaseAuth.shared.signInWithApple()
+                            // Apple gives a name on the first sign-in only, and
+                            // lets the user withhold it — so a brand-new account
+                            // often arrives with nothing to call them. Ask rather
+                            // than carry an anonymous profile.
+                            //
+                            // Three separate questions, each off its own fact.
+                            // Chaining photos to the name step meant an account
+                            // that arrived already named — which is what Apple
+                            // does on a first sign-in — skipped straight past the
+                            // photo page forever. The same branch runs on
+                            // relaunch, from the cached step.
+                            route = Self.route(for: SupabaseAuth.shared.onboardingStep)
+                        } catch SupabaseAuth.AuthError.cancelled {
+                            // Backing out of Apple's sheet is not a failure.
+                        } catch {
+                            signInError = error.localizedDescription
                         }
-                    case .google: route = .home
                     }
                 }
             )
@@ -303,19 +309,6 @@ struct RootView: View {
                 Button("OK") { signInError = nil }
             } message: {
                 Text(signInError ?? "")
-            }
-            .navigationDestination(isPresented: $isEnteringPhone) {
-                PhoneNumberView(
-                    onClose: { isEnteringPhone = false },
-                    // The name is collected but has nowhere to go yet: there
-                    // is no profile store. It gets sent from here once there is.
-                    onSignedUp: { _, _, _ in
-                        isEnteringPhone = false
-                        route = .photos
-                    }
-                )
-                .navigationBarBackButtonHidden(true)
-                .toolbar(.hidden, for: .navigationBar)
             }
         }
     }
