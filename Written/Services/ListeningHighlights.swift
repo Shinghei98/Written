@@ -215,6 +215,7 @@ enum ListeningHighlights {
     static func events(in records: [DistilledRecord], limit: Int = 120) -> [Event] {
         var seen: Set<String> = []
         return personalEvents(in: records)
+            .filter { !isRoutine($0.name) }
             .map { record in
                 Event(
                     eventID: record.itemID,
@@ -255,6 +256,32 @@ enum ListeningHighlights {
             .filter { seen.insert($0.name.lowercased()).inserted }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// Titles this card does not draw, whatever calendar they came from.
+    ///
+    /// **A reading, not a filter on what is kept.** Every one of these rows is
+    /// still collected, still synced and still goes to the ontology stage — the
+    /// standing rule is that if it can be distilled it is distilled, and a
+    /// recurring meeting is a real fact about somebody's week. This is only
+    /// about what a person recognises their own year by, which is the tour and
+    /// the flight, not the fortnightly Zoom.
+    ///
+    /// **Birthdays needed a title test because the calendar test could not reach
+    /// them.** `CalendarDistiller.isGenerated` looks at the calendar's *name*
+    /// and catches Apple's generated `Birthdays`; "Augh birthday" typed into
+    /// somebody's own diary is an ordinary event in an ordinary calendar and
+    /// passes every structural test there is.
+    ///
+    /// Both scripts for the same reason the calendar test carries them: this
+    /// calendar is bilingual, and a phone set to either produces its own.
+    private static func isRoutine(_ title: String) -> Bool {
+        let name = title.lowercased()
+        return name.contains("birthday")
+            || name.contains("meeting")
+            || name.contains("生日")
+            || name.contains("會議")
+            || name.contains("会议")
     }
 
     private static let iso: ISO8601DateFormatter = {

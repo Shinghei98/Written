@@ -287,6 +287,15 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   tell a booked event from a typed one. Something else wrote these in; "1st
   email" is a note to self.
 
+  **Titles carrying `birthday` or `meeting` are not drawn**, in either script.
+  The calendar test could never have reached them: `CalendarDistiller.isGenerated`
+  reads the calendar's *name* and catches Apple's generated `Birthdays`, while
+  "Augh birthday" typed into somebody's own diary is an ordinary event in an
+  ordinary calendar. **A reading, not a filter on what is kept** — every one of
+  those 24 rows is still collected, still synced and still goes to the ontology
+  stage, because a fortnightly Zoom is a real fact about a week. It is simply not
+  what a person recognises their own year by.
+
   It also **retires a filter instead of adding one**. Public holidays duplicated
   into somebody's own calendar pass every test there is — right type, ordinary
   name — and sink on their own here, because nothing organised them and nothing
