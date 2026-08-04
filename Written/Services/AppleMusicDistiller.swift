@@ -46,7 +46,19 @@ struct AppleMusicDistiller {
         async let recommendationsTask = try? fetchAllPages(path: "/v1/me/recommendations?limit=30")
 
         // 1. Library songs (also the id list the ratings pass works from).
-        let songs = try await songsTask
+        //
+        // **Best-effort, like the other eight.** These two were the only
+        // required calls in the run, so a library read that failed took the
+        // whole distillation with it — recommendations, heavy rotation,
+        // recently played, all discarded because one endpoint said no.
+        //
+        // Which endpoints answer depends on state nobody here has measured:
+        // authorised is not the same as subscribed, and subscribed is not the
+        // same as having Sync Library switched on. A library read failing is
+        // exactly the case where the remaining calls are worth keeping, so no
+        // single endpoint gets to end the run. `MusicError.notAuthorized` above
+        // is still fatal, because that one is a real refusal.
+        let songs = (try? await songsTask) ?? []
         let librarySongIDs = songs.compactMap { $0["id"] as? String }
         records += songs.map { makeRecord(dataType: "library_song", resource: $0) }
 
@@ -56,7 +68,7 @@ struct AppleMusicDistiller {
         records += (await videosTask ?? []).map { makeRecord(dataType: "library_music_video", resource: $0) }
 
         // 5. Playlists themselves; their tracks come in phase two.
-        let playlists = try await playlistsTask
+        let playlists = (try? await playlistsTask) ?? []
         records += playlists.map { makeRecord(dataType: "library_playlist", resource: $0) }
 
         // 6–8. Recently added (max 25 per page), recently played (max 30),
@@ -84,7 +96,49 @@ struct AppleMusicDistiller {
         records += await playlistItems
         records += await ratings
 
+        records.append(await Self.subscriptionRecord())
+
         return records
+    }
+
+    /// Whether this person actually has an Apple Music subscription.
+    ///
+    /// **Because "logged in to Apple Music" is four different states** and the
+    /// app has been reasoning about it without ever asking. Signed into an Apple
+    /// Account, having authorised this app, holding a paid subscription, and
+    /// having Sync Library switched on are separate facts, and they gate
+    /// different endpoints: the library reads above, the service features
+    /// (recommendations, heavy rotation, recently played) and everything the
+    /// device library covers instead.
+    ///
+    /// One row makes the difference measurable across testers rather than
+    /// argued about — and it is what says whether `MusicLibraryDistiller` is
+    /// duplicating this source or covering for it, since both now write song
+    /// rows and the library rows carry `local=`.
+    ///
+    /// A `user` record: no column, no migration, and the change-only trigger
+    /// means a distillation that finds the same answer writes nothing.
+    private static func subscriptionRecord() async -> DistilledRecord {
+        let subscription = try? await MusicSubscription.current
+        let state: String
+        if let subscription {
+            state = subscription.canPlayCatalogContent ? "subscribed" : "authorized_no_subscription"
+        } else {
+            // The query itself failing is a third answer and not the same as
+            // "no" — recorded as unknown rather than flattened into either.
+            state = "unknown"
+        }
+
+        return DistilledRecord(
+            source: "user",
+            dataType: "apple_music_subscription",
+            itemID: "apple_music_subscription",
+            name: state,
+            creator: "",
+            detail: "",
+            extra: "measured=1",
+            collectedAt: Date()
+        )
     }
 
     /// A playlist reduced to what expanding it needs. A named type rather than
