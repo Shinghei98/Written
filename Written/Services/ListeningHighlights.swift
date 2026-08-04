@@ -1,12 +1,15 @@
 import Foundation
 
-/// Podcast shows, audiobooks and the events somebody arranged, ranked for the
-/// dashboard's cards.
+/// Podcast shows and the events somebody arranged, ranked for the dashboard's
+/// cards.
 ///
-/// Pure and stateless, like `MusicHighlights` and `MediaHighlights`. All three
-/// live in one file because they are one idea — read the records of a source,
-/// rank them, hand back a list a card can draw — and three files of forty lines
-/// each would say the same thing three times.
+/// Pure and stateless, like `MusicHighlights` and `MediaHighlights`. Both live
+/// in one file because they are one idea — read the records of a source, rank
+/// them, hand back a list a card can draw.
+///
+/// Audiobooks were here and are not: Apple Books has no public API and its
+/// audiobooks are DRM-locked inside its own container, so nothing could ever
+/// have reached this. See the source list in CLAUDE.md.
 enum ListeningHighlights {
 
     // MARK: - Podcasts
@@ -64,41 +67,6 @@ enum ListeningHighlights {
                 )
             }
             .sorted { ($0.score, $0.name) > ($1.score, $1.name) }
-    }
-
-    // MARK: - Audiobooks
-
-    struct Book: Identifiable, Hashable {
-        var id: String { bookID.isEmpty ? name.lowercased() : bookID }
-        let bookID: String
-        let name: String
-        /// The author. MediaPlayer files it under `artist`, as it does a
-        /// podcast's publisher.
-        let author: String
-        /// 0…1 through the book, from the furthest point reached in any part.
-        let progress: Double
-        let hours: Double
-    }
-
-    /// **Ranked by how far in they are.** An audiobook is a commitment measured
-    /// in hours, so the one somebody is two-thirds through says more than the
-    /// six sitting untouched — which is the opposite of how a music library
-    /// ranks, where owning is most of the signal.
-    static func books(in records: [DistilledRecord]) -> [Book] {
-        records
-            .filter { $0.source == "apple_audiobooks" && !$0.isRemovedByUser }
-            .map { record in
-                let seconds = Double(record.extraValue("duration_s") ?? "") ?? 0
-                let resume = Double(record.extraValue("resume_s") ?? "") ?? 0
-                return Book(
-                    bookID: record.itemID,
-                    name: record.name,
-                    author: record.creator,
-                    progress: seconds > 0 ? min(1, resume / seconds) : 0,
-                    hours: seconds / 3600
-                )
-            }
-            .sorted { ($0.progress, $0.hours) > ($1.progress, $1.hours) }
     }
 
     // MARK: - Events

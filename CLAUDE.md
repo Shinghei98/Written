@@ -134,13 +134,20 @@ appears in Apple Podcasts' share sheet, since its activation rule takes any web
 URL — resolved by the public iTunes Search API for show, artist and genre; or
 Spotify's `/me/shows`, which inherits Spotify's removal date.
 
-- **Apple Podcasts** (`PodcastDistiller`) and **Audiobooks**
-  (`AudiobookDistiller`) — both through `MPMediaQuery`, sharing one
-  `MPMediaLibrary` permission, so connecting the second costs a tap and no
-  dialog. Separate sources rather than one, because podcasts come from Apple
-  Podcasts and audiobooks from Apple Books, and filing one under the other's
-  name would be a lie in the column that says where a fact came from. Audiobooks
-  are **untested** — the one device tried had none.
+- **Apple Podcasts** (`PodcastDistiller`) — through `MPMediaQuery.podcasts()`,
+  one `MPMediaLibrary` permission, no login. **Audiobooks were built alongside it
+  and removed**, and the reason is worth keeping so nobody adds them again:
+  audiobooks belong to **Books**, a fourth app unrelated to Music, TV or
+  Podcasts since the 2019 iTunes split. Apple publishes **no API for a user's
+  Books library** — the only book APIs are MDM ones for managing purchases — and
+  its audiobooks are DRM-protected M4B that never leave the Books container, so
+  the media library cannot see them. Audible, Spotify audiobooks, Libby and
+  OverDrive each keep their own storage too. What `MPMediaQuery.audiobooks()`
+  *can* see is the iTunes-era leftover: DRM-free files synced from a computer,
+  which is close to nobody. The zero measured on a test device was neither "no
+  audiobooks" nor a broken API — the query points somewhere modern audiobooks
+  never reach. It was added without consulting `written_api.xlsx`, which is
+  exactly the check that exists to prevent this.
 - **Apple Calendar** (`CalendarDistiller`) — **the first source not in
   `written_api.xlsx`.** The reasoning is that a calendar collects two things
   nothing else reaches: bookings that ticketing sites write in by themselves

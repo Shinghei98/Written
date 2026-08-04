@@ -81,7 +81,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // attention given to one show over weeks, which is a stronger claim
         // about a person than a follow costs, and it belongs beside YouTube
         // because it is the same kind of claim.
-        case .media: return ["youtube", "apple_podcasts", "apple_audiobooks"]
+        case .media: return ["youtube", "apple_podcasts"]
         // Not in `written_api.xlsx` — the first source that isn't. A calendar
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
@@ -132,7 +132,6 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "youtube": return "YouTube"
         case "apple_music": return "Apple Music"
         case "apple_podcasts": return "Apple Podcasts"
-        case "apple_audiobooks": return "Audiobooks"
         case "spotify": return "Spotify"
         case "health": return "Apple Health"
         case "apple_calendar": return "Apple Calendar"
@@ -146,7 +145,6 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "youtube": return "play.rectangle.fill"
         case "apple_music": return "music.note"
         case "apple_podcasts": return "mic.fill"
-        case "apple_audiobooks": return "book.fill"
         case "spotify": return "waveform"
         case "health": return "heart.fill"
         case "apple_calendar": return "calendar"

@@ -94,8 +94,6 @@ struct DashboardView: View {
                             .id("media")
                         podcastSection
                             .id("podcasts")
-                        audiobookSection
-                            .id("audiobooks")
                         eventsSection
                             .id("events")
                         lifestyleSection
@@ -1094,7 +1092,6 @@ struct DashboardView: View {
     // MARK: - Podcasts, audiobooks, events
 
     private var shows: [ListeningHighlights.Show] { viewModel.podcastShows }
-    private var books: [ListeningHighlights.Book] { viewModel.audiobooks }
     private var events: [ListeningHighlights.Event] { viewModel.calendarEvents }
 
     /// The shows they follow, ranked by having actually started one.
@@ -1150,45 +1147,6 @@ struct DashboardView: View {
         .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(show.name), \(Int(show.progress * 100))% through an episode")
-    }
-
-    /// Books, ranked by how far in they are — an audiobook is a commitment
-    /// measured in hours, so the one they are two thirds through says more than
-    /// six untouched.
-    @ViewBuilder
-    private var audiobookSection: some View {
-        if !books.isEmpty {
-            card {
-                cardLabel("AUDIOBOOKS", icon: "book.fill")
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-                entryStack {
-                    ForEach(Array(books.enumerated()), id: \.element.id) { index, book in
-                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(book.name)
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(GardenPalette.ink)
-                                    .lineLimit(1)
-                                if !book.author.isEmpty {
-                                    Text(book.author)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(GardenPalette.muted)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer(minLength: 8)
-                            ShareBar(fraction: book.progress)
-                                .frame(width: 72, height: 8)
-                        }
-                        .padding(.vertical, 9)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(book.name), \(Int(book.progress * 100))% through")
-                    }
-                }
-            }
-        }
     }
 
     /// What they arranged, soonest first.

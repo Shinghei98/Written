@@ -8,7 +8,6 @@ final class DistillViewModel: ObservableObject {
     @Published var youtubeStatus: SourceStatus = .idle
     @Published var appleMusicStatus: SourceStatus = .idle
     @Published var podcastStatus: SourceStatus = .idle
-    @Published var audiobookStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
     /// Beta only; removed before the App Store build. See `Modality.sources`.
@@ -36,7 +35,6 @@ final class DistillViewModel: ObservableObject {
     /// The three cards added alongside Media's channels. Derived on the same
     /// terms as everything above: once when the records change, never in a body.
     @Published private(set) var podcastShows: [ListeningHighlights.Show] = []
-    @Published private(set) var audiobooks: [ListeningHighlights.Book] = []
     @Published private(set) var calendarEvents: [ListeningHighlights.Event] = []
     @Published private(set) var chronotype: LifestyleHighlights.Chronotype?
     @Published private(set) var hourlyActivity: [Double] = []
@@ -139,7 +137,7 @@ final class DistillViewModel: ObservableObject {
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
-            || podcastStatus.isRunning || audiobookStatus.isRunning
+            || podcastStatus.isRunning
             || spotifyStatus.isRunning
     }
 
@@ -149,7 +147,6 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": return appleMusicStatus
         case "health": return healthStatus
         case "apple_podcasts": return podcastStatus
-        case "apple_audiobooks": return audiobookStatus
         case "apple_calendar": return calendarStatus
         case "spotify": return spotifyStatus
         default: return .idle
@@ -182,7 +179,6 @@ final class DistillViewModel: ObservableObject {
         case "apple_music": distillAppleMusic()
         case "health": distillHealth()
         case "apple_podcasts": distillPodcasts()
-        case "apple_audiobooks": distillAudiobooks()
         case "apple_calendar": distillCalendar()
         case "spotify": distillSpotify()
         default: break
@@ -414,23 +410,6 @@ final class DistillViewModel: ObservableObject {
 
     /// Apple Podcasts, through the media library. Shaped like Apple Music
     /// because it is the same framework family and the same one system dialog.
-    /// Audiobooks, from the same media library as podcasts — see
-    /// `AudiobookDistiller` for why they are a separate source sharing one
-    /// permission rather than more rows under the podcast name.
-    func distillAudiobooks() {
-        guard !audiobookStatus.isRunning else { return }
-        audiobookStatus = .running
-        Task {
-            do {
-                let newRecords = try await AudiobookDistiller().distill()
-                replaceRecords(from: "apple_audiobooks", with: newRecords)
-                audiobookStatus = .done(count: newRecords.count)
-            } catch {
-                audiobookStatus = .failed(message: Self.detail(of: error))
-            }
-        }
-    }
-
     func distillPodcasts() {
         guard !podcastStatus.isRunning else { return }
         podcastStatus = .running
@@ -1124,7 +1103,6 @@ final class DistillViewModel: ObservableObject {
         musicGenres = MusicHighlights.genreShare(in: records)
         mediaChannels = MediaHighlights.topChannels(in: records, limit: Self.rankedEntries)
         podcastShows = ListeningHighlights.shows(in: records)
-        audiobooks = ListeningHighlights.books(in: records)
         calendarEvents = ListeningHighlights.events(in: records)
         // The lifestyle figures are deliberately absent. They used to be
         // recomputed here like everything else, which stopped working the moment
