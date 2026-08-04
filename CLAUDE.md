@@ -296,12 +296,28 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   stage, because a fortnightly Zoom is a real fact about a week. It is simply not
   what a person recognises their own year by.
 
-  It also **retires a filter instead of adding one**. Public holidays duplicated
-  into somebody's own calendar pass every test there is — right type, ordinary
-  name — and sink on their own here, because nothing organised them and nothing
-  was booked. Its known softness is the middle tier: a meeting the user
-  themselves organised is an invitation too, and outranks a flight. Recognising
-  that needs their own name, which these records do not carry.
+  **Public holidays copied into a personal calendar need a name list, and that
+  was established by measurement rather than assumed.** `PublicHolidays` is it.
+  The calendar-level test cannot reach them — it drops a calendar *named* for
+  holidays, which catches Apple's `US Holidays` and `香港节假日`, while Google
+  copies the same days into somebody's primary calendar as ordinary events. Nor
+  can any structural test: of 77 surviving events on a real device, **49 were
+  public holidays, and all 49 were all-day, unrecurring, unorganised and
+  unbooked** — character for character what "Outpatient", "Marco's arrival" and
+  "1st email" look like in the same calendar. There is nothing in the shape of
+  the row to separate them.
+
+  Matched **by token, not by whole name**: Google writes one day a dozen ways
+  ("New Year's Day observed", "First Weekday After Christmas Day", "Second Day of
+  Lunar New Year"), and one token catches the family where an exact-name list
+  would need every variant and still miss the next. It is **incomplete by
+  construction** — two regions and the observances that travel — because the
+  alternative is a rule broad enough to swallow a real event, and losing
+  somebody's trip costs more than showing them Karneval.
+
+  Its known softness is the ranking's middle tier: a meeting the user themselves
+  organised is an invitation too, and outranks a flight. Recognising that needs
+  their own name, which these records do not carry.
  It
   printed readings for a while — arranged, booked ahead, evenings, weekends,
   busiest day — and nobody recognises their own year in a count; they recognise

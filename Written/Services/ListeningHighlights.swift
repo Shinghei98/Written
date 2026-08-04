@@ -282,6 +282,13 @@ enum ListeningHighlights {
             || name.contains("生日")
             || name.contains("會議")
             || name.contains("会议")
+            // **The days that happened to everybody.** Kept in its own file
+            // because it is a vocabulary rather than a rule, and because no
+            // structural test could stand in for it: measured on a device, 49 of
+            // 77 surviving events were public holidays and every one was
+            // all-day, unrecurring, unorganised and unbooked — identical in
+            // shape to "Outpatient" and "Marco's arrival". See `PublicHolidays`.
+            || PublicHolidays.matches(name)
     }
 
     private static let iso: ISO8601DateFormatter = {
