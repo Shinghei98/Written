@@ -145,10 +145,20 @@ actor PhotoService {
     /// Video re-encoding is not done here yet, so a video is uploaded as picked
     /// and the bucket's ceiling is what stops an enormous one.
     private func encode(_ item: PickedMedia) async -> (data: Data, ext: String, mime: String)? {
-        if item.isVideo {
-            guard let data = try? Data(contentsOf: item.url) else { return nil }
-            return (data, "mp4", "video/mp4")
-        }
+        // **Video is commented out rather than left live**, and this is the
+        // reason it is not offered in the picker either. There is no re-encoding
+        // pass, so this uploaded whatever the camera produced — a raw iPhone
+        // capture is far past the bucket's ceiling, which means the upload fails
+        // at the door after the person has already waited for it.
+        //
+        // Left here, unreachable and visible, because the missing piece is one
+        // `AVAssetExportSession` and deleting the branch would hide that.
+        //
+        // if item.isVideo {
+        //     guard let data = try? Data(contentsOf: item.url) else { return nil }
+        //     return (data, "mp4", "video/mp4")
+        // }
+        guard !item.isVideo else { return nil }
         // The thumbnail *is* the framed photograph — `PhotoEntryView` crops for
         // real before it gets here, so there is nothing else to apply.
         let image = item.thumbnail

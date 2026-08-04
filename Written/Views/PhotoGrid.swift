@@ -72,10 +72,28 @@ struct PhotoGrid: View {
         // A tap anywhere puts the armed slot away. Simultaneous, so it does not
         // swallow the tap that opens a picker — the dashboard's own entries are
         // disarmed the same way.
+
+        // **Photographs only, and this one line is the whole of it.**
+        //
+        // Video is picked up again by changing this back to
+        // `.any(of: [.images, .videos])` — nothing else in this file needs
+        // touching, because every video branch below is written and simply
+        // unreachable while the picker refuses to offer one.
+        //
+        // It is out because the upload is unfinished: `PhotoService.encode`
+        // passes a video through untouched for want of a re-encoding pass, so a
+        // raw iPhone capture fails at the bucket's ceiling. Offering a picker
+        // full of videos that cannot be uploaded is worse than a picker without
+        // them.
+        //
+        // `matching:` filters inside Apple's own picker process, so videos are
+        // *absent* from the library rather than shown and refused — there is
+        // nothing left for this app to enforce afterwards. Chat attachments are
+        // untouched and still take video; that path is finished.
         .photosPicker(
             isPresented: $isPresentingPicker,
             selection: $picked,
-            matching: .any(of: [.images, .videos])
+            matching: .images
         )
         .onChange(of: picked) { item in
             guard let item, let index = pickingIndex else { return }
@@ -136,6 +154,8 @@ struct PhotoGrid: View {
                     .resizable()
                     .scaledToFill()
 
+                // Unreachable while the picker is photographs only, and kept
+                // for when it is not.
                 if media.isVideo {
                     // Otherwise a video is indistinguishable from a still,
                     // since what's drawn *is* a still — its first frame.
@@ -230,10 +250,16 @@ struct PhotoGrid: View {
 
     /// Turns a picked item into a file plus a thumbnail, whichever kind it is.
     ///
+    /// **The movie branch is dormant** while the picker offers photographs only
+    /// — see the `.photosPicker` above. It is correct and simply unreachable,
+    /// and it is kept rather than removed so restoring video is one line there
+    /// rather than a rewrite here.
+    ///
     /// The branch is on what the item actually *is* rather than on what the
     /// picker was configured to allow — `supportedContentTypes` is the item's
     /// own answer, and asking it is what stops a video being loaded down the
-    /// image path and coming back undrawable.
+    /// image path and coming back undrawable. That is also why it stays: the
+    /// safety does not depend on the filter being right.
     /// Internal rather than private: the chat's compose bar picks media too, and
     /// a second copy of this would be a second place for the video path's traps
     /// to be got wrong — `loadTransferable(type: Data.self)` silently failing on

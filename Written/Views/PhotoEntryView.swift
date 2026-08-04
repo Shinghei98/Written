@@ -102,7 +102,7 @@ struct PhotoEntryView: View {
             VStack(spacing: 0) {
                 skipButton
 
-                Text("Add photos or videos that represent you")
+                Text("Add photos that represent you")
                     .font(BrandFont.title(30))
                     .foregroundStyle(GardenPalette.ink)
                     .multilineTextAlignment(.center)

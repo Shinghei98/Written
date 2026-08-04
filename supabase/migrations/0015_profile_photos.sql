@@ -33,7 +33,12 @@ values (
     -- 15 MB. Photos are re-encoded before upload; this is the backstop for when
     -- they are not.
     15728640,
-    array['image/jpeg', 'image/png', 'image/heic', 'video/mp4', 'video/quicktime']
+    -- **Photographs only for now.** Video is commented out here as well as in
+    -- the picker and in `PhotoService.encode`, so the refusal is structural: even
+    -- if a video reached the uploader by some other route, Storage turns it away
+    -- at the door rather than accepting a file nothing re-encoded.
+    -- Restore by adding 'video/mp4', 'video/quicktime' back to this list.
+    array['image/jpeg', 'image/png', 'image/heic']
 )
 on conflict (id) do nothing;
 
@@ -79,6 +84,10 @@ create table if not exists public.photos (
     object_path text not null,
     -- `photo` | `video`. A video keeps its file whole and carries the crop
     -- below; a photo is cropped for real before upload and does not.
+    --
+    -- The `video` option and the crop columns stay although nothing writes them
+    -- today: they are inert, they default correctly for a photograph, and
+    -- dropping them would mean a second migration to put them back.
     kind        text not null default 'photo' check (kind in ('photo', 'video')),
 
     -- How the user framed a video, in unit coordinates across the source.
