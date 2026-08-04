@@ -11,8 +11,7 @@
   var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   var intro   = document.getElementById('intro');
-  var ink     = document.getElementById('ink');
-  var slogan  = document.getElementById('introSlogan');
+  var mark    = document.getElementById('introMark');
   var skipBtn = document.getElementById('skipIntro');
   var banner  = document.getElementById('banner');
   var hero    = document.getElementById('hero');
@@ -23,14 +22,6 @@
   /* ---------------------------------------------------------------------
      The opening
      --------------------------------------------------------------------- */
-
-  // The words rise one after another; the index drives the stagger so the
-  // count can change in the HTML without touching the CSS.
-  if (slogan) {
-    Array.prototype.forEach.call(slogan.children, function (word, i) {
-      word.style.setProperty('--i', i);
-    });
-  }
 
   var lifted = false;
 
@@ -66,17 +57,23 @@
     }, reduce ? 0 : 1200);
   }
 
+  /* The frames run for 4.73s in total: the mark and the words are finished at
+     about 2.9s and the last frame is held for 1.8s. Lifting at 4.2s leaves a
+     beat to read the line and still clears the screen before the held frame
+     has fully run out, so the reader never waits on a still picture.
+
+     These numbers come from the file rather than from taste — see
+     `webpmux -info assets/intro.webp`. Re-cut the animation and they move. */
+  var INTRO_MS = 4200;
+
   function play() {
-    if (!intro || !ink) return;
+    if (!intro) return;
 
     document.documentElement.classList.add('intro-active');
 
-    // Review affordances, the same pair the app's own logo animation carries:
-    // `?p=0.6` freezes the write-on at a fraction so a still can be judged
-    // without racing the clock, and `?intro=0` opens straight onto the page.
-    // Screenshotting the live animation is not a substitute — a headless
-    // browser paces requestAnimationFrame by frames rather than by seconds,
-    // so a timed capture says nothing about what a reader sees.
+    // `?intro=0` opens straight onto the page. There is no `?p=` any more:
+    // freezing a fraction was a property of the vector reconstruction, and
+    // these are baked frames.
     var params = new URLSearchParams(window.location.search);
 
     if (params.get('intro') === '0') {
@@ -87,48 +84,22 @@
       return;
     }
 
-    if (params.has('p')) {
-      var p = Math.max(0, Math.min(1, parseFloat(params.get('p')) || 0));
-      var total = ink.getTotalLength();
-      ink.style.strokeDasharray = total;
-      ink.style.strokeDashoffset = total * (1 - p);
-      if (p >= 1 && slogan) slogan.classList.add('arrive');
-      if (skipBtn) skipBtn.classList.add('show');
-      return;
-    }
-
+    // **Reduced motion gets the last frame, not a faster version of the
+    // animation.** An animated image cannot be paused from script, so the only
+    // way to honour the preference is to serve a still instead — and because
+    // it is a `<picture>`, the `<source>` has to go too or it keeps winning.
     if (reduce) {
-      ink.style.strokeDasharray = 'none';
-      ink.style.strokeDashoffset = '0';
-      if (slogan) slogan.classList.add('arrive');
-      window.setTimeout(lift, 900);
+      if (mark) {
+        var source = mark.parentNode.querySelector('source');
+        if (source) source.parentNode.removeChild(source);
+        mark.src = '/assets/intro-still.png';
+      }
+      window.setTimeout(lift, 1200);
       return;
     }
 
-    // The dash has to be the path's real length or the stroke either stops
-    // short of the nib or finishes before the animation does.
-    var len = ink.getTotalLength();
-    ink.style.strokeDasharray = len;
-    ink.style.strokeDashoffset = len;
-
-    // Frame by frame, not by transition: the path is inside `<defs>` and is
-    // therefore not a rendered element, so a CSS transition on it never runs.
-    // The same easing and the same 2600ms as the app's own write-on.
-    var DUR = 2600, start = null;
-
-    function frame(now) {
-      if (start === null) start = now;
-      var t = Math.min((now - start) / DUR, 1);
-      var e = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      ink.style.strokeDashoffset = len * (1 - e);
-      if (t < 1 && !lifted) window.requestAnimationFrame(frame);
-    }
-    window.requestAnimationFrame(frame);
-
-    // The writing finishes, then the words, then a beat to read them.
-    window.setTimeout(function () { if (slogan) slogan.classList.add('arrive'); }, DUR - 100);
-    window.setTimeout(function () { if (skipBtn) skipBtn.classList.add('show'); }, 700);
-    window.setTimeout(lift, 4600);
+    window.setTimeout(function () { if (skipBtn) skipBtn.classList.add('show'); }, 900);
+    window.setTimeout(lift, INTRO_MS);
   }
 
   if (intro) {

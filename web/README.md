@@ -79,7 +79,6 @@ drive the state from the URL rather than editing the source to look at it.
 
 | Flag | Does |
 |---|---|
-| `?p=0.6` | Freezes the write-on at a fraction of its length |
 | `?intro=0` | Opens straight onto the page, no opening |
 | `?grown=1` | Draws the vine and the prose already revealed |
 | `?flat=1` | Caps the painting at 640px so a whole-page capture fits |
@@ -97,11 +96,18 @@ measurement each:
 
 ## Two things that look like style and are not
 
-- **The write-on is driven frame by frame from JavaScript, never by a CSS
-  transition.** The path lives inside `<defs>`, and an element that is not
-  rendered does not run transitions — declared as one, the offset stays parked
-  and the mark never appears at all. The app's own logo animation drives the
-  same path from `requestAnimationFrame` for the same reason.
+- **The opening is the app's own frames, not a reconstruction of them.** A
+  reconstruction was built first — the centreline path from
+  `Resources/Logo/written-logo-animation.html`, revealing the real artwork
+  through a travelling stroke mask — and it broke the mark into detached
+  pieces. The path is not a skeleton of the glyph: no uniform stroke width fits
+  it better than **IoU 0.60**, and even at the reference's own width 66 it never
+  covers ~5,800 of the glyph's pixels. It exists to paint a fat stroke of flat
+  colour, which is exactly what the reference HTML does — its embedded image is
+  a solid brand-green fill, so masking it simply paints the stroke. Used as a
+  window onto calligraphy it uncovers the wrong ink at the wrong moment.
+  `assets/intro.webp` is the shipped GIF's 49 frames rebuilt with **loop count
+  1**, because an opener that restarts under the reader is worse than none.
 - **The hidden states are applied by script; the stylesheet's default is
   visible.** Written the other way round, a page whose JavaScript fails is a
   page of invisible prose, and a banner whose scroll handler never runs is white
@@ -114,10 +120,12 @@ Generated from the app's own files, so the site and the phone cannot drift:
 | File | From |
 |---|---|
 | `assets/w-logo.png` | `Written/Resources/Logo/written_logo.png`, cropped to the mark and turned into black-with-alpha so CSS can paint it white or ink |
-| the `#ink` path in `index.html` | `Written/Resources/Logo/written-logo-animation.html` |
+| `assets/intro.webp` | `Written/Resources/Logo/written_logo_slogan_animation.gif` — the same 49 frames, rebuilt with loop count 1 |
+| `assets/intro.gif` | the same file unchanged, as the fallback |
+| `assets/intro-still.png` | its last frame, for `prefers-reduced-motion` |
 | `assets/fonts/Quicksand-*` | `Written/Resources/Fonts/Quicksand-Regular.ttf` (OFL, licence included) |
 | `assets/hero-*.jpg/webp` | Manet, *Monet Painting on His Studio Boat*, 1874 — public domain |
 
-The mark is the artwork revealed through a stroke travelling its own centreline,
-not the centreline stroked directly: stroking it overshoots the letterform badly
-(measured, IoU 0.49 against the real glyph) and loses the nib.
+`w-logo.png` is the still mark, and the only one of these the page paints
+itself — the banner and the footer use it as a CSS mask so the same file can be
+white over the painting and ink below it.

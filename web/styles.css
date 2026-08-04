@@ -91,10 +91,8 @@ h3 {
 /* ==========================================================================
    The opening
    --------------------------------------------------------------------------
-   The mark is the app's artwork revealed through a stroke that travels its
-   own centreline — the same construction as Resources/Logo, so the hand is
-   identical. Stroking the centreline directly is not the same thing: it
-   overshoots the letterform badly (measured, IoU 0.49) and loses the nib.
+   The app's own frames, played once. See the comment above the markup for why
+   this is not the vector reconstruction it used to be.
    ========================================================================== */
 
 #intro {
@@ -112,58 +110,32 @@ h3 {
 #intro.lift { transform: translateY(-100%); }
 #intro.done { display: none; }
 
+/* **No `transform` here.** It was `translateY(-4vh)`, which creates a stacking
+   context — and a stacking context is exactly what stops `mix-blend-mode` on
+   the mark below from ever seeing the parchment behind it. The animation's
+   white card sat there in full view. A margin moves the same distance and
+   creates nothing. */
 .intro-inner {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(6px, 1.4vh, 18px);
   padding: 0 24px;
-  transform: translateY(-4vh);
+  margin-bottom: 8vh;
 }
 
+/* **The frames are baked on their own near-white (252,252,252)**, not on
+   parchment. `assets/intro.webp` has that paper rebuilt as transparency —
+   mapped so 252 becomes fully clear rather than alpha 3, which is the same
+   "three units dark" residue `SignInView` documents for `multiply`.
+
+   `darken` stays for the GIF fallback, which cannot carry soft alpha: it keeps
+   whichever of the two is darker per channel, so white loses to parchment and
+   the strokes stay. It is a no-op on the transparent WebP. Safe either way,
+   because the artwork is purely black on white and has no colour to alter. */
 .mark {
-  width: min(46vw, 300px);
+  width: min(82vw, 400px);
   height: auto;
-  overflow: visible;
-}
-
-/* Set by JS from getTotalLength(); the fallback keeps the mark hidden rather
-   than flashing whole if the script is late.
-
-   **The reveal is driven frame by frame from JS, never by a transition here.**
-   This path lives inside `<defs>`, and an element that is not rendered does
-   not run CSS transitions — declaring one leaves the offset parked at its
-   start value and the mark never appears at all. Measured: the slogan
-   arrived over blank parchment. The app's own logo animation drives the same
-   path from `requestAnimationFrame` for the same reason. */
-#ink {
-  stroke-dasharray: 4000;
-  stroke-dashoffset: 4000;
-}
-
-.slogan {
-  font-family: var(--display);
-  font-size: clamp(1rem, 2.5vw, 1.35rem);
-  letter-spacing: .02em;
-  color: var(--ink);
-  margin: 0;
-  text-align: center;
-  text-wrap: balance;
-}
-
-.slogan span {
-  display: inline-block;
-  opacity: 0;
-  transform: translateY(.5em);
-}
-
-.slogan.arrive span {
-  animation: word-in 620ms cubic-bezier(.2, .7, .25, 1) forwards;
-  animation-delay: calc(var(--i) * 90ms);
-}
-
-@keyframes word-in {
-  to { opacity: 1; transform: translateY(0); }
+  mix-blend-mode: darken;
 }
 
 .skip {
@@ -688,8 +660,7 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   #intro { transition: none; }
-  #ink.write { transition: none; }
-  .slogan.arrive span { animation: none; opacity: 1; transform: none; }
+  .mark { animation: none; }
   .vine svg, .stage-body { transition: none; }
   .hero-cue span { animation: none; }
 }
