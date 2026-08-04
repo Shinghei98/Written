@@ -17,6 +17,18 @@ actor LikeService {
         let id: String
         let name: String
         let photoSeed: Int
+        /// Their own photograph, where they have one. Same reasoning as
+        /// `ChatService.Conversation.partnerPhotoPath`: a seed is the synthetic
+        /// accounts' stand-in, so drawing one for everybody left real people
+        /// looking like placeholders.
+        var photoPath: String?
+
+        /// What to draw. Their face if there is one, the generated portrait if
+        /// not — the same `PhotoRef` the feed and chat use.
+        var photoRef: DiscoveryFeed.PhotoRef {
+            if let photoPath { return .stored(photoPath) }
+            return .generated(photoSeed)
+        }
         let likedAt: Date
     }
 
@@ -110,7 +122,7 @@ actor LikeService {
                 "order": "created_at.desc",
             ])
             lastError = nil
-            return rows.compactMap { row in
+            var list = rows.compactMap { row -> Admirer? in
                 guard let id = row["liker_id"] as? String,
                       let name = row["liker_name"] as? String,
                       let created = row["created_at"] as? String,
@@ -123,6 +135,12 @@ actor LikeService {
                     likedAt: likedAt
                 )
             }
+            // Their faces, in one request rather than one per admirer.
+            let faces = await ChatService.photoPaths(for: list.map(\.id))
+            for index in list.indices {
+                list[index].photoPath = faces[list[index].id]
+            }
+            return list
         } catch {
             lastError = error.localizedDescription
             return []

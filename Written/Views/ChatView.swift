@@ -301,7 +301,7 @@ struct AdmirersBanner: View {
 
             HStack(spacing: -Self.overlap) {
                 ForEach(Array(admirers.prefix(Self.shown).enumerated()), id: \.element.id) { index, admirer in
-                    PortraitView(seed: admirer.photoSeed, initial: admirer.name)
+                    ProfilePhotoView(ref: admirer.photoRef, initial: admirer.name)
                         .frame(width: Self.avatar, height: Self.avatar)
                         .clipShape(Circle())
                         // A parchment ring, not a white one: these sit on the page
@@ -522,7 +522,10 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PortraitView(seed: conversation.partnerPhotoSeed, initial: conversation.partnerName)
+            // `ProfilePhotoView`, not `PortraitView`: the latter only ever
+            // draws the generated placeholder, so everybody with a real
+            // photograph appeared as an abstract one.
+            ProfilePhotoView(ref: conversation.photoRef, initial: conversation.partnerName)
                 .frame(width: 54, height: 54)
                 .clipShape(Circle())
 

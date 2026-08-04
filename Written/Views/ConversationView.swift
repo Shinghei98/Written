@@ -150,7 +150,11 @@ struct ConversationView: View {
                             // still being written to.
                             if memo.isRecording { memo.stopRecording() }
                             sendMemo()
-                        }
+                        },
+                        // The composer draws this too, and is invisible behind
+                        // this sheet — so a failed voice send had nowhere to be
+                        // read. See `VoiceMemoBanner.failure`.
+                        failure: failure
                     )
                     .transition(.move(edge: .bottom))
                 }
@@ -373,7 +377,9 @@ struct ConversationView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back to conversations")
 
-            PortraitView(seed: conversation.partnerPhotoSeed, initial: conversation.partnerName)
+            // Their real photograph where there is one — see
+            // `ChatService.Conversation.photoRef`.
+            ProfilePhotoView(ref: conversation.photoRef, initial: conversation.partnerName)
                 .frame(width: 38, height: 38)
                 .clipShape(Circle())
 
@@ -543,6 +549,10 @@ struct ConversationView: View {
                                             return
                                         }
                                         dismissKeyboard()
+                                        // Or the last failure — a photo's,
+                                        // perhaps — greets them inside a sheet
+                                        // it has nothing to do with.
+                                        failure = nil
                                         isMemoOpen = true
                                         isMemoHeld = true
                                         Task { await memo.startRecording() }
@@ -615,6 +625,7 @@ struct ConversationView: View {
     /// microphone found somebody else's audio already loaded.
     private func closeMemo() {
         isMemoOpen = false
+        failure = nil
         memo.reset()
     }
 

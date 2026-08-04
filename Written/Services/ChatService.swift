@@ -19,6 +19,20 @@ actor ChatService {
         let partnerID: String
         let partnerName: String
         let partnerPhotoSeed: Int
+        /// The partner's own photograph, where they have one.
+        ///
+        /// **Chat drew generated portraits for everybody, including people with
+        /// real faces uploaded.** `conversations` carries a `photo_seed` and
+        /// nothing else, and a seed is the *synthetic* accounts' stand-in — so
+        /// every real person appeared as an abstract placeholder, reported as
+        /// the circular avatar being empty.
+        ///
+        /// Read from `discovery_cards` rather than denormalised onto the
+        /// conversation row: that table is already the one place a signed-in
+        /// user may read about another, it already holds the paths, and a copy
+        /// here would be a second thing to keep in step every time somebody
+        /// changes their photographs.
+        var partnerPhotoPath: String?
         let lastMessage: String?
         let lastMessageAt: Date?
         /// `photo` | `video` | `audio`, or `nil` when the last message was text.
@@ -29,6 +43,14 @@ actor ChatService {
         /// empty, and `\d\d:\d\d` is also how somebody writes half past
         /// twelve. See `0013`.
         var lastMessageKind: String?
+
+        /// What to draw: their photograph if there is one, the generated
+        /// portrait if not. The same `PhotoRef` the feed uses, so chat and
+        /// Explore cannot disagree about somebody's face.
+        var photoRef: DiscoveryFeed.PhotoRef {
+            if let partnerPhotoPath { return .stored(partnerPhotoPath) }
+            return .generated(partnerPhotoSeed)
+        }
     }
 
     struct Message: Identifiable, Equatable, Codable {
@@ -78,11 +100,41 @@ actor ChatService {
                 "order": "last_message_at.desc.nullsfirst",
             ])
             lastError = nil
-            return rows.compactMap { Self.conversation(from: $0, me: me) }
+            var list = rows.compactMap { Self.conversation(from: $0, me: me) }
+            let faces = await Self.photoPaths(for: list.map(\.partnerID))
+            for index in list.indices {
+                list[index].partnerPhotoPath = faces[list[index].partnerID]
+            }
+            return list
         } catch {
             lastError = error.localizedDescription
             return []
         }
+    }
+
+    /// The newest photograph each of these people has, by user id.
+    ///
+    /// One request for the whole list rather than one per row — a chat list of
+    /// twenty would otherwise be twenty round trips before it could draw.
+    /// Failure is silent and returns nothing: a missing face falls back to the
+    /// generated portrait, which is a worse picture rather than a broken screen.
+    static func photoPaths(for ids: [String]) async -> [String: String] {
+        let unique = Array(Set(ids))
+        guard !unique.isEmpty else { return [:] }
+        let rows = (try? await PostgREST.rows("rest/v1/discovery_cards", query: [
+            "select": "user_id,photo_paths",
+            "user_id": "in.(\(unique.joined(separator: ",")))",
+        ])) ?? []
+
+        var found: [String: String] = [:]
+        for row in rows {
+            guard let id = row["user_id"] as? String,
+                  let paths = row["photo_paths"] as? [String],
+                  let first = paths.first
+            else { continue }
+            found[id] = first
+        }
+        return found
     }
 
     private static func conversation(from row: [String: Any], me: String) -> Conversation? {

@@ -30,6 +30,16 @@ struct VoiceMemoBanner: View {
     var onStopTapped: () -> Void
     var onRetry: () -> Void
     var onSend: () -> Void
+    /// Why the last send failed, if it did.
+    ///
+    /// **This sheet had nowhere to say so, and that is the whole of a bug.**
+    /// `ConversationView` writes a failed send into `failure`, which is drawn by
+    /// the *composer* — and the composer sits underneath this banner in the same
+    /// `ZStack`, entirely covered by it. So a voice memo whose upload failed
+    /// left the sender tapping an arrow that appeared to do nothing, with the
+    /// explanation rendered behind the sheet they were looking at. Reported as
+    /// "I can record, but I can't click the send button".
+    var failure: String?
 
     /// The sheet's own width, which every size below is a fraction of.
     ///
@@ -70,6 +80,16 @@ struct VoiceMemoBanner: View {
             track
                 .padding(.horizontal, sideInset)
                 .padding(.top, controlGap * 0.6)
+
+            if let failure {
+                Text(failure)
+                    .font(.system(size: width * 0.032))
+                    .foregroundStyle(SignInPalette.error)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, sideInset)
+                    .padding(.top, controlGap * 0.5)
+            }
 
             controls
                 .padding(.horizontal, sideInset)
