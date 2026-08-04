@@ -33,7 +33,14 @@ actor DiscoveryCardService {
         let displayName: String
         let age: Int?
         let district: String?
-        let interests: [(domain: String, subject: String)]
+        /// `source` is what the subject was distilled from, and it is carried
+        /// for retention rather than for display. A YouTube channel and an
+        /// Apple Music artist are classified through the same ontology and can
+        /// land in the same domain, so `domain` cannot tell them apart — and
+        /// YouTube's terms cap its data at 30 days while Apple Music's have no
+        /// such rule. Sweeping on domain would either keep what must go or
+        /// destroy what may stay. See `0016_youtube_retention.sql`.
+        let interests: [(domain: String, subject: String, source: String)]
         /// Object paths in `profile-photos`, in the order the person arranged
         /// them. **Empty means this person is not shown at all** — see `publish`.
         let photoPaths: [String]
@@ -81,7 +88,9 @@ actor DiscoveryCardService {
             // stays for the six synthetic accounts, whose seeds the seeder
             // wrote and whose faces do not exist as files.
             "photo_paths": card.photoPaths,
-            "interests": card.interests.map { ["domain": $0.domain, "subject": $0.subject] },
+            "interests": card.interests.map {
+                ["domain": $0.domain, "subject": $0.subject, "source": $0.source]
+            },
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 

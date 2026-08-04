@@ -100,6 +100,11 @@ enum ListeningHighlights {
         var isEmpty: Bool { total == 0 }
     }
 
+    /// **Nothing draws this now** — the card lists the events themselves, which
+    /// is what somebody recognises their own year by. It is kept because the
+    /// readings it encodes are real and derived rather than stored: booked
+    /// against typed, evenings, weekends, the busiest day. The ontology stage
+    /// will want them and they should not have to be re-derived.
     static func shape(in records: [DistilledRecord]) -> EventShape {
         let live = personalEvents(in: records)
 
@@ -165,14 +170,21 @@ enum ListeningHighlights {
         }
     }
 
-    /// The events themselves, titles and all.
+    /// The events themselves, titles and all — what the card shows.
     ///
-    /// **Nothing on the dashboard calls this** — that card shows `shape` now.
-    /// It is kept because the titles are still collected, still synced and still
-    /// what the ontology stage will read, so the moment anything needs them in
-    /// the app they are one call away rather than a re-derivation.
-    static func events(in records: [DistilledRecord]) -> [Event] {
-        personalEvents(in: records)
+    /// **One row per distinct title.** A calendar is mostly repetition: a
+    /// standing meeting, a weekly class, a recurring reminder, each written in
+    /// dozens of times. Listing every occurrence would bury the things worth
+    /// reading — the tour, the flight, the concert — under fifty copies of
+    /// "Gym". The occurrences are all still in the database and all still go to
+    /// the ontology stage; this is a reading, not a filter on what is kept.
+    ///
+    /// The first of each name survives, which after the sort below is the
+    /// soonest — so a repeating event is dated by its next occurrence rather
+    /// than by whichever copy happened to come back first.
+    static func events(in records: [DistilledRecord], limit: Int = 40) -> [Event] {
+        var seen: Set<String> = []
+        return personalEvents(in: records)
             .map { record in
                 Event(
                     eventID: record.itemID,
@@ -191,6 +203,9 @@ enum ListeningHighlights {
                 case (_, nil): return true
                 }
             }
+            .filter { seen.insert($0.name.lowercased()).inserted }
+            .prefix(limit)
+            .map { $0 }
     }
 
     private static let iso: ISO8601DateFormatter = {

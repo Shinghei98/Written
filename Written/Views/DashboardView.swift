@@ -66,6 +66,7 @@ struct DashboardView: View {
     /// "artist", "podcast". Nil is closed.
     @State private var favouriteKind: String?
     @State private var favouriteText = ""
+    @FocusState private var isFavouriteFocused: Bool
 
 
     /// The centred artist plus the list under them — six in all, as the card is
@@ -670,14 +671,31 @@ struct DashboardView: View {
                     withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
                 }
             ) {
-                TextField("", text: $favouriteText)
-                    .font(BrandFont.body(16))
+                // **The same field as the school and occupation sheets**, down
+                // to the corner radius. It was a bare `TextField` on parchment,
+                // so there was nothing to say where the writing went — the
+                // caret sat in open space and the sheet read as a message
+                // rather than a form. Two sheets that ask the same kind of
+                // question should not answer it in two different shapes.
+                TextField(kind.capitalized, text: $favouriteText)
+                    .font(BrandFont.body(17))
                     .foregroundStyle(GardenPalette.ink)
                     .multilineTextAlignment(.center)
+                    // Proper nouns more often than not — "Charli XCX",
+                    // "Radiolab" — the same reasoning those sheets use.
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
                     .submitLabel(.done)
+                    .focused($isFavouriteFocused)
+                    .padding(.vertical, 11)
+                    .padding(.horizontal, 14)
+                    .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                    }
             }
+            .onAppear { isFavouriteFocused = true }
             .transition(.opacity)
         }
     }
@@ -1186,53 +1204,73 @@ struct DashboardView: View {
     /// happens. None of that needs a name attached.
     @ViewBuilder
     private var eventsSection: some View {
-        let shape = viewModel.eventShape
-        if !shape.isEmpty {
+        let events = viewModel.events
+        if !events.isEmpty {
             card {
                 cardLabel("EVENTS", icon: Modality.plans.systemImage)
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
 
-                VStack(spacing: 0) {
-                    shapeRow("Arranged", "\(shape.total)")
-                    // First among the readings because it is the strongest: a
-                    // ticketing site wrote it in, which cost money and a
-                    // Saturday.
-                    if shape.booked > 0 {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        shapeRow("Booked ahead", "\(shape.booked)")
-                    }
-                    if shape.evening > 0 {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        shapeRow("Evenings", "\(shape.evening)")
-                    }
-                    if shape.weekend > 0 {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        shapeRow("Weekends", "\(shape.weekend)")
-                    }
-                    if let day = shape.busiestDay {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        shapeRow("Busiest day", day)
+                // **The events, not a summary of them.** This printed readings
+                // — arranged, booked ahead, evenings, weekends, busiest day —
+                // and nobody recognises their own year in a count. They
+                // recognise the tour and the flight. Scrollable and bounded like
+                // Media's and Podcasts', because a year of calendar is long.
+                entryStack {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        eventRow(event)
+                            .removable(editing: editingEntry == key(event: event), index: index) {
+                                remove { viewModel.banEvent(event) }
+                            }
+                            .editableOnLongPress($editingEntry, key: key(event: event))
                     }
                 }
             }
         }
     }
 
-    /// A reading and its figure. No entry to long-press, because there is no
-    /// entry — striking one off is meaningless when nothing names it.
-    private func shapeRow(_ label: String, _ value: String) -> some View {
-        HStack(spacing: 10) {
-            Text(label)
-                .font(.system(size: 16))
-                .foregroundStyle(GardenPalette.ink)
+    private func key(event: ListeningHighlights.Event) -> String { "event-\(event.id)" }
+
+    private func eventRow(_ event: ListeningHighlights.Event) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.name)
+                    .font(.system(size: 16))
+                    .foregroundStyle(GardenPalette.ink)
+                    .lineLimit(1)
+                if let detail = Self.eventDetail(event) {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(GardenPalette.muted)
+                        .lineLimit(1)
+                }
+            }
             Spacer(minLength: 8)
-            Text(value)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(GardenPalette.muted)
+            // **The strongest claim in the distillation, and it earns the
+            // mark.** A ticketing site wrote this one in by itself, which means
+            // it cost money and a Saturday — quite unlike a title somebody
+            // typed. `CalendarDistiller` keeps `url` for exactly this.
+            if event.booked {
+                Image(systemName: "ticket.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(GardenPalette.gold)
+            }
         }
         .padding(.vertical, 11)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label), \(value)")
+    }
+
+    /// The date, and the calendar it came from when that says something the
+    /// date does not. Undated events exist — an all-day entry with no time — so
+    /// this is optional rather than a placeholder nobody can read.
+    private static func eventDetail(_ event: ListeningHighlights.Event) -> String? {
+        var parts: [String] = []
+        if let start = event.start {
+            parts.append(start.formatted(.dateTime.day().month().year()))
+        }
+        if !event.calendar.isEmpty, event.calendar.lowercased() != "calendar" {
+            parts.append(event.calendar)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// A row the person typed in rather than one their phone observed. Marked,

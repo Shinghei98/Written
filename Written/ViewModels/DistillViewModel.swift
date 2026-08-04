@@ -36,13 +36,13 @@ final class DistillViewModel: ObservableObject {
     /// The three cards added alongside Media's channels. Derived on the same
     /// terms as everything above: once when the records change, never in a body.
     @Published private(set) var podcastShows: [ListeningHighlights.Show] = []
-    /// **The shape, not the events.** The dashboard prints how much somebody
-    /// arranged and when, never what any of it was — while `records` keeps every
-    /// title, and sync sends them, because the titles are the signal the
-    /// ontology stage will read. See `ListeningHighlights.EventShape`.
-    @Published private(set) var eventShape = ListeningHighlights.EventShape(
-        total: 0, booked: 0, weekend: 0, evening: 0, busiestDay: nil
-    )
+    /// **The events, not the shape.** The card printed readings — how many were
+    /// arranged, how many booked, the busiest day — and a person does not
+    /// recognise their own year in a count. They recognise "Chichen Itza Premier
+    /// Tour" and "Flight to Los Angeles". One row per distinct title, since a
+    /// calendar is mostly repetition and fifty copies of "Gym" would bury the
+    /// three things worth reading.
+    @Published private(set) var events: [ListeningHighlights.Event] = []
     @Published private(set) var chronotype: LifestyleHighlights.Chronotype?
     @Published private(set) var hourlyActivity: [Double] = []
     @Published private(set) var sports: [LifestyleHighlights.Sport] = []
@@ -799,14 +799,16 @@ final class DistillViewModel: ObservableObject {
 
         let age = identity.age
         let district = identity.place
-        var interests: [(domain: String, subject: String)] = []
-        interests += musicArtists.map { (Ontology.Domain.music.rawValue, $0.name) }
+        var interests: [(domain: String, subject: String, source: String)] = []
+        interests += musicArtists.map {
+            (Ontology.Domain.music.rawValue, $0.name, "applemusic")
+        }
         interests += mediaChannels.compactMap { channel in
             // Classified from the channel's own name, which is the only thing
             // travelling anyway. An unclassifiable channel is dropped rather
             // than filed under a guess.
             guard let domain = Ontology.classify(title: "", channel: channel.name, detail: "") else { return nil }
-            return (domain.rawValue, channel.name)
+            return (domain.rawValue, channel.name, "youtube")
         }
 
         Task.detached(priority: .utility) {
@@ -1423,7 +1425,7 @@ final class DistillViewModel: ObservableObject {
         musicGenres = MusicHighlights.genreShare(in: records)
         mediaChannels = MediaHighlights.topChannels(in: records, limit: Self.rankedEntries)
         podcastShows = ListeningHighlights.shows(in: records)
-        eventShape = ListeningHighlights.shape(in: records)
+        events = ListeningHighlights.events(in: records)
         // The lifestyle figures are deliberately absent. They used to be
         // recomputed here like everything else, which stopped working the moment
         // the raw HealthKit rows were discarded rather than stored: this method

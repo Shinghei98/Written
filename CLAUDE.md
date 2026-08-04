@@ -249,6 +249,15 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   themselves, which is behaviour rather than inference. `url` and `organizer` are
   kept precisely because they are what tells a booked event from a typed one —
   see `booked=1` in `extra`.
+  **The card lists the events themselves**, one row per distinct title. It
+  printed readings for a while — arranged, booked ahead, evenings, weekends,
+  busiest day — and nobody recognises their own year in a count; they recognise
+  "Chichen Itza Premier Tour" and "Flight to Los Angeles". Distinct titles
+  because a calendar is mostly repetition, and fifty copies of "Gym" bury the
+  three things worth reading. `ListeningHighlights.shape` is kept and drawn by
+  nothing: booked-against-typed, evenings, weekends and the busiest day are real
+  derived readings the ontology stage will want, and they should not have to be
+  worked out twice.
   **Events are stored whole and synced**, unlike HealthKit, because the titles
   *are* the signal. That is a deliberate trade and it puts other people's names
   and locations in the database; `PrivacyInfo.xcprivacy` says so. Windows are
