@@ -68,6 +68,28 @@ struct CropView: View {
 
                 controls(frame: frame, container: geometry.size)
             }
+            // **Pinned to the container, or a wide photo pushes the whole
+            // screen sideways.**
+            //
+            // `imageLayer` sizes itself to cover the crop frame, so a landscape
+            // photo is *wider than the phone*: covering a 400×500 frame with a
+            // 4:3 picture needs 666×500. A `ZStack` takes the union of its
+            // children, so the stack became 666 wide — and `GeometryReader`
+            // lays its content out at **top-leading, not centred**, so that
+            // extra width all hung off the right. Everything centred inside it
+            // centred on 333 instead of 220: the crop frame started at 133pt
+            // instead of 20pt, and the buttons went with it, leaving "Use
+            // photo" half off the screen. Two testers reported it as the screen
+            // shifting and being unable to upload.
+            //
+            // It only ever happened to wide pictures, which is why it survived
+            // testing — a portrait photo never exceeds the screen width and
+            // everything looks right.
+            //
+            // No `.clipped()`: the black backdrop and the dimming layer
+            // deliberately `ignoresSafeArea`, and clipping here would cut them
+            // back to the safe area and leave bare edges.
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .preferredColorScheme(.dark)
     }
