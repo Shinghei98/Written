@@ -3,17 +3,32 @@ import MediaPlayer
 
 /// The songs actually on the device, as opposed to the Apple Music account.
 ///
-/// **This exists because `AppleMusicDistiller` needs a subscription.** MusicKit
-/// reads the Apple Music *service*: without an account it mints no developer
-/// token and returns nothing, so somebody who has never subscribed currently
-/// distils no music whatsoever — the largest single hole in this app's coverage,
-/// and invisible from a developer's phone which is always signed in.
+/// `MPMediaQuery.songs()` reads the *device library* rather than the Apple Music
+/// service, so it surfaces what MusicKit does not: purchased tracks, ripped CDs,
+/// files synced from a computer.
 ///
-/// `MPMediaQuery.songs()` reads the *device library*, which needs no
-/// subscription and holds what MusicKit never surfaces: purchased tracks, ripped
-/// CDs, files synced from a computer. Measured on a real device during the
-/// podcast survey — 320 songs, of which 304 were cloud items and the rest local
-/// only.
+/// **It was added as cover for people without an Apple Music subscription, and
+/// that justification is weaker than it was written.** The claim was that
+/// somebody with hundreds of songs on their phone gets a music branch whether or
+/// not they pay Apple monthly. The survey it cited says otherwise:
+///
+///     libraryTotal              322
+///     music media type          320
+///     cloudItemsInWholeLibrary  304
+///
+/// **304 of the 320 are cloud items** — present because Sync Library is on,
+/// which is a subscription feature. Take the subscription away and those rows
+/// most likely go with it, leaving the 16 that are genuinely local. So this
+/// reads without a subscription as a matter of *API*, and may well return
+/// nothing as a matter of *data*, for anybody who has only ever streamed.
+///
+/// The number that undercut the claim was in the same JSON as the number that
+/// seemed to support it. Settle it by turning Sync Library off and re-running
+/// `MediaFieldSurvey` — until then this is unproven either way.
+///
+/// It still earns its place: local files are real records that MusicKit does not
+/// return, and the extraction rule is to take what is reachable. What it is not
+/// is a guarantee that an unsubscribed person has a music branch.
 ///
 /// **It costs no new permission and no new picker row.** MusicKit's
 /// `MusicAuthorization` and `MPMediaLibrary.requestAuthorization` are the same
