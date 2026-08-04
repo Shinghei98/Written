@@ -784,6 +784,8 @@ final class DistillViewModel: ObservableObject {
     func publishDiscoveryCard() {
         guard let name = SupabaseAuth.shared.firstName, !name.isEmpty else { return }
 
+        let age = identity.age
+        let district = identity.place
         var interests: [(domain: String, subject: String)] = []
         interests += musicArtists.map { (Ontology.Domain.music.rawValue, $0.name) }
         interests += mediaChannels.compactMap { channel in
@@ -794,13 +796,19 @@ final class DistillViewModel: ObservableObject {
             return (domain.rawValue, channel.name)
         }
 
-        let card = DiscoveryCardService.Card(
-            displayName: name,
-            age: identity.age,
-            district: identity.place,
-            interests: interests
-        )
         Task.detached(priority: .utility) {
+            // Read from the server rather than from anything local: the photos
+            // may have been uploaded on a different device, or in a session
+            // before this one. `PhotoService.paths` is the authority, and an
+            // empty answer is what keeps somebody with no face out of the pool.
+            let photoPaths = await PhotoService.shared.paths()
+            let card = DiscoveryCardService.Card(
+                displayName: name,
+                age: age,
+                district: district,
+                interests: interests,
+                photoPaths: photoPaths
+            )
             await DiscoveryCardService.shared.publish(card)
         }
     }

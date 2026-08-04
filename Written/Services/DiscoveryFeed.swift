@@ -59,10 +59,29 @@ struct DiscoveryFeed {
         let name: String
         let age: Int?
         let district: String?
-        /// Exactly two, drawn without replacement from the person's six.
-        let photoSeeds: [Int]
+        /// Up to two, drawn without replacement from whatever the person has.
+        ///
+        /// *Up to*, not exactly: `draw` asks for `min(count, pool.count)`, so
+        /// somebody with one photograph shows one rather than the same one
+        /// twice, and somebody with five gets two, two, then the last plus one
+        /// already seen — which is the cycle restarting, not a bug.
+        let photos: [PhotoRef]
         /// Up to two lines, from two different interests.
         let lines: [String]
+    }
+
+    /// A photograph, or the generated portrait standing in for one.
+    ///
+    /// **One pool, not two.** A person has real files or they have seeds, never
+    /// both — the six synthetic accounts carry seeds their seeder wrote, and
+    /// everyone else carries object paths. Drawing from two pools would hand out
+    /// four pictures where two were asked for, so the two collapse into one type
+    /// here and the view decides how to render each case.
+    enum PhotoRef: Hashable {
+        /// An object in `profile-photos`, read through a signed URL.
+        case stored(String)
+        /// A seed for `PortraitPlaceholder`, for accounts with no files.
+        case generated(Int)
     }
 
     /// How many other profiles must sit between one person and their next.
@@ -92,7 +111,7 @@ struct DiscoveryFeed {
     private static let postEvery = 4
 
     /// Per person, the photos and interests not yet used this cycle.
-    private var photoPool: [String: [Int]] = [:]
+    private var photoPool: [String: [PhotoRef]] = [:]
     private var interestPool: [String: [DiscoveryService.Person.Interest]] = [:]
 
     /// The order the current round emits, and how far through it we are.
@@ -142,8 +161,14 @@ struct DiscoveryFeed {
         cursor += 1
         emitted += 1
 
+        // Real photographs win where they exist; seeds are the synthetic
+        // accounts' stand-in. `DiscoveryService` already refuses a person with
+        // neither, so this is never empty.
+        let pool: [PhotoRef] = person.photoPaths.isEmpty
+            ? person.photoSeeds.map(PhotoRef.generated)
+            : person.photoPaths.map(PhotoRef.stored)
         let photos = Self.draw(&photoPool, for: person.id,
-                               refill: person.photoSeeds, count: 2, rng: &rng)
+                               refill: pool, count: 2, rng: &rng)
         let interests = Self.draw(&interestPool, for: person.id,
                                   refill: person.interests, count: 2, rng: &rng)
 
@@ -153,7 +178,7 @@ struct DiscoveryFeed {
             name: person.name,
             age: person.age,
             district: person.district,
-            photoSeeds: photos,
+            photos: photos,
             lines: interests.map { Ontology.line(for: $0.domain, subject: $0.subject) }
         )
     }

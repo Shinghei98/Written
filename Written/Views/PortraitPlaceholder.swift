@@ -105,3 +105,71 @@ struct PortraitView: View {
         PortraitPlaceholder(seed: seed, initial: initial)
     }
 }
+
+/// One picture in the feed: a real photograph where the person has one, the
+/// generated portrait where they do not.
+///
+/// **The branch is the whole point.** The six synthetic accounts have seeds and
+/// no files; everybody real has object paths and no seeds. `DiscoveryFeed`
+/// collapses the two into `PhotoRef` so the draw is one cycle, and this is where
+/// that decision becomes two different things on screen.
+///
+/// Stored photographs are read through a signed URL, because `profile-photos` is
+/// private — a public bucket would put people's faces on the open web the moment
+/// one link escaped. The URL is fetched per appearance and the *image* is cached
+/// by object path, for the reason `MediaService` documents: the signed URL
+/// differs every time and so would never hit `URLCache`.
+struct ProfilePhotoView: View {
+    let ref: DiscoveryFeed.PhotoRef?
+    var initial: String = ""
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            switch ref {
+            case .generated(let seed):
+                PortraitPlaceholder(seed: seed, initial: initial)
+
+            case .stored(let path):
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    // The placeholder does duty as the loading state too. A
+                    // blank rectangle would read as a broken photograph, and
+                    // this at least carries the person's initial.
+                    PortraitPlaceholder(seed: path.hashValue, initial: initial)
+                        .task { image = await ProfilePhotoCache.shared.image(at: path) }
+                }
+
+            case nil:
+                PortraitPlaceholder(seed: 0, initial: initial)
+            }
+        }
+        .clipped()
+    }
+}
+
+/// Object path to image, once per path.
+///
+/// Keyed by **path, not URL**, because a signed URL is different on every
+/// request — caching by it would mean every appearance of the same face is a
+/// fresh download. The same trap `MediaService` records for chat attachments.
+actor ProfilePhotoCache {
+
+    static let shared = ProfilePhotoCache()
+
+    private var cached: [String: UIImage] = [:]
+
+    func image(at path: String) async -> UIImage? {
+        if let hit = cached[path] { return hit }
+        guard let url = await PhotoService.shared.readURL(for: path),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data)
+        else { return nil }
+        cached[path] = image
+        return image
+    }
+}

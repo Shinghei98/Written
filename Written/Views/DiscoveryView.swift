@@ -453,7 +453,7 @@ struct DiscoveryCard: View {
         HStack(spacing: 10) {
             // The first photo, so the avatar and the post agree about who this
             // is even as the pager moves on to the second.
-            PortraitView(seed: profile.photoSeeds.first ?? 0, initial: profile.name)
+            ProfilePhotoView(ref: profile.photos.first, initial: profile.name)
                 .frame(width: 34, height: 34)
                 .clipShape(Circle())
                 .overlay { Circle().strokeBorder(GardenPalette.gold.opacity(0.35), lineWidth: 1) }
@@ -490,8 +490,8 @@ struct DiscoveryCard: View {
     /// above it. Three rounds of arbitrating that by hand is what this replaces.
     private var photos: some View {
         TabView(selection: $page) {
-            ForEach(Array(profile.photoSeeds.enumerated()), id: \.offset) { index, seed in
-                PortraitView(seed: seed, initial: profile.name)
+            ForEach(Array(profile.photos.enumerated()), id: \.offset) { index, ref in
+                ProfilePhotoView(ref: ref, initial: profile.name)
                     .tag(index)
             }
         }
@@ -532,9 +532,9 @@ struct DiscoveryCard: View {
     /// so the card's height does not change as the count does.
     @ViewBuilder
     private var dots: some View {
-        if profile.photoSeeds.count > 1 {
+        if profile.photos.count > 1 {
             HStack(spacing: 5) {
-                ForEach(0..<profile.photoSeeds.count, id: \.self) { index in
+                ForEach(0..<profile.photos.count, id: \.self) { index in
                     Circle()
                         .fill(Color.white.opacity(index == page ? 0.95 : 0.45))
                         .frame(width: 6, height: 6)

@@ -25,6 +25,10 @@ actor DiscoveryService {
         let age: Int?
         let district: String?
         let photoSeeds: [Int]
+        /// Object paths in `profile-photos`, in the order the person arranged
+        /// them. Real photographs; `photoSeeds` is the synthetic accounts'
+        /// generated stand-in and only one of the two is ever non-empty.
+        let photoPaths: [String]
         let interests: [Interest]
 
         struct Interest: Equatable {
@@ -48,7 +52,7 @@ actor DiscoveryService {
         let me = await SupabaseAuth.shared.userID
 
         var query = [
-            URLQueryItem(name: "select", value: "user_id,display_name,age,district,photo_seeds,interests"),
+            URLQueryItem(name: "select", value: "user_id,display_name,age,district,photo_seeds,photo_paths,interests"),
             URLQueryItem(name: "order", value: "updated_at.desc"),
         ]
         // **Everybody but you.** Nothing excluded the viewer, which cost
@@ -100,6 +104,15 @@ actor DiscoveryService {
               let name = row["display_name"] as? String
         else { return nil }
 
+        // **Nobody without a face.** A card is only published once somebody has
+        // photographs, so an empty pair here is a row from before that rule or a
+        // person who removed theirs — either way there is nothing to draw, and a
+        // profile that is a name over blank space is worse than one fewer
+        // person in the feed.
+        let paths = row["photo_paths"] as? [String] ?? []
+        let seeds = row["photo_seeds"] as? [Int] ?? []
+        guard !paths.isEmpty || !seeds.isEmpty else { return nil }
+
         let interests = (row["interests"] as? [[String: Any]] ?? []).compactMap {
             entry -> Person.Interest? in
             guard let raw = entry["domain"] as? String,
@@ -115,6 +128,7 @@ actor DiscoveryService {
             age: row["age"] as? Int,
             district: row["district"] as? String,
             photoSeeds: row["photo_seeds"] as? [Int] ?? [],
+            photoPaths: row["photo_paths"] as? [String] ?? [],
             interests: interests
         )
     }

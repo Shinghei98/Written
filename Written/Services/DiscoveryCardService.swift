@@ -34,6 +34,9 @@ actor DiscoveryCardService {
         let age: Int?
         let district: String?
         let interests: [(domain: String, subject: String)]
+        /// Object paths in `profile-photos`, in the order the person arranged
+        /// them. **Empty means this person is not shown at all** — see `publish`.
+        let photoPaths: [String]
     }
 
     /// Writes the row, creating it the first time and updating it after.
@@ -57,18 +60,27 @@ actor DiscoveryCardService {
             return false
         }
 
-        // Six seeds, stable for this account. Derived from the user id rather
-        // than randomised, so the portraits a stranger sees do not reshuffle
-        // every time the card is republished — the synthetic seeder randomises
-        // because it writes each row exactly once.
-        let seeds = Self.seeds(from: userID)
+        // **No photographs, no card.** A profile with no face is not a profile
+        // — the feed would draw a name and two interest lines over blank space —
+        // so somebody who skipped the photo page simply is not in the pool until
+        // they add one. Publishing an empty card and filtering it on read would
+        // put the same decision two round trips further from where it is made.
+        guard !card.photoPaths.isEmpty else {
+            lastError = nil
+            return false
+        }
 
         let body: [String: Any] = [
             "user_id": userID,
             "display_name": card.displayName,
             "age": card.age as Any,
             "district": card.district as Any,
-            "photo_seeds": seeds,
+            // `photo_seeds` is deliberately not written any more. It was six
+            // integers driving generated placeholder portraits, which made every
+            // real account look photographed when none of them were. The column
+            // stays for the six synthetic accounts, whose seeds the seeder
+            // wrote and whose faces do not exist as files.
+            "photo_paths": card.photoPaths,
             "interests": card.interests.map { ["domain": $0.domain, "subject": $0.subject] },
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
@@ -99,18 +111,4 @@ actor DiscoveryCardService {
         }
     }
 
-    /// Six stable seeds from the account id.
-    ///
-    /// Any deterministic spread will do — these pick placeholder portraits, not
-    /// anything about the person. Taken from the id's own bytes so two accounts
-    /// do not collide and one account does not change.
-    private static func seeds(from userID: String) -> [Int] {
-        var hash = 5381
-        for byte in userID.utf8 {
-            hash = (hash &* 33) &+ Int(byte)
-        }
-        return (0..<6).map { index in
-            abs((hash &* (index + 1) &* 2_654_435_761) % 1_000_000)
-        }
-    }
 }

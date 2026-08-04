@@ -201,11 +201,22 @@ struct RootView: View {
 
             case .photos:
                 PhotoEntryView(
-                    onContinue: { _ in
-                        // The bytes go no further than this screen yet, the same
-                        // way names did before there was a profile table.
-                        // Uploading needs a Supabase Storage bucket.
-                        Task { await SupabaseAuth.shared.markPhotoStepSeen() }
+                    onContinue: { picked in
+                        // **The screen does not wait for the upload.** Six
+                        // photographs over a phone connection is seconds at
+                        // best, and holding somebody on the last page of
+                        // onboarding while it happens would make a working
+                        // upload feel like a hang. The files are already chosen
+                        // and framed; nothing about the next screen depends on
+                        // them having landed.
+                        //
+                        // The card is republished afterwards because it carries
+                        // the paths, and a card published before the upload
+                        // would say this person has no photographs.
+                        Task {
+                            await SupabaseAuth.shared.markPhotoStepSeen()
+                            await PhotoService.shared.upload(picked)
+                        }
                         route = .home
                     },
                     // Declining still counts as having been asked.
