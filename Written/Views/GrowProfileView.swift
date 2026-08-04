@@ -971,6 +971,26 @@ struct GrowProfileView: View {
                         .foregroundStyle(GardenPalette.muted)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        // **Long-press to copy, for the builds that carry a
+                        // diagnostic trail.** A tester's screenshot is the only
+                        // instrument this project has, and a wrapped line of
+                        // stage names and error codes is exactly the thing that
+                        // gets cropped, blurred or retyped wrong. Copying hands
+                        // over the whole string.
+                        //
+                        // Only where there is something worth copying:
+                        // `BuildKind.showsDiagnostics` is Debug and TestFlight,
+                        // and in a shipped build this is one plain sentence that
+                        // a context menu would only clutter.
+                        .contextMenu {
+                            if BuildKind.showsDiagnostics {
+                                Button {
+                                    UIPasteboard.general.string = failure
+                                } label: {
+                                    Label("Copy details", systemImage: "doc.on.doc")
+                                }
+                            }
+                        }
 
                     // The way out, not just a description of the problem.
                     //

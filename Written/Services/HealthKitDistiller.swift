@@ -58,14 +58,24 @@ struct HealthKitDistiller {
             switch self {
             case .unavailable:
                 return "Apple Health isn't available on this device."
-            case .stageFailed(let detail), .stageTimedOut(let detail):
+            // **Two different failures, and they used to read identically.**
+            // The `[detail]` that separates them is DEBUG-only, so a screenshot
+            // from TestFlight could not say whether HealthKit had returned an
+            // error or whether we had given up waiting — and one of those was a
+            // bug in this file. A tester on build 14 sent exactly that
+            // screenshot and it took reading the source to work out which.
+            //
+            // So the sentences differ. Neither names a domain or a code, which
+            // is not something to put in front of a tester; they differ enough
+            // to tell the two apart on sight, which is all the next report
+            // needs to do.
+            case .stageFailed(let detail):
                 let message = "Apple Health didn't respond. Try again — and if it keeps happening, "
                     + "open Health and check Data Access & Devices › Written."
-                #if DEBUG
-                return "\(message)\n[\(detail)]"
-                #else
-                return message
-                #endif
+                return BuildKind.showsDiagnostics ? "\(message)\n\(detail)" : message
+            case .stageTimedOut(let detail):
+                let message = "Apple Health took too long to answer. Try again."
+                return BuildKind.showsDiagnostics ? "\(message)\n\(detail)" : message
             // **Short, and it names the right place.** Both of these used to be
             // one sentence spelling out "Health › Profile › Apps › Written" —
             // three levels, the wrong ones, and the length is what overflowed
@@ -110,7 +120,13 @@ struct HealthKitDistiller {
         return types
     }
 
-    func distill() async throws -> [DistilledRecord] {
+    /// `requestedAt` is when the user's tap happened, not when this ran. The gap
+    /// between the two is the whole of the current suspicion — the picker starts
+    /// the distillation before it dismisses itself — and it is not otherwise
+    /// visible from in here.
+    func distill(requestedAt: Date = Date()) async throws -> [DistilledRecord] {
+        let trail = Trail()
+        trail.add("health")
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthError.unavailable }
 
         // The sheet appears here. HealthKit deliberately doesn't tell us what
@@ -153,8 +169,11 @@ struct HealthKitDistiller {
         // Nothing to present, so nothing to present *badly* — skipping the
         // request is not an optimisation, it removes the only step here that
         // depends on another process launching.
+        trail.add(alreadyAnswered ? "already-answered" : "sheet-expected")
+        trail.add("+\(Self.seconds(since: requestedAt)) since tap")
+
         if !alreadyAnswered {
-            try await Self.requestAuthorization(store: store, types: types)
+            try await Self.requestAuthorization(store: store, types: types, trail: trail)
         }
 
         // Two windows, because the two kinds of data cost wildly different
@@ -188,7 +207,43 @@ struct HealthKitDistiller {
         return records
     }
 
-    /// How long any one HealthKit call may take before it is treated as hung.
+    /// One run's steps, in order, for the failure message to carry.
+    ///
+    /// A class rather than a value because it is written from inside the retry
+    /// loop and read after it throws; a lock because those writes can come from
+    /// the detached task `stage` runs its work on.
+    ///
+    /// Deliberately tiny and deliberately not a logging framework: it exists to
+    /// fit on one line of an error message that somebody photographs.
+    final class Trail: @unchecked Sendable {
+        private let lock = NSLock()
+        private var steps: [String] = []
+
+        func add(_ step: String) {
+            lock.lock(); defer { lock.unlock() }
+            steps.append(step)
+        }
+
+        /// Middle dots rather than newlines: this is read in a screenshot of a
+        /// card, and a stack of short lines is what gets cropped.
+        var line: String {
+            lock.lock(); defer { lock.unlock() }
+            return steps.joined(separator: " · ")
+        }
+    }
+
+    /// The domain and code of whatever came back, for the trail.
+    ///
+    /// Our own wrapped errors already carry theirs in the message, so those are
+    /// passed through rather than re-labelled as `Written.HealthError 3`, which
+    /// is true and says nothing.
+    private static func code(of error: Error) -> String {
+        if case HealthError.stageFailed(let detail) = error { return detail }
+        let nsError = error as NSError
+        return "[\(nsError.domain) \(nsError.code)]"
+    }
+
+    /// How long any one HealthKit *query* may take before it is treated as hung.
     ///
     /// HealthKit has no timeout of its own: a query whose completion handler is
     /// never called leaves the `withCheckedThrowingContinuation` suspended
@@ -196,11 +251,33 @@ struct HealthKitDistiller {
     /// far past any legitimate query on these windows.
     private static let stageTimeout: TimeInterval = 20
 
+    /// **The authorization request is not a query and must not share that
+    /// ceiling.** Its completion handler does not fire until the user answers
+    /// the sheet, so twenty seconds was a limit on how long somebody was
+    /// allowed to think — and the app itself asks them to think: every category
+    /// on that sheet opens *off*, Allow stays disabled until one is switched
+    /// on, and `SourcePickerSheet` tells them so in as many words. A first-time
+    /// user reading the list and choosing will routinely take longer than that.
+    ///
+    /// It then compounded, because `stageTimedOut` is the one error the retry
+    /// below deliberately refuses: a slow read was terminal, the grant being
+    /// given at that moment was discarded, and the report was "Apple Health
+    /// didn't respond" from somebody looking straight at the sheet. Reported on
+    /// build 14, which already carried both first-run fixes.
+    ///
+    /// Three minutes, and it still catches what the ceiling exists for. The
+    /// SpringBoard failure this is often blamed for arrives as an *error*
+    /// within about ten seconds and never reaches here; only a callback that
+    /// never comes at all does, and that is caught just as well late as early.
+    private static let authorizeTimeout: TimeInterval = 180
+
     /// Runs one stage, and on failure rethrows an error naming the stage, the
     /// underlying domain/code and how long it ran. A stage that never returns
     /// is reported as a timeout rather than hanging the whole distillation.
     private static func stage<T: Sendable>(
-        _ name: String, _ work: @escaping @Sendable () async throws -> T
+        _ name: String,
+        timeout: TimeInterval = stageTimeout,
+        _ work: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let started = Date()
         do {
@@ -233,13 +310,13 @@ struct HealthKitDistiller {
                 }
 
                 Task.detached {
-                    try? await Task.sleep(nanoseconds: UInt64(stageTimeout * 1_000_000_000))
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                     guard baton.claim() else { return }
                     // Best effort, and expected to do nothing in the case that
                     // matters. It is here for the stages that *are* cancellable.
                     worker.cancel()
                     continuation.resume(
-                        throwing: HealthError.stageTimedOut("\(name) timed out after \(Int(stageTimeout))s")
+                        throwing: HealthError.stageTimedOut("\(name) timed out after \(Int(timeout))s")
                     )
                 }
             }
@@ -273,16 +350,45 @@ struct HealthKitDistiller {
     ///
     /// One retry, because by then the process is warm. A loop would be
     /// superstition: a second failure is a real one.
+    /// **Every step is written down, and the reason is a screenshot that could
+    /// not answer its own question.** A tester on build 14 sent "Apple Health
+    /// didn't respond" with no sheet ever drawn, and that one sentence is
+    /// produced by two entirely different failures: HealthKit erroring twice,
+    /// and our own ceiling firing once with the retry deliberately skipped.
+    /// Separating them cost two readings of this file and produced two
+    /// different answers.
+    ///
+    /// So the thrown error now carries the run rather than its last line:
+    ///
+    ///     health · sheet-expected · +0.04s since tap · auth#1 err 10.2s [com.apple.healthkit 100] · auth#2 err 9.8s [com.apple.healthkit 100]
+    ///     health · sheet-expected · +0.04s since tap · auth#1 timeout 20s
+    ///
+    /// The first says HealthKit refused to present, twice. The second says the
+    /// callback never came and there was no second attempt. `BuildKind` is what
+    /// lets a TestFlight build print it.
+    ///
+    /// `sinceTap` is the specific suspicion, made measurable: the picker starts
+    /// the distillation *before* it dismisses itself, so HealthKit may be being
+    /// asked to present over a sheet that is still being torn down. A trail
+    /// showing the request going out tens of milliseconds after the tap is that
+    /// claim confirmed by a tester rather than asserted here.
     private static func requestAuthorization(
-        store: HKHealthStore, types: Set<HKObjectType>
+        store: HKHealthStore,
+        types: Set<HKObjectType>,
+        trail: Trail
     ) async throws {
         for attempt in 1...2 {
+            let label = attempt == 1 ? "auth#1" : "auth#2"
+            let started = Date()
             do {
                 // **Frontmost first.** The session does not survive the app
                 // resigning active, so asking while something else owns the
                 // screen is asking for the failure above.
                 await waitUntilActive()
-                try await stage(attempt == 1 ? "authorize" : "authorize-retry") {
+                try await stage(
+                    attempt == 1 ? "authorize" : "authorize-retry",
+                    timeout: authorizeTimeout
+                ) {
                     // The completion-handler API, bridged by hand, rather than
                     // the async overload. `DistillViewModel` is `@MainActor`, so
                     // the async version is awaited *from* the main actor — and
@@ -298,6 +404,7 @@ struct HealthKitDistiller {
                         }
                     }
                 }
+                trail.add("\(label) ok \(seconds(since: started))")
                 return
             } catch {
                 // Retried on *any* error rather than on that one message,
@@ -312,8 +419,12 @@ struct HealthKitDistiller {
                 // wrapped error, so this refused the very case it exists for:
                 // `[com.apple.healthkit 100]` after 10.8s, measured, with no
                 // retry attempted.
-                if case HealthError.stageTimedOut = error { throw error }
-                guard attempt == 1 else { throw error }
+                if case HealthError.stageTimedOut = error {
+                    trail.add("\(label) timeout \(seconds(since: started))")
+                    throw HealthError.stageTimedOut(trail.line)
+                }
+                trail.add("\(label) err \(seconds(since: started)) \(Self.code(of: error))")
+                guard attempt == 1 else { throw HealthError.stageFailed(trail.line) }
             }
         }
     }

@@ -565,6 +565,10 @@ final class DistillViewModel: ObservableObject {
     func distillHealth() {
         guard !healthStatus.isRunning else { return }
         healthStatus = .running
+        // Stamped here, on the main actor, at the moment the tap is handled —
+        // the distiller cannot see this and the gap between the two is the
+        // thing under suspicion. See `HealthKitDistiller.requestAuthorization`.
+        let requestedAt = Date()
         Task {
             do {
                 // Off the main actor deliberately. This class is `@MainActor`,
@@ -575,7 +579,7 @@ final class DistillViewModel: ObservableObject {
                 // because resuming it needed the main thread the request was
                 // holding.
                 let newRecords = try await Task.detached(priority: .userInitiated) {
-                    try await HealthKitDistiller().distill()
+                    try await HealthKitDistiller().distill(requestedAt: requestedAt)
                 }.value
 
                 // HealthKit reports a declined read as no data rather than as an
