@@ -1,0 +1,27 @@
+{
+  // Cloudflare Workers, static assets only — there is no Worker script and
+  // none is needed. `main` is deliberately absent: with just an `assets`
+  // directory, requests are served straight from `web/` and no code runs.
+  //
+  // This sits at the repo root rather than inside `web/` so that the config
+  // itself is not one of the files served. Leave the project's build command
+  // empty in the dashboard — nothing here is built — and the deploy command as
+  // its default `npx wrangler deploy`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "written-site",
+  "compatibility_date": "2026-08-04",
+
+  "assets": {
+    "directory": "./web",
+
+    // `auto-trailing-slash` is what makes /en-us/ serve en-us/index.html and
+    // /en-us redirect to it. The whole site is directories-with-an-index, so
+    // this is load-bearing rather than cosmetic.
+    "html_handling": "auto-trailing-slash",
+
+    // A mistyped URL gets our own page rather than a bare Cloudflare error.
+    // Not vanity: an OAuth reviewer following a stale link should still land
+    // somewhere that identifies the app.
+    "not_found_handling": "404-page"
+  }
+}

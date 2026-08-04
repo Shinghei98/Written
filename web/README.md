@@ -26,8 +26,11 @@ this page.
 
 ## Shape
 
+    wrangler.jsonc                at the REPO root, not in here — so it is not
+                                  itself one of the files served
     web/
       _redirects                  /  ->  /en-us/, and the three short paths
+      404.html                    served by not_found_handling
       styles.css  app.js          served from the root, so every page shares them
       assets/                     referenced absolutely as /assets/…
       en-us/index.html            the page
@@ -51,8 +54,12 @@ Ordered. The first two block Google's verification and nothing else does.
   prefix — signed in as a Google account that is a **Project Owner** of the
   Cloud project holding the YouTube credentials. Wrong account is the common
   rejection and it is silent.
-- **Deploy**: Workers & Pages → Connect to Git → `Shinghei98/Written`, build
-  command empty, **output directory `web`**.
+- **Deploy**: Workers & Pages → Connect to Git → `Shinghei98/Written`. This is
+  the **Workers** flow, not the older Pages one, so there is no "output
+  directory" field — the settings are a **build command (leave it empty)** and a
+  **deploy command (`npx wrangler deploy`, the default)**. What points it at the
+  site is `wrangler.jsonc` at the repo root, which serves `./web` as static
+  assets with no Worker script.
 - **A `www` → apex Redirect Rule** in the Cloudflare dashboard. It cannot live
   in `_redirects`, which matches paths and not hosts.
 - **Email routing** for `hello@written-stl.com`, which every page now prints.
