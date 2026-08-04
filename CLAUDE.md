@@ -1033,11 +1033,31 @@ doesn't shouldn't wait** —
 when the two column-backed rows failed and the two record-backed ones didn't, the
 refusal had to be on `rest/v1/users`.
 
-**Photos go nowhere.** `PhotoEntryView` picks, frames and displays correctly,
-then `onContinue` drops the media. Needs migration `0007`: a Storage bucket with
-RLS on `auth.uid()`, and a `photos` table for order, kind and the video crop
-rects. Video crops are stored as unit rectangles rather than baked in, because
-the file needs re-encoding for size before upload anyway — do both in one pass.
+**Photos are built and `0015` is unapplied**, which is the whole of what is left
+of "photos go nowhere". `PhotoService` uploads to a private `profile-photos`
+bucket at `<user_id>/<position>.<ext>` — the position *is* the order somebody
+meant, so re-picking slot 2 overwrites slot 2 rather than leaving a seventh
+photograph behind — and `DiscoveryCardService` carries the paths onto the card
+the same way it carries the name. Until the migration is applied every upload
+fails at a bucket that does not exist.
+
+**The six boxes take photographs only, and that is a deliberate stop rather than
+a limitation.** `PhotoGrid` has one `.photosPicker` serving both onboarding and
+Memories, and `matching: .images` filters inside Apple's own picker process — so
+videos are *absent* from the library rather than shown and refused. It is out
+because `PhotoService.encode` had no re-encoding pass and uploaded a video as
+picked, which fails at the bucket's 15 MB door after the person has waited for
+it. Restoring it is `.any(of: [.images, .videos])`, the encoder's commented
+branch, and the MIME types in `0015` — plus the `AVAssetExportSession` that was
+the actual missing piece. The view's five video branches are left in place and
+marked dormant; `load` branches on what the item *is*, not on what the picker was
+told to allow, so the safety does not rest on the filter. **Chat attachments are
+a different feature and still take video** — `chat-media` allows it and has a
+50 MB ceiling.
+
+`kind`'s `video` option and the four crop columns stay in `0015` although nothing
+writes them: video crops are stored as unit rectangles rather than baked in
+because the file needs re-encoding for size anyway, and both belong in one pass.
 
 **Some things can be set but never changed.** The name had this and no longer
 does — it is the first biographics row on the dashboard, through `NameSheet`.
