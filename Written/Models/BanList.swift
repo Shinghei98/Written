@@ -32,6 +32,22 @@ struct BanList: Codable, Equatable {
         /// Keyed by id rather than by name because two people share a name and
         /// neither should inherit the other's block.
         case person
+        /// A podcast show. Keyed by both its name and its persistent id, as
+        /// channels are — the show rows carry an id and older records may not.
+        case show
+        /// A calendar event, **keyed by its title rather than its id.**
+        ///
+        /// The id would be more precise and would be wrong. A ban exists to
+        /// survive the next distillation, and a recurring appointment generates
+        /// fresh occurrences with fresh ids — so an id ban would strike this
+        /// week's therapy session and let next week's straight back in, which is
+        /// the opposite of what somebody striking it off is asking for.
+        ///
+        /// The cost is that removing a generically titled event removes every
+        /// event sharing that title. That is a fair reading of the request: if
+        /// four things are called "Lunch", none of them says anything, and
+        /// somebody who strikes one is unlikely to be defending the other three.
+        case event
     }
 
     struct Entry: Codable, Hashable {

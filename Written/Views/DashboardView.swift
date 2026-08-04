@@ -348,6 +348,8 @@ struct DashboardView: View {
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
     private func key(sport: LifestyleHighlights.Sport) -> String { "sport:\(sport.id)" }
+    private func key(show: ListeningHighlights.Show) -> String { "show:\(show.id)" }
+    private func key(event: ListeningHighlights.Event) -> String { "event:\(event.id)" }
 
     /// Strike the entry off and put the page back to rest — the thing that was
     /// wobbling no longer exists, so leaving edit mode armed would hand its
@@ -1110,6 +1112,10 @@ struct DashboardView: View {
                     ForEach(Array(shows.enumerated()), id: \.element.id) { index, show in
                         if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
                         showRow(show)
+                            .removable(editing: editingEntry == key(show: show), index: index) {
+                                remove { viewModel.banShow(show) }
+                            }
+                            .editableOnLongPress($editingEntry, key: key(show: show))
                     }
                     ForEach(viewModel.favourites(kind: "podcast"), id: \.self) { name in
                         Divider().overlay(GardenPalette.ink.opacity(0.06))
@@ -1190,6 +1196,16 @@ struct DashboardView: View {
                         .padding(.vertical, 9)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel("\(event.name)\(event.booked ? ", booked" : "")")
+                        // **The card that most needed this.** These titles are a
+                        // therapy appointment, a doctor's name, dinner with
+                        // somebody — collected on a documented trade, and now
+                        // shown. A title nobody can take back is the wrong
+                        // default for the one source carrying other people's
+                        // names.
+                        .removable(editing: editingEntry == key(event: event), index: index) {
+                            remove { viewModel.banEvent(event) }
+                        }
+                        .editableOnLongPress($editingEntry, key: key(event: event))
                     }
                 }
             }

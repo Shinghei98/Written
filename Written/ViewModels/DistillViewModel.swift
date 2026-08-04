@@ -1008,6 +1008,36 @@ final class DistillViewModel: ObservableObject {
         RecordStore.save(records)
     }
 
+    /// Strikes a podcast show off, and every episode of it with it.
+    func banShow(_ show: ListeningHighlights.Show) {
+        // Both, exactly as channels do: the show row carries an id and the
+        // episodes only ever carry the name.
+        bans.add(.show, show.name)
+        if !show.showID.isEmpty { bans.add(.show, show.showID) }
+        bans.save()
+        syncBans()
+        records = records.map(applyingBans)
+        recomputeDerived()
+        RecordStore.save(records)
+    }
+
+    /// Strikes a calendar event off by its title.
+    ///
+    /// **The card that most needed this.** Events are stored whole because the
+    /// titles are the signal, which means the titles are also a therapy
+    /// appointment, a doctor's name, or dinner with somebody — and they are now
+    /// on the dashboard, where before they were only ever collected. By title
+    /// rather than id so a recurring appointment stays gone; see
+    /// `BanList.Kind.event`.
+    func banEvent(_ event: ListeningHighlights.Event) {
+        bans.add(.event, event.name)
+        bans.save()
+        syncBans()
+        records = records.map(applyingBans)
+        recomputeDerived()
+        RecordStore.save(records)
+    }
+
     func banSport(_ name: String) {
         bans.add(.sport, name)
         bans.save()
@@ -1072,6 +1102,23 @@ final class DistillViewModel: ObservableObject {
         // out, not the day's step count that happens to include the walk there.
         if record.dataType == "workout", bans.contains(.sport, record.name) {
             return record.markedRemoved(reason: "banned_sport")
+        }
+
+        // A show and every episode of it. The show row carries the name, an
+        // episode row carries it in `creator` — so one strike takes the whole
+        // programme rather than leaving its episodes behind under a heading that
+        // no longer exists.
+        if record.source == "apple_podcasts" {
+            let keys = [record.name, record.creator, record.itemID]
+            for key in keys where !key.isEmpty && bans.contains(.show, key) {
+                return record.markedRemoved(reason: "banned_show")
+            }
+        }
+
+        // By title, so a recurring appointment stays struck off when next week's
+        // occurrence arrives with a new id — see `BanList.Kind.event`.
+        if record.dataType == "event", bans.contains(.event, record.name) {
+            return record.markedRemoved(reason: "banned_event")
         }
 
         return record
