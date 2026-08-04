@@ -89,8 +89,34 @@ struct CalendarDistiller {
     /// The *calendar list* is still recorded in full by `record(for:)` above:
     /// which calendars exist is a fact about the person, and it is one row each
     /// rather than hundreds.
+    ///
+    /// **The type is not enough on its own.** iOS's own holiday calendar is a
+    /// subscription and is caught by it, but the same holidays arriving through
+    /// a Google or Exchange account are `.calDAV` — an ordinary type, from a
+    /// server, indistinguishable by type from a real diary. So the name is
+    /// checked too.
+    ///
+    /// Matching on a name is worse than matching on a type and is used only
+    /// where there is nothing better: it is English, so a phone in another
+    /// language keeps its holidays. That is a smaller failure than dropping a
+    /// calendar somebody actually uses, which is why the test is narrow — a
+    /// calendar *called* holidays or birthdays, not one containing the word.
     static func isPersonal(_ calendar: EKCalendar) -> Bool {
-        calendar.type != .subscription && calendar.type != .birthday
+        guard calendar.type != .subscription, calendar.type != .birthday else { return false }
+        return !isGenerated(calendar.title)
+    }
+
+    /// Whether a calendar's name marks it as generated rather than arranged.
+    ///
+    /// Shared with the dashboard, which has to apply the same test to rows
+    /// already in the database — see `ListeningHighlights`. One definition,
+    /// because two that drifted would mean the card and the distiller disagreed
+    /// about what a personal calendar is.
+    static func isGenerated(_ title: String) -> Bool {
+        let name = title.lowercased()
+        return name.contains("holiday")
+            || name.contains("birthday")
+            || name.contains("public holidays")
     }
 
     /// iOS 17 split calendar access into full and write-only, and asking with

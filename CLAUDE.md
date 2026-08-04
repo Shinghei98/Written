@@ -249,6 +249,23 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   themselves, which is behaviour rather than inference. `url` and `organizer` are
   kept precisely because they are what tells a booked event from a typed one —
   see `booked=1` in `extra`.
+  **Birthdays and public holidays are excluded, and for a while they only
+  looked it.** `CalendarDistiller.name(for:)` writes `subscription` and
+  `birthday`; the dashboard's filter compared against `Subscription` and
+  `Birthday`, so it matched nothing and every one of them reached the card. A
+  filter that reads correct and excludes nothing is worse than no filter — this
+  one was cited in this file as done. **A test against a string another file
+  produces has to be checked against that file.**
+
+  Two things the type alone cannot answer, so the calendar's *name* is tested as
+  well, through one shared `CalendarDistiller.isGenerated`: rows written before
+  `cal_type` existed carry no type at all and are deliberately kept, so a
+  birthday from back then has nothing else to catch it; and holidays arriving
+  through a Google or Exchange account are `caldav` — an ordinary type, from a
+  server, indistinguishable by type from a real diary. Name matching is English
+  and therefore fails on a phone in another language; that is a smaller failure
+  than dropping a calendar somebody uses, which is why the test is narrow.
+
   **The card lists the events themselves**, one row per distinct title. It
   printed readings for a while — arranged, booked ahead, evenings, weekends,
   busiest day — and nobody recognises their own year in a count; they recognise

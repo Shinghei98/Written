@@ -165,8 +165,23 @@ enum ListeningHighlights {
             guard record.source == "apple_calendar",
                   record.dataType == "event",
                   !record.isRemovedByUser else { return false }
-            let type = record.extraValue("cal_type")
-            return type != "Subscription" && type != "Birthday"
+            // **Lowercased, because the comparison never matched.**
+            // `CalendarDistiller.name(for:)` writes `subscription` and
+            // `birthday`; this asked for `Subscription` and `Birthday`, so the
+            // filter read as correct and excluded nothing — every subscribed
+            // calendar and every generated birthday reached the card, which is
+            // exactly how it was reported. A test against a string another file
+            // produces is a test that has to be checked against that file.
+            let type = record.extraValue("cal_type")?.lowercased()
+            guard type != "subscription", type != "birthday" else { return false }
+
+            // **And by name, for the two cases the type cannot answer.** Rows
+            // written before `cal_type` existed carry none at all and are kept
+            // deliberately — dropping them on a missing field would hide real
+            // events — so a birthday collected back then has nothing else to
+            // catch it. Holidays arriving through a Google or Exchange account
+            // are `caldav`, an ordinary type, and have never had anything.
+            return !CalendarDistiller.isGenerated(record.extraValue("calendar") ?? "")
         }
     }
 
