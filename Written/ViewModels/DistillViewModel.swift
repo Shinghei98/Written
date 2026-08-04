@@ -128,7 +128,12 @@ final class DistillViewModel: ObservableObject {
             // second or two somebody watches it appear in.
             knownConnections.insert("health")
         }
-        if !records.isEmpty || chronotype != nil { recomputeDerived() }
+        // And every other source's connections, for the same reason Health
+        // needed its own file: a source that returned nothing leaves nothing in
+        // `records` to be inferred from, so without this it reads as never
+        // connected until the server answers — and not at all offline.
+        knownConnections.formUnion(ConnectionStore.load())
+        if !records.isEmpty || !knownConnections.isEmpty || chronotype != nil { recomputeDerived() }
 
         // Then reconcile with the server, which is the actual record. The cache
         // above is what makes the first frame right; this is what makes a
@@ -233,6 +238,7 @@ final class DistillViewModel: ObservableObject {
         BanList.clear()
         RecordStore.clear()
         LifestyleStore.clear()
+        ConnectionStore.clear()
         // The chat cache holds *other people's* words, which makes it the one
         // store on this device with somebody else's data in it. If this line is
         // ever dropped it becomes the only thing that survives a sign-out.
@@ -291,6 +297,11 @@ final class DistillViewModel: ObservableObject {
         bans = snapshot.bans
         bans.save()
         knownConnections.formUnion(snapshot.connectedSources)
+        // Written down, not just held: this is the restore that reinstates a
+        // reinstalled phone, and the *next* launch should not have to wait for
+        // the network to learn the same thing again. Nothing else writes this
+        // file for a source that left no rows.
+        ConnectionStore.save(knownConnections)
 
         if let seed = snapshot.treeSeed {
             UserDefaults.standard.set(NSNumber(value: seed), forKey: Self.treeSeedKey)
@@ -685,6 +696,23 @@ final class DistillViewModel: ObservableObject {
     }
 
     private func replaceRecords(from source: String, with newRecords: [DistilledRecord]) {
+        // **Reaching here is what "connected" means**, and it is deliberately
+        // not "left some rows behind". A YouTube account with no likes and no
+        // subscriptions distils perfectly and returns nothing; so does a
+        // Podcasts library with nothing downloaded, which is the *normal* case
+        // rather than an edge one. Inferring the connection from the row count
+        // left those people with an ungrown branch, a prompt still asking for
+        // the same modality, and no error to explain either — reported as the
+        // flow never moving on.
+        //
+        // Calendar and Health never reach this line on an empty result: both
+        // throw first, because for them an empty answer and a refused
+        // permission are indistinguishable and saying so is right. That
+        // difference is why this belongs here rather than in each distiller.
+        if !knownConnections.contains(source) {
+            knownConnections.insert(source)
+            ConnectionStore.save(knownConnections)
+        }
         records.removeAll { $0.source == source }
         // Freshly fetched rows know nothing of what the user struck off last
         // time, so the bans are re-applied here. Without this a re-distill
@@ -1404,6 +1432,11 @@ final class DistillViewModel: ObservableObject {
     /// Re-distilling the same source with the same library produces an equal
     /// `TreeState`, so the tree won't re-animate for no reason.
     private func recomputeDerived() {
+        // Before the branches, because the loop below asks `connectedSources`
+        // what is connected and this is half of its answer. It sat at the foot
+        // of this method while nothing here read it.
+        returnedSources = Set(records.map(\.source))
+
         var state = TreeMetrics.state(from: records)
         // Lifestyle is measured from the figures rather than the rows, because
         // its rows no longer exist — see `TreeMetrics.lifestyleMetrics`. Applied
@@ -1414,6 +1447,32 @@ final class DistillViewModel: ObservableObject {
             chronotypeDays: chronotype?.days,
             hasSignals: chronotype != nil || averageDailySteps != nil || !hourlyActivity.isEmpty
         )
+        // **A connected source grows its branch whether or not it left rows.**
+        // `TreeMetrics` measures records and answers `nil` for none, which is
+        // right as a measurement and wrong as an answer to "has this been
+        // connected" — the two questions had been one, and a legitimately empty
+        // YouTube was therefore indistinguishable from an untouched one. Every
+        // consumer reads `branches`: `nextModality` kept offering the same
+        // modality, no `ConnectedBar` appeared, the badge ring stayed empty and
+        // the plant stayed at stage zero.
+        //
+        // Zero volume rather than a fabricated size, so the branch is short and
+        // sparse — which is the honest picture. `TreeSkeleton` handles it: the
+        // log scale takes volume 0 to a minimum-length limb at two levels
+        // rather than to nothing.
+        //
+        // Lifestyle is set above and may be `nil` while Health is connected —
+        // it goes through this too, which is the same answer its own cache
+        // gives and one fewer special case.
+        for modality in Modality.allCases where state.branches[modality] == nil {
+            guard !connectedSources(for: modality).isEmpty else { continue }
+            // **`ModalityMetrics.none` spelled out, never `.none`.** The
+            // subscript's type is `ModalityMetrics?`, so a leading-dot `.none`
+            // resolves to `Optional.none` — it compiles, assigns nil, and does
+            // exactly nothing. Written that way first, and the branch still
+            // refused to grow with the connection sitting in the store.
+            state.branches[modality] = ModalityMetrics.none
+        }
         treeState = state
         skeleton = TreeSkeleton.make(from: treeState, seed: Self.treeSeed)
         // **Sixty, not six.** The cards ranked six and stopped, which was right
@@ -1441,7 +1500,6 @@ final class DistillViewModel: ObservableObject {
         )
         if exampleProfile.song != previousSong { resolveHook() }
         lastCollectedAt = records.map(\.collectedAt).max()
-        returnedSources = Set(records.map(\.source))
     }
 
     /// Looks up the chorus of the current top song and re-publishes the profile
