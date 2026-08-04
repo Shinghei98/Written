@@ -58,10 +58,23 @@ Within one already-granted permission, though, take everything: extra fields on 
 response already fetched, extra `part=` on a request already being made, a second
 query against a library already open.
 
-**And an absence is not a refusal.** Somebody who is not subscribed to Apple
-Music still has songs on their phone; somebody with no downloaded podcasts still
-follows shows. Distil what is reachable and explain what is missing — never stop
-because one route came back empty.
+**And an absence is not a refusal.** Distil what is reachable and explain what
+is missing — never stop because one route came back empty.
+
+**But do not assume the other route saves you.** Measured on one device, Sync
+Library on and then off: `MPMediaQuery.songs()` went **320 to 0**, cloud items
+304 to 0, while podcasts held at 2 throughout — that last number is the control
+proving the library was still readable, so the zero is an absence rather than a
+refusal. Not even the sixteen non-cloud rows survived; they were Apple Music
+tracks downloaded for offline play, which read as local and are not.
+
+So **a person without an Apple Music subscription gets no music from this app at
+all** — not from MusicKit, whose library endpoints read the same cloud library,
+and not from the device library that was added to cover for it. `CLAUDE.md` calls
+Apple Music the source the product depends on, and for anybody who only streams,
+that dependency is total. `MusicLibraryDistiller` still earns its keep for people
+who *own* music — iTunes purchases, a synced collection — which is real but
+uncommon.
 
 ## Supported apps and what each yields
 

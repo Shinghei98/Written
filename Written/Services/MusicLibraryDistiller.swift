@@ -8,27 +8,34 @@ import MediaPlayer
 /// files synced from a computer.
 ///
 /// **It was added as cover for people without an Apple Music subscription, and
-/// that justification is weaker than it was written.** The claim was that
-/// somebody with hundreds of songs on their phone gets a music branch whether or
-/// not they pay Apple monthly. The survey it cited says otherwise:
+/// measurement refuted that.** Same device, Sync Library on and then off:
 ///
-///     libraryTotal              322
-///     music media type          320
-///     cloudItemsInWholeLibrary  304
+///     songsControl          320  ->  0
+///     libraryTotal          322  ->  2
+///     cloudItemsInLibrary   304  ->  0
+///     podcast items           2  ->  2      <- the control
 ///
-/// **304 of the 320 are cloud items** — present because Sync Library is on,
-/// which is a subscription feature. Take the subscription away and those rows
-/// most likely go with it, leaving the 16 that are genuinely local. So this
-/// reads without a subscription as a matter of *API*, and may well return
-/// nothing as a matter of *data*, for anybody who has only ever streamed.
+/// **Zero songs.** Not the sixteen non-cloud rows that were predicted to survive
+/// — all of them. Even those were Apple Music tracks downloaded for offline
+/// play, which read as non-cloud and still depend on the subscription. Podcasts
+/// held at 2 throughout, which is what proves the library was still readable and
+/// authorised: `songs: 0` is an absence, not a refusal.
 ///
-/// The number that undercut the claim was in the same JSON as the number that
-/// seemed to support it. Settle it by turning Sync Library off and re-running
-/// `MediaFieldSurvey` — until then this is unproven either way.
+/// So for anybody whose music *is* Apple Music — the common case — this returns
+/// nothing at all without Sync Library, and the branch it was supposed to
+/// rescue stays empty.
 ///
-/// It still earns its place: local files are real records that MusicKit does not
-/// return, and the extraction rule is to take what is reachable. What it is not
-/// is a guarantee that an unsubscribed person has a music branch.
+/// **Sync Library off is not identical to unsubscribed**, and the difference is
+/// the whole of this source's remaining value. Someone with iTunes Store
+/// purchases or a collection synced from a computer keeps those rows in either
+/// state; the test device simply has none. So this reads what a person *owns*
+/// rather than what they stream, which is a real if uncommon population —
+/// collectors, older libraries, anyone who bought music before streaming.
+///
+/// It stays, because the extraction rule is to take what is reachable and this
+/// costs no permission, no picker row and no round trip. What it is not, and was
+/// wrongly documented as being, is a guarantee that an unsubscribed person has a
+/// music branch. **They do not.**
 ///
 /// **It costs no new permission and no new picker row.** MusicKit's
 /// `MusicAuthorization` and `MPMediaLibrary.requestAuthorization` are the same
