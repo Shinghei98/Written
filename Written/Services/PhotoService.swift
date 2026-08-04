@@ -253,7 +253,23 @@ actor PhotoService {
             payload, userID: userID, position: position, token: token
         ) else { return nil }
 
-        await record(path: path, position: position, userID: userID, token: token)
+        // **A file nothing points at is not a saved photograph.** This result
+        // was discarded, and `upload` then cleared `lastError` on the next line
+        // — so an object that reached the bucket while its row failed was
+        // reported as a success, twice over. The grid drew the picture from
+        // local state, `public.photos` stayed empty, and because
+        // `PhotoService.paths` is what `DiscoveryCardService` asks before
+        // publishing, that person had **no discovery card at all** and no way
+        // to find out. Reported as a tester who added photographs and still
+        // could not be found in Explore.
+        //
+        // Failing here is what puts the photograph back in `PendingPhotoStore`
+        // to be retried, and the row write is an upsert, so a retry after a
+        // successful upload costs one duplicate object and settles.
+        guard await record(
+            path: path, position: position, userID: userID, token: token
+        ) else { return nil }
+
         return path
     }
 
@@ -390,9 +406,13 @@ actor PhotoService {
     /// is cropped for real before it gets here, so its rectangle is the full
     /// frame by definition. The columns stay in `0015` for when video returns;
     /// see the note there.
+    /// Writes the row that makes an uploaded object findable. **Returns whether
+    /// it landed** — it used to return nothing, and see `send` for what that
+    /// cost.
+    @discardableResult
     private func record(
         path: String, position: Int, userID: String, token: String
-    ) async {
+    ) async -> Bool {
         let body: [String: Any] = [
             "user_id": userID,
             "position": position,
@@ -416,9 +436,14 @@ actor PhotoService {
         request.setValue("resolution=merge-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        if let (data, response) = try? await URLSession.shared.data(for: request),
-           !(200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0) {
-            lastError = String(data: data, encoding: .utf8) ?? "Couldn't record the photo."
+        guard let (data, response) = try? await URLSession.shared.data(for: request) else {
+            lastError = "Couldn't reach the server."
+            return false
         }
+        guard (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0) else {
+            lastError = String(data: data, encoding: .utf8) ?? "Couldn't record the photo."
+            return false
+        }
+        return true
     }
 }
