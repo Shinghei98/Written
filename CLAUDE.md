@@ -292,8 +292,27 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   and locations in the database; `PrivacyInfo.xcprivacy` says so. Windows are
   `AppConfig.calendarLookbackDays` / `calendarLookaheadDays` — both directions,
   because a ticket bought today for November only exists ahead of now — capped by
-  `maxCalendarEvents`. Two traps: `predicateForEvents` silently returns nothing
-  across more than four years, so the fetch is chunked by year; and on iOS 17+
+  `maxCalendarEvents`. **Five years either side**, up from 365 back and 180
+  ahead. A flight to Los Angeles disproved the old numbers: booked, paid for, a
+  place and a date, and 180 days is exactly the window that excludes the holiday
+  somebody planned in advance while including the dentist. The trip is what this
+  source exists to catch, and trips are what sit outside a year. A repeating
+  entry was the argument for keeping it short and is a solved problem — the fetch
+  keeps one occurrence per identifier and marks it `recurring=1`.
+
+  **Widening it moved the cap from a backstop to a chooser.** The chunks used to
+  be walked oldest-first and the fetch returned on `maxCalendarEvents`, which was
+  harmless over eighteen months and is not over ten years: a decade of standing
+  meetings fills the ceiling somewhere in 2021 and the walk stops before reaching
+  anything ahead of now — losing the booked trip the widening was for. They are
+  walked outward from today now, so a cap costs the furthest year in either
+  direction, which is the year worth losing.
+
+  Two traps: `predicateForEvents` silently returns nothing
+  across more than four years, so the fetch is chunked by year — **which at five
+  years either side is the only reason anything comes back at all**, since one
+  ten-year predicate returns an empty list and no error, indistinguishable from a
+  person with no plans; and on iOS 17+
   the old `requestAccess(to:)` grants *write-only*, which reads nothing and looks
   exactly like an empty calendar, so `requestFullAccessToEvents` is required.
 - **Apple Health** (`HealthKitDistiller`) — the spreadsheet's scope is "recorded

@@ -100,20 +100,36 @@ enum AppConfig {
 
     // MARK: Apple Calendar
 
-    /// How far back events are read. A year covers the seasonal shape of
-    /// someone's life — a festival every August, a season ticket — which is the
-    /// same reason the Health windows are a year.
-    static let calendarLookbackDays = 365
+    /// How far back events are read. Five years.
+    ///
+    /// It was a year, matching the Health windows, on the reasoning that a year
+    /// covers the seasonal shape of a life — a festival every August, a season
+    /// ticket. True as far as it goes, and it was measured wrong in the other
+    /// direction: the thing this source exists to catch is the trip somebody
+    /// booked, and those are exactly the entries that sit outside a year.
+    static let calendarLookbackDays = 1825
 
-    /// And how far forward. Shorter deliberately: what someone has *committed
-    /// to* is a strong signal and a booked gig usually sits weeks out, but a
-    /// calendar also carries repeating entries scheduled years ahead, and those
-    /// say nothing about the next few months.
-    static let calendarLookaheadDays = 180
+    /// And how far forward, now the same. It was 180 days on the argument that a
+    /// booked gig sits weeks out and repeating entries scheduled years ahead say
+    /// nothing about the next few months.
+    ///
+    /// **A flight to Los Angeles is what disproved it.** It was in the calendar,
+    /// it was the strongest single row in the whole distillation — booked, paid
+    /// for, a place and a date — and 180 days is precisely the window that
+    /// excludes the holiday somebody planned in advance while including the
+    /// dentist. A repeating entry is a solved problem: `record(for:)` marks it
+    /// `recurring=1` and the fetch keeps one occurrence per identifier.
+    static let calendarLookaheadDays = 1825
 
     /// Ceiling on events kept, so a shared work calendar with a decade of
     /// meetings can't turn one distillation into a hundred thousand rows.
-    static let maxCalendarEvents = 3_000
+    ///
+    /// Doubled with the windows, which grew tenfold — but the number matters far
+    /// less than **which** events survive it. See `CalendarDistiller.events`:
+    /// the fetch is chunked by year and the chunks are walked outward from
+    /// today, so a cap reached in a decade of meetings costs the furthest year
+    /// rather than the next one.
+    static let maxCalendarEvents = 6_000
 
     // MARK: Apple Health
 

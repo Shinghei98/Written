@@ -152,6 +152,11 @@ struct CalendarDistiller {
     /// HealthKit reads that came back empty for months. Chunking by year keeps
     /// every request comfortably inside that and keeps each one small.
     ///
+    /// That chunking used to be insurance against a limit the window never
+    /// approached. At five years either side it is **the only reason anything
+    /// comes back at all**: a single ten-year predicate returns an empty list
+    /// and no error, which looks exactly like a person with no plans.
+    ///
     /// Both directions on purpose: the past is what someone did, the future is
     /// what they have committed to, and a ticket bought today for a gig in
     /// November only exists ahead of now.
@@ -170,15 +175,35 @@ struct CalendarDistiller {
         return await Task.detached(priority: .userInitiated) { () -> [DistilledRecord] in
             var records: [DistilledRecord] = []
             var seen = Set<String>()
-            var windowStart = start
 
-            while windowStart < end {
-                let windowEnd = min(
-                    calendar.date(byAdding: .year, value: 1, to: windowStart) ?? end,
-                    end
-                )
+            // The year-long chunks, built up front so they can be ordered.
+            var windows: [(start: Date, end: Date)] = []
+            var cursor = start
+            while cursor < end {
+                let next = min(calendar.date(byAdding: .year, value: 1, to: cursor) ?? end, end)
+                windows.append((cursor, next))
+                cursor = next
+            }
+
+            // **Nearest to today first, and that is the cap's doing.** The walk
+            // used to run oldest to newest and `return` on `maxCalendarEvents`,
+            // which was harmless across an eighteen-month window and is not
+            // across ten years: a decade of standing meetings would fill the
+            // ceiling somewhere in 2021 and the fetch would stop before reaching
+            // anything ahead of now — losing the booked trip that is the whole
+            // reason the window was widened.
+            //
+            // Outward from today, a cap costs the furthest year in whichever
+            // direction, which is the year worth losing.
+            let now = now
+            windows.sort {
+                min(abs($0.start.timeIntervalSince(now)), abs($0.end.timeIntervalSince(now)))
+                    < min(abs($1.start.timeIntervalSince(now)), abs($1.end.timeIntervalSince(now)))
+            }
+
+            for window in windows {
                 let predicate = store.predicateForEvents(
-                    withStart: windowStart, end: windowEnd, calendars: calendars
+                    withStart: window.start, end: window.end, calendars: calendars
                 )
                 for event in store.events(matching: predicate) {
                     guard records.count < AppConfig.maxCalendarEvents else { return records }
@@ -190,7 +215,6 @@ struct CalendarDistiller {
                     guard seen.insert(record.itemID).inserted else { continue }
                     records.append(record)
                 }
-                windowStart = windowEnd
             }
             return records
         }.value
