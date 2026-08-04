@@ -143,11 +143,19 @@ struct SignInView: View {
 
     /// Markdown gives the tappable links; the underline is applied afterwards
     /// because Markdown has no syntax for it.
+    ///
+    /// **These three pointed at `written.app` for months, which is not ours** —
+    /// it is a live, unrelated decentralised e-book store — so every one of them
+    /// was a dead link promising a document we had never written. They resolve
+    /// to `written-stl.com` now, where all three pages exist; the same three
+    /// URLs are what Google's OAuth consent screen names, so a change here has
+    /// to be made there as well or verification and the app disagree.
     private var legalAttributedString: AttributedString {
         let markdown = """
         By tapping 'Sign in' / 'Create account', you agree to our \
-        [Terms of Service](https://written.app/terms). Learn how we process your data in our \
-        [Privacy Policy](https://written.app/privacy) and [Cookies Policy](https://written.app/cookies).
+        [Terms of Service](https://written-stl.com/en-us/terms/). Learn how we process your data in our \
+        [Privacy Policy](https://written-stl.com/en-us/privacy/) and \
+        [Cookies Policy](https://written-stl.com/en-us/cookies/).
         """
         var string = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
         for run in string.runs where run.link != nil {

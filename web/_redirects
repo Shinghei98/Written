@@ -1,0 +1,19 @@
+# Cloudflare Pages redirect rules. One per line: from, to, status.
+#
+# The site lives under /en-us/ because the URL was asked for in that shape.
+# Nothing is translated yet, so the locale is a promise rather than a fact —
+# dropping it later means deleting these four lines and moving the directory
+# back up.
+#
+# The short paths are here because they are what people type and what the app
+# used to point at. They cost nothing and they stop a mistyped link being a
+# 404 in somebody's hand.
+#
+# **www is not handled here.** A `_redirects` rule matches a path, not a host,
+# so www -> apex has to be a Redirect Rule in the Cloudflare dashboard. Adding
+# a rule here that looks like it covers www would be worse than having none.
+
+/            /en-us/            301
+/privacy     /en-us/privacy/    301
+/terms       /en-us/terms/      301
+/cookies     /en-us/cookies/    301

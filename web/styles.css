@@ -544,6 +544,84 @@ h3 {
 }
 
 /* ==========================================================================
+   Document pages — privacy, terms, cookies
+   --------------------------------------------------------------------------
+   These carry no painting, so the banner sits in its ink-on-parchment default
+   the whole way down and the page starts below it rather than under it.
+   ========================================================================== */
+
+.doc {
+  padding: calc(var(--banner-h) + clamp(40px, 8vh, 90px)) 0 clamp(56px, 10vh, 120px);
+}
+
+.doc-head { margin-bottom: clamp(30px, 5vh, 56px); }
+
+.doc-head h1 {
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  line-height: 1.1;
+  letter-spacing: -.012em;
+  margin: 0 0 .7rem;
+}
+
+.doc-dates {
+  margin: 0;
+  color: var(--muted);
+  font-size: .9rem;
+  letter-spacing: .02em;
+}
+
+.doc-body { max-width: 44rem; }
+
+.doc-body h2 {
+  font-size: clamp(1.35rem, 2.1vw, 1.75rem);
+  margin: clamp(34px, 5vh, 56px) 0 .7rem;
+  padding-top: clamp(20px, 3vh, 30px);
+  border-top: 1px solid var(--line);
+}
+
+.doc-body h3 {
+  font-size: 1.1rem;
+  margin: 1.7rem 0 .4rem;
+}
+
+.doc-body p { margin: 0 0 1rem; }
+.doc-body ul { margin: 0 0 1.1rem; padding-left: 1.2rem; }
+.doc-body li { margin-bottom: .5rem; }
+.doc-body a { color: var(--brand-deep); text-underline-offset: 3px; }
+
+.doc-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92em;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* A statement worth not skimming past. */
+.doc-body .callout {
+  margin: 1.4rem 0;
+  padding: 1rem 1.2rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 0 12px 12px 0;
+}
+
+.doc-back {
+  display: inline-block;
+  margin-top: clamp(36px, 6vh, 64px);
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.doc-back:hover { color: var(--ink); }
+
+/* ==========================================================================
    Foot
    ========================================================================== */
 

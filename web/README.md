@@ -3,7 +3,10 @@
 One static page. No build step, no dependencies, no framework — `index.html`,
 `styles.css`, `app.js` and `assets/`. Open it with any static server:
 
-    cd web && python3 -m http.server 8787      # then http://localhost:8787
+    cd web && python3 -m http.server 8787      # then /en-us/, not /
+
+`_redirects` is Cloudflare's, so a plain static server does not honour it and
+the root is a 404 locally. That is expected; open `/en-us/` directly.
 
 ## Why it exists
 
@@ -21,22 +24,46 @@ That is why the page carries the Limited Use disclosure, the scope, the 30-day
 retention rule and the revocation link. They are not filler: a reviewer reads
 this page.
 
+## Shape
+
+    web/
+      _redirects                  /  ->  /en-us/, and the three short paths
+      styles.css  app.js          served from the root, so every page shares them
+      assets/                     referenced absolutely as /assets/…
+      en-us/index.html            the page
+      en-us/privacy/              the document Google's reviewer reads
+      en-us/terms/  en-us/cookies/
+
+`/en-us/` is a promise rather than a fact — nothing is translated. Dropping it
+is deleting four lines of `_redirects` and moving the directory up.
+
+Asset paths inside `styles.css` stay **relative** and must: the stylesheet sits
+at the root, so `assets/…` resolves from there whatever page loads it. Only the
+HTML needed absolute paths.
+
 ## What still needs a person
 
-- **A domain.** `written.app` is *not ours* — it is a live, unrelated
-  decentralised e-book store with its own App Store listing. Everything else
-  queues behind buying one, because the homepage URL, the policy URL and the
-  Search Console verification all have to sit on it.
-- **Search Console verification** of that domain, using the same Google account
-  that owns the Cloud project.
-- **Hosting.** Any static host serves this unchanged — Cloudflare Pages,
-  Netlify, Vercel, GitHub Pages.
-- **A real contact address.** `index.html` still says `hello@example.com`.
-- **A privacy policy at its own URL.** It is a section with a `#privacy` anchor
-  today, which is enough to read and probably not enough for the verification
-  form; `/privacy` as its own page is the safer answer.
-- **`SignInView` points at `written.app`'s privacy policy** and will need
-  repointing once the domain exists.
+Ordered. The first two block Google's verification and nothing else does.
+
+- **Register `written-stl.com`** at dash.cloudflare.com and answer the ICANN
+  verification email.
+- **Verify it in Search Console as a Domain property** — the DNS one, not URL
+  prefix — signed in as a Google account that is a **Project Owner** of the
+  Cloud project holding the YouTube credentials. Wrong account is the common
+  rejection and it is silent.
+- **Deploy**: Workers & Pages → Connect to Git → `Shinghei98/Written`, build
+  command empty, **output directory `web`**.
+- **A `www` → apex Redirect Rule** in the Cloudflare dashboard. It cannot live
+  in `_redirects`, which matches paths and not hosts.
+- **Email routing** for `hello@written-stl.com`, which every page now prints.
+- **Read the terms and the privacy policy before they go up.** They are written
+  from what the app actually does, but they are legal documents. Two known
+  open questions: whether a postal address is required where you operate, and
+  whether a legal entity should be named rather than "Written".
+- **Spotify.** The beta build syncs Spotify rows and the privacy policy does not
+  mention it, because `CLAUDE.md` has it slated for removal before the App Store
+  build. Those two facts cannot both stay true once the policy is public —
+  either the code goes before the site does, or the policy has to say so.
 
 ## Review flags
 
