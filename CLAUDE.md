@@ -123,10 +123,28 @@ worst-case distill is ~185 units — about **54 distills a day across all users*
 The *YouTube API Services Audit and Quota Extension* form is a second review with
 its own queue, so it starts when verification is submitted, not when it bites.
 
-**And `written.app` is not ours.** `SignInView` links users to its privacy
-policy; the domain is a live, unrelated decentralised e-book store with its own
-App Store listing and Discord. Verification needs a homepage and policy on a
-domain we own, so that is step one and everything queues behind it.
+**`written.app` is not ours, and `written-stl.com` now is.** `SignInView` linked
+its Terms, Privacy and Cookies at `written.app` for months — a live, unrelated
+decentralised e-book store with its own App Store listing and Discord — so all
+three were dead links promising documents nobody had written. `written-stl.com`
+was registered at Cloudflare on 2026-08-04 and the three pages exist, in `web/`.
+
+`written.com` was wanted and is not buyable: registered in 1996, behind WHOIS
+privacy, and 301-ing to NameArena LLC, a brokerage with an inquiry form and no
+published price.
+
+**The site is built and not yet live.** The domain resolves to nothing — no A
+record — so those links are *currently* dead in a different way. `web/README.md`
+carries the deployment steps; the Worker config is `wrangler.jsonc` at the repo
+root, serving `./web` as static assets with no Worker script. Until it is
+deployed, the app ships links that 404, and Google's verification cannot start.
+
+A free host subdomain cannot stand in, and that is a rule rather than a
+preference: Google requires the homepage be *"Hosted on a verified domain you
+own"* and verification needs a Search Console **Domain property (DNS-level)**,
+*"rather than a 'URL prefix' or 'Site' property"*, done by an account that is a
+**Project Owner** of the Cloud project. Nothing can add a DNS record to
+`pages.dev`.
 
 - **YouTube** (`YouTubeDistiller`) — subscriptions, liked videos, playlists and
   playlist contents. Watch history is **not** reachable: API doesn't expose it,
@@ -419,6 +437,37 @@ waiting. Three consequences, each paid for:
   `stageFailed`" refuses `[com.apple.healthkit 100]` — the one error it exists
   for. That shipped in a build and the retry never ran once.
   `HealthError.stageTimedOut` is now a separate case and only it is terminal.
+- **The authorization request is not a query and must not share the query
+  ceiling.** `stage`'s twenty seconds is right for a database call that may
+  never come back and wrong for `requestAuthorization`, whose callback does not
+  fire until the user *answers the sheet* — so twenty seconds was a limit on how
+  long somebody was allowed to think, and the app itself asks them to think,
+  since every category opens off and Allow stays disabled until one is switched
+  on. It then compounded: `stageTimedOut` is the one error the retry refuses, so
+  a slow read was terminal and the grant being given at that moment was thrown
+  away. `authorizeTimeout` is 180s, `stageTimeout` stays 20. Measured while
+  checking it: on an erased simulator the sheet sat unanswered for **35
+  seconds**, which under the old ceiling was already a failure with the sheet
+  still on screen.
+- **Ask nothing of HealthKit while a sheet of ours is dismissing.**
+  `SourcePickerSheet.row` started the distillation and *then* closed itself, so
+  HealthKit was asked to present its remote view over a modal in mid-dismissal —
+  a context that is disappearing. `waitUntilActive` cannot see that: it tests
+  `applicationState`, which stays `.active` throughout a sheet dismissal. The
+  row records the choice now and `.sheet(item:onDismiss:)` starts it, which is
+  the transition's own completion callback and needs no guessed delay. Right for
+  every source, not only Health — YouTube's `ASWebAuthenticationSession` and the
+  MusicKit and EventKit alerts are all presentations racing the same dismissal.
+- **A Release build may now say what failed.** `BuildKind.isBeta` — a TestFlight
+  build carries a *sandbox* receipt where an App Store build carries `receipt` —
+  so Debug and TestFlight print the diagnostic and a shipped build does not.
+  This exists because two rounds of diagnosis produced two different answers
+  from the same tester screenshot: `stageFailed` and `stageTimedOut` rendered
+  *identically*, with the separating detail behind `#if DEBUG`, and TestFlight
+  is Release. The detail is now the whole run rather than its last line —
+  `health · sheet-expected · +0.04s since tap · auth#1 err 10.2s [...] · auth#2
+  ...` — and long-pressing copies it, because a wrapped line of stage names is
+  exactly what gets cropped out of a screenshot.
 
 **The sheet's Allow button is disabled until a category is switched on**, and
 nothing about that is obvious. Every toggle opens off, "Turn On All" is a link
@@ -540,14 +589,123 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   `collectedAt` stamps every row. "Connected" in the UI therefore means *has been
   connected* — a durable fact — which is why `RecordStore` persists it rather
   than the app rediscovering it each launch.
+- **And a connection is not the same fact as a row.** Connectedness was inferred
+  from record *volume* — `TreeMetrics.metrics` answers `nil` for a modality with
+  no rows — so a YouTube account with no likes and no subscriptions was
+  indistinguishable from an untouched one. Everything reads `branches`:
+  `nextModality` kept offering the same modality, no `ConnectedBar` appeared, the
+  badge ring stayed empty and the plant stayed at stage zero, with **no error
+  anywhere, because the distillation had succeeded.** Reported as the flow never
+  moving on.
+
+  `ConnectionStore` is the local half of `source_connections`, which the server
+  has always recorded correctly — `append_source_records` upserts the row even
+  from an empty array. `replaceRecords` is the hook, being the one point every
+  source's rows pass through, and usefully the one Calendar returns *before*
+  reaching on an empty result: Calendar and Health keep failing loudly on
+  nothing, which is right, because for those two an empty answer and a refused
+  permission are the same answer. For YouTube they are not.
+
+  It matters most for **Podcasts**, where zero is the *normal* result — that
+  source only ever sees downloaded episodes.
 - Exports are git-ignored (`written-distillation-*.csv`) — they are personal
   data and must never enter history.
 
+## Signing in: three routes, and all three of them are real now
+
+Apple, Google and phone. That sentence was false until 2026-08-04 and the way it
+was false is the most expensive bug this project has had.
+
+**Three of the four buttons authenticated nobody.** "Create account" — the
+largest button on the launch screen — and "Sign in with Phone Number" both
+pushed `PhoneNumberView`, whose completion set `route = .photos` with no call to
+anything; "Sign in with Google" set `route = .home` outright. The phone screens
+were finished and had never been wired up, because Twilio was rejected on cost,
+and nobody ever stopped them being reachable.
+
+What that did to a tester who took the obvious button: **no session**, so the
+photo page correctly answered "You're not signed in"; **no `route(for:)`**, so
+the name and communication style steps were skipped; **no `auth.users` row**, so
+nothing they did could be saved and nobody could find them in Explore. The
+account was gone by the next launch, because `initialRoute()` reads the Keychain
+and nothing had been written to it.
+
+**It cost a day of looking in the wrong place** — the discovery publisher, the
+feed, the photo pipeline — all of which produced four genuine fixes that were
+none of them the reason. The lesson is cheaper than the search was: **a button
+that does nothing is worse than an absent one**, and "the account doesn't exist"
+is a hypothesis worth eliminating before any of the machinery downstream of it.
+
+- **Apple** — native `ASAuthorization`, identity token traded for a session.
+  Free, instant, and the only one that ever worked.
+- **Google** — the *same* PKCE machinery that connects YouTube, asked a
+  different question. `OAuthProvider.googleSignIn` requests `openid email
+  profile` and the `id_token` goes to Supabase's `grant_type=id_token`, exactly
+  as Apple's does. No SDK, no client secret — a native client has none — and the
+  dashboard side is this app's client ID in **Authorized Client IDs**, because
+  Supabase validates the token's `aud` against that list.
+
+  Two refusals in it are deliberate. It does **not** persist Google's refresh
+  token: the one that matters is Supabase's, and saving Google's would file it
+  under `AccountScope.current`, still `local` because the account being signed
+  into does not exist yet. And `interactiveIdentityToken` never reuses a cached
+  or refreshed token, unlike `validAccessToken` — reuse is right for reading a
+  library and wrong for proving identity, where a token refreshed from the
+  previous user's grant signs the wrong person in.
+- **Phone** — Supabase's **Twilio Verify** provider. `sendOTP` / `verifyOTP`,
+  sharing session adoption with the other two through `adopt(_:)`, which was
+  lifted out of `exchange` precisely because phone arrives from `auth/v1/verify`
+  rather than `auth/v1/token` and needs the identical five steps. Two copies
+  would be two places to forget the `UserDefaults` write that `AccountScope`
+  reads.
+
+**Route from the step, never from a constant.** `onSignedIn` calls
+`route(for: onboardingStep)`. Hardcoding `.photos` is what skipped the
+communication style page for every phone user.
+
+**E.164 is built once** (`PhoneNumberView.e164`) and used for both calls.
+Supabase verifies a code against the number it *sent* to, so a space in one
+string and not the other fails a correct code against a number never messaged.
+
+### What phone costs, and why it is not charged for
+
+~$0.058 a verification in the US, **~$0.12 in Hong Kong** — a flat $0.05 Verify
+fee plus the SMS channel fee, which is roughly eight times higher in HK because
+it is a small market terminating internationally. It cannot be passed to users
+on iOS anyway: in-app charges for digital services must go through IAP, whose
+price points start around $0.29. Every competing dating app absorbs this.
+
+**The exposure is fraud, not traffic.** SMS pumping — driving OTPs to premium
+numbers for a share of the termination fee — can burn hundreds overnight. Four
+controls, in order of how much they buy:
+
+- **Twilio Verify geo permissions, Hong Kong / Taiwan / US only.** Console →
+  Verify → Settings → Geo permissions. **This is separate from Messaging geo
+  permissions**, which look identical and do nothing for Verify traffic —
+  setting those and assuming you are covered is the trap.
+- SMS Fraud Guard on.
+- Supabase SMS rate limit at **10/hour**, project-wide: a ~$29/day worst case.
+  Note it is *not* per-user, so five testers in an hour is half the budget spent
+  legitimately.
+- **CAPTCHA deliberately not enabled.** On native iOS it means a WebView-hosted
+  challenge and a token threaded into `sendOTP` — real work and real friction
+  against an exposure the three above already bound. **Revisit the day that rate
+  limit is raised for real volume**, when the ceiling stops protecting anything.
+
+Twilio also gates sending behind **Trust Hub KYC**: an unapproved primary
+compliance profile answers "Primary compliance profile is not approved" and no
+SMS leaves. An Individual profile is enough for Verify and reviews in up to 48
+hours; only toll-free needs a Business one.
+
+**Two sign-in methods mean one person can hold two accounts.** Identity linking
+is unbuilt and was consciously deferred for the beta — for a dating app that is
+a duplicate in the pool, so it wants deciding before launch.
+
 ## Launch routing: the first frame must already be the right screen
 
-`RootView` picks one of four screens — `signIn`, `name`, `photos`, `home` — from
-a single `Route`, never a set of booleans that can disagree. Two rules, each paid
-for once:
+`RootView` picks one of five screens — `signIn`, `name`, `communication`,
+`photos`, `home` — from a single `Route`, never a set of booleans that can
+disagree. Two rules, each paid for once:
 
 - **Decide synchronously.** Anything the first frame depends on has to be
   answerable without a network call. `SupabaseAuth.hasStoredSession` reads the
@@ -608,7 +766,14 @@ after a successful login almost always means the signed-in account isn't on it.
 - Xcode 16+ synchronized-folder project — new files under `Written/` are picked
   up automatically, no pbxproj surgery.
 - New OAuth sources: add an `OAuthProvider` case rather than writing another
-  auth service; `OAuthPKCEService` is provider-parameterized.
+  auth service; `OAuthPKCEService` is provider-parameterized. Google *sign-in*
+  is a second case on the same client rather than a second service — see
+  `googleSignIn`, and note `persistsRefreshToken: false` on it.
+- **`web/` is the website, and it is not part of the app target.** A static
+  page, no build step, deployed as a Cloudflare Worker serving `./web` as
+  assets — `wrangler.jsonc` at the repo root, and `web/README.md` for the
+  deployment, the review flags and the two headless-Chrome traps that cost a
+  measurement each.
 - Pagination is capped by `AppConfig.maxPagesPerEndpoint` /
   `maxPlaylistsExpanded` / `maxSongsRated` so a distill finishes in seconds. A
   per-item fetch that can't be capped is a red flag — Apple Music's ratings pass
@@ -1089,9 +1254,27 @@ that run appeared to open a conversation while writing nothing at all.
 
 ## Known gaps
 
-Real, deliberate, and unfinished as of 2026-07-28. Ordered by what would hurt
+Real, deliberate, and unfinished as of 2026-08-04. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
+
+**The site is registered and not deployed.** `written-stl.com` exists at
+Cloudflare and resolves to nothing. `SignInView` links three pages on it, so the
+app currently ships dead links — and Google's OAuth verification cannot begin
+until the homepage and privacy policy are actually reachable. `web/README.md`
+has the steps; everything else about verification queues behind this.
+
+**Nothing here has reached a tester.** Build 15 is archived and predates all of
+it. Every fix from 2026-08-04 — the empty source, the crop screen, the sign-in
+overhaul, phone and Google auth — is on `main` and on nobody's phone.
+
+**CAPTCHA is off for phone sign-in, deliberately**, and the SMS rate limit of
+10/hour is what stands in for it. **Revisit both together**: raising the limit
+for real signup volume removes the only thing bounding the cost.
+
+**Identity linking is unbuilt.** Three sign-in methods mean one person can hold
+three accounts, which for a dating app is a duplicate in the pool. Deferred
+consciously for the beta; it wants deciding before launch.
 
 **`hasExplored` is local only.** The two onboarding steps before it mirror
 columns on `public.users`; this one lives in `UserDefaults`, so a reinstall walks
@@ -1177,13 +1360,14 @@ doesn't shouldn't wait** —
 when the two column-backed rows failed and the two record-backed ones didn't, the
 refusal had to be on `rest/v1/users`.
 
-**Photos are built and `0015` is unapplied**, which is the whole of what is left
-of "photos go nowhere". `PhotoService` uploads to a private `profile-photos`
-bucket at `<user_id>/<position>.<ext>` — the position *is* the order somebody
-meant, so re-picking slot 2 overwrites slot 2 rather than leaving a seventh
-photograph behind — and `DiscoveryCardService` carries the paths onto the card
-the same way it carries the name. Until the migration is applied every upload
-fails at a bucket that does not exist.
+**Photos are built and `0015` is applied** — this said "unapplied" while a
+paragraph below said it "applied cleanly", which is the shape of rot this file's
+own gap-list rule exists to prevent. Confirmed by a photograph reaching Supabase
+on 2026-08-04. `PhotoService` uploads to a private `profile-photos` bucket at
+`<user_id>/<position>.<ext>` — the position *is* the order somebody meant, so
+re-picking slot 2 overwrites slot 2 rather than leaving a seventh photograph
+behind — and `DiscoveryCardService` carries the paths onto the card the same way
+it carries the name.
 
 **The dashboard's grid saved nothing, and it took a database query to see
 that.** `0015` applied cleanly, a photograph was added in Memories, and
@@ -1306,6 +1490,51 @@ The card is republished after either, since it carries the paths; a card still
 naming a withdrawn photograph would leave the feed drawing a face its owner took
 down.
 
+**Saving a photograph is two writes, and they came apart silently.** `send`
+uploaded the object, called `record` to write the `public.photos` row, and
+**discarded its result** — then `upload` set `lastError = nil` on the very next
+line, erasing the error `record` had just recorded, and returned success. So an
+object that reached the bucket while its row failed was reported as saved,
+twice over.
+
+What followed was invisible and permanent. The grid draws from local state, so
+it looked saved; `public.photos` stayed empty; and because
+`DiscoveryCardService` asks `PhotoService.paths()` before publishing, and that
+reads *the table*, it answered "no photographs" and `publish` declined by
+design. That person had **no discovery card at all**, for good, with no error
+anywhere. `record` returns `Bool` now and `send` fails on it — which is what
+puts the photograph back in `PendingPhotoStore` to retry, the row write being an
+upsert.
+
+**`paths()` could not tell "there are none" from "I could not ask."** It
+returned `[]` on a dropped request or an expired token, and the one place that
+reads it treats an empty list as a *decision*. Any failure at that moment
+silently un-listed somebody who had photographs. It returns `[String]?` now —
+`nil` is "could not ask" — and checks the status code, which it never did.
+
+That makes **four** instances of one defect in this codebase:
+`SyncService.lastError`, `PhotoService.lastError`,
+`DiscoveryCardService.lastError` and `record`'s discarded return. Always the
+same shape — a call that can fail, a result nobody reads, and the symptom
+surfacing somewhere else entirely.
+
+**And the crop screen slid off the side of the phone for wide photographs.**
+`CropView.imageLayer` sizes itself to *cover* the crop frame, so a landscape
+picture is wider than the phone — covering a 400x500 frame with a 4:3 photo
+takes 666x500. A `ZStack` takes the union of its children, and **`GeometryReader`
+lays its content out at top-leading rather than centred**, so all of that extra
+width hung off the right and everything centred inside centred on 333 instead of
+220. Measured on a tester's screenshot: the frame's left edge at **133pt** where
+a centred 400pt frame belongs at 20pt, its top at 228pt which is exactly right —
+and 333 minus 200 is 133. The buttons went with it, leaving "Use photo" half off
+the screen, so two testers could not upload at all.
+
+It only ever happened to wide pictures, which is why it survived: a portrait
+photo never exceeds the screen width. Fixed by pinning the stack to the
+container it was handed — and not with `.clipped()`, because the backdrop and
+the dimming layer deliberately `ignoresSafeArea` and clipping would cut them
+back to bare edges.
+
 **The six boxes take photographs only, and that is a deliberate stop rather than
 a limitation.** `PhotoGrid` has one `.photosPicker` serving both onboarding and
 Memories, and `matching: .images` filters inside Apple's own picker process — so
@@ -1404,7 +1633,9 @@ same time: `service_role` keys are disabled on this project, so the name
 described a credential that no longer exists while continuing to work, which is
 the shape of mistake that made the July rotation confusing.
 
-**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 9 today.
+**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 15, which
+is archived but predates the discovery, crop and authentication work — uploading
+it would give testers a build that fixes nothing they reported.
 It appears **six times** in `project.pbxproj` — Debug and Release for the app,
 the share extension and the UI tests — and all six have to move together. The app
 and its extension sharing a build number is a hard requirement of the upload,
