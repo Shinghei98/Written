@@ -25,7 +25,7 @@ The current sources honor this as follows:
 
 | Source | Auth | Friction |
 |---|---|---|
-| YouTube | Google OAuth (PKCE, `ASWebAuthenticationSession`) | Sheet shares Safari cookies → tap account, tap Allow. Refresh token in Keychain ⇒ later distills zero-tap. |
+| YouTube | Google OAuth (PKCE, `ASWebAuthenticationSession`) | Sheet shares Safari cookies → tap account, tap Allow. Refresh token in Keychain ⇒ later distills zero-tap — **but only in production**; see below. |
 | Apple Music | MusicKit | One system permission dialog, no login at all — uses the device's Apple Music account. |
 | Apple Health | HealthKit | One system sheet listing the four types read, no login. |
 | Apple Calendar | EventKit | One system sheet, no login. Works in the simulator, unlike MusicKit. |
@@ -80,6 +80,53 @@ uncommon.
 
 Scope comes from `written_api.xlsx` (the source of truth for what each platform
 exposes; consult it before adding a source). Implemented today:
+
+**Google's consent screen is in Testing, and that is not just a user cap.** It
+allowlists 100 users, which is the part everybody knows — and it **expires every
+refresh token after exactly 7 days**, which is the part that has been quietly
+false in the table above since it was written. Zero-tap re-distillation is a
+property of a *published* app. Every tester on this build is re-authorising
+YouTube weekly and nobody has reported it, because a re-grant looks like the
+normal flow.
+
+Publishing needs Google's OAuth app verification, and two gates get conflated:
+
+- **The submission** — consent screen, a domain we own and have verified in
+  Search Console, a scope justification, and a YouTube-hosted demo video showing
+  the real grant, the app name and the client id. Mechanical, but weeks.
+- **The YouTube API Services Developer Policies**, which is not a form. III.E.4
+  permits storing beyond **30 calendar days** only Analytics data, Reporting data
+  and *statistics* — view counts, subscriber counts. Titles, channel names and
+  playlist contents are capped at 30 days and must then be deleted or refreshed.
+  This schema says "nothing in Postgres is ever deleted". **It is the same
+  objection that removed Spotify, arriving for the source the product cannot
+  drop.**
+
+  The resolution is **derive, then delete the raw**: rows live up to 30 days as
+  the ontology/embedding input, and after that only derived, non-identifying
+  output remains. Three stores hold YouTube strings and missing one makes the
+  sweep cosmetic — `distilled_records`, `discovery_cards.interests` (whose
+  `subject` is a channel name), and `shared_posts`, which is genuinely grey and
+  wants a written judgement rather than a guess.
+
+  **Revocation is a hard deadline, not a courtesy.** Revoked in the app, that
+  user's YouTube data must be gone within **7 days**; revoked at Google, 30.
+  `OAuthPKCEService.disconnect()` exists and no UI calls it.
+
+**`youtube.readonly` is *sensitive*, not *restricted*, and that is worth weeks.**
+Restricted scopes — Gmail, Drive, Fit, Chat, Health, Data Portability — require a
+CASA third-party security assessment. No YouTube Data API scope is on that list.
+
+**Quota is a launch-day ceiling, not a theoretical one.** 10,000 units/day, 1 unit
+per `list` call; with `maxPagesPerEndpoint = 10` and `maxPlaylistsExpanded = 15` a
+worst-case distill is ~185 units — about **54 distills a day across all users**.
+The *YouTube API Services Audit and Quota Extension* form is a second review with
+its own queue, so it starts when verification is submitted, not when it bites.
+
+**And `written.app` is not ours.** `SignInView` links users to its privacy
+policy; the domain is a live, unrelated decentralised e-book store with its own
+App Store listing and Discord. Verification needs a homepage and policy on a
+domain we own, so that is step one and everything queues behind it.
 
 - **YouTube** (`YouTubeDistiller`) — subscriptions, liked videos, playlists and
   playlist contents. Watch history is **not** reachable: API doesn't expose it,
