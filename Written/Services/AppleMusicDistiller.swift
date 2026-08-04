@@ -231,6 +231,39 @@ struct AppleMusicDistiller {
             if let cover = artworkURL(in: attributes) {
                 extras.append("artwork=\(cover)")
             }
+
+            // **Everything else the response already carried.** These were
+            // fetched on every request and discarded at this line; the ontology
+            // stage cannot ask for what was never kept, and re-distilling
+            // everybody later to recover a field is not a thing that can be
+            // done quietly.
+            //
+            // `composerName` is the one named in the ontology blueprint —
+            // classical listening is invisible without it, since the "artist"
+            // of a Bach partita is whoever performed it.
+            if let composer = attributes["composerName"] as? String, !composer.isEmpty {
+                extras.append("composer=\(composer)")
+            }
+            if let album = attributes["albumName"] as? String, !album.isEmpty {
+                extras.append("album=\(album)")
+            }
+            if let released = attributes["releaseDate"] as? String {
+                extras.append("released=\(released)")
+            }
+            // Seconds, not milliseconds: nothing downstream needs that precision
+            // and every other duration in this schema is in seconds.
+            if let millis = attributes["durationInMillis"] as? Int {
+                extras.append("duration_s=\(millis / 1000)")
+            }
+            if let track = attributes["trackNumber"] as? Int {
+                extras.append("track=\(track)")
+            }
+            if let rating = attributes["contentRating"] as? String, !rating.isEmpty {
+                extras.append("content_rating=\(rating)")
+            }
+            if let hasLyrics = attributes["hasLyrics"] as? Bool {
+                extras.append("has_lyrics=\(hasLyrics ? 1 : 0)")
+            }
         }
 
         return DistilledRecord(

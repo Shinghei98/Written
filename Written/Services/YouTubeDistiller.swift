@@ -28,6 +28,15 @@ struct YouTubeDistiller {
             let publishedAt: String?
             let resourceId: ResourceID?
             let thumbnails: Thumbnails?
+            /// YouTube's own category for a video — 10 is Music, 20 Gaming, 28
+            /// Science & Technology. **The most ontology-shaped field this API
+            /// offers**, and it was already inside the snippet being decoded
+            /// and thrown away at the parse.
+            let categoryId: String?
+            /// Uploader-supplied keywords. Returned to the video's owner for
+            /// certain; whether a third party sees them is **unverified**, so
+            /// this is decoded and recorded when present rather than relied on.
+            let tags: [String]?
         }
         struct ResourceID: Decodable {
             let channelId: String?
@@ -46,10 +55,25 @@ struct YouTubeDistiller {
         }
         struct ContentDetails: Decodable {
             let itemCount: Int?
+            /// ISO 8601, "PT12M31S". Kept raw: parsing it here would invent a
+            /// unit the API did not state, and `extra` is where platform quirks
+            /// belong.
+            let duration: String?
+        }
+        /// Wikipedia and Freebase topic URLs — YouTube's own classification of
+        /// what a video is *about*, which is a different and better question
+        /// than what category it was filed under.
+        struct TopicDetails: Decodable {
+            let topicCategories: [String]?
+        }
+        struct Statistics: Decodable {
+            let subscriberCount: String?
         }
         let id: String?
         let snippet: Snippet?
         let contentDetails: ContentDetails?
+        let topicDetails: TopicDetails?
+        let statistics: Statistics?
     }
 
     // MARK: - Distillation
@@ -84,7 +108,7 @@ struct YouTubeDistiller {
         let liked = try await fetchAllPages(
             token: token,
             path: "videos",
-            query: ["part": "snippet", "myRating": "like", "maxResults": "50"]
+            query: ["part": "snippet,contentDetails,topicDetails", "myRating": "like", "maxResults": "50"]
         )
         records += liked.map { item in
             record(
@@ -99,7 +123,18 @@ struct YouTubeDistiller {
                 extra: joined([
                     "published_at=\(item.snippet?.publishedAt ?? "")",
                     item.snippet?.channelId.map { "channel_id=\($0)" },
-                    item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
+                    item.snippet?.thumbnails?.url.map { "artwork=\($0)" },
+                    item.snippet?.categoryId.map { "category_id=\($0)" },
+                    item.contentDetails?.duration.map { "duration=\($0)" },
+                    // Last path component of each Wikipedia URL — the topic
+                    // itself rather than a link to it, which is what a keyword
+                    // stage would want and is shorter to store.
+                    item.topicDetails?.topicCategories.map {
+                        "topics=" + $0.compactMap { URL(string: $0)?.lastPathComponent }.joined(separator: "|")
+                    },
+                    (item.snippet?.tags?.isEmpty == false)
+                        ? "tags=" + (item.snippet?.tags ?? []).prefix(12).joined(separator: "|")
+                        : nil
                 ])
             )
         }
