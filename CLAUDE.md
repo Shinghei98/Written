@@ -278,7 +278,22 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   be incomplete** — which is exactly why it runs last, after the type has settled
   everything it can.
 
-  **The card lists the events themselves**, one row per distinct title. It
+  **The card lists the events themselves**, one row per distinct title, **ranked
+  by what made the entry rather than by when it happens**. Date order is why a
+  flight to Los Angeles could not be found on a card listing it: newest-first put
+  five years of dentist appointments, term dates and public holidays above four
+  real flights, which sat 59th to 68th of 77 against a cap of 40. The ranking
+  leans on the two fields kept for exactly this — `url` and `organizer`, which
+  tell a booked event from a typed one. Something else wrote these in; "1st
+  email" is a note to self.
+
+  It also **retires a filter instead of adding one**. Public holidays duplicated
+  into somebody's own calendar pass every test there is — right type, ordinary
+  name — and sink on their own here, because nothing organised them and nothing
+  was booked. Its known softness is the middle tier: a meeting the user
+  themselves organised is an invitation too, and outranks a flight. Recognising
+  that needs their own name, which these records do not carry.
+ It
   printed readings for a while — arranged, booked ahead, evenings, weekends,
   busiest day — and nobody recognises their own year in a count; they recognise
   "Chichen Itza Premier Tour" and "Flight to Los Angeles". Distinct titles

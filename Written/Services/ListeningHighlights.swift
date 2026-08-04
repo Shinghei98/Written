@@ -145,6 +145,10 @@ enum ListeningHighlights {
         /// Eventbrite, Ticketmaster, Dice all leave a `url`. It cost money and a
         /// Saturday, which is why `CalendarDistiller` keeps the field at all.
         let booked: Bool
+        /// Set when something other than the user created the event — an
+        /// airline, a ticketing site, a school. Empty for anything typed by
+        /// hand, which is exactly the distinction that ranks this list.
+        let organizer: String
         let calendar: String
     }
 
@@ -208,7 +212,7 @@ enum ListeningHighlights {
     /// The first of each name survives, which after the sort below is the
     /// soonest — so a repeating event is dated by its next occurrence rather
     /// than by whichever copy happened to come back first.
-    static func events(in records: [DistilledRecord], limit: Int = 40) -> [Event] {
+    static func events(in records: [DistilledRecord], limit: Int = 120) -> [Event] {
         var seen: Set<String> = []
         return personalEvents(in: records)
             .map { record in
@@ -217,12 +221,31 @@ enum ListeningHighlights {
                     name: record.name,
                     start: record.extraValue("start").flatMap(Self.iso.date(from:)),
                     booked: record.extraValue("booked") == "1",
+                    organizer: record.extraValue("organizer") ?? "",
                     calendar: record.extraValue("calendar") ?? ""
                 )
             }
-            // Soonest first among what is still ahead, then the recent past
-            // behind it — the same order a person reads their own calendar in.
+            // **Ranked by what made the entry, not by when it happens**, and
+            // the date order it replaced is why a flight to Los Angeles could
+            // not be found on a card listing it. Newest-first put five years of
+            // dentist appointments, term dates and public holidays above four
+            // real flights, which sat 59th to 68th of 77.
+            //
+            // The two fields this leans on exist for precisely this: `url` and
+            // `organizer` are what tell a booked event from a typed one. An
+            // airline, a ticketing site or a school wrote these in by itself —
+            // it cost money and a Saturday — while "1st email" is a note to
+            // self. Date decides only between things of equal standing.
+            //
+            // It also retires a filter rather than adding one. Public holidays
+            // duplicated into somebody's own calendar pass every test that
+            // exists — right type, ordinary name — and sink here on their own,
+            // because nothing organised them and nothing was booked.
             .sorted { lhs, rhs in
+                if lhs.booked != rhs.booked { return lhs.booked }
+                let lhsOrganised = !lhs.organizer.isEmpty
+                let rhsOrganised = !rhs.organizer.isEmpty
+                if lhsOrganised != rhsOrganised { return lhsOrganised }
                 switch (lhs.start, rhs.start) {
                 case let (left?, right?): return left > right
                 case (nil, _): return false
