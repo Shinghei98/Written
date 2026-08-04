@@ -295,14 +295,20 @@ struct RootView: View {
                     case .phone:
                         isEnteringPhone = true
                     case .google:
-                        // **Says so rather than pretending.** This was
-                        // `route = .home` — no account, no session, straight
-                        // into the app — which is the same class of lie the
-                        // phone flow used to tell and cost two testers a
-                        // session each. Supabase can do Google properly; it
-                        // needs a provider configured and an OAuth client, and
-                        // until that exists the honest answer is a sentence.
-                        signInError = "Google sign-in isn't ready yet. Use Apple or your phone number."
+                        // Real since the Google provider went in — it was
+                        // `route = .home`, no account and no session, which is
+                        // the same lie the phone flow told.
+                        Task {
+                            do {
+                                try await SupabaseAuth.shared.signInWithGoogle()
+                                route = Self.route(for: SupabaseAuth.shared.onboardingStep)
+                            } catch OAuthPKCEService.OAuthError.cancelled {
+                                // Closing the browser sheet is not a failure,
+                                // the same way backing out of Apple's is not.
+                            } catch {
+                                signInError = error.localizedDescription
+                            }
+                        }
                     case .apple:
                         Task {
                             do {

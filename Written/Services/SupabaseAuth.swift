@@ -527,6 +527,37 @@ final class SupabaseAuth: NSObject, ObservableObject {
         UserDefaults.standard.set(session.user.id, forKey: Self.userIDKey)
     }
 
+    // MARK: - Google
+
+    /// Signs in with Google, by the same trade Apple's path makes.
+    ///
+    /// **No SDK and no client secret.** The app already speaks Google OAuth with
+    /// PKCE — that is how YouTube is connected — so this reuses it with an
+    /// `openid` scope and hands the resulting `id_token` to Supabase, which
+    /// swaps it for a session exactly as it swaps Apple's identity token. The
+    /// dashboard side is the Google provider enabled with this app's client ID
+    /// in **Authorized Client IDs**; there is no secret to keep because a native
+    /// client has none.
+    ///
+    /// `exchange` rather than a new endpoint: `grant_type=id_token` returns the
+    /// same `Session`, and reusing it means the five steps of adopting a session
+    /// are written once. It also inherits the URL-building that keeps
+    /// `grant_type` a query item — appending it to the path percent-encodes the
+    /// `?` and Supabase answers 404 with nothing to suggest why.
+    @MainActor
+    func signInWithGoogle() async throws {
+        let identity = try await OAuthPKCEService(provider: .googleSignIn)
+            .interactiveIdentityToken()
+        try await exchange(
+            grantType: "id_token",
+            body: ["provider": "google", "id_token": identity]
+        )
+        // Apple's path loads the profile through its delegate; this one has no
+        // delegate, so without this `onboardingStep` is asked where the user is
+        // before anything knows their name.
+        await loadProfile()
+    }
+
     // MARK: - Phone
 
     /// Sends a one-time code by SMS, through Supabase's Twilio Verify provider.

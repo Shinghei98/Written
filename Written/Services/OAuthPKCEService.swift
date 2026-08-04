@@ -21,6 +21,15 @@ struct OAuthProvider {
     let extraAuthParameters: [String: String]
     /// Where the developer pastes the client ID, for the error message.
     let configHint: String
+    /// Whether a refresh token from this provider is worth keeping.
+    ///
+    /// True for the data sources, whose whole point is distilling again later
+    /// without asking. **False for signing in**, where the refresh token that
+    /// matters is Supabase's, not Google's — and where saving one would file it
+    /// under `AccountScope.current`, which is still `local` because the account
+    /// being signed into does not exist yet. That entry would then belong to
+    /// nobody and outlive the sign-in.
+    var persistsRefreshToken: Bool = true
 
     var isConfigured: Bool { !clientID.hasPrefix("YOUR_") }
 
@@ -35,6 +44,38 @@ struct OAuthProvider {
             scope: AppConfig.youtubeScope,
             extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
             configHint: "AppConfig.googleClientID"
+        )
+    }
+
+    /// **The same Google client, asking a completely different question.**
+    ///
+    /// `google` above asks to read a YouTube library and wants a refresh token
+    /// to do it again next month. This asks only who the person is, and the
+    /// answer it wants is the `id_token` — which Supabase trades for a session
+    /// exactly as it trades Apple's identity token. Nothing is stored on this
+    /// side.
+    ///
+    /// `openid email profile` rather than a data scope, and no `access_type` or
+    /// `prompt` overrides: offline access is meaningless for a one-shot
+    /// identity check, and forcing the consent screen on somebody who has
+    /// already granted it is friction for nothing.
+    ///
+    /// One client ID serves both, which is deliberate — it is the same app and
+    /// the same consent screen. Somebody who signs in with Google and later
+    /// connects YouTube sees a second prompt, because it is a genuinely
+    /// different permission.
+    static var googleSignIn: OAuthProvider {
+        OAuthProvider(
+            name: "Google Sign-In",
+            authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+            tokenURL: "https://oauth2.googleapis.com/token",
+            clientID: AppConfig.googleClientID,
+            redirectScheme: AppConfig.googleRedirectScheme,
+            redirectURI: AppConfig.googleRedirectURI,
+            scope: "openid email profile",
+            extraAuthParameters: [:],
+            configHint: "AppConfig.googleClientID",
+            persistsRefreshToken: false
         )
     }
 
@@ -84,13 +125,23 @@ final class OAuthPKCEService: NSObject {
         let accessToken: String
         let expiresIn: Double
         let refreshToken: String?
+        /// Present only when `openid` is among the scopes — so `nil` for the
+        /// data sources and populated for `googleSignIn`. It is the whole point
+        /// of that provider: Supabase trades it for a session.
+        let idToken: String?
 
         enum CodingKeys: String, CodingKey {
             case accessToken = "access_token"
             case expiresIn = "expires_in"
             case refreshToken = "refresh_token"
+            case idToken = "id_token"
         }
     }
+
+    /// The identity token from the most recent exchange, for the sign-in
+    /// provider. Never written to disk: it is handed to Supabase within the
+    /// same call and Supabase's own session is what persists.
+    private(set) var lastIdentityToken: String?
 
     private let provider: OAuthProvider
     /// Scoped to the account, not just the provider.
@@ -150,6 +201,27 @@ final class OAuthPKCEService: NSObject {
         accessToken = nil
         accessTokenExpiry = .distantPast
         KeychainStore.delete(refreshTokenKey)
+    }
+
+    /// Runs the consent flow purely to find out who somebody is.
+    ///
+    /// Deliberately not `validAccessToken`: that reuses a cached token and a
+    /// stored refresh token, which is right for reading a library and wrong
+    /// here. Signing in must always be a fresh act — a stale identity token, or
+    /// one silently refreshed from a previous user's grant, is the shape of bug
+    /// that signs the wrong person in.
+    @MainActor
+    func interactiveIdentityToken() async throws -> String {
+        guard provider.isConfigured else {
+            throw OAuthError.notConfigured(provider: provider.name, hint: provider.configHint)
+        }
+        _ = try await interactiveSignIn()
+        guard let identity = lastIdentityToken else {
+            // `openid` was in the scope, so its absence is the provider not
+            // answering the question rather than anything the user did.
+            throw OAuthError.badResponse("no id_token in the token response")
+        }
+        return identity
     }
 
     // MARK: - Interactive flow
@@ -239,7 +311,8 @@ final class OAuthPKCEService: NSObject {
         let token = try JSONDecoder().decode(TokenResponse.self, from: data)
         accessToken = token.accessToken
         accessTokenExpiry = Date().addingTimeInterval(token.expiresIn)
-        if let refresh = token.refreshToken {
+        lastIdentityToken = token.idToken
+        if let refresh = token.refreshToken, provider.persistsRefreshToken {
             KeychainStore.save(refresh, for: refreshTokenKey)
         }
         return token.accessToken
