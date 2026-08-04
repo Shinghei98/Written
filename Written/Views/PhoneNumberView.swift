@@ -6,13 +6,18 @@ import SwiftUI
 struct PhoneNumberView: View {
     var onClose: () -> Void = {}
     /// Called at the end of sign-up, once the code and name steps are done.
-    var onSignedUp: (_ phoneNumber: String, _ firstName: String, _ lastName: String?) -> Void = { _, _, _ in }
+    /// Fires once a code has been verified and a real session exists. The name
+    /// is not collected here any more — the app's own `.name` route asks for
+    /// it, along with the communication style step this flow used to skip.
+    var onSignedIn: () -> Void = {}
 
     @State private var country: Country = .unitedStates
     @State private var number = ""
     @State private var isShowingNumberChangeInfo = false
     @State private var isShowingCountryPicker = false
     @State private var isVerifying = false
+    @State private var isSending = false
+    @State private var sendFailure: String?
     @State private var error: EntryError?
     @FocusState private var isFieldFocused: Bool
 
@@ -69,7 +74,8 @@ struct PhoneNumberView: View {
                 // Always tappable: the field is validated on submit, so an empty
                 // or malformed number has to be able to reach `submit()` in
                 // order to say what is wrong with it.
-                Button("Continue", action: submit)
+                Button(isSending ? "Sending…" : "Continue", action: submit)
+                    .disabled(isSending)
                     .buttonStyle(PressShrinkButtonStyle())
                     .frame(width: 176)
 
@@ -99,18 +105,24 @@ struct PhoneNumberView: View {
         }
         .navigationDestination(isPresented: $isVerifying) {
             VerificationCodeView(
-                phoneNumber: country.dialCode + digits,
+                phoneNumber: e164,
                 displayNumber: country.displayNationalNumber(digits),
                 // The X closes the whole sign-up flow; the pencil steps back
                 // here to correct the number.
                 onClose: onClose,
                 onEditNumber: { isVerifying = false },
-                onSignedUp: { firstName, lastName in
-                    onSignedUp(country.dialCode + digits, firstName, lastName)
-                }
+                onVerified: onSignedIn,
+                // Resending costs another message, so it goes through the same
+                // one place that sends the first.
+                onResend: { send(advancing: false) }
             )
             .navigationBarBackButtonHidden(true)
             .toolbar(.hidden, for: .navigationBar)
+        }
+        .alert("Couldn't send the code", isPresented: .constant(sendFailure != nil)) {
+            Button("OK") { sendFailure = nil }
+        } message: {
+            Text(sendFailure ?? "")
         }
         .alert("What if my number changes?", isPresented: $isShowingNumberChangeInfo) {
             Button("Got it", role: .cancel) {}
@@ -204,6 +216,20 @@ struct PhoneNumberView: View {
 
     /// Validates on submit rather than as the user types: a number is not wrong
     /// just because it is half-entered.
+    /// E.164 — a `+`, the dial code, then the national digits, and nothing else.
+    ///
+    /// Built in one place because Supabase verifies a code against the number it
+    /// *sent* to: if this string and the one handed to `verifyOTP` differ by so
+    /// much as a space, the check fails against a number that was never
+    /// messaged, and the only symptom is a correct code being refused.
+    private var e164: String { country.dialCode + digits }
+
+    /// Validates on submit rather than as the user types: a number is not wrong
+    /// just because it is half-entered.
+    ///
+    /// **Validation before sending is a cost control, not politeness.** Every
+    /// send is an SMS somebody pays for, so a number the country's own rules
+    /// reject must never reach Twilio.
     private func submit() {
         guard !digits.isEmpty else {
             showError(.missing)
@@ -217,7 +243,30 @@ struct PhoneNumberView: View {
         // Hand the keyboard over: without this the phone field keeps focus
         // behind the code screen, which then can't take it.
         isFieldFocused = false
-        isVerifying = true
+        send(advancing: true)
+    }
+
+    /// Sends the code, and only moves on if it was actually sent.
+    ///
+    /// `advancing` is false for a resend, where the code screen is already up.
+    /// Pushing on a failure is what the old flow did in effect — it never sent
+    /// anything and advanced regardless — and it leaves somebody staring at six
+    /// empty boxes waiting for a message that is not coming.
+    private func send(advancing: Bool) {
+        guard !isSending else { return }
+        isSending = true
+        let number = e164
+        Task {
+            do {
+                try await SupabaseAuth.shared.sendOTP(phone: number)
+                isSending = false
+                if advancing { isVerifying = true }
+            } catch {
+                isSending = false
+                sendFailure = error.localizedDescription
+                if advancing { isFieldFocused = true }
+            }
+        }
     }
 
     private func showError(_ entryError: EntryError) {

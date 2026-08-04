@@ -46,13 +46,15 @@ private struct MediaSurveyAlert: ViewModifier {
 #endif
 
 
-/// Decides which of the four screens the app is on: sign-in, the two onboarding
-/// steps, or the garden.
+/// Decides which of the screens the app is on: sign-in, the onboarding steps,
+/// or the garden.
 ///
-/// Note the phone flow does not yet *verify* anything — `VerificationCodeView`
-/// accepts any six digits and no text message is sent, because phone
-/// verification is waiting on a backend. The TestFlight notes have to say so.
-/// Sign in with Apple is the only route that proves anything.
+/// **Both routes in now create a real account.** This note used to say the phone
+/// flow verified nothing — it accepted any six digits and sent no message — and
+/// that stayed true long enough for testers to sign up with it, reach the photo
+/// page with no session, and be told "You're not signed in". Phone goes through
+/// Supabase's Twilio Verify provider now, and returns the same session Apple
+/// does.
 struct RootView: View {
     /// The one screen showing, rather than four booleans that could disagree.
     ///
@@ -79,6 +81,7 @@ struct RootView: View {
     /// They still go nowhere durable — see the photos gap in CLAUDE.md — so
     /// this is where they exist until something uploads them.
     @State private var photos: [PickedMedia?] = Array(repeating: nil, count: 6)
+    @State private var isEnteringPhone = false
     @State private var signInError: String?
 
     private static func initialRoute() -> Route {
@@ -303,12 +306,31 @@ struct RootView: View {
                             signInError = error.localizedDescription
                         }
                     }
-                }
+                },
+                onPhone: { isEnteringPhone = true }
             )
             .alert("Couldn't sign in", isPresented: .constant(signInError != nil)) {
                 Button("OK") { signInError = nil }
             } message: {
                 Text(signInError ?? "")
+            }
+            .navigationDestination(isPresented: $isEnteringPhone) {
+                PhoneNumberView(
+                    onClose: { isEnteringPhone = false },
+                    // **Routed from the step, never hardcoded.** This was
+                    // `route = .photos`, which is what skipped the name and
+                    // communication style pages for everyone who signed up by
+                    // phone — and, because the flow had no session either, sent
+                    // them to a photo page that could only answer "You're not
+                    // signed in". `verifyOTP` has loaded the profile by the time
+                    // this fires, so `onboardingStep` knows where they are.
+                    onSignedIn: {
+                        isEnteringPhone = false
+                        route = Self.route(for: SupabaseAuth.shared.onboardingStep)
+                    }
+                )
+                .navigationBarBackButtonHidden(true)
+                .toolbar(.hidden, for: .navigationBar)
             }
         }
     }

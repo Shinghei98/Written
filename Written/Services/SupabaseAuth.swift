@@ -507,7 +507,17 @@ final class SupabaseAuth: NSObject, ObservableObject {
             throw AuthError.server(detail ?? "Sign in failed (\(status)).")
         }
 
-        let session = try JSONDecoder().decode(Session.self, from: data)
+        adopt(try JSONDecoder().decode(Session.self, from: data))
+    }
+
+    /// Takes a freshly issued session as this device's own.
+    ///
+    /// Lifted out of `exchange` because phone sign-in arrives from a *different*
+    /// endpoint — `auth/v1/verify` rather than `auth/v1/token` — and needs every
+    /// one of these steps identically. Two copies of this would be two places to
+    /// forget the `UserDefaults` write, and forgetting it means the
+    /// account-scoped stores open the previous account's files.
+    private func adopt(_ session: Session) {
         accessToken = session.access_token
         accessTokenExpiry = Date().addingTimeInterval(session.expires_in)
         KeychainStore.save(session.refresh_token, for: Self.refreshTokenKey)
@@ -515,6 +525,79 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // Written before anything reads `AccountScope`, so the per-account
         // stores open the right files on the very next access.
         UserDefaults.standard.set(session.user.id, forKey: Self.userIDKey)
+    }
+
+    // MARK: - Phone
+
+    /// Sends a one-time code by SMS, through Supabase's Twilio Verify provider.
+    ///
+    /// **Every call to this costs money** — about $0.058 in the US and $0.12 in
+    /// Hong Kong — so it is deliberately the only thing that sends one, and
+    /// nothing calls it on a returning user: the Keychain refresh token carries
+    /// them, and a second SMS for somebody already signed in is money burnt for
+    /// nothing.
+    ///
+    /// `phone` must be E.164 (`+85298765432`), and must be *byte for byte* the
+    /// same string passed to `verifyOTP` — Supabase matches the verification
+    /// against the number it sent to, so a space or a dash in one and not the
+    /// other fails against a number it never messaged.
+    func sendOTP(phone: String) async throws {
+        _ = try await postAuth(path: "auth/v1/otp", body: ["phone": phone])
+    }
+
+    /// Exchanges the code for a real session.
+    ///
+    /// The account is created here on first use — there is no separate sign-up —
+    /// so the caller must route from `onboardingStep` afterwards rather than
+    /// assuming a step. Hardcoding `.photos` here is what skipped the name and
+    /// communication style pages for every phone user.
+    func verifyOTP(phone: String, code: String) async throws {
+        let data = try await postAuth(
+            path: "auth/v1/verify",
+            body: ["phone": phone, "token": code, "type": "sms"]
+        )
+        adopt(try JSONDecoder().decode(Session.self, from: data))
+        // Apple's path loads the profile through its delegate; this one has no
+        // delegate, so the name has to be fetched before anything asks whether
+        // onboarding is done.
+        await loadProfile()
+    }
+
+    /// One POST to an auth endpoint, with the same error handling `exchange`
+    /// uses — which matters more here than anywhere else: "that code is wrong"
+    /// and "we couldn't reach the server" are different sentences to put in
+    /// front of somebody holding a phone waiting for an SMS, and telling them
+    /// the wrong one sends them to check their signal or retype a good code.
+    @discardableResult
+    private func postAuth(path: String, body: [String: String]) async throws -> Data {
+        guard let url = URL(string: AppConfig.supabaseURL.appendingPathComponent(path).absoluteString) else {
+            throw AuthError.server("Bad auth URL.")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            Self.trace("\(path): transport failed — \(error.localizedDescription)")
+            throw AuthError.unreachable
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        Self.trace("\(path): HTTP \(status)")
+        guard status < 500 else { throw AuthError.unreachable }
+        guard (200..<300).contains(status) else {
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                .flatMap { $0?["error_description"] as? String ?? $0?["msg"] as? String }
+            Self.trace("\(path): \(detail ?? "no error_description")")
+            throw AuthError.server(detail ?? "That didn't work (\(status)).")
+        }
+        return data
     }
 
     // MARK: - Nonce

@@ -25,6 +25,10 @@ import SwiftUI
 /// the canvas matches the GIF's own off-white so the animation sits flush on it.
 struct SignInView: View {
     var onSignIn: () -> Void = {}
+    /// Phone is back, and this time it authenticates. It sits second rather
+    /// than first because Apple costs nothing to run and every phone sign-in
+    /// costs an SMS — the free route should be the easy one to take.
+    var onPhone: () -> Void = {}
 
     var body: some View {
         ZStack {
@@ -70,25 +74,45 @@ struct SignInView: View {
 
     private var buttonInset: CGFloat { 40 }
 
-    /// One button, because there is one way in.
+    /// Two routes in, both of which now actually create an account.
     ///
-    /// It was a two-state stack — a black capsule that re-titled itself between
+    /// It was a two-state stack — a black capsule re-titling itself between
     /// "Create account" and "Sign in with Phone Number", with Apple and Google
-    /// fading in above it — and the care went into never letting the two
-    /// capsules cross-fade, because that reads as a shake. All of which was in
-    /// service of three buttons that authenticated nobody. With one real
-    /// provider there is no second state to animate to: Sign in with Apple both
-    /// creates the account and signs into it.
+    /// fading in above it — and the care went into never letting two capsules
+    /// cross-fade, because that reads as a shake. All of it was in service of
+    /// three buttons that authenticated nobody. Neither provider here needs a
+    /// separate sign-up: each call creates the account or signs into it, so
+    /// there is nothing for a second state to say.
+    ///
+    /// Apple is the primary because it is free to run and instant. Phone is the
+    /// quieter one for people who will not use Sign in with Apple — and every
+    /// tap on it sends an SMS somebody pays for.
     private var buttonStack: some View {
-        Button(action: onSignIn) {
-            Label {
-                Text("Continue with Apple")
-            } icon: {
-                Image(systemName: "applelogo")
-                    .font(.system(size: 19))
+        VStack(spacing: 12) {
+            Button(action: onSignIn) {
+                Label {
+                    Text("Continue with Apple")
+                } icon: {
+                    Image(systemName: "applelogo")
+                        .font(.system(size: 19))
+                }
             }
+            .buttonStyle(PressShrinkButtonStyle())
+
+            Button(action: onPhone) {
+                Label {
+                    Text("Continue with phone")
+                } icon: {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 17))
+                }
+            }
+            .buttonStyle(
+                PressShrinkButtonStyle(
+                    fill: .white, foreground: SignInPalette.ink, border: SignInPalette.hairline
+                )
+            )
         }
-        .buttonStyle(PressShrinkButtonStyle())
         .padding(.horizontal, buttonInset)
     }
 

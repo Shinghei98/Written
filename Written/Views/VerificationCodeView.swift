@@ -3,25 +3,32 @@ import SwiftUI
 /// Account creation, step two: the six-digit code sent to the phone number from
 /// the previous screen.
 ///
-/// No code is actually sent yet — there is no verification service behind this.
-/// `onResend` and `onVerify` are the seams where one gets wired in; until then
-/// any six digits are accepted.
+/// **The code is now actually checked.** This screen accepted any six digits and
+/// pushed straight on, because there was no verification service behind it; the
+/// account it appeared to create did not exist, which is what left a tester on
+/// the photo page being told "You're not signed in".
+///
+/// It no longer collects a name either. Verifying returns a real session, and
+/// the app's own `.name` route — the same one Apple sign-in reaches through
+/// `onboardingStep` — asks for it, along with the communication style step that
+/// this flow used to skip.
 struct VerificationCodeView: View {
-    /// E.164, for the verification service.
+    /// E.164, and the same string `sendOTP` was given: Supabase verifies against
+    /// the number it messaged, so these must not diverge by so much as a space.
     let phoneNumber: String
     /// The same number as the user typed it, for the "Sent to" line.
     let displayNumber: String
 
     var onClose: () -> Void = {}
     var onEditNumber: () -> Void = {}
-    /// Fires at the end of the whole sign-up flow, not when the code is checked:
-    /// the name step is pushed from here first.
-    var onSignedUp: (_ firstName: String, _ lastName: String?) -> Void = { _, _ in }
+    /// Fires once the code is accepted and a session exists.
+    var onVerified: () -> Void = {}
     var onResend: () -> Void = {}
 
     @State private var code = ""
     @State private var isConfirmingResend = false
-    @State private var isEnteringName = false
+    @State private var isChecking = false
+    @State private var failure: String?
     @FocusState private var isFocused: Bool
 
     private let codeLength = 6
@@ -53,16 +60,16 @@ struct VerificationCodeView: View {
                 // One button in two guises: asking for a new code is only useful
                 // until the code is fully typed, at which point the same spot
                 // becomes the way forward.
-                Button(isComplete ? "Verify" : "Didn't get a code?") {
+                Button(isChecking ? "Verifying…" : (isComplete ? "Verify" : "Didn't get a code?")) {
                     if isComplete {
-                        // Nothing checks the code yet — see the note above.
                         isFocused = false
-                        isEnteringName = true
+                        verify()
                     } else {
                         isConfirmingResend = true
                     }
                 }
                 .buttonStyle(PressShrinkButtonStyle(expands: false))
+                .disabled(isChecking)
                 .padding(.bottom, 12)
             }
         }
@@ -75,16 +82,40 @@ struct VerificationCodeView: View {
             try? await Task.sleep(nanoseconds: 400_000_000)
             isFocused = true
         }
-        .navigationDestination(isPresented: $isEnteringName) {
-            NameEntryView(onContinue: onSignedUp)
-                .navigationBarBackButtonHidden(true)
-                .toolbar(.hidden, for: .navigationBar)
-        }
         .alert("Didn't get a code?", isPresented: $isConfirmingResend) {
             Button("Send again") { onResend() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("We can send a new code to \(displayNumber).")
+        }
+        // The wrong code and an unreachable server are different problems with
+        // different fixes, and `SupabaseAuth` already keeps them apart. Showing
+        // one sentence for both sends somebody to check their signal over a
+        // typo.
+        .alert("Couldn't verify", isPresented: .constant(failure != nil)) {
+            Button("OK") { failure = nil; isFocused = true }
+        } message: {
+            Text(failure ?? "")
+        }
+    }
+
+    /// Checks the code, and leaves the digits in place if it is wrong.
+    ///
+    /// Clearing the field on failure is the obvious thing and the wrong one: a
+    /// mistyped digit is the common case, and retyping all six to fix one is
+    /// how somebody ends up asking for a second SMS that costs money.
+    private func verify() {
+        guard !isChecking else { return }
+        isChecking = true
+        Task {
+            do {
+                try await SupabaseAuth.shared.verifyOTP(phone: phoneNumber, code: code)
+                isChecking = false
+                onVerified()
+            } catch {
+                isChecking = false
+                failure = error.localizedDescription
+            }
         }
     }
 
