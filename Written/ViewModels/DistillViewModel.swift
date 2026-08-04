@@ -843,12 +843,19 @@ final class DistillViewModel: ObservableObject {
             return (domain.rawValue, channel.name, "youtube")
         }
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             // Read from the server rather than from anything local: the photos
             // may have been uploaded on a different device, or in a session
             // before this one. `PhotoService.paths` is the authority, and an
             // empty answer is what keeps somebody with no face out of the pool.
-            let photoPaths = await PhotoService.shared.paths()
+            //
+            // **`nil` is not an empty answer, and conflating the two un-listed
+            // people who had photographs.** An empty list is a decision — no
+            // face, no card — while a failed read is no information at all. Ask
+            // again on the next distillation or photo flush rather than
+            // concluding from a dropped request that somebody has no face.
+            guard let photoPaths = await PhotoService.shared.paths() else { return }
+
             let card = DiscoveryCardService.Card(
                 displayName: name,
                 age: age,
@@ -856,7 +863,22 @@ final class DistillViewModel: ObservableObject {
                 interests: interests,
                 photoPaths: photoPaths
             )
-            await DiscoveryCardService.shared.publish(card)
+            let published = await DiscoveryCardService.shared.publish(card)
+
+            // **The third time this project has recorded an error nobody
+            // reads.** `SyncService.lastError` and `PhotoService.lastError`
+            // were the first two, and both cost a session to find. Being
+            // absent from discovery is invisible *and* consequential — nobody
+            // can find you — so a genuine refusal from the server is worth
+            // saying.
+            //
+            // Only a genuine one: `publish` returns false with `lastError` nil
+            // when it declines to publish a faceless card, which is a decision
+            // rather than a fault and must not raise a banner on every
+            // distillation.
+            if !published, let reason = await DiscoveryCardService.shared.lastError {
+                await MainActor.run { self?.saveError = "Couldn't update your profile card — \(reason)" }
+            }
         }
     }
 

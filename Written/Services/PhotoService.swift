@@ -129,9 +129,20 @@ actor PhotoService {
 
     /// The photographs this account already has, newest state first — used on a
     /// fresh device, where the files exist and nothing local points at them.
-    func paths() async -> [String] {
+    ///
+    /// **`nil` is "could not ask" and `[]` is "asked, and there are none".**
+    /// They used to be the same answer, and the one place that reads this treats
+    /// an empty list as a decision: `DiscoveryCardService.publish` deliberately
+    /// keeps somebody with no face out of the pool. So every failure here — a
+    /// dropped request, an expired token, a malformed body — silently un-listed
+    /// a person who had photographs, with no error and no retry until their next
+    /// distillation.
+    ///
+    /// That is the shape of bug this project keeps paying for: an absence
+    /// standing in for a refusal. The caller can now tell them apart.
+    func paths() async -> [String]? {
         guard let token = await SupabaseAuth.shared.validAccessToken(),
-              let userID = await SupabaseAuth.shared.userID else { return [] }
+              let userID = await SupabaseAuth.shared.userID else { return nil }
 
         var components = URLComponents(
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/photos"),
@@ -142,15 +153,16 @@ actor PhotoService {
             URLQueryItem(name: "user_id", value: "eq.\(userID)"),
             URLQueryItem(name: "order", value: "position.asc")
         ]
-        guard let url = components?.url else { return [] }
+        guard let url = components?.url else { return nil }
 
         var request = URLRequest(url: url)
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
               let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
-        else { return [] }
+        else { return nil }
 
         return rows.compactMap { $0["object_path"] as? String }
     }
