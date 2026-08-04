@@ -1,0 +1,617 @@
+/* ==========================================================================
+   Written — one page
+   --------------------------------------------------------------------------
+   The palette is the app's own: parchment (243,239,233) is GardenPalette's
+   page colour, and the inks come from the logo write-on that the opening
+   here is copied from. Quicksand is the app's only display face, so it is
+   the only display face on the site; body copy sits in the system stack
+   exactly as it does on the phone.
+   ========================================================================== */
+
+@font-face {
+  font-family: "Quicksand";
+  src: url("assets/fonts/Quicksand-Regular.woff2") format("woff2"),
+       url("assets/fonts/Quicksand-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --parchment: #F3EFE9;
+  --paper:     #FBFCFA;
+  --ink:       #1B221A;
+  --muted:     #6E766A;
+  --line:      #E2DED4;
+  --brand:     #6DBE46;
+  --brand-deep:#4E9A32;
+
+  --display: "Quicksand", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --banner-h: 68px;
+  --gutter: clamp(20px, 5vw, 64px);
+  --measure: 34rem;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+html.intro-active { overflow: hidden; }
+
+body {
+  margin: 0;
+  background: var(--parchment);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: clamp(16px, 1.05vw + 13px, 18px);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img, svg, picture { display: block; max-width: 100%; }
+a { color: inherit; }
+
+.wrap {
+  width: min(100% - var(--gutter) * 2, 68rem);
+  margin-inline: auto;
+}
+
+.eyebrow {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: .34em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 .9rem;
+}
+
+h1, h2, h3 { font-family: var(--display); font-weight: 400; }
+
+h2 {
+  font-size: clamp(1.9rem, 3.4vw, 3rem);
+  line-height: 1.12;
+  letter-spacing: -.012em;
+  margin: 0 0 1rem;
+}
+
+h3 {
+  font-size: clamp(1.25rem, 1.7vw, 1.6rem);
+  line-height: 1.2;
+  margin: 0 0 .55rem;
+}
+
+.lede {
+  max-width: var(--measure);
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ==========================================================================
+   The opening
+   --------------------------------------------------------------------------
+   The mark is the app's artwork revealed through a stroke that travels its
+   own centreline — the same construction as Resources/Logo, so the hand is
+   identical. Stroking the centreline directly is not the same thing: it
+   overshoots the letterform badly (measured, IoU 0.49) and loses the nib.
+   ========================================================================== */
+
+#intro {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--parchment);
+  display: grid;
+  place-items: center;
+  transform: translateY(0);
+  transition: transform 1150ms cubic-bezier(.72, .01, .21, 1);
+  will-change: transform;
+}
+
+#intro.lift { transform: translateY(-100%); }
+#intro.done { display: none; }
+
+.intro-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(6px, 1.4vh, 18px);
+  padding: 0 24px;
+  transform: translateY(-4vh);
+}
+
+.mark {
+  width: min(46vw, 300px);
+  height: auto;
+  overflow: visible;
+}
+
+/* Set by JS from getTotalLength(); the fallback keeps the mark hidden rather
+   than flashing whole if the script is late.
+
+   **The reveal is driven frame by frame from JS, never by a transition here.**
+   This path lives inside `<defs>`, and an element that is not rendered does
+   not run CSS transitions — declaring one leaves the offset parked at its
+   start value and the mark never appears at all. Measured: the slogan
+   arrived over blank parchment. The app's own logo animation drives the same
+   path from `requestAnimationFrame` for the same reason. */
+#ink {
+  stroke-dasharray: 4000;
+  stroke-dashoffset: 4000;
+}
+
+.slogan {
+  font-family: var(--display);
+  font-size: clamp(1rem, 2.5vw, 1.35rem);
+  letter-spacing: .02em;
+  color: var(--ink);
+  margin: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.slogan span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(.5em);
+}
+
+.slogan.arrive span {
+  animation: word-in 620ms cubic-bezier(.2, .7, .25, 1) forwards;
+  animation-delay: calc(var(--i) * 90ms);
+}
+
+@keyframes word-in {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.skip {
+  position: absolute;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: .06em;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .4s, color .2s, border-color .2s;
+}
+
+.skip.show { opacity: 1; }
+.skip:hover { color: var(--ink); border-color: var(--ink); }
+
+/* ==========================================================================
+   The banner
+   --------------------------------------------------------------------------
+   Fixed, so it travels with the reader. White while the painting is behind
+   it and ink once it is not — a white mark on parchment is no mark at all.
+   ========================================================================== */
+
+/* **The legible state is the default; the white one has to be asked for.**
+   White type and a white mark are correct over the painting and invisible
+   over parchment — so if the scroll handler never runs, this way round the
+   banner is merely plainer than intended rather than absent. */
+#banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  height: var(--banner-h);
+  padding-top: env(safe-area-inset-top);
+  background-color: rgba(243, 239, 233, .92);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  backdrop-filter: saturate(140%) blur(12px);
+  box-shadow: 0 1px 0 var(--line);
+  transition: background-color .45s ease, box-shadow .45s ease;
+}
+
+.banner-inner {
+  height: var(--banner-h);
+  width: min(100% - var(--gutter) * 2, 76rem);
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.banner-link {
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  opacity: .88;
+  transition: color .45s ease, opacity .2s;
+}
+
+.banner-link:last-child { justify-self: end; }
+.banner-link:hover { opacity: 1; }
+
+.banner-logo {
+  display: block;
+  line-height: 0;
+  justify-self: center;
+}
+
+/* The mark is painted, not drawn: the artwork is used as a mask so it can be
+   white here and ink two hundred pixels further down the page. */
+.banner-mark,
+.foot-mark {
+  display: block;
+  width: 42px;
+  height: 41px;
+  background-color: var(--ink);
+  -webkit-mask-image: url("assets/w-logo.png");
+  mask-image: url("assets/w-logo.png");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  transition: background-color .45s ease;
+}
+
+#banner.over-art {
+  background-color: transparent;
+  background-image: linear-gradient(to bottom, rgba(20, 24, 18, .34), rgba(20, 24, 18, 0));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+#banner.over-art .banner-link { color: #fff; }
+#banner.over-art .banner-mark { background-color: #fff; }
+
+/* ==========================================================================
+   The painting
+   ========================================================================== */
+
+.hero {
+  position: relative;
+  height: 100svh;
+  min-height: 32rem;
+  overflow: hidden;
+  background: #2b2a26 url("assets/hero-lqip.jpg") center / cover no-repeat;
+}
+
+.hero picture, .hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hero img {
+  object-fit: cover;
+  object-position: 50% 42%;
+}
+
+/* Just enough shade in the lower right for white type to sit on paint. */
+.hero-wash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 88% 92%, rgba(12, 14, 10, .62), rgba(12, 14, 10, 0) 62%),
+    linear-gradient(to top, rgba(12, 14, 10, .38), rgba(12, 14, 10, 0) 42%);
+}
+
+.hero-line {
+  position: absolute;
+  right: var(--gutter);
+  bottom: clamp(64px, 12vh, 132px);
+  margin: 0;
+  max-width: min(92vw, 18ch);
+  text-align: right;
+  color: #fff;
+  font-size: clamp(2.1rem, 6.4vw, 4.6rem);
+  line-height: 1.08;
+  letter-spacing: -.01em;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, .38);
+}
+
+.hero-credit {
+  position: absolute;
+  left: var(--gutter);
+  bottom: clamp(22px, 4vh, 34px);
+  margin: 0;
+  max-width: 20rem;
+  color: rgba(255, 255, 255, .74);
+  font-size: 12px;
+  letter-spacing: .04em;
+  line-height: 1.5;
+}
+
+.hero-cue {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(20px, 3.4vh, 30px);
+  translate: -50% 0;
+  width: 26px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  border-radius: 999px;
+  display: grid;
+  place-items: start center;
+  padding-top: 8px;
+}
+
+.hero-cue span {
+  width: 3px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .85);
+  animation: cue 1.9s ease-in-out infinite;
+}
+
+@keyframes cue {
+  0%, 100% { transform: translateY(0);   opacity: .9; }
+  50%      { transform: translateY(9px); opacity: .25; }
+}
+
+/* ==========================================================================
+   Distillation, hugged by the vine
+   --------------------------------------------------------------------------
+   Each stage carries its own segment of the plant, entering the top and
+   leaving the bottom at the same x, so four fixed-ratio drawings read as one
+   continuous stem however tall the text beside them becomes.
+   ========================================================================== */
+
+.growth {
+  position: relative;
+  padding: clamp(72px, 12vh, 148px) 0 clamp(60px, 10vh, 120px);
+}
+
+.growth-head {
+  width: min(100% - var(--gutter) * 2, 68rem);
+  margin: 0 auto clamp(36px, 7vh, 84px);
+}
+
+.stages-frame {
+  position: relative;
+  width: min(100% - var(--gutter) * 2, 68rem);
+  margin-inline: auto;
+  --rail: clamp(112px, 17vw, 220px);
+}
+
+/* **One plant, tiled — not one drawing per stage.** Four separate sprigs read
+   as four sprigs however carefully they are aligned, and stretching a single
+   drawing to whatever the prose happens to cost thins it wherever the text is
+   long. Repeating a tile whose stem enters and leaves at the same x, with a
+   vertical tangent at both ends, gives a stem of constant weight and no seam
+   at any height. */
+.vine-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  translate: -50% 0;
+  width: var(--rail);
+  background: url("assets/vine.svg") repeat-y center top;
+  background-size: var(--rail) calc(var(--rail) * 460 / 220);
+  pointer-events: none;
+}
+
+/* **The hidden state is applied by script, never by the stylesheet.** Written
+   the other way round, a page whose JavaScript fails is a page of invisible
+   prose that no reload will fix. Declared here, the content is visible by
+   default and the animation is the thing that has to opt in. */
+.js-reveal .vine-rail { clip-path: inset(0 0 var(--ungrown, 100%) 0); }
+
+.stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+/* The text hugs the stem from alternate sides as it descends. It stays
+   left-aligned on both: ragged-right beside the vine costs nothing, and five
+   right-aligned lines of prose are genuinely harder to read. */
+.stage {
+  display: grid;
+  grid-template-columns: 1fr var(--rail) 1fr;
+  align-items: center;
+}
+
+.stage .stage-body { grid-column: 1; padding-right: clamp(10px, 2vw, 30px); }
+.stage:nth-child(even) .stage-body { grid-column: 3; padding-right: 0; padding-left: clamp(10px, 2vw, 30px); }
+
+.vine .stem,
+.vine .limb,
+.vine .tendril {
+  fill: none;
+  stroke: var(--ink);
+  stroke-linecap: round;
+}
+
+.vine .stem    { stroke-width: 7; }
+.vine .limb    { stroke-width: 3.4; }
+.vine .tendril { stroke-width: 2.6; }
+.vine .leaf    { fill: var(--ink); }
+.vine .bud     { fill: var(--ink); }
+
+.stage-body {
+  padding: clamp(28px, 5vh, 64px) 0;
+  max-width: var(--measure);
+}
+
+.js-reveal .stage-body {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 900ms ease, transform 900ms cubic-bezier(.2, .7, .25, 1);
+  transition-delay: 220ms;
+}
+
+.js-reveal .stage.grown .stage-body { opacity: 1; transform: none; }
+
+.stage-index {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--brand-deep);
+  margin: 0 0 .5rem;
+}
+
+.stage-body p { margin: 0 0 .9rem; }
+.stage-body p:last-child { margin-bottom: 0; }
+
+.aside {
+  color: var(--muted);
+  font-size: .93em;
+  padding-left: 1rem;
+  border-left: 2px solid var(--line);
+}
+
+/* ==========================================================================
+   Sources
+   ========================================================================== */
+
+.sources {
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: clamp(64px, 11vh, 132px) 0;
+}
+
+.source-grid {
+  margin-top: clamp(32px, 5vh, 56px);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: clamp(20px, 3vw, 34px);
+}
+
+.source {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: clamp(20px, 2.4vw, 30px);
+  background: #fff;
+}
+
+.source p { margin: 0; color: var(--muted); }
+
+.scope {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--brand-deep) !important;
+  margin: 0 0 .8rem !important;
+}
+
+.scope code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .95em;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ==========================================================================
+   Privacy
+   ========================================================================== */
+
+.policy { padding: clamp(64px, 11vh, 132px) 0; }
+
+.policy-grid {
+  margin-top: clamp(32px, 5vh, 56px);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: clamp(26px, 4vw, 48px);
+}
+
+.policy-item p { margin: 0 0 .8rem; color: var(--muted); }
+.policy-item p:last-child { margin-bottom: 0; }
+.policy-item a { color: var(--brand-deep); text-underline-offset: 3px; }
+
+.fine { font-size: .9em; }
+
+.policy-note {
+  margin-top: clamp(30px, 5vh, 52px);
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .92em;
+}
+
+/* ==========================================================================
+   Foot
+   ========================================================================== */
+
+.foot {
+  background: var(--ink);
+  color: #EAF0E5;
+  padding: clamp(48px, 8vh, 92px) 0;
+}
+
+.foot-inner { display: grid; justify-items: center; gap: 14px; text-align: center; }
+.foot-mark { background-color: #EAF0E5; width: 38px; height: 37px; }
+
+.foot-line {
+  font-family: var(--display);
+  font-size: clamp(1.1rem, 2.4vw, 1.5rem);
+  margin: 0;
+}
+
+.foot-legal {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(234, 240, 229, .62);
+}
+
+.foot-legal a { color: inherit; text-underline-offset: 3px; }
+
+/* ==========================================================================
+   Narrow screens
+   ========================================================================== */
+
+@media (max-width: 46rem) {
+  /* No room to read around a stem in the middle: the vine moves to the edge
+     and every block sits to its right. */
+  .stages-frame { --rail: clamp(64px, 21vw, 104px); }
+  .vine-rail { left: 0; translate: 0 0; }
+  .stage { grid-template-columns: var(--rail) minmax(0, 1fr); }
+  .stage .stage-body,
+  .stage:nth-child(even) .stage-body {
+    grid-column: 2;
+    padding-left: clamp(12px, 4vw, 26px);
+    padding-right: 0;
+  }
+  .banner-link { font-size: 11px; letter-spacing: .1em; }
+  .hero-line { max-width: min(92vw, 12ch); }
+  .hero-credit { max-width: 12rem; font-size: 11px; }
+}
+
+/* ==========================================================================
+   Review only
+   --------------------------------------------------------------------------
+   `?flat=1` caps the painting so a whole-page capture fits in one tall
+   viewport. A headless browser will not compose a fixed banner against a
+   programmatic scroll — every scrolled capture came back blank parchment —
+   so the only honest way to see the page below the fold in one shot is to
+   stop the hero being a viewport tall.
+   ========================================================================== */
+
+.flat .hero { height: 640px; }
+
+/* ==========================================================================
+   Reduced motion — the opening is a decoration, not a gate
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #intro { transition: none; }
+  #ink.write { transition: none; }
+  .slogan.arrive span { animation: none; opacity: 1; transform: none; }
+  .vine svg, .stage-body { transition: none; }
+  .hero-cue span { animation: none; }
+}
