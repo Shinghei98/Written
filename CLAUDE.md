@@ -1050,11 +1050,35 @@ there lived until the app was killed and had never left the phone.
 
 Three things generalise, and the middle one is the reason this was invisible:
 
-- **A page with no Continue button has to save on the edit.** `PhotoGrid` now
+- **A page with no Continue button has to save on the way out.** `PhotoGrid`
   takes an optional `onEdit`, and which surface passes it *is* the difference
-  between the two: onboarding waits, because somebody arranging pictures may yet
-  skip; the dashboard saves, because there is nothing to wait for. The default of
-  doing nothing keeps onboarding exactly as it was.
+  between the two: onboarding waits for its button, because somebody arranging
+  pictures may yet skip. The dashboard has no button, so the departure is the
+  button — `DistillViewModel.stagePhoto` records and `flushPhotos` sends, fired
+  from `AppShell` on leaving the tab, on the app going away, and before signing
+  out. Saving on every edit was the first fix and it overshot: swapping one
+  picture three times paid for three uploads. The staging map is keyed by
+  position so the **last write to a slot wins**, and the intermediate pictures
+  are never sent at all.
+
+  **`.inactive` is what catches a force-quit**, not `.background`: raising the
+  app switcher makes the app inactive *before* the swipe kills it. A background
+  task assertion buys the flush ~30s rather than ~5. A crash or an instant kill
+  can still lose a staged edit, and that is the accepted cost of batching.
+
+  **The flush is driven by staged edits and never by the array's contents.** That
+  is not a style preference — see the hydration note below. A grid that has not
+  loaded yet is six empty slots, and anything reconciling the array against the
+  server would read it as *delete everything*.
+
+- **The grid never loaded, either.** `photos` is `@State` on `RootView`, six
+  nils, and nothing read the account's own back — so the pictures were in the
+  bucket, on the discovery card, and absent from the one screen their owner goes
+  to look at them. `AppShell` now fills it from `PhotoService.slots()`, which
+  keeps the position `paths()` throws away: somebody can have photographs in
+  slots 0, 2 and 5, and packing them into 0, 1, 2 would silently rearrange a
+  profile its owner laid out. Empty slots only, and never one with an edit
+  waiting, or a photograph removed while its download was in flight comes back.
 - **Every write is silent until somebody draws it.** `PhotoService.lastError` was
   recorded and never read — the same defect as `SyncService.lastError`, in a file
   written after that lesson was already in here. `upload(_:at:)` and `remove` now

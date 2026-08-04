@@ -521,16 +521,17 @@ struct DashboardView: View {
             cardLabel("PHOTOS", icon: "photo.on.rectangle")
             Divider().overlay(GardenPalette.ink.opacity(0.08))
 
-            // **The save is the edit here**, unlike onboarding, which waits for
-            // Continue. Without this the grid wrote to an in-memory array and
-            // nothing else, so a photograph added on this page was gone at the
-            // next launch and had never reached the bucket at all.
+            // **Recorded here, sent on the way out.** Onboarding waits for
+            // Continue; this page has no such button, so the departure is the
+            // button — see `AppShell`, which flushes on leaving the tab, on the
+            // app going away, and before signing out. Staging rather than
+            // sending means swapping a picture three times costs one upload.
             PhotoGrid(
                 media: $photos,
                 columns: 3,
                 cornerRadius: 16,
                 onEdit: { position, media in
-                    viewModel.savePhoto(media, at: position)
+                    viewModel.stagePhoto(media, at: position)
                 }
             )
             .padding(.top, 12)

@@ -166,6 +166,44 @@ actor PhotoService {
         return rows.compactMap { $0["object_path"] as? String }
     }
 
+    /// The same rows, keeping the slot each one belongs to.
+    ///
+    /// `paths()` discards the position because the discovery card only wants an
+    /// ordered list. The grid wants the arrangement: somebody can have
+    /// photographs in slots 0, 2 and 5, and dropping them into 0, 1, 2 would
+    /// silently rearrange a profile its owner laid out.
+    func slots() async -> [(position: Int, path: String)] {
+        guard let token = await SupabaseAuth.shared.validAccessToken(),
+              let userID = await SupabaseAuth.shared.userID else { return [] }
+
+        var components = URLComponents(
+            url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/photos"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "select", value: "object_path,position"),
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "order", value: "position.asc")
+        ]
+        guard let url = components?.url else { return [] }
+
+        var request = URLRequest(url: url)
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        else { return [] }
+
+        return rows.compactMap { row in
+            guard let path = row["object_path"] as? String,
+                  let position = row["position"] as? Int,
+                  (0..<6).contains(position)
+            else { return nil }
+            return (position, path)
+        }
+    }
+
     /// A signed URL to read one back.
     ///
     /// The bucket is private — every signed-in user may read it, but only

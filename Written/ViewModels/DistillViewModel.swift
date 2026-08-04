@@ -818,37 +818,89 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
-    /// A photograph added or removed on the dashboard, saved as it changes.
+    /// Photographs changed on the dashboard, held until the user is done.
     ///
-    /// **Onboarding has a Continue button and this page does not**, which is the
-    /// whole of why this exists. `RootView` uploaded on Continue and nothing
-    /// else ever did, so the six boxes in Memories edited an in-memory array
-    /// that no longer led anywhere: a photograph added there survived until the
-    /// app was killed and was never on the server at all. Found by querying
-    /// `public.photos` after adding one and getting no rows back — the upload
-    /// path is silent, which is the second half of the same bug.
+    /// Position to its new value, `nil` meaning it was taken away. A dictionary
+    /// rather than a list of events so **the last write to a slot wins**: pick,
+    /// swap, then remove collapses to one delete, and the intermediate pictures
+    /// are never uploaded at all. That is the whole point of batching.
+    private var pendingPhotos: [Int: PickedMedia?] = [:]
+
+    /// Two triggers can arrive together — leaving the tab and backgrounding are
+    /// one gesture apart — and both would otherwise take the same entries.
+    private var isFlushingPhotos = false
+
+    /// A photograph added or removed on the dashboard. Recorded, not sent.
     ///
-    /// One slot at a time. Re-sending all six because one changed would spend a
-    /// person's connection re-uploading photographs that are already there.
+    /// **Onboarding has a Continue button and this page does not**, which is why
+    /// the two surfaces differ at all. `RootView` uploaded on Continue and that
+    /// was the app's only call site, so for a while the dashboard's grid edited
+    /// an array that led nowhere. Saving on every edit fixed that and overshot:
+    /// somebody rearranging six pictures paid an upload for each intermediate
+    /// state. The save belongs at the moment they are finished, which is
+    /// `flushPhotos`.
+    func stagePhoto(_ media: PickedMedia?, at position: Int) {
+        pendingPhotos[position] = media
+    }
+
+    /// Whether a slot is waiting to be saved — read by the hydration pass, which
+    /// must not refill a photograph somebody has just removed.
+    func hasPendingPhoto(at position: Int) -> Bool {
+        pendingPhotos[position] != nil
+    }
+
+    /// Sends what was staged. Called on leaving Memories, on the app going away,
+    /// and before signing out.
     ///
-    /// The card is republished afterwards because it carries the paths, and it
-    /// is republished on removal too — a card still naming a photograph that has
-    /// been taken down would leave the feed drawing a face its owner withdrew.
-    func savePhoto(_ media: PickedMedia?, at position: Int) {
-        Task {
+    /// **Driven by staged edits, never by the array's contents.** A grid that has
+    /// not hydrated yet is six empty slots, and anything that reconciled the
+    /// array against the server would read that as "delete everything". Nothing
+    /// here infers intent from what the grid holds.
+    ///
+    /// A failed entry goes back into the queue rather than being dropped, so the
+    /// next departure retries it — but the reason is shown now, because a save
+    /// that will be attempted again is still a save that has not happened.
+    func flushPhotos() async {
+        guard !isFlushingPhotos, !pendingPhotos.isEmpty else { return }
+        isFlushingPhotos = true
+        defer { isFlushingPhotos = false }
+
+        let work = pendingPhotos
+        pendingPhotos = [:]
+
+        var firstFailure: String?
+        var landed = false
+
+        // Sorted so the order is the order of the grid rather than the
+        // dictionary's, which makes a failure mid-run comprehensible.
+        for position in work.keys.sorted() {
+            let media = work[position] ?? nil
             let reason: String?
             if let media {
                 reason = await PhotoService.shared.upload(media, at: position)
             } else {
                 reason = await PhotoService.shared.remove(position: position)
             }
+
             if let reason {
-                saveError = "Couldn't save that photo — \(reason)"
-                return
+                firstFailure = firstFailure ?? reason
+                // Back in the queue — unless the user has since changed this
+                // slot again, in which case their newer intent is the one that
+                // should survive.
+                if pendingPhotos[position] == nil { pendingPhotos[position] = media }
+            } else {
+                landed = true
             }
-            saveError = nil
-            publishDiscoveryCard()
         }
+
+        if let firstFailure {
+            saveError = "Couldn't save that photo — \(firstFailure)"
+        } else {
+            saveError = nil
+        }
+        // Once per flush, not once per photograph: the card carries all the
+        // paths, so republishing per file is six writes to say one thing.
+        if landed { publishDiscoveryCard() }
     }
 
     /// One location fix, the first time the dashboard needs it.

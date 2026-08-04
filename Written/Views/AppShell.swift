@@ -60,7 +60,15 @@ struct AppShell: View {
                     photos: $photos,
                     onBack: { withAnimation(.easeInOut(duration: 0.35)) { tab = .distill } },
                     onExplore: finishOnboarding,
-                    onSignOut: onSignOut,
+                    // Flushed first, while the token is still good: signing
+                    // out drops the session and clears local state, so a staged
+                    // photograph would go with nothing left to retry from.
+                    onSignOut: {
+                        Task {
+                            await viewModel.flushPhotos()
+                            onSignOut()
+                        }
+                    },
                     isVisible: tab == .dashboard,
                     isOnboarding: isOnboarding
                 )
@@ -161,6 +169,31 @@ struct AppShell: View {
             await PhotoService.shared.clearLastError()
             viewModel.saveError = "Couldn't save your photos — \(reason)"
         }
+        // **The grid starts empty on every launch**, because `photos` is state
+        // on `RootView` and nothing ever read the account's own back. So the
+        // pictures were in the bucket, on the discovery card, and absent from
+        // the one screen their owner goes to look at them.
+        //
+        // Empty slots only, and never one with an edit waiting. Two races
+        // otherwise: onboarding's freshly-picked array would be overwritten by
+        // the server's copy of the same photographs, and one removed while its
+        // download was in flight would come back.
+        .task {
+            for slot in await PhotoService.shared.slots() {
+                guard photos[slot.position] == nil,
+                      !viewModel.hasPendingPhoto(at: slot.position),
+                      let image = await ProfilePhotoCache.shared.image(at: slot.path)
+                else { continue }
+                // The same shape `PhotoGrid.load` builds for a photograph: the
+                // thumbnail *is* the picture, so the url is unused.
+                photos[slot.position] = PickedMedia(
+                    url: URL(fileURLWithPath: ""),
+                    thumbnail: image,
+                    isVideo: false,
+                    cropRect: PickedMedia.fullFrame
+                )
+            }
+        }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.
         //
@@ -182,6 +215,25 @@ struct AppShell: View {
         // persisted, and sliding it back would perform an exit the user never
         // asked for and did not see begin.
         .onChange(of: scenePhase) { phase in
+            // **`.inactive` as well as `.background`, and `.inactive` is the one
+            // that matters.** Raising the app switcher makes the app inactive
+            // *before* the swipe kills it, so this is what gives a force-quit
+            // any chance at all; by `.background` it is usually too late. Firing
+            // for a notification banner or Control Centre simply saves early.
+            //
+            // A crash or an instant kill can still lose a staged edit. That is
+            // the accepted cost of batching rather than an oversight.
+            if phase != .active {
+                // Without an assertion an app has a few seconds after leaving
+                // the foreground; with one it has closer to thirty, which is the
+                // difference between an upload finishing and being cut off.
+                let token = UIApplication.shared.beginBackgroundTask(withName: "photos")
+                Task {
+                    await viewModel.flushPhotos()
+                    if token != .invalid { UIApplication.shared.endBackgroundTask(token) }
+                }
+            }
+
             guard phase == .active, !isRevealing, gardenLift != 0 else { return }
             gardenLift = 0
         }
@@ -190,6 +242,13 @@ struct AppShell: View {
         // dashboard cannot inherit a lift, which is the trap the commit path
         // already avoids by returning to zero rather than parking off-screen.
         .onChange(of: tab) { _ in
+            // **Leaving Memories is the save.** Every exit changes `tab` — the
+            // bar, the dashboard's back button, and the profile preview's
+            // Explore button — so one place catches all of them. It fires on
+            // arrival too, which costs nothing: only the dashboard can stage an
+            // edit, so nothing is ever pending on the way in.
+            Task { await viewModel.flushPhotos() }
+
             guard !isRevealing, gardenLift != 0 else { return }
             gardenLift = 0
         }
