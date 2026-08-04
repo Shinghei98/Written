@@ -165,22 +165,33 @@ enum ListeningHighlights {
             guard record.source == "apple_calendar",
                   record.dataType == "event",
                   !record.isRemovedByUser else { return false }
+            // **A row with no `cal_type` is not drawn, and that reverses an
+            // earlier decision on the strength of measurement.** The reasoning
+            // used to be that rows predating the field were collected when
+            // nothing was filtered, so dropping them would hide real events
+            // too. Counted on a real device: 95 calendar rows, every one of
+            // them untyped, of which 51 were `US Holidays`, 37 `香港节假日`,
+            // one `Birthdays` — and six were real. The trade was the wrong way
+            // round by fifteen to one.
+            //
+            // It also self-heals rather than losing anything. The distiller
+            // stamps `cal_type` now, and a re-stamped row differs from its
+            // stored version, so `append_source_records` treats it as a change
+            // and writes it: one re-distill returns every event the person
+            // still has, typed. What does not come back was on a calendar that
+            // is filtered at collection — which is the point.
+            guard let type = record.extraValue("cal_type")?.lowercased() else { return false }
+
             // **Lowercased, because the comparison never matched.**
             // `CalendarDistiller.name(for:)` writes `subscription` and
             // `birthday`; this asked for `Subscription` and `Birthday`, so the
-            // filter read as correct and excluded nothing — every subscribed
-            // calendar and every generated birthday reached the card, which is
-            // exactly how it was reported. A test against a string another file
-            // produces is a test that has to be checked against that file.
-            let type = record.extraValue("cal_type")?.lowercased()
+            // filter read as correct and excluded nothing. A test against a
+            // string another file produces has to be checked against that file.
             guard type != "subscription", type != "birthday" else { return false }
 
-            // **And by name, for the two cases the type cannot answer.** Rows
-            // written before `cal_type` existed carry none at all and are kept
-            // deliberately — dropping them on a missing field would hide real
-            // events — so a birthday collected back then has nothing else to
-            // catch it. Holidays arriving through a Google or Exchange account
-            // are `caldav`, an ordinary type, and have never had anything.
+            // Holidays arriving through a Google or Exchange account are
+            // `caldav` — an ordinary type, from a server, indistinguishable by
+            // type from a real diary. The name is the only thing left.
             return !CalendarDistiller.isGenerated(record.extraValue("calendar") ?? "")
         }
     }

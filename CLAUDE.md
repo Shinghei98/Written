@@ -257,14 +257,26 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   one was cited in this file as done. **A test against a string another file
   produces has to be checked against that file.**
 
-  Two things the type alone cannot answer, so the calendar's *name* is tested as
-  well, through one shared `CalendarDistiller.isGenerated`: rows written before
-  `cal_type` existed carry no type at all and are deliberately kept, so a
-  birthday from back then has nothing else to catch it; and holidays arriving
-  through a Google or Exchange account are `caldav` — an ordinary type, from a
-  server, indistinguishable by type from a real diary. Name matching is English
-  and therefore fails on a phone in another language; that is a smaller failure
-  than dropping a calendar somebody uses, which is why the test is narrow.
+  **A row with no `cal_type` is not drawn**, which reverses what this file used
+  to say — that such rows predate the filtering and dropping them would hide real
+  events too. Counted rather than argued, on a real device: **95 calendar rows,
+  every one of them untyped**, of which 51 were `US Holidays`, 37 `香港节假日`,
+  one `Birthdays`, and six were real. The trade was the wrong way round by
+  fifteen to one.
+
+  It costs nothing permanent, and that is the part worth keeping: the distiller
+  stamps `cal_type` now, a re-stamped row differs from its stored version, and
+  `append_source_records` treats a difference as a change — so **one re-distill
+  returns every event the person still has, typed**. What does not come back was
+  on a calendar filtered at collection.
+
+  The calendar's *name* is the last test rather than the only one, through one
+  shared `CalendarDistiller.isGenerated`, because holidays arriving through a
+  Google or Exchange account are `caldav`: an ordinary type, from a server,
+  indistinguishable by type from a real diary. It matches English plus 节假日 /
+  節假日, the one other form there is direct evidence of. **That list will always
+  be incomplete** — which is exactly why it runs last, after the type has settled
+  everything it can.
 
   **The card lists the events themselves**, one row per distinct title. It
   printed readings for a while — arranged, booked ahead, evenings, weekends,

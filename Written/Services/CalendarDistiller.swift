@@ -114,9 +114,18 @@ struct CalendarDistiller {
     /// about what a personal calendar is.
     static func isGenerated(_ title: String) -> Bool {
         let name = title.lowercased()
+        // English, plus the one other form there is direct evidence of: a real
+        // device carried 37 rows from `香港节假日`. Both Chinese scripts, since
+        // the simplified and traditional forms differ by one character and a
+        // phone set to either will produce its own.
+        //
+        // This list will always be incomplete, which is why it is the *last*
+        // test rather than the only one — everything with a `cal_type` is
+        // settled before it, and an untyped row is not drawn at all.
         return name.contains("holiday")
             || name.contains("birthday")
-            || name.contains("public holidays")
+            || name.contains("节假日")
+            || name.contains("節假日")
     }
 
     /// iOS 17 split calendar access into full and write-only, and asking with
