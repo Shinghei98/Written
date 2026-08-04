@@ -214,13 +214,22 @@ struct RootView: View {
             case .photos:
                 PhotoEntryView(
                     onContinue: { picked in
-                        // **The screen does not wait for the upload.** Six
-                        // photographs over a phone connection is seconds at
-                        // best, and holding somebody on the last page of
-                        // onboarding while it happens would make a working
-                        // upload feel like a hang. The files are already chosen
-                        // and framed; nothing about the next screen depends on
-                        // them having landed.
+                        // **Queued, not uploaded.** This page used to send them
+                        // and persist nothing, so onboarding on a bad connection
+                        // lost somebody's photographs without a word — the one
+                        // place a first-time user is most likely to meet that.
+                        // They go to `PendingPhotoStore` instead, and `AppShell`
+                        // sends them the moment it appears, retrying at every
+                        // launch until they land.
+                        //
+                        // **The staging is awaited and the route is not.** It is
+                        // a JPEG encode and a file write, not a network round
+                        // trip — fast enough not to feel like a hang, and the
+                        // alternative is a race it would lose about half the
+                        // time: `AppShell` reads the queue as it mounts, so a
+                        // route change that outran the writing would find it
+                        // empty and leave the photographs sitting until the next
+                        // launch.
                         //
                         // **The card is not published here**, though it carries
                         // the paths. `publishDiscoveryCard` needs interests and
@@ -228,15 +237,13 @@ struct RootView: View {
                         // on this page has connected nothing. It rides the first
                         // sync instead, which reads the paths back from the
                         // server precisely so the two need not be simultaneous.
-                        //
-                        // A failure here is reported by `AppShell`, which asks
-                        // once on arrival; nothing on this page can draw a
-                        // banner, since it is about to be replaced.
                         Task {
+                            await PhotoService.shared.stage(picked)
+                            route = .home
+                            // After the route, because it is a network call and
+                            // nothing on the next screen waits for it.
                             await SupabaseAuth.shared.markPhotoStepSeen()
-                            await PhotoService.shared.upload(picked)
                         }
-                        route = .home
                     },
                     // Declining still counts as having been asked.
                     onSkip: {

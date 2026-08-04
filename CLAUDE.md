@@ -1088,10 +1088,25 @@ Three things generalise, and the middle one is the reason this was invisible:
   own departure fired.
 
   Restored into the grid **before** the server's copy, since it is the newer
-  intent; the launch retry is silent, because a refusal about a photograph
-  chosen in some earlier session explains nothing the user can act on at launch.
-  Cleared on sign-out with everything else — unsent work is not a cache, but
-  sign-out flushes first, so this discards only what a failure left behind.
+  intent. The launch retry is silent on an ordinary launch — a refusal about a
+  photograph chosen in some earlier session explains nothing the user can act
+  on — but **not on the launch after onboarding**, where the pictures were
+  chosen seconds ago and a failure is worth saying. Cleared on sign-out with
+  everything else: unsent work is not a cache, but sign-out flushes first, so
+  this discards only what a failure left behind.
+
+  **Onboarding goes through the same queue**, which is the whole of what used to
+  be missing there: the photo page uploaded directly and persisted nothing, so
+  onboarding on a bad connection lost somebody's photographs silently, in the
+  one place a first-time user is most likely to meet it. It stages and `AppShell`
+  sends. The staging is **awaited before the route changes** — it is a JPEG
+  encode and a file write, not a round trip, and the alternative is a race the
+  route wins about half the time, leaving the queue unread until the next launch.
+
+  That also retired the read-once `PhotoService.lastError` reporter in
+  `AppShell`. It existed because the photo page's fire-and-forget upload had no
+  way to complain; nothing fires and forgets any more, and the flush reports its
+  own failures.
 
   **The flush is driven by staged edits and never by the array's contents.** That
   is not a style preference — see the hydration note below. A grid that has not

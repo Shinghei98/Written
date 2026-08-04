@@ -27,47 +27,23 @@ actor PhotoService {
 
     private(set) var lastError: String?
 
-    /// Read-once, for the one caller that reports a failure it did not cause —
-    /// see `AppShell`. Clearing it is what stops the same refusal being drawn
-    /// again on a later trip through the shell.
-    func clearLastError() { lastError = nil }
-
-    /// Uploads what the photo page collected and records the order.
+    /// Queues everything the photo page collected, rather than sending it.
     ///
-    /// **Order is the point of the table.** A bucket knows names, not sequence,
-    /// and the grid position somebody put a picture in is the order they meant —
-    /// so `position` is the array index, and re-uploading writes over that
-    /// position rather than appending a seventh photograph.
+    /// **Onboarding used to upload here and persist nothing**, so somebody
+    /// onboarding on a bad connection lost their photographs silently — the
+    /// exact failure `PendingPhotoStore` closed for the dashboard, still open in
+    /// the one place a first-time user is most likely to meet it.
     ///
-    /// Returns the object paths in position order, which is what the discovery
-    /// card carries.
-    @discardableResult
-    func upload(_ media: [PickedMedia?]) async -> [String] {
-        guard let token = await SupabaseAuth.shared.validAccessToken() else {
-            lastError = "You're not signed in."
-            return []
-        }
-        // After the token, never before: the refresh is what fills the id in on
-        // a cold launch, and reading it first reports "not signed in" for a
-        // session that is merely not restored yet.
-        guard let userID = await SupabaseAuth.shared.userID else {
-            lastError = "No account id."
-            return []
-        }
-
-        var paths: [String] = []
-
+    /// **The sparse array matters.** `position` is the box the picture was put
+    /// in, so a compacted list is the wrong thing to hand anything that assigns
+    /// positions: filling boxes 0, 3 and 5 saved them as 0, 1 and 2 for as long
+    /// as this took the compacted one, and the arrangement was destroyed at the
+    /// first save.
+    func stage(_ media: [PickedMedia?]) async {
         for (position, item) in media.enumerated() {
-            guard let item else { continue }
-            guard let payload = await encode(item) else { continue }
-            guard let path = await send(
-                payload, position: position, userID: userID, token: token
-            ) else { continue }
-            paths.append(path)
+            guard let item, let data = await encode(item)?.data else { continue }
+            PendingPhotoStore.stage(data, at: position)
         }
-
-        if !paths.isEmpty { lastError = nil }
-        return paths
     }
 
     /// The bytes a photograph will be uploaded as, encoded now rather than at

@@ -157,18 +157,6 @@ struct AppShell: View {
         // answered two screens before this view is built. Idempotent, and
         // `restoreFromServer` calls it again once the server's version lands.
         .task { viewModel.adoptStoredCommunicationStyle() }
-        // **The photo page's upload has no way to complain**: it fires as the
-        // route changes, and the screen it was started from is gone a frame
-        // later. So the shell asks on arrival instead.
-        //
-        // Read once and cleared, so it cannot resurface later attached to
-        // nothing. `lastError` lives in memory only, so on any launch that did
-        // not just run that upload it is nil and this costs an actor hop.
-        .task {
-            guard let reason = await PhotoService.shared.lastError else { return }
-            await PhotoService.shared.clearLastError()
-            viewModel.saveError = "Couldn't save your photos — \(reason)"
-        }
         // **The grid starts empty on every launch**, because `photos` is state
         // on `RootView` and nothing ever read the account's own back. So the
         // pictures were in the bucket, on the discovery card, and absent from
@@ -209,11 +197,14 @@ struct AppShell: View {
                 )
             }
 
-            // Silently: a refusal about a photograph chosen in some earlier
-            // session is not something the user just did, and it explains
-            // nothing they can act on at launch. The next departure they
-            // perform will say so.
-            await viewModel.flushPhotos(announcing: false)
+            // **Silent on an ordinary launch, not on the one after
+            // onboarding.** A refusal about a photograph chosen in some earlier
+            // session explains nothing the user can act on, and announcing it
+            // every cold launch while offline is noise. But arriving here from
+            // the photo page, these are pictures chosen seconds ago — that is
+            // something they just did, and it is worth telling them it did not
+            // land. The next departure they perform says so either way.
+            await viewModel.flushPhotos(announcing: isOnboarding)
         }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.
