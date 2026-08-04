@@ -59,6 +59,10 @@ struct GrowProfileView: View {
     /// presents it, and cannot disagree with itself.
     @State private var pickedModality: Modality?
 
+    /// What the picker was asked for, held between the tap and the sheet
+    /// finishing its dismissal. See the `.sheet`'s `onDismiss`.
+    @State private var chosenSource: String?
+
     /// The tree currently on screen, which lags the view model's by one
     /// watering: the new shape must not appear until the can has poured, or the
     /// tree visibly grows before anything waters it.
@@ -425,14 +429,31 @@ struct GrowProfileView: View {
                 }
             }
         }
-        .sheet(item: $pickedModality) { modality in
+        // **`onDismiss`, not the row's own action.** The chosen source is
+        // started once this sheet has actually gone, rather than while it is
+        // going: a system permission request raised during a modal's dismissal
+        // has nothing stable to present over, and for Apple Health that is a
+        // plausible cause of the sheet never appearing at all — see
+        // `SourcePickerSheet.onChoose`.
+        //
+        // This is the transition's own completion callback, so it needs no
+        // guessed delay, and it is right for every source rather than only for
+        // Health: YouTube's `ASWebAuthenticationSession` and the MusicKit and
+        // EventKit alerts are all presentations racing the same dismissal.
+        //
+        // A sheet swiped away without a choice leaves `chosenSource` nil and
+        // starts nothing, which is what should happen anyway.
+        .sheet(item: $pickedModality, onDismiss: startChosenSource) { modality in
             // Built once so the detent and the content agree on how many rows
             // there are — asking the sheet for 280pt regardless left a
             // single-app modality in a half-empty card.
             let sheet = SourcePickerSheet(
                 modality: modality,
                 viewModel: viewModel,
-                onClose: { pickedModality = nil }
+                onChoose: { source in
+                    chosenSource = source
+                    pickedModality = nil
+                }
             )
             sheet.presentationDetents([.height(sheet.detentHeight)])
         }
@@ -1151,6 +1172,18 @@ struct GrowProfileView: View {
     /// — Music asked, Media and Lifestyle jumped. Naming the app before sending
     /// someone to a system permission sheet is the more honest order, and it is
     /// also where "no apps available on this device" can be said at all.
+    /// Starts whatever the picker was asked for, now that it has gone.
+    ///
+    /// `requestedModality` is not set here: `connect(_:)` already recorded it
+    /// when the picker opened, which is deliberately earlier than this — by the
+    /// time a distillation starts, the only thing left to go on is
+    /// `nextModality`, and that is the wrong answer for a re-distill.
+    private func startChosenSource() {
+        guard let source = chosenSource else { return }
+        chosenSource = nil
+        viewModel.distill(source: source)
+    }
+
     private func connect(_ modality: Modality) {
         pickedModality = modality
         // Remembered here rather than worked out when the distillation starts:
@@ -1724,7 +1757,23 @@ struct ModalityBadge: View {
 struct SourcePickerSheet: View {
     let modality: Modality
     @ObservedObject var viewModel: DistillViewModel
-    var onClose: () -> Void = {}
+    /// Hands the chosen source back and closes; **it does not start the
+    /// distillation itself.**
+    ///
+    /// It used to do both, in that order — distil, then dismiss — which put the
+    /// system permission request in the air while this sheet was still on
+    /// screen being torn down. For most sources that is merely untidy: an alert
+    /// queues. For Apple Health it is a plausible cause of the failure two
+    /// testers reported, because HealthKit does not draw its own sheet — it
+    /// hosts a remote view from `com.apple.HealthPrivacyService`, which has to
+    /// be *presented* over whatever is topmost, and what was topmost was a
+    /// modal in mid-dismissal. HealthKit's answer to not being able to present
+    /// is no refusal, no wait, and no sheet.
+    ///
+    /// `HealthKitDistiller.waitUntilActive` cannot cover this: it tests
+    /// `applicationState`, which stays `.active` throughout a sheet dismissal.
+    /// It can see the app being backgrounded and is blind to our own modal.
+    var onChoose: (String) -> Void = { _ in }
 
     /// Only what this device can actually offer — see `SourceAvailability`,
     /// which hides the two Apple frameworks where they cannot work rather than
@@ -1833,8 +1882,7 @@ struct SourcePickerSheet: View {
 
     private func row(for source: String) -> some View {
         Button {
-            viewModel.distill(source: source)
-            onClose()
+            onChoose(source)
         } label: {
             HStack(spacing: 12) {
                 // `Modality.icon(forSource:)` rather than a local guess — it
