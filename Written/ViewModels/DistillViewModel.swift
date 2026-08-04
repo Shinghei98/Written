@@ -238,6 +238,13 @@ final class DistillViewModel: ObservableObject {
         // ever dropped it becomes the only thing that survives a sign-out.
         ChatStore.clear()
         UserDefaults.standard.removeObject(forKey: Self.treeSeedKey)
+        // Unsent work rather than a cache, so keeping it would be defensible —
+        // but signing out leaves nothing on this device, and of everything here
+        // a photograph is the last thing to make an exception for. What makes
+        // that acceptable is that sign-out flushes first, while the token is
+        // still good; this discards only what a failure left behind.
+        PendingPhotoStore.clear()
+        pendingPhotos = [:]
         clearInMemoryState()
     }
 
@@ -819,13 +826,22 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
-    /// Photographs changed on the dashboard, held until the user is done.
+    /// Photographs changed on the dashboard, owed to the server.
     ///
-    /// Position to its new value, `nil` meaning it was taken away. A dictionary
-    /// rather than a list of events so **the last write to a slot wins**: pick,
-    /// swap, then remove collapses to one delete, and the intermediate pictures
-    /// are never uploaded at all. That is the whole point of batching.
-    private var pendingPhotos: [Int: PickedMedia?] = [:]
+    /// Position to what should happen to it. A dictionary rather than a list of
+    /// events so **the last write to a slot wins**: pick, swap, then remove
+    /// collapses to one delete, and the intermediate pictures are never uploaded
+    /// at all. That is the whole point of batching.
+    ///
+    /// Mirrored to disk by `PendingPhotoStore` as it is written, so it survives
+    /// the app dying — this map is the working copy, not the record.
+    private var pendingPhotos: [Int: PendingPhotoStore.Entry] = [:]
+
+    /// Staging encodes, which takes a moment, and leaving the tab must not
+    /// outrun it. `flushPhotos` awaits these before deciding it has nothing to
+    /// do — otherwise a picture chosen and immediately walked away from would
+    /// be missed by the very flush that its own departure fired.
+    private var stagingTasks: [Task<Void, Never>] = []
 
     /// Two triggers can arrive together — leaving the tab and backgrounding are
     /// one gesture apart — and both would otherwise take the same entries.
@@ -845,13 +861,48 @@ final class DistillViewModel: ObservableObject {
     /// state. The save belongs at the moment they are finished, which is
     /// `flushPhotos`.
     func stagePhoto(_ media: PickedMedia?, at position: Int) {
-        pendingPhotos[position] = media
+        let task = Task { @MainActor in
+            guard let media else {
+                pendingPhotos[position] = .remove
+                PendingPhotoStore.stage(nil, at: position)
+                return
+            }
+            // Encoded here rather than at send time, so what lands on disk is
+            // exactly what will be uploaded — a retry after a crash sends the
+            // same bytes rather than re-deriving them from an image that is
+            // gone.
+            guard let data = await PhotoService.shared.encoded(media) else {
+                saveError = "Couldn't prepare that photo."
+                return
+            }
+            pendingPhotos[position] = .upload(data)
+            PendingPhotoStore.stage(data, at: position)
+        }
+        stagingTasks.append(task)
     }
 
     /// Whether a slot is waiting to be saved — read by the hydration pass, which
     /// must not refill a photograph somebody has just removed.
     func hasPendingPhoto(at position: Int) -> Bool {
         pendingPhotos[position] != nil
+    }
+
+    /// Work left over from a previous launch, put back in the queue.
+    ///
+    /// Returns the pictures among it, so the grid can draw what the user last
+    /// intended rather than what the server last accepted. Without this a photo
+    /// added offline and then force-quit would come back missing, be silently
+    /// re-uploaded by the retry, and reappear a moment later — which reads as
+    /// the app losing it and then finding it.
+    func restorePendingPhotos() -> [Int: Data] {
+        var images: [Int: Data] = [:]
+        for (position, entry) in PendingPhotoStore.load() {
+            // Anything staged this launch is newer than anything on disk.
+            guard pendingPhotos[position] == nil else { continue }
+            pendingPhotos[position] = entry
+            if case .upload(let data) = entry { images[position] = data }
+        }
+        return images
     }
 
     /// Sends what was staged. Called on leaving Memories, on the app going away,
@@ -865,7 +916,13 @@ final class DistillViewModel: ObservableObject {
     /// A failed entry goes back into the queue rather than being dropped, so the
     /// next departure retries it — but the reason is shown now, because a save
     /// that will be attempted again is still a save that has not happened.
-    func flushPhotos() async {
+    func flushPhotos(announcing: Bool = true) async {
+        // Before the emptiness check, not after: a picture picked a moment ago
+        // may still be encoding, and this is the flush its departure fired.
+        let staging = stagingTasks
+        stagingTasks = []
+        for task in staging { await task.value }
+
         guard !isFlushingPhotos, !pendingPhotos.isEmpty else { return }
         isFlushingPhotos = true
         beginPhotoBackgroundTask()
@@ -883,11 +940,12 @@ final class DistillViewModel: ObservableObject {
         // Sorted so the order is the order of the grid rather than the
         // dictionary's, which makes a failure mid-run comprehensible.
         for position in work.keys.sorted() {
-            let media = work[position] ?? nil
+            guard let entry = work[position] else { continue }
             let reason: String?
-            if let media {
-                reason = await PhotoService.shared.upload(media, at: position)
-            } else {
+            switch entry {
+            case .upload(let data):
+                reason = await PhotoService.shared.upload(data, at: position)
+            case .remove:
                 reason = await PhotoService.shared.remove(position: position)
             }
 
@@ -895,15 +953,20 @@ final class DistillViewModel: ObservableObject {
                 firstFailure = firstFailure ?? reason
                 // Back in the queue — unless the user has since changed this
                 // slot again, in which case their newer intent is the one that
-                // should survive.
-                if pendingPhotos[position] == nil { pendingPhotos[position] = media }
+                // should survive, and its file has already replaced this one's.
+                if pendingPhotos[position] == nil { pendingPhotos[position] = entry }
             } else {
                 landed = true
+                PendingPhotoStore.clear(position: position)
             }
         }
 
+        // **Silent when nobody asked.** The retry on launch is not a thing the
+        // user just did, and opening the app to a complaint about a photograph
+        // chosen yesterday explains nothing they can act on. It still retries;
+        // it just doesn't announce. A departure they performed does.
         if let firstFailure {
-            saveError = "Couldn't save that photo — \(firstFailure)"
+            if announcing { saveError = "Couldn't save that photo — \(firstFailure)" }
         } else {
             saveError = nil
         }

@@ -59,8 +59,9 @@ actor PhotoService {
 
         for (position, item) in media.enumerated() {
             guard let item else { continue }
+            guard let payload = await encode(item) else { continue }
             guard let path = await send(
-                item, position: position, userID: userID, token: token
+                payload, position: position, userID: userID, token: token
             ) else { continue }
             paths.append(path)
         }
@@ -69,18 +70,29 @@ actor PhotoService {
         return paths
     }
 
-    /// One slot, saved on its own.
+    /// The bytes a photograph will be uploaded as, encoded now rather than at
+    /// send time.
+    ///
+    /// **Encoding at staging is what makes the queue durable.** The bytes go to
+    /// disk the moment somebody picks a picture, so what is retried after a
+    /// crash is exactly what would have been sent — not a `UIImage` that died
+    /// with the process, and not a re-encode that could differ.
+    func encoded(_ item: PickedMedia) async -> Data? {
+        await encode(item)?.data
+    }
+
+    /// One slot, saved on its own, from bytes already encoded.
     ///
     /// **The dashboard has no Continue button**, so a photograph changed there
-    /// has to save the moment it changes — and re-sending all six because one of
-    /// them moved would spend somebody's connection re-uploading pictures that
-    /// are already sitting in the bucket.
+    /// is sent when the user leaves rather than when they pick — and re-sending
+    /// all six because one moved would spend somebody's connection on pictures
+    /// already in the bucket.
     ///
     /// Returns nil on success, or the reason it failed. A `String?` rather than
     /// a throw because every caller wants the same thing with it — to put it in
     /// front of the user — and `lastError` alone is what let this path stay
     /// silent for as long as it did.
-    func upload(_ item: PickedMedia, at position: Int) async -> String? {
+    func upload(_ data: Data, at position: Int) async -> String? {
         guard let token = await SupabaseAuth.shared.validAccessToken() else {
             lastError = "You're not signed in."
             return lastError
@@ -89,7 +101,8 @@ actor PhotoService {
             lastError = "No account id."
             return lastError
         }
-        guard await send(item, position: position, userID: userID, token: token) != nil else {
+        let payload = (data: data, ext: "jpg", mime: "image/jpeg")
+        guard await send(payload, position: position, userID: userID, token: token) != nil else {
             return lastError ?? "The photo didn't save."
         }
         lastError = nil
@@ -243,22 +256,16 @@ actor PhotoService {
 
     // MARK: - The two halves
 
-    /// Encode, put, record — the three steps both entry points share.
+    /// Put then record — the two steps both entry points share.
     private func send(
-        _ item: PickedMedia, position: Int, userID: String, token: String
+        _ payload: (data: Data, ext: String, mime: String),
+        position: Int, userID: String, token: String
     ) async -> String? {
-        guard let payload = await encode(item) else {
-            lastError = "Couldn't prepare that photo."
-            return nil
-        }
         guard let path = await put(
             payload, userID: userID, position: position, token: token
         ) else { return nil }
 
-        await record(
-            path: path, position: position, item: item,
-            userID: userID, token: token
-        )
+        await record(path: path, position: position, userID: userID, token: token)
         return path
     }
 
@@ -391,19 +398,22 @@ actor PhotoService {
     }
 
     /// The row that says where this one sits.
+    /// Always a whole photograph, since video is out of the six boxes — a photo
+    /// is cropped for real before it gets here, so its rectangle is the full
+    /// frame by definition. The columns stay in `0015` for when video returns;
+    /// see the note there.
     private func record(
-        path: String, position: Int, item: PickedMedia,
-        userID: String, token: String
+        path: String, position: Int, userID: String, token: String
     ) async {
         let body: [String: Any] = [
             "user_id": userID,
             "position": position,
             "object_path": path,
-            "kind": item.isVideo ? "video" : "photo",
-            "crop_x": item.cropRect.origin.x,
-            "crop_y": item.cropRect.origin.y,
-            "crop_w": item.cropRect.width,
-            "crop_h": item.cropRect.height
+            "kind": "photo",
+            "crop_x": 0,
+            "crop_y": 0,
+            "crop_w": 1,
+            "crop_h": 1
         ]
 
         var request = URLRequest(url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/photos"))

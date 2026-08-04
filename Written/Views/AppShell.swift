@@ -179,6 +179,21 @@ struct AppShell: View {
         // the server's copy of the same photographs, and one removed while its
         // download was in flight would come back.
         .task {
+            // **Unsent work first.** A photograph staged and then lost to a
+            // crash or a kill is the user's latest intent, so it goes back into
+            // the grid before the server's older answer does — otherwise it
+            // comes back missing, gets silently re-uploaded by the retry below,
+            // and reappears, which reads as the app losing it and finding it.
+            for (position, data) in viewModel.restorePendingPhotos() {
+                guard let image = UIImage(data: data) else { continue }
+                photos[position] = PickedMedia(
+                    url: URL(fileURLWithPath: ""),
+                    thumbnail: image,
+                    isVideo: false,
+                    cropRect: PickedMedia.fullFrame
+                )
+            }
+
             for slot in await PhotoService.shared.slots() {
                 guard photos[slot.position] == nil,
                       !viewModel.hasPendingPhoto(at: slot.position),
@@ -193,6 +208,12 @@ struct AppShell: View {
                     cropRect: PickedMedia.fullFrame
                 )
             }
+
+            // Silently: a refusal about a photograph chosen in some earlier
+            // session is not something the user just did, and it explains
+            // nothing they can act on at launch. The next departure they
+            // perform will say so.
+            await viewModel.flushPhotos(announcing: false)
         }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.

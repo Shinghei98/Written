@@ -1066,6 +1066,33 @@ Three things generalise, and the middle one is the reason this was invisible:
   task assertion buys the flush ~30s rather than ~5. A crash or an instant kill
   can still lose a staged edit, and that is the accepted cost of batching.
 
+  **The queue survives the app**, through `PendingPhotoStore`. It was
+  memory-only, so a photograph added offline stayed in the grid looking saved,
+  the retry fired only if the user left the tab again in the same launch, and a
+  force-quit took it with nothing left to try from. Application Support rather
+  than Caches, one directory per account through `AccountScope` — a queue
+  flushed into the wrong account would upload somebody else's face.
+
+  **The intent is the file name, not a manifest.** `3.jpg` is a pending upload
+  for slot 3, `3.removed` a pending removal. A manifest beside the files is a
+  second thing that can disagree with them, and a crash between writing the two
+  leaves a queue naming a file that isn't there. A directory listing cannot
+  disagree with itself.
+
+  **Encoded at staging, not at send.** What lands on disk is exactly what will
+  be uploaded, so a retry after a crash sends the same bytes rather than
+  re-deriving them from a `UIImage` that died with the process. It also means
+  staging takes a moment, which is why `flushPhotos` awaits the outstanding
+  staging tasks *before* deciding it has nothing to do — a picture chosen and
+  immediately walked away from would otherwise be missed by the very flush its
+  own departure fired.
+
+  Restored into the grid **before** the server's copy, since it is the newer
+  intent; the launch retry is silent, because a refusal about a photograph
+  chosen in some earlier session explains nothing the user can act on at launch.
+  Cleared on sign-out with everything else — unsent work is not a cache, but
+  sign-out flushes first, so this discards only what a failure left behind.
+
   **The flush is driven by staged edits and never by the array's contents.** That
   is not a style preference — see the hydration note below. A grid that has not
   loaded yet is six empty slots, and anything reconciling the array against the
