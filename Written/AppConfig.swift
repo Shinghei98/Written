@@ -92,6 +92,12 @@ enum AppConfig {
     /// heavy rotation and play counts, so the tail is worth little.
     static let maxSongsRated = 1_000
 
+    /// Ceiling on songs read from the *device* library — see
+    /// `MusicLibraryDistiller`, which is what covers people with no Apple Music
+    /// subscription. Higher than `maxSongsRated` because this costs no round
+    /// trips at all: it is a local query, not a thousand ids over the network.
+    static let maxLibrarySongs = 3_000
+
     // MARK: Apple Calendar
 
     /// How far back events are read. A year covers the seasonal shape of

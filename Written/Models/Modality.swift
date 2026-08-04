@@ -122,9 +122,30 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         sources.map(Modality.displayName(forSource:))
     }
 
+    /// Sources whose *records* belong to this branch, which is not the same
+    /// question as which sources a person can connect.
+    ///
+    /// `sources` drives the picker: one row each, one tap each. `music_library`
+    /// has no row — it rides the Apple Music connect, because MusicKit and
+    /// MediaPlayer share the "Media & Apple Music" grant and offering the device
+    /// library as a separate button would be a second tap for a permission
+    /// already given. But its rows are still music, and everything that asks
+    /// "is this a music record" — the artist ban, the ranking, the fixtures —
+    /// has to say yes.
+    ///
+    /// Splitting the two is what stops a striking-off from missing half the
+    /// library: `applyingBans` read `sources` and would have left a banned
+    /// artist's locally-held songs untouched.
+    var recordSources: [String] {
+        switch self {
+        case .music: return sources + ["music_library"]
+        default: return sources
+        }
+    }
+
     /// Which branch a source feeds. `nil` for a source no modality claims.
     static func owning(source: String) -> Modality? {
-        allCases.first { $0.sources.contains(source) }
+        allCases.first { $0.recordSources.contains(source) }
     }
 
     static func displayName(forSource source: String) -> String {

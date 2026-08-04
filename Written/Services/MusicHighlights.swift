@@ -241,7 +241,7 @@ enum MusicHighlights {
     private static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seen: Set<String> = []
         var songs: [DistilledRecord] = []
-        for record in records where Modality.music.sources.contains(record.source)
+        for record in records where Modality.music.recordSources.contains(record.source)
             && songTypes.contains(record.dataType)
             // Struck off by the user. The row is still in the data, carrying the
             // note that says so; it just stops counting toward anything.

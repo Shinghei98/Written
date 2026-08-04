@@ -428,13 +428,45 @@ final class DistillViewModel: ObservableObject {
         guard !appleMusicStatus.isRunning else { return }
         appleMusicStatus = .running
         Task {
+            // **Two libraries behind one tap.** MusicKit reads the Apple Music
+            // account and needs a subscription to return anything at all;
+            // `MusicLibraryDistiller` reads the device library and needs none.
+            // They share the "Media & Apple Music" grant, so this is one dialog
+            // and one picker row — see that distiller for why the hole it fills
+            // is invisible from a developer's phone.
+            //
+            // Run and reported independently: somebody with no subscription must
+            // still get their device library, and a MusicKit failure that took
+            // the local songs down with it would be the exact bug this is here
+            // to fix.
+            var collected = 0
+            var failure: String?
+
             do {
-                let distiller = AppleMusicDistiller()
-                let newRecords = try await distiller.distill()
+                let newRecords = try await AppleMusicDistiller().distill()
                 replaceRecords(from: "apple_music", with: newRecords)
-                appleMusicStatus = .done(count: newRecords.count)
+                collected += newRecords.count
             } catch {
-                appleMusicStatus = .failed(message: Self.detail(of: error))
+                failure = Self.detail(of: error)
+            }
+
+            do {
+                let libraryRecords = try await MusicLibraryDistiller().distill()
+                // Replaced under its own source, or a second distillation would
+                // append these again rather than replace them.
+                replaceRecords(from: "music_library", with: libraryRecords)
+                collected += libraryRecords.count
+            } catch {
+                failure = failure ?? Self.detail(of: error)
+            }
+
+            // A failure only counts if nothing came back. One of the two
+            // returning rows is a success from the user's side, whatever the
+            // other did.
+            if collected > 0 {
+                appleMusicStatus = .done(count: collected)
+            } else {
+                appleMusicStatus = .failed(message: failure ?? "No music found.")
             }
         }
     }
@@ -1081,7 +1113,7 @@ final class DistillViewModel: ObservableObject {
     private func applyingBans(_ record: DistilledRecord) -> DistilledRecord {
         guard !bans.isEmpty, !record.isRemovedByUser else { return record }
 
-        if Modality.music.sources.contains(record.source) {
+        if Modality.music.recordSources.contains(record.source) {
             // Every artist credited on the track, so a banned artist's
             // collaborations go too.
             let credited = record.creator.split(separator: "|").map { String($0) }
