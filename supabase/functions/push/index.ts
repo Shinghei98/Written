@@ -199,6 +199,11 @@ interface Payload {
   thread?: string;
   // Who it is *from* — see `0025`. Not the recipient. Used to find a face.
   sender_id?: string;
+  // The person's name on its own, because a communication notification renames
+  // the title to it. "Marco", not "Marco likes you". See `0027`.
+  sender_name?: string;
+  // What the title used to say. `updating(from:)` leaves a subtitle alone.
+  subtitle?: string;
 }
 
 /// A short-lived URL for the sender's first profile photograph, or null.
@@ -285,7 +290,11 @@ async function send(
     },
     body: JSON.stringify({
       aps: {
-        alert: { title: payload.title, body: payload.body },
+        alert: {
+          title: payload.title,
+          subtitle: payload.subtitle ?? undefined,
+          body: payload.body,
+        },
         sound: "default",
         // Names the notification's kind so the app can group by conversation
         // and, later, so a service extension can attach a photograph.
@@ -301,6 +310,7 @@ async function send(
       // extension falls back to the plain banner, which is why neither is
       // required.
       sender_id: payload.sender_id ?? null,
+      sender_name: payload.sender_name ?? null,
       image_url: imageURL,
     }),
   });
