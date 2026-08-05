@@ -300,7 +300,11 @@ async function send(
         alert: {
           title: payload.title,
           subtitle: payload.subtitle ?? undefined,
-          body: payload.body,
+          // **Omitted when empty, not sent as "".** An empty string draws a
+          // blank second line under the title, which is exactly what the match
+          // notification exists without — see `0029`. `undefined` disappears
+          // from `JSON.stringify` entirely; `""` does not.
+          body: payload.body ? payload.body : undefined,
         },
         sound: "default",
         // Names the notification's kind so the app can group by conversation
