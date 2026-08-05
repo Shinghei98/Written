@@ -344,12 +344,16 @@ final class DiscoveryModel: ObservableObject {
             // `violates foreign key constraint "likes_liked_id_fkey"`, which is
             // accurate and unreadable.
             //
-            // Take them off the screen rather than explaining. There is nothing
-            // to retry and nothing the reader can do, and a card for somebody
-            // who no longer exists is the actual fault.
+            // Take them off the screen, and say why in words rather than in
+            // Postgres'. A card vanishing under a thumb with no explanation
+            // reads as the tap having broken something; one sentence turns it
+            // into a thing that happened. Nothing here is retryable, so it
+            // clears itself like every other transient message on this screen.
             if await LikeService.shared.lastFailureWasMissingPerson {
                 banned.insert(personID)
                 items.removeAll(where: isBannedProfile)
+                failure = "That profile is no longer available."
+                await clearFailureShortly()
                 return
             }
             // **Say why.** Reverting the heart on its own is the app taking
