@@ -145,11 +145,20 @@ was registered at Cloudflare on 2026-08-04 and the three pages exist, in `web/`.
 privacy, and 301-ing to NameArena LLC, a brokerage with an inquiry form and no
 published price.
 
-**The site is built and not yet live.** The domain resolves to nothing — no A
-record — so those links are *currently* dead in a different way. `web/README.md`
-carries the deployment steps; the Worker config is `wrangler.jsonc` at the repo
-root, serving `./web` as static assets with no Worker script. Until it is
-deployed, the app ships links that 404, and Google's verification cannot start.
+**The site is live**, confirmed 2026-08-05: `written-stl.com` answers from
+Cloudflare (`104.21.7.174` / `172.67.137.17`) and every page served is
+**byte-identical to `web/`** at `7bf6b65` — the five pages, `styles.css`,
+`app.js` and the assets. `web/README.md` carries the deployment steps; the
+Worker config is `wrangler.jsonc` at the repo root, serving `./web` as static
+assets with no Worker script. `/` 301s to `/en-us/`, a missing path 404s, and
+the two URLs Google's consent screen must name — `/en-us/` and `/en-us/privacy/`
+— both answer 200 with no redirect, which is what that check requires.
+
+**`www.written-stl.com` does not exist**, and it is the one way somebody can
+find this site down. There is no A record at all — NXDOMAIN, not a Cloudflare
+error — so a browser says the server could not be found rather than anything
+about Written. The apex is the only hostname that works. One proxied CNAME at
+Cloudflare fixes it.
 
 A free host subdomain cannot stand in, and that is a rule rather than a
 preference: Google requires the homepage be *"Hosted on a verified domain you
@@ -1737,14 +1746,51 @@ has already been asked.
 does not open that conversation. The most obviously missing half of the feature
 once the banners themselves work.
 
-**The site is registered and its reachability is unconfirmed.** `written-stl.com`
-exists at Cloudflare. Whether it serves anything cannot be established from the
-development machine, whose network sinkholes the domain to
-`sinkhole.paloaltonetworks.com` on **every** resolver including 1.1.1.1 and
-8.8.8.8 — a transparent DNS interception, not a fact about the domain. Check
-from a phone on cellular. `SignInView` links four pages on it, so until that is
-answered the app may be shipping dead links, and Google's OAuth verification
-cannot begin either way. `web/README.md` has the deployment steps.
+**The site is live and one network cannot see it**, which is a measurement
+problem rather than a gap — and it is the **network**, not the machine, so it
+follows the wifi rather than the laptop. On `wusm-wifi.wucon.wustl.edu`
+(nameservers `10.39.49.3` / `.34`) the domain resolves to `198.135.184.22`,
+which is `sinkhole.paloaltonetworks.com`; on an ordinary connection it loads
+normally. **The control that makes that a decision rather than a fault is that
+`example.com` resolves correctly from the same resolver** — the DNS is working
+and choosing this domain.
+
+It worked for a day and then stopped, which is the signature of
+**newly-registered-domain filtering**: Palo Alto categorises domains registered
+in roughly the last 30 days, and its feed takes about a day to ingest a new one.
+`written-stl.com` was registered 2026-08-04 and was still inside the registrar's
+`addPeriod` when this was measured. Nothing about the domain, the deploy or the
+DNS records is wrong, and it clears itself as the domain ages.
+
+**So do not conclude anything about this domain from a sinkholed resolver**, and
+do not go looking for a deployment fault when the symptom is "it was up
+yesterday". Two ways round it: resolve over DoH
+(`https://dns.google/resolve?name=written-stl.com&type=A`), then fetch with the
+answer pinned —
+
+    curl --resolve written-stl.com:443:104.21.7.174 https://written-stl.com/en-us/
+
+That is how the deployment was confirmed on 2026-08-05. Another network is the
+other way. The sinkhole intercepts DNS only; the TLS connection to Cloudflare is
+untouched once the address is supplied.
+
+**Cloudflare Web Analytics is switched on and the site's own CSP refuses it.**
+Every HTML response to a browser User-Agent — and only to a browser, which is
+why a plain `curl` does not show it — has a `static.cloudflareinsights.com`
+beacon appended by the edge. `_headers` sets `script-src 'self'` and
+`connect-src 'none'`, so the browser blocks it and the analytics record nothing.
+
+The CSP is doing exactly its job, and that is the point: `_headers` says
+`connect-src` "is the line that would have to change first if analytics were
+ever added, which is exactly the friction wanted", and a dashboard toggle added
+them without crossing it. So `web/en-us/cookies/` — a page a reviewer reads —
+tells them nothing is fetched from anywhere else while the edge attempts it on
+every load. **Turning Web Analytics off is the cheap resolution**; keeping it
+means widening two CSP directives *and* rewriting the cookies and privacy pages
+in the same commit, per the rule below. Check with:
+
+    curl -s -A 'Mozilla/5.0 … Chrome/126' https://written-stl.com/en-us/ \
+        | grep -c cloudflareinsights          # 0 once it is off
 
 **The site is written from the app and goes stale silently.** It described a
 one-sign-in-method app with no Google Calendar and no notifications for a day
