@@ -363,6 +363,16 @@ struct ConversationView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 Color.clear.frame(height: Self.bannerHeight)
             }
+            // A child's `minY` in this space is its offset from the *visible*
+            // top rather than from the content's, which is what makes "is the
+            // band on screen" answerable without tracking scroll offsets.
+            .coordinateSpace(name: Self.threadSpace)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear.onAppear { viewportHeight = geometry.size.height }
+                }
+            )
+            .onPreferenceChange(UnreadBandOffset.self) { bandOffset = $0 }
             // The end of the thread is where a conversation is read from, so it
             // opens there rather than at its beginning.
             .onChange(of: messages.count) { _ in scroll(proxy) }
@@ -394,6 +404,21 @@ struct ConversationView: View {
     /// So the thread lands on the band once and then behaves normally.
     @State private var hasCentredOnUnread = false
 
+    private static let threadSpace = "thread"
+    /// The band's offset from the top of the visible area, or nil when it has
+    /// not been built at all.
+    @State private var bandOffset: CGFloat?
+    @State private var viewportHeight: CGFloat = 0
+
+    /// **A band that was never built reports nothing, and that is the answer
+    /// rather than a gap.** `LazyVStack` only builds near the viewport, so a
+    /// band far above the end of the thread is simply absent — which is exactly
+    /// "the unread did not fit".
+    private var isBandOnScreen: Bool {
+        guard let bandOffset, viewportHeight > 0 else { return false }
+        return bandOffset >= 0 && bandOffset <= viewportHeight
+    }
+
     /// Reads the boundary out of a freshly loaded thread.
     ///
     /// Their messages only: your own are never unread, and `read_at` is null on
@@ -424,6 +449,14 @@ struct ConversationView: View {
         // bubbles are padded individually, so nothing else has to change.
         .padding(.horizontal, -16)
         .padding(.vertical, 6)
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: UnreadBandOffset.self,
+                    value: geometry.frame(in: .named(Self.threadSpace)).minY
+                )
+            }
+        )
     }
 
     private func scroll(_ proxy: ScrollViewProxy) {
@@ -436,12 +469,30 @@ struct ConversationView: View {
         // Only once: after that the thread behaves normally and follows new
         // messages down, or somebody replying would be yanked back to a line
         // they have already passed.
+        // **The bottom first, then correct if the band did not survive it.**
+        // "Does the unread block fit on a screen" is exactly "is the band still
+        // visible once we are at the end", so the question answers itself — no
+        // height arithmetic, and no guessing from a message count that a single
+        // photograph would falsify.
+        //
+        // Asking for the band centred outright is what this replaces, and it was
+        // wrong across the middle of its range: a scroll view clamps to its end
+        // only when the content below the band is under *half* a screen, so
+        // anywhere between half and one screen left somebody centred on the
+        // boundary with the newest messages below the fold.
         if unreadMark != nil, !hasCentredOnUnread {
             hasCentredOnUnread = true
-            // Without animation. This is where the page *opens*, not somewhere
-            // it travels to, and a visible scroll from the bottom would suggest
-            // the thread had moved on its own.
-            proxy.scrollTo(Self.unreadAnchor, anchor: .center)
+            proxy.scrollTo(messages.last?.id ?? Self.unreadAnchor, anchor: .bottom)
+            // Next runloop, so the layout above has settled and the band has had
+            // its chance to report.
+            Task { @MainActor in
+                await Task.yield()
+                guard !isBandOnScreen else { return }
+                // Unanimated: this is where the page *opens*, not somewhere it
+                // travels to, and a visible slide would read as the thread
+                // moving on its own.
+                proxy.scrollTo(Self.unreadAnchor, anchor: .center)
+            }
             return
         }
         let target = isPartnerTyping ? Self.typingAnchor : messages.last?.id
@@ -1535,5 +1586,17 @@ struct TypingBubble: View {
         // the dots already lifted and the animation begins halfway through.
         .onAppear { isAnimating = true }
         .accessibilityLabel("Typing")
+    }
+}
+
+/// Where the unread band sits relative to the visible top of the thread.
+///
+/// Nil when the band is not in the view tree at all — `LazyVStack` builds only
+/// near the viewport, so absence is the signal that it is far off screen rather
+/// than a measurement that failed.
+private struct UnreadBandOffset: PreferenceKey {
+    static var defaultValue: CGFloat?
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
     }
 }
