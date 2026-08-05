@@ -49,17 +49,40 @@ actor LikeService {
     /// draws a filled heart from this, so a relaunch or a second device has to be
     /// able to arrive at the same answer.
     func likedPersonIDs() async -> Set<String> {
-        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
+        await invitations().liked
+    }
+
+    /// Everyone this account has invited, and which of them got a note.
+    ///
+    /// **Two sets from one request.** The card draws a filled *heart* for a
+    /// plain like and a filled *envelope* for one carried with a note, so it has
+    /// to know which happened — and asking twice for the same rows to answer
+    /// two halves of one question would be a second round trip on the screen
+    /// that already waits longest.
+    ///
+    /// Read from the server on load rather than kept only in memory: a relaunch
+    /// that forgot would draw every invitation as untouched.
+    func invitations() async -> (liked: Set<String>, withNote: Set<String>) {
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return ([], []) }
         do {
             let rows = try await PostgREST.rows("rest/v1/likes", query: [
                 "liker_id": "eq.\(me)",
-                "select": "liked_id",
+                "select": "liked_id,message",
             ])
             lastError = nil
-            return Set(rows.compactMap { $0["liked_id"] as? String })
+            var liked: Set<String> = []
+            var withNote: Set<String> = []
+            for row in rows {
+                guard let id = row["liked_id"] as? String else { continue }
+                liked.insert(id)
+                // `0018` refuses an empty string at the column, so anything
+                // non-null here is a note somebody wrote.
+                if row["message"] is String { withNote.insert(id) }
+            }
+            return (liked, withNote)
         } catch {
             lastError = error.localizedDescription
-            return []
+            return ([], [])
         }
     }
 

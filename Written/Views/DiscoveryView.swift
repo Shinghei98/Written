@@ -172,6 +172,7 @@ struct DiscoveryView: View {
                                 // and a heart that emptied on the way past would
                                 // read as the like having been dropped.
                                 isLiked: model.hasLiked(profile.personID),
+                                isMessaged: model.hasMessaged(profile.personID),
                                 onLike: { model.like(profile.personID) },
                                 onMessage: { pendingInvite = profile },
                                 onMore: { pendingActions = profile }
@@ -286,6 +287,14 @@ final class DiscoveryModel: ObservableObject {
     /// card as untouched.
     @Published private(set) var liked: Set<String> = []
 
+    /// Of those, the ones invited with something written.
+    ///
+    /// **The card fills whichever control was actually used** — a red heart for
+    /// a plain like, a red envelope for a note — so it is not enough to know
+    /// that an invitation was sent. Both go inert either way; only which one is
+    /// coloured differs.
+    @Published private(set) var messaged: Set<String> = []
+
     /// Who this account has blocked, by person id, lowercased.
     ///
     /// Kept beside `liked` and filtered in the same three places, because the
@@ -298,6 +307,7 @@ final class DiscoveryModel: ObservableObject {
     private var feed: DiscoveryFeed?
 
     func hasLiked(_ personID: String) -> Bool { liked.contains(personID) }
+    func hasMessaged(_ personID: String) -> Bool { messaged.contains(personID) }
 
     /// Like-only, and idempotent — there is no unlike. The row's primary key is
     /// the pair, so a second tap rewrites what is already there, and nothing in
@@ -323,6 +333,7 @@ final class DiscoveryModel: ObservableObject {
         // Shown immediately, taken back if the write fails. A heart that waits
         // for a round trip feels broken at exactly the moment it matters.
         liked.insert(personID)
+        if note?.isEmpty == false { messaged.insert(personID) }
 
         // **`items` is deliberately not touched here.** Pulling this person's
         // cards out on the tap took the post out from under the reader's thumb
@@ -336,6 +347,7 @@ final class DiscoveryModel: ObservableObject {
             let landed = await LikeService.shared.like(personID: personID, message: note)
             guard !landed else { return }
             liked.remove(personID)
+            messaged.remove(personID)
 
             // **They deleted their account, and the card outlived them.**
             // `DiscoveryFeed` is built once and scrolled rather than re-fetched,
@@ -395,9 +407,11 @@ final class DiscoveryModel: ObservableObject {
         // feed that then reshuffled itself.
         async let peopleTask = DiscoveryService.shared.people()
 //        async let postsTask = SharedPostService.shared.posts()
-        async let likedTask = LikeService.shared.likedPersonIDs()
+        async let likedTask = LikeService.shared.invitations()
         let people = await peopleTask
-        liked = await likedTask
+        let invitations = await likedTask
+        liked = invitations.liked
+        messaged = invitations.withNote
 
         guard !people.isEmpty else {
             failure = await DiscoveryService.shared.lastError
@@ -535,6 +549,9 @@ struct DiscoveryCard: View {
     let containerWidth: CGFloat
 
     var isLiked = false
+    /// Whether the invitation carried something written. Only meaningful when
+    /// `isLiked`, since a note *is* a like.
+    var isMessaged = false
     var onLike: () -> Void = {}
     /// Like this person with something written, rather than with a heart alone.
     var onMessage: () -> Void = {}
@@ -702,6 +719,22 @@ struct DiscoveryCard: View {
     /// without somewhere for it to go would be worse than leaving it inert.
     /// They keep `allowsHitTesting(false)` and stay out of VoiceOver; the heart
     /// has neither.
+    /// A plain like fills the heart; a note fills the envelope. **Only one of
+    /// the two is ever red**, and it is whichever was actually used — the point
+    /// of colouring anything here is to say what you did, and filling both
+    /// would say only that something happened.
+    private var heartIsChosen: Bool { isLiked && !isMessaged }
+
+    /// Red for the control that was used, faded for the one that is now spent,
+    /// ordinary ink for a card nobody has answered.
+    ///
+    /// The faded state is deliberately not red-and-dimmed: it is reporting
+    /// *unavailability*, not a weaker version of the same act.
+    private func colour(chosen: Bool) -> Color {
+        if chosen { return GardenPalette.heart }
+        return GardenPalette.ink.opacity(isLiked ? 0.25 : 0.75)
+    }
+
     private var actionRow: some View {
         HStack(spacing: 16) {
             // **The two are one decision, so they go inert together.** An
@@ -716,13 +749,13 @@ struct DiscoveryCard: View {
             // both would read as the card having been disabled rather than as an
             // invitation having been sent.
             Button(action: likeFromPhoto) {
-                Image(systemName: isLiked ? "heart.fill" : "heart")
+                Image(systemName: heartIsChosen ? "heart.fill" : "heart")
                     .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(isLiked ? GardenPalette.heart : GardenPalette.ink.opacity(0.75))
+                    .foregroundStyle(colour(chosen: heartIsChosen))
                     // A short squeeze on the way in. Symbol-only, so it costs
                     // nothing when the card is rebuilt already liked.
-                    .scaleEffect(isLiked ? 1.08 : 1)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.55), value: isLiked)
+                    .scaleEffect(heartIsChosen ? 1.08 : 1)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.55), value: heartIsChosen)
                     // The glyph is 19 points; the target is not.
                     .frame(width: 30, height: 30, alignment: .leading)
                     .contentShape(Rectangle())
@@ -740,9 +773,11 @@ struct DiscoveryCard: View {
             // paperplane and the bookmark stay in it: they are not part of this
             // and must not start looking pressable by accident.
             Button(action: onMessage) {
-                Image(systemName: isLiked ? "envelope.fill" : "envelope")
+                Image(systemName: isMessaged ? "envelope.fill" : "envelope")
                     .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(GardenPalette.ink.opacity(isLiked ? 0.25 : 0.75))
+                    .foregroundStyle(colour(chosen: isMessaged))
+                    .scaleEffect(isMessaged ? 1.08 : 1)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.55), value: isMessaged)
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
