@@ -1,0 +1,33 @@
+-- Let a device read its own rows back.
+--
+-- **This reverses a decision in `0019`, and the reasoning there was wrong in a
+-- way worth keeping.** That migration gave `device_tokens` insert, update and
+-- delete policies and deliberately *no* select policy, on the argument that the
+-- app never needs to read tokens back and that a table nobody can select from
+-- is one fewer place a token can leak.
+--
+-- The first half is true and the second half cost the entire feature. PostgREST's
+-- `Prefer: resolution=merge-duplicates` compiles to `insert … on conflict do
+-- update`, and that statement has to be able to *see* the row it might update.
+-- With row-level security on and no select policy it cannot, so Postgres refuses
+-- the whole statement — including when the table is empty and no conflict is
+-- possible. Every registration answered:
+--
+--     403 — new row violates row-level security policy for table
+--           "device_tokens" — 42501
+--
+-- which reads as "your user_id is wrong" and is nothing of the sort. The id was
+-- correct, the insert policy was correct, and the missing policy was one for an
+-- operation the app never performs.
+--
+-- `SyncService` has used `merge-duplicates` since it was written, against tables
+-- that all carry select policies. `device_tokens` was the first table here to
+-- lack one, and it broke on the first write.
+--
+-- **What this actually opens is nothing.** A caller can now read the tokens for
+-- rows where `auth.uid() = user_id` — that is, the device tokens of the person
+-- already holding that session, values their own phone generated and uploaded a
+-- moment earlier. The leak this was guarding against required an attacker who
+-- already had the account.
+create policy "read your own devices" on public.device_tokens
+    for select using (auth.uid() = user_id);

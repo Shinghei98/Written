@@ -82,8 +82,17 @@ actor PushService {
     /// mint a new one, and the app is never told — so the only reliable strategy
     /// is to say where this device is every time it starts.
     func register(token: String) async {
-        guard let me = await SupabaseAuth.shared.userID else {
+        // **The token is awaited before the id is read, and that order is the
+        // whole point.** `userID` is filled in by the refresh, so reading it
+        // first reports "not signed in" for a session that is merely not
+        // restored yet — CLAUDE.md records this as its own recurring bug, and
+        // this function was written with it in.
+        guard await SupabaseAuth.shared.validAccessToken() != nil,
+              let me = await SupabaseAuth.shared.userID else {
             lastError = "Not signed in."
+#if DEBUG
+            print("[push] register: no session")
+#endif
             return
         }
         do {
@@ -103,8 +112,18 @@ actor PushService {
                 prefer: "resolution=merge-duplicates,return=minimal"
             )
             lastError = nil
+#if DEBUG
+            print("[push] register: stored")
+#endif
         } catch {
             lastError = error.localizedDescription
+#if DEBUG
+            // **Nothing else in the app would ever say this.** A failed upload
+            // leaves no row, and a missing row is indistinguishable from a
+            // person who declined — the fifth instance of that shape here.
+            print("[push] register FAILED: \(error)")
+            print("[push] sent user_id: \(me)")
+#endif
         }
     }
 
