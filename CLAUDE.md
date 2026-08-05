@@ -1244,6 +1244,18 @@ privilege. `ChatService.open` had already documented the identical trap for
 `0009` is the only migration that revokes update, so every other table leaves
 `authenticated` its default privilege.
 
+**There is a second precondition, and it is not a privilege — it is a policy.**
+`on conflict do update` has to be able to *see* the row it might update, so a
+table with RLS enabled and **no select policy cannot be upserted into at all**,
+including when it is empty and no conflict is possible. `device_tokens` was
+given insert, update and delete policies and deliberately no select policy —
+one fewer place a token can leak — and every registration answered `403 … new
+row violates row-level security policy … 42501`, which reads as a wrong
+`user_id` and was nothing of the sort. The id was right and the insert policy
+was right; the missing policy was for an operation the app never performs.
+`0021` adds it. So the rule is: **`merge-duplicates` needs update privilege *and*
+a select policy**, and every other table here happened to have both.
+
 **Two accounts are needed to test any of this**, because RLS makes each half of
 a conversation invisible to the other. `tools/chat_e2e.py` plays the second
 person over REST — `users`, `like`, `reply`, `state` — and the six synthetic
@@ -1252,11 +1264,94 @@ cannot be the first person; Sign in with Apple needs a device. **Read the
 database after every step rather than trusting the screen**: the first accept in
 that run appeared to open a conversation while writing nothing at all.
 
+## Notifications: a like, a match, a message
+
+Three events, sent from the database rather than from a phone — in all three the
+person to be told is by definition not the person making the request, and their
+session is the only thing that could reach their own devices under RLS. The path
+is `likes`/`messages` trigger → `pg_net` → `functions/push` → APNs. **Proven end
+to end on a device on 2026-08-05**: a row inserted into `public.likes` produced
+the banner, through a real ES256 signature and a real sandbox token.
+
+**`pg_net` is fire-and-forget and that is the point.** `net.http_post` queues and
+returns, so a slow or dead APNs cannot make a like fail. The cost is that a
+failure is invisible from SQL — it lands in the function's logs and nowhere the
+app would ever see. Right trade here: not being notified is a disappointment,
+not being able to like somebody is a broken app. **So when a notification does
+not arrive, Edge Functions → push → Logs is the only place the answer exists.**
+
+**The URL and the shared secret live in `private.push_config`**, a table in a
+schema nothing is granted on, filled in by hand. Not a GUC (invisible to the
+migration) and not a literal (a secret in git). The function is deployed with
+**JWT verification off**, which is mandatory rather than lax: the triggers carry
+no Authorization header at all, and the toggle demands a JWT signed by the
+*legacy* secret, which this project disabled in the July rotation — so with it on
+nothing could satisfy it, including the app. `PUSH_SECRET` and the
+`x-push-secret` header are the auth instead.
+
+**Five things about Apple's side, each of which cost a round:**
+
+- **A successful install proves nothing about push.** Xcode's automatic signing
+  issues an `iOS Team Provisioning Profile`, and those carry
+  `aps-environment: development` **whether or not the App ID has the capability
+  enabled** — so the app signs, installs, and APNs even hands over a token,
+  because iOS issues one whenever the entitlement is present. What actually
+  checks is Apple's **Push Notifications Console**, and a *distribution* profile,
+  which is derived strictly from the App ID. A TestFlight build would have had
+  no push in it and looked like a code fault.
+- **It is a `.p8` key, not a certificate, and the two are not interchangeable
+  here.** `functions/push` signs an ES256 JWT from a PKCS#8 key; a `.p12` has
+  nowhere to go in that code, and Deno's `fetch` cannot do client-certificate
+  TLS anyway. Keys also never expire, need no CSR, and cover development and
+  production both — which is why the environment is a column on the row rather
+  than a second credential. `Certificates (0)` beside the capability is correct.
+- **The token's environment is not bookkeeping.** APNs has two hosts with two
+  separate namespaces: a development build's token answers `BadDeviceToken` at
+  `api.push.apple.com`, and a TestFlight token fails the same way at the sandbox
+  host. Both kinds exist here at once, so `device_tokens.environment` records
+  which. `#if DEBUG` decides it.
+- **Permission is asked on the first admirer**, from `ChatView`, and deliberately
+  nowhere near Health — this project lost a week to two prompts colliding,
+  because HealthKit hosts a remote view and cannot present over anything else.
+  iOS allows the question once ever, so *when* it is put decides whether
+  notifications work for that person at all. `-push ask` exists because setting
+  this up otherwise requires arranging to be liked.
+- **`SUPABASE_` is a reserved prefix** and a secret using it cannot be created.
+  The function reads the platform-injected `SUPABASE_SERVICE_ROLE_KEY`, which on
+  a project migrated to the new key system carries the `sb_secret_…` value
+  despite the stale name. A first draft preferred `SUPABASE_SECRET_KEY` — a name
+  that can never exist — and would have fallen through forever without saying so.
+
+**The recurring defect appeared twice more here**, in code written after the
+lesson was already in this file. `devices()` returned `[]` for a request it
+could not make, and the caller reports that as `{"sent":0,"note":"no devices"}`
+— a *success* — so a dead key would have made every notification vanish while
+the logs said everything was fine. And an unset `PUSH_SECRET` and a wrong one
+were one condition and one 401, which want opposite fixes. Both now name
+themselves. That makes six instances of *a call that can fail, a result nobody
+reads, and the symptom surfacing somewhere else.*
+
+**Not built, and each is a decision rather than an oversight:** a photograph in
+the banner needs a Notification Service Extension, a third build target; badge
+counts are a separate mechanism and an unread count that never clears is its own
+bug; and taps do not route anywhere, though the payload already carries
+`category` and `thread`.
+
 ## Known gaps
 
-Real, deliberate, and unfinished as of 2026-08-04. Ordered by what would hurt
+Real, deliberate, and unfinished as of 2026-08-05. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
+
+**Notifications are proven for a like and unproven for the other two.** The
+match and message triggers are written and applied and have never fired. Both
+are testable from the SQL editor without a secret key — accept a like on the
+device for the match, then insert a `messages` row from the other side — and the
+match leg can only be read in the function's logs, because the synthetic
+accounts have no devices. **Production is untested entirely**: every token so
+far is `sandbox`, and a TestFlight build mints a production one against a
+different host. That is the same shape of mistake as testing HealthKit on a
+phone that has already been asked.
 
 **The site is registered and not deployed.** `written-stl.com` exists at
 Cloudflare and resolves to nothing. `SignInView` links three pages on it, so the
@@ -1266,7 +1361,8 @@ has the steps; everything else about verification queues behind this.
 
 **Nothing here has reached a tester.** Build 15 is archived and predates all of
 it. Every fix from 2026-08-04 — the empty source, the crop screen, the sign-in
-overhaul, phone and Google auth — is on `main` and on nobody's phone.
+overhaul, phone and Google auth — plus notifications from 08-05, is on `main`
+and on nobody's phone.
 
 **CAPTCHA is off for phone sign-in, deliberately**, and the SMS rate limit of
 10/hour is what stands in for it. **Revisit both together**: raising the limit
