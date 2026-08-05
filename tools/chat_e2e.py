@@ -16,6 +16,7 @@ displayed.
 
     python3 tools/chat_e2e.py users              # who exists, and their ids
     python3 tools/chat_e2e.py like   <from> <to> # synthetic likes you
+    python3 tools/chat_e2e.py like   <from> <to> "say something"   # …with a note
     python3 tools/chat_e2e.py reply  <from> "…" <to>   # synthetic answers you
                                                  # <to> is required once that
                                                  # account has two threads
@@ -97,27 +98,39 @@ def users(key):
 
 # --------------------------------------------------------------------- actions
 
-def like(key, liker, liked):
+def like(key, liker, liked, message=None):
     """A like from the synthetic account to you, shaped as the app shapes one.
 
     `liker_name` and `liker_photo_seed` are denormalised onto the row because the
     recipient cannot look them up — `public.users` is `auth.uid() = id` and a
     real account has no `discovery_cards` row. If those are wrong here, the
     admirers list is wrong, which is itself worth seeing.
+
+    `message` is the note the compose sheet sends with an invitation, and it is
+    optional here for the same reason it is optional there: a plain heart writes
+    no note, and the two rows have to be distinguishable to test that the
+    admirers list draws them differently and orders written ones first. Needs
+    `0018_like_message.sql` applied; without it the column does not exist and
+    this fails with a message saying so.
     """
     profile = request("GET", f"/rest/v1/users?id=eq.{liker}&select=first_name", key) or []
     name = (profile[0].get("first_name") if profile else None) or "Someone"
+    row = {
+        "liker_id": liker,
+        "liked_id": liked,
+        "liker_name": name,
+        "liker_photo_seed": stable_seed(liker),
+    }
+    # Omitted rather than sent as null when absent, so this row is exactly what
+    # a plain heart writes.
+    if message:
+        row["message"] = message
     request(
-        "POST", "/rest/v1/likes", key,
-        [{
-            "liker_id": liker,
-            "liked_id": liked,
-            "liker_name": name,
-            "liker_photo_seed": stable_seed(liker),
-        }],
+        "POST", "/rest/v1/likes", key, [row],
         {"Prefer": "resolution=merge-duplicates,return=minimal"},
     )
-    print(f"{name} ({liker[:8]}…) now likes {liked[:8]}… — open Chat on the device.")
+    wrote = f' saying "{message}"' if message else " with no note"
+    print(f"{name} ({liker[:8]}…) now likes {liked[:8]}…{wrote} — open Chat on the device.")
 
 
 def stable_seed(user_id: str) -> int:
@@ -231,8 +244,8 @@ def main():
     command, args = sys.argv[1], sys.argv[2:]
     if command == "users":
         users(key)
-    elif command == "like" and len(args) == 2:
-        like(key, args[0], args[1])
+    elif command == "like" and len(args) in (2, 3):
+        like(key, args[0], args[1], args[2] if len(args) == 3 else None)
     elif command == "reply" and len(args) in (2, 3):
         reply(key, args[0], args[1], args[2] if len(args) == 3 else None)
     elif command == "state" and len(args) == 2:
