@@ -622,6 +622,21 @@ final class ChatModel: ObservableObject {
         let likeFailure = await LikeService.shared.lastError
         let chatFailure = await ChatService.shared.lastError
         failure = likeFailure ?? chatFailure
+
+        // **Asked here, on somebody's first admirer, and nowhere else.** iOS
+        // lets an app ask once ever — a refusal is undoable only in Settings,
+        // which nobody visits — so *when* decides whether notifications work for
+        // that person at all. Someone has just been liked; being told sooner
+        // next time obviously pays, and there is a face on screen making it
+        // concrete. Asked at launch it is a question about nothing.
+        //
+        // And deliberately far from the Health sheet: this project lost a week
+        // to two prompts colliding, because HealthKit hosts a remote view and
+        // cannot present over anything else. Chat is not where sources are
+        // connected.
+        if !admirers.isEmpty || !conversations.isEmpty {
+            await PushService.shared.askIfNeeded()
+        }
     }
 
     /// Accepts and opens the thread, or declines and drops the row.

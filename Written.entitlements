@@ -6,6 +6,16 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>aps-environment</key>
+	<!-- Xcode rewrites this to `production` when it signs for distribution, so
+	     the value here is the *development* one and does not need changing for a
+	     TestFlight build. What does need checking is that it survived at all:
+	     this project has twice had an entitlement silently stripped at
+	     packaging, and a missing `aps-environment` reads as
+	     `no valid "aps-environment" entitlement string found` from
+	     `didFailToRegisterForRemoteNotifications` — the only place it is ever
+	     mentioned. -->
+	<string>development</string>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>

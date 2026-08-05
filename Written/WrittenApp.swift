@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct WrittenApp: App {
+    /// Only here because `didRegisterForRemoteNotificationsWithDeviceToken` has
+    /// no SwiftUI equivalent — see `PushDelegate`. It takes over nothing else.
+    @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
+
     init() {
         BrandFont.register()
     }

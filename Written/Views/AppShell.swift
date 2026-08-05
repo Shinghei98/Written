@@ -66,6 +66,14 @@ struct AppShell: View {
                     onSignOut: {
                         Task {
                             await viewModel.flushPhotos()
+                            // Withdrawn here for the same reason and in the same
+                            // window: the row is deleted through RLS, so it needs
+                            // the session that is about to be dropped. Left
+                            // behind, the next like for this account arrives on a
+                            // phone somebody else has since signed into.
+                            if let token = PushDelegate.currentToken {
+                                await PushService.shared.forget(token: token)
+                            }
                             onSignOut()
                         }
                     },
@@ -205,6 +213,12 @@ struct AppShell: View {
             // something they just did, and it is worth telling them it did not
             // land. The next departure they perform says so either way.
             await viewModel.flushPhotos(announcing: isOnboarding)
+
+            // Nothing is *asked* here — see `registerIfAlreadyAllowed`. Somebody
+            // who granted months ago is reachable only if every launch says
+            // where they are, because a token can change without the app ever
+            // being told.
+            await PushService.shared.registerIfAlreadyAllowed()
         }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.

@@ -62,6 +62,23 @@ enum PostgREST {
         return (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
     }
 
+    /// `DELETE`, for the one row a caller owns and wants gone.
+    ///
+    /// Rare in this schema on purpose — "nothing in Postgres is ever deleted" is
+    /// the standing rule — and the exceptions are the ones where keeping a row
+    /// is the mistake: `remove_list` because a preference must be changeable,
+    /// and `device_tokens` because a stale token sends somebody's notification
+    /// to a phone they no longer hold.
+    @discardableResult
+    static func delete(
+        _ path: String,
+        query: [String: String],
+        prefer: String? = "return=minimal"
+    ) async throws -> [[String: Any]] {
+        let data = try await send("DELETE", path: path, query: query, body: nil, prefer: prefer)
+        return (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+    }
+
     private static func send(
         _ method: String,
         path: String,
