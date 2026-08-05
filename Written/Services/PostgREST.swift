@@ -15,19 +15,38 @@ enum PostgREST {
 
     enum Failure: LocalizedError {
         case notSignedIn
-        /// The status, plus whatever PostgREST said about it. `42501` in the body
-        /// is a row-level-security refusal, which is the one worth recognising:
-        /// it means the request was well-formed and the policy said no.
-        case server(status: Int, message: String)
+        /// The status, PostgREST's own error code, and whatever it said about
+        /// it. **The code is carried separately rather than only folded into
+        /// the message**, because two of them mean something a caller can act
+        /// on: `42501` is a row-level-security refusal — the request was
+        /// well-formed and the policy said no — and `23503` is a foreign key
+        /// with nothing behind it, which in this schema means the person you
+        /// are writing about has deleted their account.
+        case server(status: Int, code: String?, message: String)
 
         var errorDescription: String? {
             switch self {
             case .notSignedIn:
                 return "You're not signed in."
-            case .server(let status, let message):
-                return message.isEmpty ? "Request failed (\(status))." : message
+            case .server(_, _, let message) where !message.isEmpty:
+                return message
+            case .server(let status, _, _):
+                return "Request failed (\(status))."
             }
         }
+    }
+
+    /// Whether this failure was a foreign key pointing at a row that is gone.
+    ///
+    /// **In this schema that means one thing: the person has deleted their
+    /// account.** Every foreign key here leads back to `public.users`, and
+    /// deleting an account cascades from `auth.users` through it — so `23503`
+    /// is not a bug to report but a fact to act on, and the caller's job is to
+    /// take that person off the screen rather than to show somebody
+    /// `violates foreign key constraint "likes_liked_id_fkey"`.
+    static func isMissingPerson(_ error: Error) -> Bool {
+        guard case Failure.server(_, let code, _)? = error as? Failure else { return false }
+        return code == "23503"
     }
 
     /// `GET`, decoded as an array of rows.
@@ -98,7 +117,7 @@ enum PostgREST {
             components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         guard let url = components?.url else {
-            throw Failure.server(status: 0, message: "Bad URL for \(path).")
+            throw Failure.server(status: 0, code: nil, message: "Bad URL for \(path).")
         }
 
         var request = URLRequest(url: url)
@@ -118,7 +137,11 @@ enum PostgREST {
             let message = [payload?["message"], payload?["details"], payload?["code"]]
                 .compactMap { $0 as? String }
                 .joined(separator: " — ")
-            throw Failure.server(status: status, message: message)
+            throw Failure.server(
+                status: status,
+                code: payload?["code"] as? String,
+                message: message
+            )
         }
         return data
     }

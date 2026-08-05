@@ -117,7 +117,15 @@ actor LikeService {
     /// The name and seed travel with the row because the recipient cannot look
     /// them up: `public.users` is closed and a real account has no
     /// `discovery_cards` row to read. See the migration's header.
+    /// True when the last failure was a person who no longer exists.
+    ///
+    /// Read by `DiscoveryModel.like`, which takes them off the screen instead of
+    /// reporting it. Reset on every attempt, so it can only ever describe the
+    /// most recent one.
+    private(set) var lastFailureWasMissingPerson = false
+
     func like(personID: String, message: String? = nil) async -> Bool {
+        lastFailureWasMissingPerson = false
         guard let me = await SupabaseAuth.shared.currentUserID() else { return false }
         let myName = await SupabaseAuth.shared.firstName ?? "Someone"
         // Trimmed here rather than at the sheet, so every route in gets the same
@@ -162,6 +170,17 @@ actor LikeService {
             lastError = nil
             return true
         } catch {
+            // **A deleted account, not a failure worth showing.** Every foreign
+            // key in this schema leads back to `public.users`, and deleting an
+            // account cascades from `auth.users` through it — so `23503` here
+            // means the person on the card is gone. Their card can still be in
+            // somebody's feed for as long as that feed has been open, because
+            // `DiscoveryFeed` is built once and scrolled, not re-fetched.
+            //
+            // Reported as `violates foreign key constraint
+            // "likes_liked_id_fkey"` on screen, which is true, useless, and
+            // frightening.
+            lastFailureWasMissingPerson = PostgREST.isMissingPerson(error)
             lastError = error.localizedDescription
             return false
         }

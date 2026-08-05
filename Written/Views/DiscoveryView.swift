@@ -336,6 +336,22 @@ final class DiscoveryModel: ObservableObject {
             let landed = await LikeService.shared.like(personID: personID, message: note)
             guard !landed else { return }
             liked.remove(personID)
+
+            // **They deleted their account, and the card outlived them.**
+            // `DiscoveryFeed` is built once and scrolled rather than re-fetched,
+            // so somebody who deletes while a feed is open stays in it until the
+            // next load — and liking them fails on a foreign key. Reported as
+            // `violates foreign key constraint "likes_liked_id_fkey"`, which is
+            // accurate and unreadable.
+            //
+            // Take them off the screen rather than explaining. There is nothing
+            // to retry and nothing the reader can do, and a card for somebody
+            // who no longer exists is the actual fault.
+            if await LikeService.shared.lastFailureWasMissingPerson {
+                banned.insert(personID)
+                items.removeAll(where: isBannedProfile)
+                return
+            }
             // **Say why.** Reverting the heart on its own is the app taking
             // something back without explaining, which reads as the tap not
             // having registered rather than as a failure. Offline gets its own
