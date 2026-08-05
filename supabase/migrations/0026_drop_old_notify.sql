@@ -1,0 +1,32 @@
+-- Remove the five-argument `private.notify`, which `0025` left behind.
+--
+-- **`create or replace function` does not replace a function whose signature
+-- changed — it creates a second one.** `0025` added a `sender uuid default
+-- null` parameter and therefore did not overwrite `0020`'s version; it
+-- overloaded it. `pg_proc` came back with two rows, `pronargs` 5 and 6.
+--
+-- Nothing broke, and that is the dangerous part. All three triggers in `0025`
+-- pass six arguments, and only the six-argument function can match a six-
+-- argument call, so every notification kept working. What was left is a
+-- **latent ambiguity**: both versions have four required parameters and
+-- defaults thereafter, so any call with four or five arguments matches both and
+-- Postgres refuses it —
+--
+--     42725: function private.notify(uuid, text, text, text) is not unique
+--
+-- — from inside a trigger on `likes` or `messages`, which means the like or the
+-- message fails, not merely the notification. A future caller writing the
+-- obvious four-argument call would hit it, and the error names an overload
+-- nobody remembers creating.
+--
+-- The old signature is named in full because that is the only way to drop one
+-- of an overloaded pair.
+drop function if exists private.notify(uuid, text, text, text, text);
+
+-- Leaves exactly one. Worth re-running after this:
+--
+--     select pronargs from pg_proc p
+--       join pg_namespace n on n.oid = p.pronamespace
+--      where n.nspname = 'private' and p.proname = 'notify';
+--
+-- One row, `6`.
