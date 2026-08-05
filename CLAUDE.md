@@ -1318,9 +1318,21 @@ nothing could satisfy it, including the app. `PUSH_SECRET` and the
 - **It is a `.p8` key, not a certificate, and the two are not interchangeable
   here.** `functions/push` signs an ES256 JWT from a PKCS#8 key; a `.p12` has
   nowhere to go in that code, and Deno's `fetch` cannot do client-certificate
-  TLS anyway. Keys also never expire, need no CSR, and cover development and
-  production both — which is why the environment is a column on the row rather
-  than a second credential. `Certificates (0)` beside the capability is correct.
+  TLS anyway. Keys never expire and need no CSR. `Certificates (0)` beside the
+  capability is correct.
+- **An APNs key must be created as "Sandbox & Production", and the page lets you
+  create one that is not.** A single-environment key answers **`403
+  BadEnvironmentKeyInToken`** against the other host — so a key made
+  Sandbox-only delivers every Xcode build's notification and refuses every
+  TestFlight one. That shipped: testers received nothing while development
+  worked perfectly, and it read as *lateness* rather than failure, because the
+  sandbox notification still arrived on its own unhurried schedule. Two things
+  found it, and neither was the phone: `results` in the function's response
+  carrying APNs' own reason, and a send to somebody with **two** devices, where
+  `["ok", "403 …"]` in one array made the asymmetry impossible to miss.
+  **`sent: 2` with `["ok","ok"]` is the only proof that both environments
+  work** — a production *token* existing proves the entitlement survived
+  distribution signing and nothing more.
 - **The token's environment is not bookkeeping.** APNs has two hosts with two
   separate namespaces: a development build's token answers `BadDeviceToken` at
   `api.push.apple.com`, and a TestFlight token fails the same way at the sandbox
