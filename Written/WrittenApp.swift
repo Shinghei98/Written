@@ -6,6 +6,30 @@ struct WrittenApp: App {
     /// no SwiftUI equivalent — see `PushDelegate`. It takes over nothing else.
     @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
 
+    /// How far this app follows the system text size, and why it stops there.
+    ///
+    /// **The app declares type two ways and they behave oppositely.**
+    /// `BrandFont` is `.custom(…, relativeTo:)` and follows Dynamic Type; the
+    /// 232 `.system(size:)` calls do not. So raising the setting does not
+    /// enlarge the app — it enlarges 29 elements and leaves the rest, which
+    /// reads worse than either extreme and breaks every hand-measured constant
+    /// calibrated against a heading: `promptsReserve` sizes the plant,
+    /// `ChatView.headerHeight` insets the conversation list,
+    /// `SourcePickerSheet.detentHeight` sizes a sheet.
+    ///
+    /// That is what put "Grow your profile" on three lines and shrank the plant
+    /// on a tester's iPhone 12 — the heading measured 1.3× its design while
+    /// `.system(size: 15)` on the same screen measured exactly right.
+    ///
+    /// **This is a ceiling, not support.** Below it the headings scale and the
+    /// layouts hold; above it the app stops responding to the setting at all,
+    /// which is a real cost to anybody who needs those sizes. The honest fix is
+    /// one font system rather than two — either all 232 scale, which breaks the
+    /// hand-measured vector art, or none do, which abandons the setting
+    /// entirely. Until one of those is chosen this bounds the damage, and every
+    /// screen still has to survive up to here.
+    static let largestSupportedText: DynamicTypeSize = .accessibility1
+
     init() {
         BrandFont.register()
     }
@@ -17,9 +41,9 @@ struct WrittenApp: App {
             // learned: hung off a screen's `onAppear` it may never fire, and
             // reported through a self-dismissing banner it may never be read —
             // and both look exactly like a survey that found nothing.
-            RootView().modifier(MediaSurveyAlert())
+            RootView().modifier(MediaSurveyAlert()).dynamicTypeSize(...Self.largestSupportedText)
 #else
-            RootView()
+            RootView().dynamicTypeSize(...Self.largestSupportedText)
 #endif
         }
     }

@@ -501,6 +501,29 @@ struct GrowProfileView: View {
                 .font(BrandFont.title(46))
                 .foregroundStyle(GardenPalette.ink)
                 .lineSpacing(-2)
+                // **Two lines, shrinking to fit rather than taking a third.**
+                //
+                // `BrandFont` is `.custom(…, relativeTo:)` and follows Dynamic
+                // Type; the app's other 165 type declarations are
+                // `.system(size:)` and do not. So a larger text setting enlarges
+                // this heading alone — measured at 1.3× on a tester's phone,
+                // 41.7pt of cap height against the ~32 a 46pt Quicksand should
+                // give, while `.system(size: 15)` on the same screen measured
+                // exactly its designed 10.5.
+                //
+                // At that size "Grow your" needs more than the ~274pt left after
+                // the trailing padding on a 390pt phone, so it wrapped to three
+                // lines — and the plant, which is built from what remains under
+                // this header, lost about 55pt. Neither the font scaling nor the
+                // narrow screen would have done it alone, which is why it
+                // arrived as a device report.
+                //
+                // **Not a `.dynamicTypeSize` clamp**, which is the shorter fix
+                // and refuses somebody's accessibility setting outright. The
+                // heading still grows; it just stops spending the drawing's
+                // room to do it.
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
                 .fixedSize(horizontal: false, vertical: true)
                 // Room for the buttons sitting over the top-right corner.
                 .padding(.trailing, 96)
