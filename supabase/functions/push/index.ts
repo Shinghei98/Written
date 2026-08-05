@@ -242,9 +242,21 @@ async function send(device: Device, payload: Payload): Promise<string> {
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // **Two failures, two answers.** These were one condition, and an unset
+  // `PUSH_SECRET` was therefore indistinguishable from a caller sending the
+  // wrong one — both 401 "Not allowed". That is this project's most expensive
+  // recurring shape: a refusal that looks exactly like an absence. It cost an
+  // afternoon during setup, where "the secret does not match" and "there is no
+  // secret to match" want completely different fixes.
+  //
+  // Saying which is not a disclosure. A caller who cannot authenticate learns
+  // only that the function is misconfigured, and can still do nothing.
+  if (!PUSH_SECRET) {
+    return json({ error: "PUSH_SECRET is not set on this function" }, 500);
+  }
   // Constant-time is overkill for a shared secret compared over HTTPS, but the
   // check itself is not optional: see `PUSH_SECRET` above.
-  if (!PUSH_SECRET || req.headers.get("x-push-secret") !== PUSH_SECRET) {
+  if (req.headers.get("x-push-secret") !== PUSH_SECRET) {
     return json({ error: "Not allowed" }, 401);
   }
   if (!APNS_KEY_P8 || !APNS_KEY_ID || !APNS_TEAM_ID) {
