@@ -282,11 +282,22 @@ Deno.serve(async (req: Request) => {
   // **Not an error.** Somebody who has never opened the app on a phone, or who
   // declined, has no row here — and a trigger treating that as a failure would
   // make every like by a web-less user look broken.
-  if (targets.length === 0) return json({ sent: 0, note: "no devices" }, 200);
+  if (targets.length === 0) {
+    // Logged rather than only returned. `pg_net` reads no response body and
+    // stores it nowhere anybody looks, so a run that succeeded with nothing to
+    // do left **only a Boot line** — indistinguishable, in the logs, from a
+    // function that started and fell over. The whole reason to send from the
+    // database is that nothing downstream can report for itself; that makes
+    // this log the only account of what happened.
+    console.log(`${payload.category ?? "push"}: no devices for ${payload.user_id}`);
+    return json({ sent: 0, note: "no devices" }, 200);
+  }
 
   const results = await Promise.all(targets.map((d) => send(d, payload)));
-  return json({
-    sent: results.filter((r) => r === "ok").length,
-    results,
-  }, 200);
+  const sent = results.filter((r) => r === "ok").length;
+  console.log(
+    `${payload.category ?? "push"}: ${sent}/${targets.length} delivered` +
+      (sent === targets.length ? "" : ` — ${results.filter((r) => r !== "ok").join("; ")}`),
+  );
+  return json({ sent, results }, 200);
 });
