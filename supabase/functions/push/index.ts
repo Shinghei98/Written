@@ -220,10 +220,21 @@ async function senderPhotoURL(senderId: string): Promise<string | null> {
         `&select=object_path&order=position.asc&limit=1`,
       { headers: { apikey: SECRET_KEY, Authorization: `Bearer ${SECRET_KEY}` } },
     );
-    if (!rows.ok) return null;
+    // **Each failure says which it is.** A first version returned null from all
+    // four of these and the log read `face=no` with no way to tell "this person
+    // has no photograph" from "the query was refused" from "storage would not
+    // sign" — which is the same shape as `devices()` answering `[]`, written
+    // into the same file on the same night after fixing it there.
+    if (!rows.ok) {
+      console.error(`photos ${rows.status}: ${await rows.text()}`);
+      return null;
+    }
     const found = await rows.json();
     const path = found?.[0]?.object_path;
-    if (!path) return null;
+    if (!path) {
+      console.log(`no photo row for ${senderId}`);
+      return null;
+    }
 
     // `profile-photos` is private by design — a public bucket is readable by URL
     // with no account at all, which would put faces on the open web the moment
@@ -245,11 +256,19 @@ async function senderPhotoURL(senderId: string): Promise<string | null> {
         body: JSON.stringify({ expiresIn: 3600 }),
       },
     );
-    if (!signed.ok) return null;
+    if (!signed.ok) {
+      console.error(`sign ${signed.status}: ${await signed.text()}`);
+      return null;
+    }
     const { signedURL } = await signed.json();
+    if (!signedURL) {
+      console.error("sign returned no signedURL");
+      return null;
+    }
     // The API answers a path beginning `/object/sign/…`, not an absolute URL.
-    return signedURL ? `${SUPABASE_URL}/storage/v1${signedURL}` : null;
-  } catch {
+    return `${SUPABASE_URL}/storage/v1${signedURL}`;
+  } catch (e) {
+    console.error(`senderPhotoURL threw: ${e}`);
     return null;
   }
 }
@@ -362,6 +381,10 @@ Deno.serve(async (req: Request) => {
   // Signed once for the whole fan-out rather than per device: one person's
   // phone and iPad want the same face, and the signing round trip is the
   // expensive part of this function.
+  // No sender at all means `0025` has not been applied — the trigger is still
+  // calling the five-argument `private.notify`. Worth naming, because it looks
+  // identical to a person with no photograph.
+  if (!payload.sender_id) console.log("no sender_id in payload (is 0025 applied?)");
   const imageURL = payload.sender_id
     ? await senderPhotoURL(payload.sender_id)
     : null;
