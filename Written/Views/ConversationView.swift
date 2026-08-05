@@ -957,7 +957,18 @@ struct ConversationView: View {
             pending.isPending && !landed.contains("\(pending.senderID)\u{1}\(pending.body)")
         }
 
-        merged.sort { $0.sentAt < $1.sentAt }
+        // **The id breaks ties, and it has to.** `Array.sort` is not stable in
+        // Swift, and the rows come out of a dictionary, so two messages sharing
+        // a timestamp land in a different order on every pass — which made the
+        // unread band appear to wander, since it is anchored to one message id
+        // while the messages around it reshuffled underneath it. Every four
+        // second poll moved them again.
+        //
+        // Equal timestamps are rarer in life than in testing — `now()` is the
+        // *transaction* time in Postgres, so a batch inserted in one statement
+        // shares it exactly — but two messages landing in the same microsecond
+        // is a coin this app should not be flipping every poll.
+        merged.sort { ($0.sentAt, $0.id) < ($1.sentAt, $1.id) }
         guard merged != messages else { return }
         messages = merged
         // Only what the server confirmed is written down; see `Message.isPending`.
