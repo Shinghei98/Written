@@ -7,6 +7,20 @@
 # Distillation exports (personal data — never commit)
 written-distillation-*.csv
 
+# Credentials. None of these belong in a repository, and the reason this list
+# exists rather than trusting care is that an APNs key was committed by a
+# `git add -A` within a minute of being downloaded — caught only because it was
+# still unpushed. A `.p8` sends notifications to every install of the app; an
+# App Store Connect `.p8` uploads builds as you; `sb_secret_…` bypasses RLS
+# entirely. Downloads default to the folder you happen to be in, which on this
+# machine is this one.
+*.p8
+*.p12
+*.mobileprovision
+AuthKey_*
+.env
+.env.*
+
 # Xcode user state
 xcuserdata/
 *.xcuserstate

@@ -29,12 +29,20 @@
 // never appears in a file, a transcript or a commit.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-// The platform still injects this name. `service_role` JWTs are disabled on this
-// project — see CLAUDE.md's rotation note — so `SUPABASE_SECRET_KEY` is the one
-// that carries an `sb_secret_…`, and the old name is kept only as a fallback for
-// a deploy that predates it.
-const SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY") ??
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// **The name lies and it is still the right one to read.** This project disabled
+// its legacy API keys during the July rotation, and CLAUDE.md retired
+// `SUPABASE_SERVICE_ROLE_KEY` as a *variable name we choose* for exactly that
+// reason — it described a credential that no longer exists. But this variable is
+// not ours to name: the platform injects it, and on a project migrated to the
+// new key system it now carries the `sb_secret_…` value rather than the old
+// `service_role` JWT. So it works, and it is the only one that does.
+//
+// Reading `SUPABASE_SECRET_KEY` instead is **impossible**, which is worth
+// stating because it looks like it should work: Supabase reserves the whole
+// `SUPABASE_` prefix and refuses to create a secret using it. A first draft of
+// this file preferred that name with this one as a fallback, which would have
+// been dead code silently falling through forever.
+const SECRET_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const APNS_KEY_P8 = Deno.env.get("APNS_KEY_P8") ?? "";
 const APNS_KEY_ID = Deno.env.get("APNS_KEY_ID") ?? "";
@@ -130,7 +138,20 @@ interface Device {
   environment: string;
 }
 
-async function devices(userId: string): Promise<Device[]> {
+/// Returns `null` for "could not ask", never `[]`.
+///
+/// **This distinction is the single most repeated defect in this project** —
+/// `PhotoService.paths()` returned `[]` on a dropped request or an expired
+/// token, and the one caller treated an empty list as a *decision*, silently
+/// un-listing people who had photographs. `SyncService.lastError`,
+/// `PhotoService.lastError`, `DiscoveryCardService.lastError` and `record`'s
+/// discarded return are the same shape.
+///
+/// It matters exactly as much here. A dead key answers 401, an empty list looks
+/// like somebody who never granted notifications, and the caller reports
+/// `{"sent":0,"note":"no devices"}` — a *success*. Every notification would
+/// vanish and the logs would say everything was fine.
+async function devices(userId: string): Promise<Device[] | null> {
   const response = await fetch(
     `${SUPABASE_URL}/rest/v1/device_tokens?user_id=eq.${userId}&select=token,environment`,
     {
@@ -140,7 +161,10 @@ async function devices(userId: string): Promise<Device[]> {
       },
     },
   );
-  if (!response.ok) return [];
+  if (!response.ok) {
+    console.error(`device_tokens ${response.status}: ${await response.text()}`);
+    return null;
+  }
   return await response.json();
 }
 
@@ -238,6 +262,11 @@ Deno.serve(async (req: Request) => {
   }
 
   const targets = await devices(payload.user_id);
+  // Could not ask. Reported as a failure and never as "nobody to tell" — see
+  // `devices`. Nothing retries it; the point is that the log says which happened.
+  if (targets === null) {
+    return json({ error: "Could not read device_tokens" }, 500);
+  }
   // **Not an error.** Somebody who has never opened the app on a phone, or who
   // declined, has no row here — and a trigger treating that as a failure would
   // make every like by a web-less user look broken.
