@@ -164,11 +164,38 @@ enum ListeningHighlights {
     /// The rows both readings share: this person's own events, public calendars
     /// excluded twice over — once at collection and again here for rows written
     /// before the distiller started filtering.
+    /// Every calendar this account has connected, read as one diary.
+    ///
+    /// **Both sources, deduped, because a person has one calendar and two ways
+    /// of reaching it.** Apple Calendar and Google Calendar overlap heavily —
+    /// a Google account added in iOS Settings arrives through EventKit as well
+    /// as through the API — so the same dinner can be collected twice under two
+    /// `source` values and two `item_id`s, which `append_source_records` dedupes
+    /// *within* a source and cannot catch across.
+    ///
+    /// It is deduped here rather than at collection because the raw rows are
+    /// the ontology stage's input and it should see everything that was found;
+    /// what must not be doubled is what a person is *shown*, and the counts in
+    /// `shape` — a fortnight of dinners becoming a month of them would misread
+    /// somebody's week.
+    ///
+    /// Title and start together, since that is what makes two rows the same
+    /// event: a weekly standup has one title and many starts, and two people
+    /// called "Lunch" on the same afternoon is not a case worth splitting.
+    private static let calendarSources: Set<String> = ["apple_calendar", "google_calendar"]
+
     private static func personalEvents(in records: [DistilledRecord]) -> [DistilledRecord] {
-        records.filter { record in
-            guard record.source == "apple_calendar",
+        var seenEvent: Set<String> = []
+        return records.filter { record in
+            guard Self.calendarSources.contains(record.source),
                   record.dataType == "event",
                   !record.isRemovedByUser else { return false }
+            // See `calendarSources`: the same event reached twice is one event.
+            let start = record.extra
+                .split(separator: ";")
+                .first { $0.hasPrefix("start=") }
+                .map(String.init) ?? ""
+            guard seenEvent.insert("\(record.name)\u{1}\(start)").inserted else { return false }
             // **A row with no `cal_type` is not drawn, and that reverses an
             // earlier decision on the strength of measurement.** The reasoning
             // used to be that rows predating the field were collected when

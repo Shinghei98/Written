@@ -1,0 +1,37 @@
+14:39:48.750 xcodebuild[13179:3597998] Got a sim device notification for Clone 4 of audit-i17: {
+    notification = "availableDevices_changed";
+}
+14:39:48.758 xcodebuild[13179:3597998] Got a sim device notification for Clone 4 of audit-i17: {
+    device = "Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:39:48 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:39:48.758 xcodebuild[13179:3597998] Sim Clone 4 of audit-i17 state changed to 2
+14:39:48.758 xcodebuild[13179:3597998] Got a sim device notification for Clone 4 of audit-i17: {
+    "SimDeviceNotification_NewBootStatus" = "SimDeviceBootInfo { status = 0 (Booting), elapsed = 0.000000, isTerminal = 0, info = (null) }";
+    device = "Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2, iOS 26.5, Booting)";
+    notification = "SimDeviceNotificationType_BootStatus";
+}
+14:39:49.988 xcodebuild[13179:3595161] Got a sim device notification for Clone 4 of audit-i17: {
+    notification = "availableDevices_changed";
+}
+14:39:49.988 xcodebuild[13179:3595161] Got a sim device notification for Clone 4 of audit-i17: {
+    device = "Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2, iOS 26.5, Booted)";
+    "new_state" = 3;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:39:49.997 xcodebuild[13179:3595161] Sim Clone 4 of audit-i17 state changed to 3
+14:39:49.997 xcodebuild[13179:3595161] Sim Clone 4 of audit-i17: Unregistering for sim device notification with token 3
+14:39:50.000 xcodebuild[13179:3595161] Calling -[SimDevice getenv:error:] for TESTMANAGERD_SIM_SOCK
+14:39:51.027 xcodebuild[13179:3595161] Sim Clone 4 of audit-i17 has testmanagerd socket at /private/var/tmp/com.apple.launchd.gYOWV2IVcE/com.apple.testmanagerd.unix-domain.socket
+14:39:51.027 xcodebuild[13179:3595161] Validating test connection socket path (/private/var/tmp/com.apple.launchd.gYOWV2IVcE/com.apple.testmanagerd.unix-domain.socket)
+14:39:51.027 xcodebuild[13179:3595161] Constructing transport for test connection socket
+14:39:51.027 xcodebuild[13179:3595161] Connected socket 68 to testmanagerd for Sim Clone 4 of audit-i17
+14:39:51.065 xcodebuild[13179:3595161] Initiating control session with IDE capabilities: <XCTCapabilities: 0x8d5e4df80>: {
+}
+14:41:54.420 xcodebuild[13179:3605779] Got reply to control session initiation request (result:error): (null): Error Domain=DTXProxyChannel Code=1 "Channel disconnected" UserInfo={NSLocalizedDescription=Channel disconnected}
+14:41:54.416 xcodebuild[13179:3592655] Closing socket 68 to testmanagerd for Sim Clone 4 of audit-i17
+14:41:53.991 xcodebuild[13179:3601398] Error received during protocol exchange, canceling connection - no subsequent requests are expected to execute: Error Domain=com.apple.dt.xctest.error Code=8 "Timed out after 120.0s while initiating control session with daemon." UserInfo={NSLocalizedDescription=Timed out after 120.0s while initiating control session with daemon.}.

@@ -1,0 +1,32 @@
+2026-08-05 19:35:33 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8d9b79180, PID: 0, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:37:00 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished bootstrapping
+2026-08-05 19:37:00 +0000: Parallelization enabled; test execution driven by the IDE
+2026-08-05 19:37:00 +0000: Requesting parallelizable groups from worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:37:48 +0000: Received parallelizable groups from worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>: (
+    "<XCTTestIdentifier container, class [\"SwipeActionsTests\"]>",
+    "<XCTTestIdentifier container, class [\"LayoutAuditTests\"]>",
+    "<XCTTestIdentifier container, class [\"HealthPermissionTests\"]>",
+    "<XCTTestIdentifier container [\"__SwiftTestingParallelizationPlaceholderIdentifier\"]>"
+)
+2026-08-05 19:37:48 +0000: Executing tests <XCTTestIdentifier container ["__SwiftTestingParallelizationPlaceholderIdentifier"]>, <XCTTestIdentifier container, class ["SwipeActionsTests"]>, <XCTTestIdentifier container, class ["LayoutAuditTests"]>, <XCTTestIdentifier container, class ["HealthPermissionTests"]>; skipping tests 
+2026-08-05 19:37:48 +0000: Dispatching tests <XCTTestIdentifier container, class ["HealthPermissionTests"]> to worker: <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:38:12 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8d9b79e00, PID: 0, device: Clone 2 of audit-i17 (9C28B4A4-CA24-4280-A05D-5073412C00A5)>
+2026-08-05 19:38:41 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished successfully.
+2026-08-05 19:38:41 +0000: Dispatching tests <XCTTestIdentifier container, class ["LayoutAuditTests"]> to worker: <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:38:58 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8d9b7abc0, PID: 0, device: Clone 3 of audit-i17 (D527271E-38D1-445A-B80A-15B6D6D37ACA)>
+2026-08-05 19:39:46 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8d9b7af80, PID: 0, device: Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2)>
+2026-08-05 19:45:32 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished successfully.
+2026-08-05 19:45:32 +0000: Dispatching tests <XCTTestIdentifier container ["__SwiftTestingParallelizationPlaceholderIdentifier"]> to worker: <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:45:32 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished successfully.
+2026-08-05 19:45:32 +0000: Dispatching tests <XCTTestIdentifier container, class ["SwipeActionsTests"]> to worker: <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)>
+2026-08-05 19:46:24 +0000: Scheduler finished dispatching test classes
+2026-08-05 19:46:24 +0000: Cancelling bootstrapping worker: <XCTHTestRunner: 0x8d9b7abc0, PID: 0, device: Clone 3 of audit-i17 (D527271E-38D1-445A-B80A-15B6D6D37ACA)>
+2026-08-05 19:46:24 +0000: Cancelling bootstrapping worker: <XCTHTestRunner: 0x8d9b79e00, PID: 0, device: Clone 2 of audit-i17 (9C28B4A4-CA24-4280-A05D-5073412C00A5)>
+2026-08-05 19:46:24 +0000: Cancelling bootstrapping worker: <XCTHTestRunner: 0x8d9b7af80, PID: 0, device: Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2)>
+2026-08-05 19:46:30 +0000: Worker <XCTHTestRunner: 0x8d9b7abc0, PID: 0, device: Clone 3 of audit-i17 (D527271E-38D1-445A-B80A-15B6D6D37ACA)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=9 "Testing was canceled" UserInfo={NSLocalizedDescription=Testing was canceled}
+2026-08-05 19:46:31 +0000: Worker <XCTHTestRunner: 0x8d9b79e00, PID: 0, device: Clone 2 of audit-i17 (9C28B4A4-CA24-4280-A05D-5073412C00A5)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=9 "Testing was canceled" UserInfo={NSLocalizedDescription=Testing was canceled}
+2026-08-05 19:46:32 +0000: Worker <XCTHTestRunner: 0x8d9b7af80, PID: 0, device: Clone 4 of audit-i17 (6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=9 "Testing was canceled" UserInfo={NSLocalizedDescription=Testing was canceled}
+2026-08-05 20:01:48 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished successfully.
+2026-08-05 20:01:48 +0000: Telling worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> to shutdown
+2026-08-05 20:11:44 +0000: Worker <XCTHTestRunner: 0x8d9b79180, PID: 19825, device: Clone 1 of audit-i17 (D89EACB5-6897-45C7-BD94-FBCB7D362DF5)> finished successfully
+2026-08-05 20:11:44 +0000: Finished executing tests (cancelled: No)
