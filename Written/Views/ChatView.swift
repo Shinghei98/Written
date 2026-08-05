@@ -59,6 +59,12 @@ struct ChatView: View {
     /// else in the app would ever mention it.
     @State private var routeTrail: String?
 
+    /// Whether iOS has been asked about notifications and refused. Re-read every
+    /// time this tab appears, because the answer changes in Settings rather than
+    /// in the app — somebody who turns them on and comes back should find the
+    /// notice gone.
+    @State private var notificationsAreOff = false
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
@@ -191,6 +197,7 @@ struct ChatView: View {
         .onChange(of: notifications.pending) { _ in openForNotification() }
         .task(id: isVisible) {
             guard isVisible else { return }
+            notificationsAreOff = await PushService.shared.isDenied()
             await model.load()
             // **After the load, not before it.** A tap that launched the app
             // arrives while this list is still empty, so a conversation looked
@@ -321,7 +328,16 @@ struct ChatView: View {
     /// 15 comes from. Re-measure the same way if the title's size changes again
     /// — a constant that is only *nearly* right hides the first conversation
     /// under the header, and does it silently.
-    private var headerHeight: CGFloat { model.admirers.isEmpty ? 89 : 147 }
+    /// **Measured against the header, and it has to be kept in step by hand.**
+    /// The content is inset by this rather than by a `safeAreaInset`, for the
+    /// reason `MainTabBar` documents four times over — so anything added to the
+    /// header has to be added here too, or the first conversation slides under
+    /// it.
+    private var headerHeight: CGFloat {
+        var height: CGFloat = model.admirers.isEmpty ? 89 : 147
+        if notificationsAreOff { height += 58 }
+        return height
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -349,8 +365,45 @@ struct ChatView: View {
                 .padding(.bottom, 14)
             }
 
+            if notificationsAreOff { notificationsOffNotice }
+
             Divider().opacity(0.35)
         }
+    }
+
+    /// Says that notifications are switched off, and offers the only route back.
+    ///
+    /// **Stated once, quietly, and never again.** iOS allows the question a
+    /// single time and this person has answered it, so there is no prompt to
+    /// raise — the Settings app is the only way back and this is the only place
+    /// that could say so. Left unsaid, somebody who declined hears about no
+    /// like and no match and is never told why.
+    ///
+    /// In the header rather than over the list, because it is a fact about the
+    /// screen rather than an event on it: a banner would dismiss itself and take
+    /// the explanation with it.
+    private var notificationsOffNotice: some View {
+        Button {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "bell.slash")
+                    .font(.system(size: 13))
+                    .foregroundStyle(GardenPalette.muted)
+                Text("Notifications are off — you won't hear about likes or messages.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(GardenPalette.muted)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 6)
+                Text("Turn on")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(GardenPalette.gold)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+        }
+        .buttonStyle(.plain)
     }
 
     private var empty: some View {

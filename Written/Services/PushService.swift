@@ -67,6 +67,22 @@ actor PushService {
         return status == .notDetermined
     }
 
+    /// Whether iOS has been asked and said no.
+    ///
+    /// **The one state nothing else in the app would ever mention.** A refusal
+    /// leaves `device_tokens` empty, so every notification for that person is
+    /// reported server-side as `{"sent":0,"note":"no devices"}` — a success,
+    /// and indistinguishable from somebody who never installed the app. They
+    /// hear about no like and no match, and are told nothing. That is the same
+    /// silent-failure shape this codebase has now met seven times, and Chat says
+    /// so because of it.
+    ///
+    /// Distinguished from `.notDetermined`, which the primer handles, and from
+    /// `.provisional`, which delivers quietly rather than not at all.
+    func isDenied() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
     /// Records that the primer was declined, so it is not shown again today.
     ///
     /// Not permanent. Somebody who says "not now" is saying not now, and iOS has
