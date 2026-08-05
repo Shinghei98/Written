@@ -491,6 +491,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_FILE = "Written-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written reads your music library and listening history — artists, songs, playlists, play counts — to build your dating profile. It is saved to your Written account so your profile survives a new phone.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";
@@ -528,6 +529,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_FILE = "Written-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Written reads your music library and listening history — artists, songs, playlists, play counts — to build your dating profile. It is saved to your Written account so your profile survives a new phone.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Written reads your calendar event titles, locations, and organizers when you connect Apple Calendar, then uses them to build and sync your dating profile.";

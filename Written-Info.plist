@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Everything else this app declares lives in `INFOPLIST_KEY_*` build
+	     settings, and this file exists for the one key that cannot.
+
+	     `INFOPLIST_KEY_NSUserActivityTypes` is not a name Xcode recognises, so
+	     setting it writes nothing at all — no error, no warning, and an
+	     Info.plist without the key. That silence is the reason this file exists
+	     rather than a build setting: it was tried first and only reading the
+	     *built* plist showed it had done nothing.
+
+	     `GENERATE_INFOPLIST_FILE` stays YES; Xcode merges the generated keys on
+	     top of this file rather than replacing it, which is how ShareToWritten
+	     already works.
+
+	     It sits at the repo root beside `Written.entitlements` rather than under
+	     `Written/`, because that folder is a synchronized group — anything added
+	     there is picked up automatically, and an Info.plist swept into Copy
+	     Bundle Resources ships a second copy inside the bundle. -->
+
+	<!-- Required by the `com.apple.developer.usernotifications.communication`
+	     entitlement: an app claiming it must say which intent it handles, or
+	     the upload warns that the entitlement is unusable. `INSendMessageIntent`
+	     is what makes an incoming notification render as a *person* — avatar on
+	     the left, sender's name, message beneath — instead of as this app. -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
+</dict>
+</plist>
