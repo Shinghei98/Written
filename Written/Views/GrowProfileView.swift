@@ -1434,21 +1434,20 @@ struct AppMark: View {
         }
     }
 
-    /// Google Calendar's mark: a white tile with the blue 31.
+    /// Google Calendar's mark: the blue tile and the white 31.
     ///
-    /// **It has to be told from Apple's at 26 points**, which is the whole
-    /// constraint — the Events bar now carries both. Apple's is a *live* date
-    /// with a red weekday above it; Google's is the fixed **31** its icon has
-    /// always carried, in Google blue, with no weekday. Side by side that is
-    /// enough: one changes with the day and one never does.
+    /// **Inverted from the first attempt**, which drew a white tile with blue
+    /// text. Measured off the app icon: a white rounded tile with a *blue* one
+    /// inside it carrying a white numeral — the white reads as a rim on three
+    /// sides and a band across the top, where the blue is lighter.
     ///
-    /// A first attempt gave it the blue-red-yellow-green run, which is Drive and
-    /// Photos rather than Calendar — the real mark is a plain white tile and the
-    /// numeral.
+    /// Sampled: the blue is rgb(84,143,243) with rgb(159,167,252) along its top
+    /// edge. Measured: the blue is 0.97 of the tile wide and 0.84 tall, inset
+    /// 0.02 at the sides and bottom and 0.15 from the top.
     ///
-    /// Drawn rather than shipped, like every mark here: there are no brand
-    /// assets in the bundle, and at this size a tile and a numeral read as the
-    /// logo.
+    /// It has to be told from Apple's at 26 points, which is what the Events bar
+    /// now asks — Apple's is a live date with a red weekday above it, and this
+    /// is the fixed 31 its icon has always carried.
     private var googleCalendar: some View {
         ZStack {
             RoundedRectangle(cornerRadius: diameter * 0.26)
@@ -1457,9 +1456,26 @@ struct AppMark: View {
                     RoundedRectangle(cornerRadius: diameter * 0.26)
                         .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
                 }
-            Text("31")
-                .font(.system(size: diameter * 0.46, weight: .medium))
-                .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.96))
+
+            RoundedRectangle(cornerRadius: diameter * 0.20)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.624, green: 0.655, blue: 0.988),
+                            Color(red: 0.322, green: 0.549, blue: 0.953),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: diameter * 0.78, height: diameter * 0.68)
+                .offset(y: diameter * 0.06)
+                .overlay {
+                    Text("31")
+                        .font(.system(size: diameter * 0.38, weight: .medium))
+                        .foregroundStyle(.white)
+                        .offset(y: diameter * 0.06)
+                }
         }
         .frame(width: diameter, height: diameter)
     }
@@ -1552,19 +1568,56 @@ struct AppMark: View {
     /// the badge on the plant and the mark in the bar agree; Apple's own
     /// concentric-arc figure has no SF Symbol equivalent and would read as mush
     /// at this size anyway.
+    /// Apple Podcasts' mark: the broadcast figure on purple.
+    ///
+    /// **Measured off the app icon rather than approximated.** It drew a
+    /// `mic.fill` before, which is a microphone and not what Apple ships — the
+    /// real glyph is a circle over a tapered body inside two faint rings, the
+    /// "someone broadcasting" figure. Colours sampled from the icon: the tile
+    /// runs rgb(155,88,205) at the top to rgb(111,54,168) at the bottom, and the
+    /// rings are the same purple lightened rather than white.
+    ///
+    /// Proportions, also measured, as fractions of the tile: the glyph is 0.25
+    /// wide and 0.56 tall, the head about 0.17 across.
     private var applePodcasts: some View {
         ZStack {
             RoundedRectangle(cornerRadius: diameter * 0.26)
                 .fill(
                     LinearGradient(
-                        colors: [Color(red: 0.76, green: 0.45, blue: 0.93), Color(red: 0.55, green: 0.24, blue: 0.80)],
+                        colors: [
+                            Color(red: 0.608, green: 0.345, blue: 0.804),
+                            Color(red: 0.435, green: 0.212, blue: 0.659),
+                        ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
-            Image(systemName: "mic.fill")
-                .font(.system(size: diameter * 0.46, weight: .medium))
-                .foregroundStyle(.white)
+
+            // The two broadcast rings, lightened rather than white — at this
+            // size a white ring reads as a border on the tile.
+            Circle()
+                .strokeBorder(.white.opacity(0.28), lineWidth: diameter * 0.055)
+                .frame(width: diameter * 0.70, height: diameter * 0.70)
+                .offset(y: -diameter * 0.04)
+            Circle()
+                .strokeBorder(.white.opacity(0.34), lineWidth: diameter * 0.05)
+                .frame(width: diameter * 0.44, height: diameter * 0.44)
+                .offset(y: -diameter * 0.04)
+
+            // The head.
+            Circle()
+                .fill(.white)
+                .frame(width: diameter * 0.17, height: diameter * 0.17)
+                .offset(y: -diameter * 0.12)
+
+            // The body: wide at the shoulders, tapering to a rounded point.
+            // A capsule would be simpler and reads as a pill rather than a
+            // figure, which is the difference between this and the microphone
+            // it replaced.
+            PodcastBody()
+                .fill(.white)
+                .frame(width: diameter * 0.20, height: diameter * 0.30)
+                .offset(y: diameter * 0.16)
         }
         .frame(width: diameter, height: diameter)
     }
@@ -2111,4 +2164,38 @@ struct SourcePickerSheet: View {
 
 #Preview {
     GrowProfileView(viewModel: DistillViewModel())
+}
+
+/// The body of Apple Podcasts' figure: wide at the shoulders, tapering to a
+/// rounded point.
+///
+/// A `Capsule` reads as a pill and loses the taper that makes the glyph a
+/// person rather than a microphone — which is the whole difference between this
+/// mark and the `mic.fill` it replaced.
+private struct PodcastBody: Shape {
+    func path(in rect: CGRect) -> Path {
+        let topRadius = rect.width / 2
+        let bottomRadius = rect.width * 0.32
+        var path = Path()
+        path.addArc(
+            center: CGPoint(x: rect.midX, y: rect.minY + topRadius),
+            radius: topRadius,
+            startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX + bottomRadius, y: rect.maxY - bottomRadius),
+            control: CGPoint(x: rect.maxX, y: rect.midY)
+        )
+        path.addArc(
+            center: CGPoint(x: rect.midX, y: rect.maxY - bottomRadius),
+            radius: bottomRadius,
+            startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.minY + topRadius),
+            control: CGPoint(x: rect.minX, y: rect.midY)
+        )
+        path.closeSubpath()
+        return path
+    }
 }
