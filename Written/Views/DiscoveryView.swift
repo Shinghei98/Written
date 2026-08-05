@@ -41,6 +41,11 @@ struct DiscoveryView: View {
     /// Not remembered between launches, deliberately: opening an app to
     /// unexpected sound is worse than tapping once to ask for it.
     @State private var isFeedMuted = true
+    /// The profile whose ellipsis was tapped, if any.
+    @State private var pendingActions: DiscoveryFeed.Profile?
+    /// The profile being reported. Separate from the above so the two sheets
+    /// never both draw — the actions sheet clears itself as it hands over.
+    @State private var pendingReport: DiscoveryFeed.Profile?
 
     var body: some View {
         GeometryReader { geometry in
@@ -66,6 +71,48 @@ struct DiscoveryView: View {
             // recorded its reason somewhere nobody could see — the heart simply
             // emptied again.
             .statusBanner(model.failure)
+            // Centred on the screen, and layered here rather than on the card
+            // for that reason — see `DiscoveryCard.onMore`.
+            .overlay {
+                if let profile = pendingActions {
+                    ProfileActionsSheet(
+                        name: profile.name,
+                        onRemove: {
+                            model.remove(profile.personID)
+                            pendingActions = nil
+                        },
+                        // **The same sheet the chat thread raises**, so being
+                        // reported means one thing in this app rather than two.
+                        // Straight there, with no second confirmation: the
+                        // sheet itself is the confirmation, and it has a cancel.
+                        onReport: {
+                            pendingReport = profile
+                            pendingActions = nil
+                        },
+                        onCancel: { pendingActions = nil }
+                    )
+                }
+
+                if let profile = pendingReport {
+                    ReportSheet(
+                        name: profile.name,
+                        onSend: { text in
+                            let id = profile.personID
+                            let name = profile.name
+                            // **Blocked here, not on the server's answer**, and
+                            // the reasoning is `ChatView`'s: the report is worth
+                            // retrying, getting away from somebody is not
+                            // something to make conditional on a network.
+                            viewModel.banPerson(id)
+                            pendingReport = nil
+                            Task {
+                                _ = await ChatService.shared.report(id, named: name, body: text)
+                            }
+                        },
+                        onCancel: { pendingReport = nil }
+                    )
+                }
+            }
 //            .overlay {
 //                if isSharing {
 //                    ShareLinkSheet(
@@ -82,7 +129,15 @@ struct DiscoveryView: View {
 //            }
         }
         .preferredColorScheme(.light)
-        .task { await model.load(hiding: viewModel.bans.keys(.person)) }
+        .task {
+            // Two sources of "never show me this person": a report or unmatch,
+            // which lives in `bans`, and a plain removal, which has its own
+            // table. Unioned here so the feed has one exclusion set — and read
+            // before the cards, so nobody removed is ever drawn and then taken
+            // away. See `0017_remove_list.sql` for why they are separate.
+            let removed = await RemoveListService.shared.removed()
+            await model.load(hiding: viewModel.bans.keys(.person).union(removed))
+        }
         // Somebody unmatched from the Chat tab while this feed was already
         // built. `load` will not run again — it guards on `items.isEmpty` — so
         // the purge has to be driven by the ban itself.
@@ -104,7 +159,8 @@ struct DiscoveryView: View {
                                 // and a heart that emptied on the way past would
                                 // read as the like having been dropped.
                                 isLiked: model.hasLiked(profile.personID),
-                                onLike: { model.like(profile.personID) }
+                                onLike: { model.like(profile.personID) },
+                                onMore: { pendingActions = profile }
                             )
                         case .shared(let post, _):
                             SharedPostCard(
@@ -326,6 +382,25 @@ final class DiscoveryModel: ObservableObject {
     /// Unlike the like purge this takes items *above* the viewport too, which
     /// moves what is being read — accepted, because the alternative is leaving
     /// somebody just blocked one scroll away.
+    /// Takes somebody out of the stack for good, with no accusation.
+    ///
+    /// **Immediately, unlike a like.** A like defers its removal to the next
+    /// scroll so the heart is seen to fill; this is the opposite — somebody who
+    /// asked for a profile to be gone should not have to scroll to watch it go.
+    ///
+    /// Applied before the write and not rolled back if it fails. The row is
+    /// worth retrying; being shown again somebody you just removed is not
+    /// something to make conditional on a network, and the next launch re-reads
+    /// the list either way.
+    func remove(_ personID: String) {
+        banned.insert(personID)
+        items.removeAll(where: isBannedProfile)
+        Task {
+            guard await RemoveListService.shared.remove(personID) == false else { return }
+            failure = await RemoveListService.shared.lastError
+        }
+    }
+
     func hide(_ blocked: Set<String>) {
         guard blocked != banned else { return }
         banned = blocked
@@ -411,6 +486,13 @@ struct DiscoveryCard: View {
 
     var isLiked = false
     var onLike: () -> Void = {}
+    /// Raise the two-row sheet for this person.
+    ///
+    /// **Reported upward rather than presented here.** The sheet is centred on
+    /// the *screen*; an overlay attached to this card would centre on the card
+    /// and be clipped by its corner radius. `ChatView` puts its report sheet at
+    /// the top level for the same reason.
+    var onMore: () -> Void = {}
 
     @State private var page = 0
 
@@ -473,9 +555,21 @@ struct DiscoveryCard: View {
 
             Spacer(minLength: 0)
 
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(GardenPalette.muted)
+            // **A button at last.** This drew an ellipsis and did nothing —
+            // the universal "there are more options here" glyph, on a card whose
+            // only other control is a heart. Somebody who wanted away from a
+            // profile had nowhere to go.
+            Button(action: onMore) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(GardenPalette.muted)
+                    // The glyph is three small dots and the tap target must not
+                    // be: 44 square is the smallest thing a thumb finds reliably.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("More options for \(profile.name)")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
