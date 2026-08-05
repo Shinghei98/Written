@@ -1,0 +1,83 @@
+2026-08-05 19:09:04 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8e16edcc0, PID: 0, device: Clone 1 of audit-se3 (A164AE12-BE33-403B-991D-80D7AF037875)>
+2026-08-05 19:10:34 +0000: Worker <XCTHTestRunner: 0x8e16edcc0, PID: 97918, device: Clone 1 of audit-se3 (A164AE12-BE33-403B-991D-80D7AF037875)> finished bootstrapping
+2026-08-05 19:10:34 +0000: Parallelization enabled; test execution driven by the IDE
+2026-08-05 19:10:34 +0000: Requesting parallelizable groups from worker <XCTHTestRunner: 0x8e16edcc0, PID: 97918, device: Clone 1 of audit-se3 (A164AE12-BE33-403B-991D-80D7AF037875)>
+2026-08-05 19:11:06 +0000: Received parallelizable groups from worker <XCTHTestRunner: 0x8e16edcc0, PID: 97918, device: Clone 1 of audit-se3 (A164AE12-BE33-403B-991D-80D7AF037875)>: (
+    "<XCTTestIdentifier container, class [\"SwipeActionsTests\"]>",
+    "<XCTTestIdentifier container, class [\"LayoutAuditTests\"]>",
+    "<XCTTestIdentifier container, class [\"HealthPermissionTests\"]>",
+    "<XCTTestIdentifier container [\"__SwiftTestingParallelizationPlaceholderIdentifier\"]>"
+)
+2026-08-05 19:11:06 +0000: Executing tests <XCTTestIdentifier container ["__SwiftTestingParallelizationPlaceholderIdentifier"]>, <XCTTestIdentifier container, class ["SwipeActionsTests"]>, <XCTTestIdentifier container, class ["LayoutAuditTests"]>, <XCTTestIdentifier container, class ["HealthPermissionTests"]>; skipping tests 
+2026-08-05 19:11:06 +0000: Dispatching tests <XCTTestIdentifier container, class ["LayoutAuditTests"]> to worker: <XCTHTestRunner: 0x8e16edcc0, PID: 97918, device: Clone 1 of audit-se3 (A164AE12-BE33-403B-991D-80D7AF037875)>
+2026-08-05 19:11:41 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8e1b35a40, PID: 0, device: Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956)>
+2026-08-05 19:12:44 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8e1b361c0, PID: 0, device: Clone 3 of audit-se3 (807E8BC0-F549-4706-9798-AFF357329091)>
+2026-08-05 19:13:14 +0000: Received worker from worker provider: <XCTHTestRunner: 0x8e1b366c0, PID: 0, device: Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD)>
+2026-08-05 19:13:47 +0000: Worker <XCTHTestRunner: 0x8e1b361c0, PID: 0, device: Clone 3 of audit-se3 (807E8BC0-F549-4706-9798-AFF357329091)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=11 "Failed to prepare device 'Clone 3 of audit-se3' for impending launch" UserInfo={NSLocalizedDescription=Failed to prepare device 'Clone 3 of audit-se3' for impending launch, NSUnderlyingError=0x8e5c38c90 {Error Domain=DVTCoreSimulatorAdditionsErrorDomain Code=0 "Timed out trying to boot simulator after waiting 60.00s." UserInfo={NSLocalizedDescription=Timed out trying to boot simulator after waiting 60.00s.}}}
+2026-08-05 19:14:14 +0000: Worker <XCTHTestRunner: 0x8e1b366c0, PID: 0, device: Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=11 "Failed to prepare device 'Clone 4 of audit-se3' for impending launch" UserInfo={NSLocalizedDescription=Failed to prepare device 'Clone 4 of audit-se3' for impending launch, NSUnderlyingError=0x8e5c393b0 {Error Domain=DVTCoreSimulatorAdditionsErrorDomain Code=0 "Timed out trying to boot simulator after waiting 60.00s." UserInfo={NSLocalizedDescription=Timed out trying to boot simulator after waiting 60.00s.}}}
+2026-08-05 19:27:37 +0000: Worker <XCTHTestRunner: 0x8e1b35a40, PID: 0, device: Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956)> finished with error: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=4 "Failed to install or launch the test runner" UserInfo={NSLocalizedDescription=Failed to install or launch the test runner, NSUnderlyingError=0x8e6710810 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={IDERunOperationFailingWorker=IDELaunchiPhoneSimulatorLauncher, SimCallingSelector=launchApplicationWithID:options:pid:error:, NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., DVTErrorCreationDateKey=2026-08-05 19:27:36 +0000, DVTIssueReportingFunctionalityKey=1, DVTAnalyticsEventNameKey=com.apple.dt.IDERunOperationWorkerFinished, NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSLocalizedFailureReason=The system shell probably crashed., DVTAnalyticsEventDictionaryKey={
+    "device_identifier" = "9DE75018-1C28-4185-8C77-70732C1E0340";
+    "device_model" = "iPhone14,6";
+    "device_osBuild" = "26.5 (23F77)";
+    "device_osBuild_monotonic" = 2305007700;
+    "device_os_variant" = 1;
+    "device_platform" = "com.apple.platform.iphonesimulator";
+    "device_platform_family" = 2;
+    "device_reality" = 2;
+    "device_thinningType" = "iPhone14,6";
+    "device_transport" = 4;
+    "launchSession_schemeCommand" = Test;
+    "launchSession_schemeCommand_enum" = 2;
+    "launchSession_targetArch" = arm64;
+    "launchSession_targetArch_enum" = 6;
+    "operation_duration_ms" = 891033;
+    "operation_errorCode" = 64;
+    "operation_errorDomain" = NSPOSIXErrorDomain;
+    "operation_errorWorker" = IDELaunchiPhoneSimulatorLauncher;
+    "operation_error_reportable" = 1;
+    "operation_name" = IDERunOperationWorkerGroup;
+    "param_consoleMode" = 0;
+    "param_debugger_attachToExtensions" = 0;
+    "param_debugger_attachToXPC" = 0;
+    "param_debugger_type" = 1;
+    "param_destination_isProxy" = 0;
+    "param_destination_platform" = "com.apple.platform.iphonesimulator";
+    "param_diag_MTE_enable" = 0;
+    "param_diag_MainThreadChecker_stopOnIssue" = 0;
+    "param_diag_MallocStackLogging_enableDuringAttach" = 0;
+    "param_diag_MallocStackLogging_enableForXPC" = 0;
+    "param_diag_allowLocationSimulation" = 1;
+    "param_diag_checker_mtc_enable" = 0;
+    "param_diag_checker_tpc_enable" = 1;
+    "param_diag_gpu_frameCapture_enable" = 3;
+    "param_diag_gpu_shaderValidation_enable" = 0;
+    "param_diag_gpu_validation_enable" = 1;
+    "param_diag_guardMalloc_enable" = 0;
+    "param_diag_memoryGraphOnResourceException" = 0;
+    "param_diag_queueDebugging_enable" = 0;
+    "param_diag_runtimeProfile_generate" = 1;
+    "param_diag_sanitizer_asan_enable" = 0;
+    "param_diag_sanitizer_tsan_enable" = 0;
+    "param_diag_sanitizer_tsan_stopOnIssue" = 0;
+    "param_diag_sanitizer_ubsan_enable" = 0;
+    "param_diag_sanitizer_ubsan_stopOnIssue" = 0;
+    "param_diag_showNonLocalizedStrings" = 0;
+    "param_diag_viewDebugging_enabled" = 0;
+    "param_diag_viewDebugging_insertDylibOnLaunch" = 0;
+    "param_install_style" = 2;
+    "param_launcher_UID" = 2;
+    "param_launcher_allowDeviceSensorReplayData" = 0;
+    "param_launcher_kind" = 0;
+    "param_launcher_style" = 0;
+    "param_launcher_substyle" = 64;
+    "param_runnable_appExtensionHostRunMode" = 0;
+    "param_runnable_productType" = "com.apple.product-type.application";
+    "param_testing_launchedForTesting" = 1;
+    "param_testing_suppressSimulatorApp" = 1;
+    "param_testing_usingCLI" = 0;
+    "sdk_canonicalName" = "iphonesimulator26.5";
+    "sdk_osVersion" = "26.5";
+    "sdk_platformID" = 7;
+    "sdk_variant" = iphonesimulator;
+    "sdk_version_monotonic" = 2305008100;
+}, NSUnderlyingError=0x8e6710900 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., NSLocalizedFailureReason=The system shell probably crashed., BSErrorCodeDescription=host down}}, BSErrorCodeDescription=host down}}}

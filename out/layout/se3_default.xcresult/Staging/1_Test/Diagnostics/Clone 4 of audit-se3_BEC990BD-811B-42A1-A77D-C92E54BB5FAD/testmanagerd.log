@@ -1,0 +1,93 @@
+14:13:26.681 xcodebuild[96363:3508594] Got a sim device notification for Clone 4 of audit-se3: {
+    notification = "availableDevices_changed";
+}
+14:13:26.703 xcodebuild[96363:3508594] Got a sim device notification for Clone 4 of audit-se3: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:13:26.704 xcodebuild[96363:3508594] Sim Clone 4 of audit-se3 state changed to 2
+14:13:26.704 xcodebuild[96363:3508594] Got a sim device notification for Clone 4 of audit-se3: {
+    "SimDeviceNotification_NewBootStatus" = "SimDeviceBootInfo { status = 0 (Booting), elapsed = 0.000000, isTerminal = 0, info = (null) }";
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    notification = "SimDeviceNotificationType_BootStatus";
+}
+14:14:17.792 xcodebuild[96363:3508355] Got a sim device notification for Clone 4 of audit-se3: {
+    notification = "availableDevices_changed";
+}
+14:14:17.800 xcodebuild[96363:3508355] Got a sim device notification for Clone 4 of audit-se3: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Shutdown)";
+    "new_state" = 4;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:14:17.808 xcodebuild[96363:3508355] Sim Clone 4 of audit-se3 state changed to 4
+14:14:17.808 xcodebuild[96363:3508355] Got a sim device notification for Clone 4 of audit-se3: {
+    "SimDeviceNotification_NewBootStatus" = "SimDeviceBootInfo { status = 4294967295 (Finished), elapsed = 0.000000, isTerminal = 1, info = (null) }";
+    "SimDeviceNotification_PreviousBootStatus" = "SimDeviceBootInfo { status = 0 (Booting), elapsed = 0.000000, isTerminal = 0, info = (null) }";
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Shutdown)";
+    notification = "SimDeviceNotificationType_BootStatus";
+}
+14:14:17.808 xcodebuild[96363:3508355] Got a sim device notification for Clone 4 of audit-se3: {
+    notification = "availableDevices_changed";
+}
+14:14:17.808 xcodebuild[96363:3508355] Got a sim device notification for Clone 4 of audit-se3: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Shutdown)";
+    "new_state" = 1;
+    notification = "device_state";
+    "prev_state" = 4;
+}
+14:14:17.808 xcodebuild[96363:3508355] Sim Clone 4 of audit-se3 state changed to 1
+14:14:19.363 xcodebuild[96363:3510708] Got a sim device notification for Clone 4 of audit-se3: {
+    notification = "availableDevices_changed";
+}
+14:14:19.363 xcodebuild[96363:3510708] Got a sim device notification for Clone 4 of audit-se3: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:14:19 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:14:19.363 xcodebuild[96363:3510708] Sim Clone 4 of audit-se3 state changed to 2
+14:14:19.363 xcodebuild[96363:3510708] Got a sim device notification for Clone 4 of audit-se3: {
+    "SimDeviceNotification_NewBootStatus" = "SimDeviceBootInfo { status = 0 (Booting), elapsed = 0.000000, isTerminal = 0, info = (null) }";
+    "SimDeviceNotification_PreviousBootStatus" = "SimDeviceBootInfo { status = 4294967295 (Finished), elapsed = 0.000000, isTerminal = 1, info = (null) }";
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    notification = "SimDeviceNotificationType_BootStatus";
+}
+14:14:40.864 xcodebuild[96363:3510758] Got a sim device notification for Clone 4 of audit-se3: {
+    notification = "availableDevices_changed";
+}
+14:14:40.864 xcodebuild[96363:3510758] Got a sim device notification for Clone 4 of audit-se3: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booted)";
+    "new_state" = 3;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:14:40.864 xcodebuild[96363:3510758] Sim Clone 4 of audit-se3 state changed to 3
+14:14:40.864 xcodebuild[96363:3510758] Sim Clone 4 of audit-se3: Unregistering for sim device notification with token 3
+14:14:40.865 xcodebuild[96363:3510758] Calling -[SimDevice getenv:error:] for TESTMANAGERD_SIM_SOCK
+14:14:40.869 xcodebuild[96363:3510758] Sim Clone 4 of audit-se3 is booted but getenv returned nil for test connection socket path; getenv error: Error Domain=NSPOSIXErrorDomain Code=2 "No such file or directory".
+ Will retry in 1s (1 attempts so far).
+14:14:41.936 xcodebuild[96363:3514763] Calling -[SimDevice getenv:error:] for TESTMANAGERD_SIM_SOCK
+14:14:41.939 xcodebuild[96363:3514763] Sim Clone 4 of audit-se3 has testmanagerd socket at /private/var/tmp/com.apple.launchd.UhE9Q9zGUR/com.apple.testmanagerd.unix-domain.socket
+14:14:41.939 xcodebuild[96363:3514763] Validating test connection socket path (/private/var/tmp/com.apple.launchd.UhE9Q9zGUR/com.apple.testmanagerd.unix-domain.socket)
+14:14:41.939 xcodebuild[96363:3514763] Constructing transport for test connection socket
+14:14:41.939 xcodebuild[96363:3514763] Connected socket 56 to testmanagerd for Sim Clone 4 of audit-se3
+14:14:41.952 xcodebuild[96363:3514763] Initiating control session with IDE capabilities: <XCTCapabilities: 0x8de822050>: {
+}
+14:14:58.900 xcodebuild[96363:3505046] Got reply to control session initiation request (result:error): <XCTCapabilities: 0x8de821ee0>: {
+    "authorize test session capability" = 1;
+    "automation mode" = 1;
+    "daemon container sandbox extension" = 1;
+    "initiate daemon control session capability" = 4;
+    "initiate test runner session capability" = 2;
+    "record UI interaction capability" = 2;
+    "recording events as source code" = 1;
+    "report crashes capability" = 1;
+    "request log archive capability" = 1;
+    "supports delayed attachment transfers" = 1;
+}: (null)
+14:28:17.624 xcodebuild[96363:3554619] <XCTDaemonControlSession: 0x8e4049f40> lost connection to daemon

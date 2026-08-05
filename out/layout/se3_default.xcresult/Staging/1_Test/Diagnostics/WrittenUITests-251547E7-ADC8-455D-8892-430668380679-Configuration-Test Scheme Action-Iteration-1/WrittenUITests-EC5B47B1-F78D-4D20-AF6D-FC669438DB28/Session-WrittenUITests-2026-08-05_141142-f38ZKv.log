@@ -1,0 +1,336 @@
+Xcode version: 26.6 (17F113)
+14:11:42.199 xcodebuild[96363:3492808] Beginning test session WrittenUITests-DC8804C2-13C7-4C62-A9A5-B01562E82B93 at 2026-08-05 14:11:42.196 on target <DVTiPhoneSimulator: 0x8df707480> {
+		SimDevice: Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Shutdown)
+} (26.5 (23F77))
+14:11:42.200 xcodebuild[96363:3492808] 	/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+test-without-building
+-project
+Written.xcodeproj
+-scheme
+Written
+-sdk
+iphonesimulator
+-destination
+platform=iOS Simulator,id=9DE75018-1C28-4185-8C77-70732C1E0340
+-configuration
+Debug
+-only-testing:WrittenUITests
+-resultBundlePath
+out/layout/se3_default.xcresult
+14:11:42.206 xcodebuild[96363:3492808] Test standard output and standard error is at /Users/shingheimok/Desktop/WrittenApp/out/layout/se3_default.xcresult/Staging/1_Test/Diagnostics/WrittenUITests-251547E7-ADC8-455D-8892-430668380679-Configuration-Test Scheme Action-Iteration-1/WrittenUITests-EC5B47B1-F78D-4D20-AF6D-FC669438DB28/StandardOutputAndStandardError.txt
+14:11:44.731 xcodebuild[96363:3492808] 00D62004-74EA-4200-9284-50C828094956: Received sim device notification: {
+    notification = "availableDevices_changed";
+}
+14:11:44.731 xcodebuild[96363:3492808] 00D62004-74EA-4200-9284-50C828094956: Received sim device notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:11:44 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:11:44.733 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:11:44 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:11:44.733 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:11:44 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:11:50.552 xcodebuild[96363:3492808] 00D62004-74EA-4200-9284-50C828094956: Received sim device notification: {
+    notification = "availableDevices_changed";
+}
+14:11:50.553 xcodebuild[96363:3492808] 00D62004-74EA-4200-9284-50C828094956: Received sim device notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booted)";
+    "new_state" = 3;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:11:50.554 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booted)";
+    "new_state" = 3;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:11:50.564 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 2 of audit-se3 (00D62004-74EA-4200-9284-50C828094956, iOS 26.5, Booted)";
+    "new_state" = 3;
+    notification = "device_state";
+    "prev_state" = 2;
+}
+14:11:50.574 xcodebuild[96363:3502919] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was issued, 2 claims exist.
+14:11:50.581 xcodebuild[96363:3492808] Setting up test runner session
+14:11:50.582 xcodebuild[96363:3505268] Sim Clone 2 of audit-se3: Unregistering for sim device notification with token 5
+14:11:50.582 xcodebuild[96363:3505268] Calling -[SimDevice getenv:error:] for TESTMANAGERD_SIM_SOCK
+14:11:50.586 xcodebuild[96363:3492808] Registering/updating daemon-based crash report observer for process names (
+    xctest,
+    debugserver,
+    FrontBoard,
+    assertiond,
+    runningboardd,
+    SpringBoard,
+    testmanagerd,
+    backboardd,
+    DTServiceHub,
+    Written,
+    WrittenUITests,
+    "WrittenUITests-Runner"
+)
+14:11:50.603 xcodebuild[96363:3505268] Sim Clone 2 of audit-se3 is booted but getenv returned nil for test connection socket path; getenv error: Error Domain=NSPOSIXErrorDomain Code=2 "No such file or directory".
+ Will retry in 1s (1 attempts so far).
+14:11:51.661 xcodebuild[96363:3505374] Calling -[SimDevice getenv:error:] for TESTMANAGERD_SIM_SOCK
+14:11:51.734 xcodebuild[96363:3505374] Sim Clone 2 of audit-se3 has testmanagerd socket at /private/var/tmp/com.apple.launchd.60zTopEf8j/com.apple.testmanagerd.unix-domain.socket
+14:11:51.734 xcodebuild[96363:3505374] Validating test connection socket path (/private/var/tmp/com.apple.launchd.60zTopEf8j/com.apple.testmanagerd.unix-domain.socket)
+14:11:51.734 xcodebuild[96363:3505374] Constructing transport for test connection socket
+14:11:51.735 xcodebuild[96363:3505374] Connected socket 52 to testmanagerd for Sim Clone 2 of audit-se3
+14:11:51.736 xcodebuild[96363:3505268] Received connection for test runner session
+14:11:51.736 xcodebuild[96363:3505268] Listening for proxy connection request from the test bundle
+14:11:51.738 xcodebuild[96363:3505268] Initiating session with identifier: DC8804C2-13C7-4C62-A9A5-B01562E82B93
+14:11:51.738 xcodebuild[96363:3492808] Test runner session acquired connection.
+14:12:31.779 xcodebuild[96363:3505268] Got reply to session initiation request with identifier DC8804C2-13C7-4C62-A9A5-B01562E82B93 (error: (null))
+14:12:45.538 xcodebuild[96363:3492808] Finished requesting crash reports. Continuing with testing.
+14:12:45.632 xcodebuild[96363:3492808] Launch session started.
+14:12:45.776 xcodebuild[96363:3508328] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was issued, 2 claims exist.
+14:12:45.872 xcodebuild[96363:3503476] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was issued, 2 claims exist.
+14:12:45.879 xcodebuild[96363:3503476] 00D62004-74EA-4200-9284-50C828094956: Registered for sim device notification, got token 8
+14:12:45.885 xcodebuild[96363:3503476] 00D62004-74EA-4200-9284-50C828094956: Unregistering for sim device notification with token 8
+14:12:45.940 xcodebuild[96363:3503476] 00D62004-74EA-4200-9284-50C828094956: Installing app at path: /Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator/WrittenUITests-Runner.app and options: {
+    SkipWatchAppInstall = 1;
+}
+14:24:44.881 xcodebuild[96363:3503476] 00D62004-74EA-4200-9284-50C828094956: Installed app at path: /Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator/WrittenUITests-Runner.app and options: {
+    SkipWatchAppInstall = 1;
+}
+14:24:44.984 xcodebuild[96363:3503476] 00D62004-74EA-4200-9284-50C828094956: Launching app with identifier: com.written.datingapp.WrittenUITests.xctrunner and options: {
+    "activate_suspended" = 1;
+    arguments =     (
+        "-probe",
+        podcasts,
+        "-push",
+        ask
+    );
+    environment =     {
+        "APP_DISTRIBUTOR_ID_OVERRIDE" = "com.apple.AppStore";
+        "CA_ASSERT_MAIN_THREAD_TRANSACTIONS" = 0;
+        "CA_DEBUG_TRANSACTIONS" = 0;
+        "DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks";
+        "DYLD_INSERT_LIBRARIES" = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        "DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib";
+        "LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/EFEFF2A7-DFE4-42EF-821B-86A7DF726A3D-96363-00000352C0A688E0/5F6EE1F9-8034-4656-BEB1-4C89A23DAA56-%p%c.profraw";
+        NSApplicationQuitWithoutSuddenTermination = YES;
+        NSUnbufferedIO = YES;
+        "OS_ACTIVITY_DT_MODE" = YES;
+        "PERFC_ENABLE_EXTENDED_DIAGNOSTIC_FORMAT" = 1;
+        "PERFC_ENABLE_PROFILE_MODE" = 1;
+        "PERFC_RESET_INSERT_LIBRARIES" = 1;
+        "PERFC_SUPPRESS_SYSTEM_REPORTS" = 1;
+        "RUN_DESTINATION_DEVICE_NAME" = "Clone 2 of audit-se3";
+        "RUN_DESTINATION_DEVICE_PLATFORM_IDENTIFIER" = "com.apple.platform.iphonesimulator";
+        "RUN_DESTINATION_DEVICE_UDID" = "00D62004-74EA-4200-9284-50C828094956";
+        "SQLITE_ENABLE_THREAD_ASSERTIONS" = 1;
+        "SWIFT_BACKTRACE" = "enable=no";
+        TERM = dumb;
+        "XCODE_SCHEME_NAME" = Written;
+        "XCODE_TEST_PLAN_NAME" = Written;
+        XCTestBundleInjectPath = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        XCTestBundlePath = "PlugIns/WrittenUITests.xctest";
+        XCTestConfigurationFilePath = "";
+        XCTestSessionIdentifier = "DC8804C2-13C7-4C62-A9A5-B01562E82B93";
+        "__XCODE_BUILT_PRODUCTS_DIR_PATHS" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/EFEFF2A7-DFE4-42EF-821B-86A7DF726A3D-96363-00000352C0A688E0/5F6EE1F9-8034-4656-BEB1-4C89A23DAA56-%p%c.profraw";
+    };
+    stderr = "/dev/ttys006";
+    stdout = "/dev/ttys006";
+    "terminate_running_process" = 1;
+    "wait_for_debugger" = 1;
+}
+14:27:36.681 xcodebuild[96363:3541354] 00D62004-74EA-4200-9284-50C828094956: Failed to launch app with identifier: com.written.datingapp.WrittenUITests.xctrunner and options: {
+    "activate_suspended" = 1;
+    arguments =     (
+        "-probe",
+        podcasts,
+        "-push",
+        ask
+    );
+    environment =     {
+        "APP_DISTRIBUTOR_ID_OVERRIDE" = "com.apple.AppStore";
+        "CA_ASSERT_MAIN_THREAD_TRANSACTIONS" = 0;
+        "CA_DEBUG_TRANSACTIONS" = 0;
+        "DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks";
+        "DYLD_INSERT_LIBRARIES" = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        "DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib";
+        "LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/EFEFF2A7-DFE4-42EF-821B-86A7DF726A3D-96363-00000352C0A688E0/5F6EE1F9-8034-4656-BEB1-4C89A23DAA56-%p%c.profraw";
+        NSApplicationQuitWithoutSuddenTermination = YES;
+        NSUnbufferedIO = YES;
+        "OS_ACTIVITY_DT_MODE" = YES;
+        "PERFC_ENABLE_EXTENDED_DIAGNOSTIC_FORMAT" = 1;
+        "PERFC_ENABLE_PROFILE_MODE" = 1;
+        "PERFC_RESET_INSERT_LIBRARIES" = 1;
+        "PERFC_SUPPRESS_SYSTEM_REPORTS" = 1;
+        "RUN_DESTINATION_DEVICE_NAME" = "Clone 2 of audit-se3";
+        "RUN_DESTINATION_DEVICE_PLATFORM_IDENTIFIER" = "com.apple.platform.iphonesimulator";
+        "RUN_DESTINATION_DEVICE_UDID" = "00D62004-74EA-4200-9284-50C828094956";
+        "SQLITE_ENABLE_THREAD_ASSERTIONS" = 1;
+        "SWIFT_BACKTRACE" = "enable=no";
+        TERM = dumb;
+        "XCODE_SCHEME_NAME" = Written;
+        "XCODE_TEST_PLAN_NAME" = Written;
+        XCTestBundleInjectPath = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        XCTestBundlePath = "PlugIns/WrittenUITests.xctest";
+        XCTestConfigurationFilePath = "";
+        XCTestSessionIdentifier = "DC8804C2-13C7-4C62-A9A5-B01562E82B93";
+        "__XCODE_BUILT_PRODUCTS_DIR_PATHS" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/EFEFF2A7-DFE4-42EF-821B-86A7DF726A3D-96363-00000352C0A688E0/5F6EE1F9-8034-4656-BEB1-4C89A23DAA56-%p%c.profraw";
+    };
+    stderr = "/dev/ttys006";
+    stdout = "/dev/ttys006";
+    "terminate_running_process" = 1;
+    "wait_for_debugger" = 1;
+} (error = Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={BSErrorCodeDescription=host down, NSUnderlyingError=0x8e6710900 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., NSLocalizedFailureReason=The system shell probably crashed., BSErrorCodeDescription=host down}}, NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., SimCallingSelector=launchApplicationWithID:options:pid:error:, NSLocalizedFailureReason=The system shell probably crashed.})
+14:27:37.051 xcodebuild[96363:3492808] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was relinquished, 1 claims remain.
+14:27:37.065 xcodebuild[96363:3492808] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was relinquished, 1 claims remain.
+14:27:37.073 xcodebuild[96363:3492808] 📱<DVTiPhoneSimulator (0x8df707480), Clone 2 of audit-se3, unknown class, 26.5 (23F77), 00D62004-74EA-4200-9284-50C828094956> claim LaunchSessionClaim_0x8df44ad00 on simulator was relinquished, 1 claims remain.
+14:27:37.098 xcodebuild[96363:3492808] Launch session expired.
+14:27:37.101 xcodebuild[96363:3541421] XCTHTestOperationStateMachine: Transitioning from state Initial to PendingFinalization
+14:27:37.156 xcodebuild[96363:3492808] Test operation failure: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=4 "Failed to install or launch the test runner" UserInfo={NSLocalizedDescription=Failed to install or launch the test runner, NSUnderlyingError=0x8e6710810 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={IDERunOperationFailingWorker=IDELaunchiPhoneSimulatorLauncher, SimCallingSelector=launchApplicationWithID:options:pid:error:, NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., DVTErrorCreationDateKey=2026-08-05 19:27:36 +0000, DVTIssueReportingFunctionalityKey=1, DVTAnalyticsEventNameKey=com.apple.dt.IDERunOperationWorkerFinished, NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSLocalizedFailureReason=The system shell probably crashed., DVTAnalyticsEventDictionaryKey={
+    "device_identifier" = "9DE75018-1C28-4185-8C77-70732C1E0340";
+    "device_model" = "iPhone14,6";
+    "device_osBuild" = "26.5 (23F77)";
+    "device_osBuild_monotonic" = 2305007700;
+    "device_os_variant" = 1;
+    "device_platform" = "com.apple.platform.iphonesimulator";
+    "device_platform_family" = 2;
+    "device_reality" = 2;
+    "device_thinningType" = "iPhone14,6";
+    "device_transport" = 4;
+    "launchSession_schemeCommand" = Test;
+    "launchSession_schemeCommand_enum" = 2;
+    "launchSession_targetArch" = arm64;
+    "launchSession_targetArch_enum" = 6;
+    "operation_duration_ms" = 891033;
+    "operation_errorCode" = 64;
+    "operation_errorDomain" = NSPOSIXErrorDomain;
+    "operation_errorWorker" = IDELaunchiPhoneSimulatorLauncher;
+    "operation_error_reportable" = 1;
+    "operation_name" = IDERunOperationWorkerGroup;
+    "param_consoleMode" = 0;
+    "param_debugger_attachToExtensions" = 0;
+    "param_debugger_attachToXPC" = 0;
+    "param_debugger_type" = 1;
+    "param_destination_isProxy" = 0;
+    "param_destination_platform" = "com.apple.platform.iphonesimulator";
+    "param_diag_MTE_enable" = 0;
+    "param_diag_MainThreadChecker_stopOnIssue" = 0;
+    "param_diag_MallocStackLogging_enableDuringAttach" = 0;
+    "param_diag_MallocStackLogging_enableForXPC" = 0;
+    "param_diag_allowLocationSimulation" = 1;
+    "param_diag_checker_mtc_enable" = 0;
+    "param_diag_checker_tpc_enable" = 1;
+    "param_diag_gpu_frameCapture_enable" = 3;
+    "param_diag_gpu_shaderValidation_enable" = 0;
+    "param_diag_gpu_validation_enable" = 1;
+    "param_diag_guardMalloc_enable" = 0;
+    "param_diag_memoryGraphOnResourceException" = 0;
+    "param_diag_queueDebugging_enable" = 0;
+    "param_diag_runtimeProfile_generate" = 1;
+    "param_diag_sanitizer_asan_enable" = 0;
+    "param_diag_sanitizer_tsan_enable" = 0;
+    "param_diag_sanitizer_tsan_stopOnIssue" = 0;
+    "param_diag_sanitizer_ubsan_enable" = 0;
+    "param_diag_sanitizer_ubsan_stopOnIssue" = 0;
+    "param_diag_showNonLocalizedStrings" = 0;
+    "param_diag_viewDebugging_enabled" = 0;
+    "param_diag_viewDebugging_insertDylibOnLaunch" = 0;
+    "param_install_style" = 2;
+    "param_launcher_UID" = 2;
+    "param_launcher_allowDeviceSensorReplayData" = 0;
+    "param_launcher_kind" = 0;
+    "param_launcher_style" = 0;
+    "param_launcher_substyle" = 64;
+    "param_runnable_appExtensionHostRunMode" = 0;
+    "param_runnable_productType" = "com.apple.product-type.application";
+    "param_testing_launchedForTesting" = 1;
+    "param_testing_suppressSimulatorApp" = 1;
+    "param_testing_usingCLI" = 0;
+    "sdk_canonicalName" = "iphonesimulator26.5";
+    "sdk_osVersion" = "26.5";
+    "sdk_platformID" = 7;
+    "sdk_variant" = iphonesimulator;
+    "sdk_version_monotonic" = 2305008100;
+}, NSUnderlyingError=0x8e6710900 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., NSLocalizedFailureReason=The system shell probably crashed., BSErrorCodeDescription=host down}}, BSErrorCodeDescription=host down}}}
+14:27:37.158 xcodebuild[96363:3492808] _finishWithError:Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=4 "Failed to install or launch the test runner" UserInfo={NSLocalizedDescription=Failed to install or launch the test runner, NSUnderlyingError=0x8e6710810 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={IDERunOperationFailingWorker=IDELaunchiPhoneSimulatorLauncher, SimCallingSelector=launchApplicationWithID:options:pid:error:, NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., DVTErrorCreationDateKey=2026-08-05 19:27:36 +0000, DVTIssueReportingFunctionalityKey=1, DVTAnalyticsEventNameKey=com.apple.dt.IDERunOperationWorkerFinished, NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSLocalizedFailureReason=The system shell probably crashed., DVTAnalyticsEventDictionaryKey={
+    "device_identifier" = "9DE75018-1C28-4185-8C77-70732C1E0340";
+    "device_model" = "iPhone14,6";
+    "device_osBuild" = "26.5 (23F77)";
+    "device_osBuild_monotonic" = 2305007700;
+    "device_os_variant" = 1;
+    "device_platform" = "com.apple.platform.iphonesimulator";
+    "device_platform_family" = 2;
+    "device_reality" = 2;
+    "device_thinningType" = "iPhone14,6";
+    "device_transport" = 4;
+    "launchSession_schemeCommand" = Test;
+    "launchSession_schemeCommand_enum" = 2;
+    "launchSession_targetArch" = arm64;
+    "launchSession_targetArch_enum" = 6;
+    "operation_duration_ms" = 891033;
+    "operation_errorCode" = 64;
+    "operation_errorDomain" = NSPOSIXErrorDomain;
+    "operation_errorWorker" = IDELaunchiPhoneSimulatorLauncher;
+    "operation_error_reportable" = 1;
+    "operation_name" = IDERunOperationWorkerGroup;
+    "param_consoleMode" = 0;
+    "param_debugger_attachToExtensions" = 0;
+    "param_debugger_attachToXPC" = 0;
+    "param_debugger_type" = 1;
+    "param_destination_isProxy" = 0;
+    "param_destination_platform" = "com.apple.platform.iphonesimulator";
+    "param_diag_MTE_enable" = 0;
+    "param_diag_MainThreadChecker_stopOnIssue" = 0;
+    "param_diag_MallocStackLogging_enableDuringAttach" = 0;
+    "param_diag_MallocStackLogging_enableForXPC" = 0;
+    "param_diag_allowLocationSimulation" = 1;
+    "param_diag_checker_mtc_enable" = 0;
+    "param_diag_checker_tpc_enable" = 1;
+    "param_diag_gpu_frameCapture_enable" = 3;
+    "param_diag_gpu_shaderValidation_enable" = 0;
+    "param_diag_gpu_validation_enable" = 1;
+    "param_diag_guardMalloc_enable" = 0;
+    "param_diag_memoryGraphOnResourceException" = 0;
+    "param_diag_queueDebugging_enable" = 0;
+    "param_diag_runtimeProfile_generate" = 1;
+    "param_diag_sanitizer_asan_enable" = 0;
+    "param_diag_sanitizer_tsan_enable" = 0;
+    "param_diag_sanitizer_tsan_stopOnIssue" = 0;
+    "param_diag_sanitizer_ubsan_enable" = 0;
+    "param_diag_sanitizer_ubsan_stopOnIssue" = 0;
+    "param_diag_showNonLocalizedStrings" = 0;
+    "param_diag_viewDebugging_enabled" = 0;
+    "param_diag_viewDebugging_insertDylibOnLaunch" = 0;
+    "param_install_style" = 2;
+    "param_launcher_UID" = 2;
+    "param_launcher_allowDeviceSensorReplayData" = 0;
+    "param_launcher_kind" = 0;
+    "param_launcher_style" = 0;
+    "param_launcher_substyle" = 64;
+    "param_runnable_appExtensionHostRunMode" = 0;
+    "param_runnable_productType" = "com.apple.product-type.application";
+    "param_testing_launchedForTesting" = 1;
+    "param_testing_suppressSimulatorApp" = 1;
+    "param_testing_usingCLI" = 0;
+    "sdk_canonicalName" = "iphonesimulator26.5";
+    "sdk_osVersion" = "26.5";
+    "sdk_platformID" = 7;
+    "sdk_variant" = iphonesimulator;
+    "sdk_version_monotonic" = 2305008100;
+}, NSUnderlyingError=0x8e6710900 {Error Domain=NSPOSIXErrorDomain Code=64 "Host is down" UserInfo={NSLocalizedFailure=The request to terminate "com.written.datingapp.WrittenUITests.xctrunner" failed., NSLocalizedFailureReason=The system shell probably crashed., BSErrorCodeDescription=host down}}, BSErrorCodeDescription=host down}}}
+14:27:37.158 xcodebuild[96363:3492808] Current state: testRunnerLaunchSessionHasFinishedReceivingData: NO, delegateBlockQueue.count: 0
+14:27:37.158 xcodebuild[96363:3492808] <XCTHTestOperationCoordinator: 0x8df44b000>: _considerFlushingDelegateBlockQueue - nothing to flush

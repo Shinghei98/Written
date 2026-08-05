@@ -1,0 +1,63 @@
+Xcode version: 26.6 (17F113)
+14:13:14.219 xcodebuild[96363:3492808] Beginning test session WrittenUITests-F3DB84CC-4185-482D-960E-003F80D8FE6D at 2026-08-05 14:13:14.217 on target <DVTiPhoneSimulator: 0x8df707c00> {
+		SimDevice: Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Shutdown)
+} (26.5 (23F77))
+14:13:14.219 xcodebuild[96363:3492808] 	/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+test-without-building
+-project
+Written.xcodeproj
+-scheme
+Written
+-sdk
+iphonesimulator
+-destination
+platform=iOS Simulator,id=9DE75018-1C28-4185-8C77-70732C1E0340
+-configuration
+Debug
+-only-testing:WrittenUITests
+-resultBundlePath
+out/layout/se3_default.xcresult
+14:13:14.223 xcodebuild[96363:3492808] Test standard output and standard error is at /Users/shingheimok/Desktop/WrittenApp/out/layout/se3_default.xcresult/Staging/1_Test/Diagnostics/WrittenUITests-251547E7-ADC8-455D-8892-430668380679-Configuration-Test Scheme Action-Iteration-1/WrittenUITests-81CF6368-8B72-45E9-90D5-E46106F6A0F2/StandardOutputAndStandardError.txt
+14:13:26.708 xcodebuild[96363:3492808] BEC990BD-811B-42A1-A77D-C92E54BB5FAD: Received sim device notification: {
+    notification = "availableDevices_changed";
+}
+14:13:26.710 xcodebuild[96363:3492808] BEC990BD-811B-42A1-A77D-C92E54BB5FAD: Received sim device notification: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:13:26.724 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:13:26.727 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:13:26.729 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:13:26.731 xcodebuild[96363:3492808] /Users/shingheimok/Library/Developer/XCTestDevices: Received sim device set notification: {
+    device = "Clone 4 of audit-se3 (BEC990BD-811B-42A1-A77D-C92E54BB5FAD, iOS 26.5, Booting)";
+    "last_booted_at" = "2026-08-05 19:13:26 +0000";
+    "new_state" = 2;
+    notification = "device_state";
+    "prev_state" = 1;
+}
+14:14:14.611 xcodebuild[96363:3492808] Launch session started.
+14:14:14.725 xcodebuild[96363:3492808] Test operation failure: Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=11 "Failed to prepare device 'Clone 4 of audit-se3' for impending launch" UserInfo={NSLocalizedDescription=Failed to prepare device 'Clone 4 of audit-se3' for impending launch, NSUnderlyingError=0x8e5c393b0 {Error Domain=DVTCoreSimulatorAdditionsErrorDomain Code=0 "Timed out trying to boot simulator after waiting 60.00s." UserInfo={NSLocalizedDescription=Timed out trying to boot simulator after waiting 60.00s.}}}
+14:14:14.726 xcodebuild[96363:3492808] _finishWithError:Error Domain=XCTHTestOperationCoordinatorErrorDomain Code=11 "Failed to prepare device 'Clone 4 of audit-se3' for impending launch" UserInfo={NSLocalizedDescription=Failed to prepare device 'Clone 4 of audit-se3' for impending launch, NSUnderlyingError=0x8e5c393b0 {Error Domain=DVTCoreSimulatorAdditionsErrorDomain Code=0 "Timed out trying to boot simulator after waiting 60.00s." UserInfo={NSLocalizedDescription=Timed out trying to boot simulator after waiting 60.00s.}}}
+14:14:14.726 xcodebuild[96363:3492808] Current state: testRunnerLaunchSessionHasFinishedReceivingData: YES, delegateBlockQueue.count: 0
+14:14:14.727 xcodebuild[96363:3492808] <XCTHTestOperationCoordinator: 0x8de788a80>: _considerFlushingDelegateBlockQueue - nothing to flush

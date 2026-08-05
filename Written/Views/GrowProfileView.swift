@@ -523,8 +523,11 @@ struct GrowProfileView: View {
                 // heading still grows; it just stops spending the drawing's
                 // room to do it.
                 .lineLimit(2)
-                .minimumScaleFactor(0.7)
-                .fixedSize(horizontal: false, vertical: true)
+                // Down to a third if it has to. The floor is low on purpose:
+                // it is the last thing standing between a large text setting
+                // and a header that overflows its budget, and a heading a
+                // little small is a far better outcome than one that clips.
+                .minimumScaleFactor(0.35)
                 // Room for the buttons sitting over the top-right corner.
                 .padding(.trailing, 96)
 
@@ -537,8 +540,37 @@ struct GrowProfileView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 268, alignment: .leading)
         }
+        // **A fixed budget, and this is what makes the plant deterministic.**
+        //
+        // The header used to take its natural height and the illustration got
+        // whatever remained — so a heading that grew spent the drawing's room,
+        // and the plant was the only element on the screen with no floor. That
+        // is what shrank it on a tester's phone; the art itself was never
+        // fragile, since `TreeGeometry.scale` is `min(width, height)` of
+        // whatever box it is handed and every coordinate is a fraction of that.
+        //
+        // With this fixed, the plant's box reads
+        // `screen − safeArea − headerBudget − promptsReserve`: every term a
+        // constant, so the drawing is the same size at every text setting on a
+        // given device. The hand-measured badge positions were always assuming
+        // that and never actually had it.
+        //
+        // **Text yields instead**, through `lineLimit` and
+        // `minimumScaleFactor` above. That is the trade: at large sizes the
+        // heading is smaller than it wants to be, and the subject of the screen
+        // is untouched.
+        .frame(height: Self.headerBudget, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// What the title and subtitle get, whatever the text size.
+    ///
+    /// Measured off the design rather than chosen: the title is two lines of
+    /// 46pt Quicksand at a −2 line spacing, so about 111pt; the 10pt gap; and
+    /// the subtitle, `.system(size: 16)` and therefore fixed, wrapping to at
+    /// most three lines inside its 268pt column, so about 57. 180 covers it with
+    /// a little slack and no more — slack here is room the plant does not get.
+    private static let headerBudget: CGFloat = 180
 
     private var headerButtons: some View {
         // Two rows, not one: a third control in the top row runs into "Grow
