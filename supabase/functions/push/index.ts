@@ -312,6 +312,12 @@ async function send(
       sender_id: payload.sender_id ?? null,
       sender_name: payload.sender_name ?? null,
       image_url: imageURL,
+      // **Also at the top level, not only as `aps["thread-id"]`.** That key is
+      // iOS's own grouping identifier and is not readable from `userInfo`, so
+      // the tap handler saw nothing and sent every message notification to the
+      // chat list instead of the conversation. Two uses, two places: one groups
+      // the banners, one says which thread to open.
+      thread: payload.thread ?? null,
     }),
   });
 

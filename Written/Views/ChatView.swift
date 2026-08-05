@@ -46,6 +46,14 @@ struct ChatView: View {
     /// this opens the page within it.
     @ObservedObject private var notifications = NotificationRouter.shared
 
+    /// What the tap routing actually did, drawn in the banner on Debug and
+    /// TestFlight builds. A tap that lands on the wrong page says nothing about
+    /// *why* — whether the destination arrived, whether this tab was visible,
+    /// whether the conversation was in the list — and a cold-launch tap cannot
+    /// be watched from a device console, because the launch is the tap. This is
+    /// the same argument `HealthKitDistiller.Trail` makes.
+    @State private var routeTrail: String?
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
@@ -89,7 +97,8 @@ struct ChatView: View {
             // Same defect as `DiscoveryView` had: the reason was recorded and
             // then drawn only where an empty list would have been, so a refused
             // load on an account *with* conversations said nothing at all.
-            .statusBanner(model.failure)
+            .statusBanner(BuildKind.showsDiagnostics && routeTrail != nil
+                          ? routeTrail : model.failure)
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $isShowingAdmirers) {
                 AdmirersView(
@@ -226,14 +235,33 @@ struct ChatView: View {
     /// nobody is looking at, and it would be waiting there the next time
     /// somebody opened Chat.
     ///
-    /// **A conversation that has not loaded yet leaves the destination
-    /// pending** rather than giving up — a tap from a cold launch beats the
-    /// fetch, and clearing it there would silently drop the request. It is
-    /// cleared once `hasLoaded` says the list is complete and the thread still
-    /// is not in it, which is the ordinary case for somebody who has since
-    /// unmatched: the chat list is then a reasonable place to be left.
-    private func openForNotification() {
-        guard isVisible, let destination = notifications.pending else { return }
+    /// **A conversation that is not in the list yet is waited for, not given up
+    /// on.** This is the whole difficulty, and `hasLoaded` is the wrong thing to
+    /// test: it means *a load finished*, not *a load succeeded*. On a cold
+    /// launch the tap arrives while `restoreSession` is still in flight,
+    /// `ChatService.conversations()` answers `[]` for the refused request, and
+    /// `hasLoaded` flips true regardless — so reading it as "the list is
+    /// complete and your thread is not in it" dropped the destination and left
+    /// somebody on an empty chat list. Which is exactly what it did.
+    ///
+    /// So it reloads and tries again, a few times, a second apart. `.task` fires
+    /// only when `isVisible` changes, so nothing else would ever retry. Bounded
+    /// because a thread really can be absent — unmatched, or belonging to
+    /// another account — and the chat list is a reasonable place to leave
+    /// somebody in that case.
+    private func openForNotification(attempt: Int = 0) {
+        guard isVisible, let destination = notifications.pending else {
+            if BuildKind.showsDiagnostics, notifications.pending != nil {
+                routeTrail = "route: pending but tab not visible"
+            }
+            return
+        }
+        if BuildKind.showsDiagnostics {
+            routeTrail = "route: \(destination) · try \(attempt)"
+                + " · \(model.conversations.count) convs"
+                + " · loaded \(model.hasLoaded)"
+                + (model.failure.map { " · \($0)" } ?? "")
+        }
         switch destination {
         case .chatList:
             break
@@ -241,7 +269,19 @@ struct ChatView: View {
             isShowingAdmirers = true
         case .conversation(let id):
             guard let thread = model.conversations.first(where: { $0.id == id }) else {
-                if model.hasLoaded { notifications.pending = nil }
+                guard attempt < 4 else {
+                    if BuildKind.showsDiagnostics {
+                        routeTrail = "route: gave up after \(attempt) tries,"
+                            + " \(model.conversations.count) convs, wanted \(id)"
+                    }
+                    notifications.pending = nil
+                    return
+                }
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    await model.load()
+                    openForNotification(attempt: attempt + 1)
+                }
                 return
             }
             // Admirers first, for the reason `AdmirersView.onOpened` gives:
