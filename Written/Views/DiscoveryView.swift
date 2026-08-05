@@ -46,6 +46,8 @@ struct DiscoveryView: View {
     /// The profile being reported. Separate from the above so the two sheets
     /// never both draw — the actions sheet clears itself as it hands over.
     @State private var pendingReport: DiscoveryFeed.Profile?
+    /// The profile being written to with a like.
+    @State private var pendingInvite: DiscoveryFeed.Profile?
 
     var body: some View {
         GeometryReader { geometry in
@@ -90,6 +92,17 @@ struct DiscoveryView: View {
                             pendingActions = nil
                         },
                         onCancel: { pendingActions = nil }
+                    )
+                }
+
+                if let profile = pendingInvite {
+                    LikeMessageSheet(
+                        name: profile.name,
+                        onSend: { note in
+                            model.like(profile.personID, message: note)
+                            pendingInvite = nil
+                        },
+                        onCancel: { pendingInvite = nil }
                     )
                 }
 
@@ -160,6 +173,7 @@ struct DiscoveryView: View {
                                 // read as the like having been dropped.
                                 isLiked: model.hasLiked(profile.personID),
                                 onLike: { model.like(profile.personID) },
+                                onMessage: { pendingInvite = profile },
                                 onMore: { pendingActions = profile }
                             )
                         case .shared(let post, _):
@@ -288,8 +302,23 @@ final class DiscoveryModel: ObservableObject {
     /// Like-only, and idempotent — there is no unlike. The row's primary key is
     /// the pair, so a second tap rewrites what is already there, and nothing in
     /// this schema is ever deleted.
-    func like(_ personID: String) {
-        guard !liked.contains(personID) else { return }
+    /// Likes somebody, with an optional note.
+    ///
+    /// **A note is not blocked by having already liked**, unlike a second bare
+    /// heart. Hearting somebody and then finding something to say is an ordinary
+    /// sequence, and `LikeService.attachMessage` is the path `0018`'s column
+    /// grant was widened to allow — without it the second write is swallowed by
+    /// `ignore-duplicates` and reports success.
+    func like(_ personID: String, message: String? = nil) {
+        let note = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if liked.contains(personID) {
+            guard let note, !note.isEmpty else { return }
+            Task {
+                guard await LikeService.shared.attachMessage(note, to: personID) == false else { return }
+                failure = await LikeService.shared.lastError
+            }
+            return
+        }
         // Shown immediately, taken back if the write fails. A heart that waits
         // for a round trip feels broken at exactly the moment it matters.
         liked.insert(personID)
@@ -303,7 +332,7 @@ final class DiscoveryModel: ObservableObject {
         // removed, so nothing has to be put back.
 
         Task {
-            let landed = await LikeService.shared.like(personID: personID)
+            let landed = await LikeService.shared.like(personID: personID, message: note)
             guard !landed else { return }
             liked.remove(personID)
             // **Say why.** Reverting the heart on its own is the app taking
@@ -486,6 +515,9 @@ struct DiscoveryCard: View {
 
     var isLiked = false
     var onLike: () -> Void = {}
+    /// Like this person with something written, rather than with a heart alone.
+    var onMessage: () -> Void = {}
+
     /// Raise the two-row sheet for this person.
     ///
     /// **Reported upward rather than presented here.** The sheet is centred on
@@ -666,8 +698,20 @@ struct DiscoveryCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel(isLiked ? "Liked \(profile.name)" : "Like \(profile.name)")
 
-            Group {
+            // **Out of the decorative group, because this one does something
+            // now.** The paperplane and the bookmark stay in it: they are not
+            // part of this and must not start looking pressable by accident.
+            Button(action: onMessage) {
                 Image(systemName: "bubble.right")
+                    .font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(GardenPalette.ink.opacity(0.75))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Send \(profile.name) a message with your like")
+
+            Group {
                 Image(systemName: "paperplane")
                 Spacer(minLength: 0)
                 Image(systemName: "bookmark")

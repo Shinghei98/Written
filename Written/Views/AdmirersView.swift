@@ -105,7 +105,9 @@ struct AdmirerRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PortraitView(seed: admirer.photoSeed, initial: admirer.name)
+            // Their real photograph where there is one, as chat and the feed
+            // now draw. `PortraitView` only ever gives the generated stand-in.
+            ProfilePhotoView(ref: admirer.photoRef, initial: admirer.name)
                 .frame(width: 54, height: 54)
                 .clipShape(Circle())
 
@@ -115,6 +117,17 @@ struct AdmirerRow: View {
                     .foregroundStyle(GardenPalette.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+
+                // What they wrote, where the timestamp used to sit alone. This
+                // is the whole reason somebody writes one — a note nobody reads
+                // is a promise the compose sheet's subtitle breaks.
+                if let message = admirer.message {
+                    Text(message)
+                        .font(.system(size: 14))
+                        .foregroundStyle(GardenPalette.ink.opacity(0.8))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Text(RelativeTime.short(since: admirer.likedAt))
                     .font(.system(size: 13))

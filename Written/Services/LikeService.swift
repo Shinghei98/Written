@@ -23,6 +23,13 @@ actor LikeService {
         /// looking like placeholders.
         var photoPath: String?
 
+        /// What they wrote with the invitation, if they wrote anything.
+        ///
+        /// Absent for a plain heart, which is most of them. See `0018` — the
+        /// column refuses an empty string, so this is never a note that says
+        /// nothing.
+        var message: String?
+
         /// What to draw. Their face if there is one, the generated portrait if
         /// not — the same `PhotoRef` the feed and chat use.
         var photoRef: DiscoveryFeed.PhotoRef {
@@ -56,25 +63,76 @@ actor LikeService {
         }
     }
 
-    /// Likes a person. Idempotent — `(liker_id, liked_id)` is the primary key, so
-    /// a second tap upserts the row it already wrote rather than failing on it.
+    private func row(me: String, personID: String, myName: String, note: String?) -> [String: Any] {
+        var row: [String: Any] = [
+            "liker_id": me,
+            "liked_id": personID,
+            "liker_name": myName,
+            "liker_photo_seed": PortraitSeed.stable(for: me),
+        ]
+        // Omitted rather than sent as null: `ignore-duplicates` means this row
+        // may be discarded wholesale anyway, and a column absent from the body
+        // is one fewer thing for the insert to be refused over.
+        if let note { row["message"] = note }
+        return row
+    }
+
+    /// Attaches a note to a like that already exists.
+    ///
+    /// **The one path `0018`'s grant was widened for.** `like` uses
+    /// `ignore-duplicates`, so hearting somebody and *then* writing to them
+    /// would otherwise be swallowed in silence — the second insert conflicts,
+    /// does nothing, and reports success. This is the update that the column
+    /// grant and the `pending` policy exist to allow, and nothing else on this
+    /// table may be updated by the person who wrote it.
+    ///
+    /// A refusal here is `42501` and means the policy is wrong, not the caller.
+    @discardableResult
+    func attachMessage(_ message: String, to personID: String) async -> Bool {
+        guard let me = await SupabaseAuth.shared.userID else {
+            lastError = "You're not signed in."
+            return false
+        }
+        let note = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return true }
+
+        do {
+            try await PostgREST.update(
+                "rest/v1/likes",
+                query: ["liker_id": "eq.\(me)", "liked_id": "eq.\(personID)"],
+                body: ["message": note]
+            )
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Likes a person, with an optional note. Idempotent — `(liker_id,
+    /// liked_id)` is the primary key, so a second tap upserts the row it already
+    /// wrote rather than failing on it.
     ///
     /// The name and seed travel with the row because the recipient cannot look
     /// them up: `public.users` is closed and a real account has no
     /// `discovery_cards` row to read. See the migration's header.
-    func like(personID: String) async -> Bool {
+    func like(personID: String, message: String? = nil) async -> Bool {
         guard let me = await SupabaseAuth.shared.userID else { return false }
         let myName = await SupabaseAuth.shared.firstName ?? "Someone"
+        // Trimmed here rather than at the sheet, so every route in gets the same
+        // answer about what counts as a note. `0018` refuses an empty string at
+        // the column, and this is what keeps that check from ever being the
+        // thing that reports the problem.
+        let note = message?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
             try await PostgREST.insert(
                 "rest/v1/likes",
-                body: [[
-                    "liker_id": me,
-                    "liked_id": personID,
-                    "liker_name": myName,
-                    "liker_photo_seed": PortraitSeed.stable(for: me),
-                ]],
+                body: [row(
+                    me: me, personID: personID, myName: myName,
+                    note: (note?.isEmpty == false) ? note : nil
+                )],
                 // Merge rather than fail: tapping a heart twice is a person being
                 // unsure, not an error to show them.
                 // **`ignore-duplicates`, never `merge-duplicates`.** Both read as
@@ -118,8 +176,15 @@ actor LikeService {
             let rows = try await PostgREST.rows("rest/v1/likes", query: [
                 "liked_id": "eq.\(me)",
                 "status": "eq.pending",
-                "select": "liker_id,liker_name,liker_photo_seed,created_at",
-                "order": "created_at.desc",
+                "select": "liker_id,liker_name,liker_photo_seed,message,created_at",
+                // **The order the compose sheet promises.** Its subtitle says a
+                // message "puts you on top of the stack", and copy that promises
+                // placement over code that ignores it is a lie the app tells
+                // every time somebody pays attention to it. `message.desc` sorts
+                // non-null before null in Postgres' default `nulls last`, so
+                // written invitations come first and recency decides within each
+                // group.
+                "order": "message.desc.nullslast,created_at.desc",
             ])
             lastError = nil
             var list = rows.compactMap { row -> Admirer? in
@@ -132,6 +197,7 @@ actor LikeService {
                     id: id,
                     name: name,
                     photoSeed: row["liker_photo_seed"] as? Int ?? PortraitSeed.stable(for: id),
+                    message: row["message"] as? String,
                     likedAt: likedAt
                 )
             }
