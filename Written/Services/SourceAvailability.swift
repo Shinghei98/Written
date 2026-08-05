@@ -36,6 +36,25 @@ enum SourceAvailability {
             return true
             #endif
 
+        case "google_calendar":
+            // **Hidden where the phone already has the account.** A Google
+            // account added in iOS Settings delivers its events through
+            // EventKit as `caldav`, so `apple_calendar` already collects them —
+            // and connecting this as well would put every dinner in the
+            // database twice, under a different `item_id` and a different
+            // `source`, which `append_source_records` dedupes within a source
+            // and would not catch.
+            //
+            // So this is not a device capability like the two above; it is a
+            // *redundancy* test, and it belongs here for the same reason they
+            // do: the picker should not offer a row that cannot help.
+            //
+            // It is a drawing rather than a rule, which is why
+            // `DistillViewModel.distillGoogleCalendar` guards it too —
+            // somebody who adds the account to their phone after connecting
+            // here would otherwise start collecting everything twice.
+            return !CalendarDistiller.hasGoogleAccountOnDevice()
+
         default:
             // OAuth sources. The browser is the requirement, and every device
             // has one.

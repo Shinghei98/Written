@@ -11,6 +11,7 @@ final class DistillViewModel: ObservableObject {
     @Published var podcastStatus: SourceStatus = .idle
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
+    @Published var googleCalendarStatus: SourceStatus = .idle
     /// Beta only; removed before the App Store build. See `Modality.sources`.
     @Published var spotifyStatus: SourceStatus = .idle
     @Published private(set) var records: [DistilledRecord] = []
@@ -101,6 +102,11 @@ final class DistillViewModel: ObservableObject {
     @Published private(set) var bans = BanList.load()
 
     private let googleOAuth = OAuthPKCEService(provider: .google)
+    /// **A second service on the same Google client**, because the scopes and
+    /// therefore the grants are different. Its refresh token is filed under a
+    /// key derived from the provider's name, so the two cannot overwrite each
+    /// other — see `OAuthProvider.googleCalendar`.
+    private let googleCalendarOAuth = OAuthPKCEService(provider: .googleCalendar)
     private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
     init() {
@@ -154,6 +160,7 @@ final class DistillViewModel: ObservableObject {
     var isDistilling: Bool {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
+            || googleCalendarStatus.isRunning
             || podcastStatus.isRunning
             || spotifyStatus.isRunning
     }
@@ -165,6 +172,7 @@ final class DistillViewModel: ObservableObject {
         case "health": return healthStatus
         case "apple_podcasts": return podcastStatus
         case "apple_calendar": return calendarStatus
+        case "google_calendar": return googleCalendarStatus
         case "spotify": return spotifyStatus
         default: return .idle
         }
@@ -197,6 +205,7 @@ final class DistillViewModel: ObservableObject {
         case "health": distillHealth()
         case "apple_podcasts": distillPodcasts()
         case "apple_calendar": distillCalendar()
+        case "google_calendar": distillGoogleCalendar()
         case "spotify": distillSpotify()
         default: break
         }
@@ -711,6 +720,40 @@ final class DistillViewModel: ObservableObject {
                 calendarStatus = .done(count: newRecords.count)
             } catch {
                 calendarStatus = .failed(message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Google Calendar, for people whose phone is not already supplying it.
+    ///
+    /// **Not offered where a Google account is already on the device** — see
+    /// `CalendarDistiller.hasGoogleAccountOnDevice`. This is the guard behind
+    /// that, because a hidden row is a drawing and not a rule: somebody who adds
+    /// the account to their phone *after* connecting here would otherwise start
+    /// collecting every event twice.
+    func distillGoogleCalendar() {
+        guard !googleCalendarStatus.isRunning else { return }
+        googleCalendarStatus = .running
+        Task {
+            do {
+                let newRecords = try await GoogleCalendarDistiller(oauth: googleCalendarOAuth).distill()
+                // An account with calendars and no events is a real answer and
+                // not a useful one, and it looks exactly like a refused grant —
+                // the same reason Apple Calendar and Health both fail loudly on
+                // nothing.
+                guard newRecords.contains(where: { $0.dataType == "event" }) else {
+                    googleCalendarStatus = .failed(
+                        message: "No events in that Google Calendar."
+                    )
+                    return
+                }
+                replaceRecords(from: "google_calendar", with: newRecords)
+                googleCalendarStatus = .done(count: newRecords.count)
+            } catch OAuthPKCEService.OAuthError.cancelled {
+                // Closing the browser sheet is not a failure.
+                googleCalendarStatus = .idle
+            } catch {
+                googleCalendarStatus = .failed(message: error.localizedDescription)
             }
         }
     }

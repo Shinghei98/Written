@@ -86,7 +86,13 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
         // to attend arrives without them doing anything. See `CalendarDistiller`.
-        case .plans: return ["apple_calendar"]
+        // **Apple Calendar first, and Google Calendar is usually hidden behind
+        // it.** A Google account added in iOS Settings already delivers its
+        // events through EventKit, so for most people the second row would
+        // collect the same dinner twice; `SourcePickerSheet` drops it where that
+        // is true. It is here for the people whose calendar the device cannot
+        // see at all.
+        case .plans: return ["apple_calendar", "google_calendar"]
         case .lifestyle: return ["health"]
         }
     }
@@ -156,6 +162,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "spotify": return "Spotify"
         case "health": return "Apple Health"
         case "apple_calendar": return "Apple Calendar"
+        case "google_calendar": return "Google Calendar"
         default: return source
         }
     }
@@ -169,6 +176,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "spotify": return "waveform"
         case "health": return "heart.fill"
         case "apple_calendar": return "calendar"
+        case "google_calendar": return "calendar.badge.clock"
         default: return "app"
         }
     }

@@ -47,6 +47,33 @@ struct OAuthProvider {
         )
     }
 
+    /// The same Google client again, asking for somebody's diary.
+    ///
+    /// **A distinct `name`, and that is load-bearing.** `refreshTokenKey` is
+    /// derived from it — `AccountScope.key("\(name.lowercased())_refresh_token")`
+    /// — so a provider called "Google" here would share YouTube's Keychain entry
+    /// and the second source connected would overwrite the first's refresh
+    /// token with one carrying the wrong scopes. YouTube would then start
+    /// asking for consent again with nothing to say why.
+    ///
+    /// `googleSignIn` gets away with the collision only because it never saves
+    /// one; see `persistsRefreshToken` there.
+    static var googleCalendar: OAuthProvider {
+        OAuthProvider(
+            name: "Google Calendar",
+            authorizationURL: "https://accounts.google.com/o/oauth2/v2/auth",
+            tokenURL: "https://oauth2.googleapis.com/token",
+            clientID: AppConfig.googleClientID,
+            redirectScheme: AppConfig.googleRedirectScheme,
+            redirectURI: AppConfig.googleRedirectURI,
+            scope: AppConfig.googleCalendarScope,
+            // As YouTube's: a distillation that has to ask again next month is
+            // not the one-button experience this app is built around.
+            extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
+            configHint: "AppConfig.googleClientID"
+        )
+    }
+
     /// **The same Google client, asking a completely different question.**
     ///
     /// `google` above asks to read a YouTube library and wants a refresh token

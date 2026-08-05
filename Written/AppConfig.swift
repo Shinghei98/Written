@@ -73,6 +73,22 @@ enum AppConfig {
     /// Read-only YouTube scope: subscriptions, liked videos, playlists.
     static let youtubeScope = "https://www.googleapis.com/auth/youtube.readonly"
 
+    /// **Two narrow scopes rather than `calendar.readonly`, and that is the
+    /// answer to a question the reviewer will ask.** Google's sensitive-scope
+    /// verification requires a justification for each scope *and* an explanation
+    /// of why a narrower one will not do — so asking for the two that name
+    /// exactly what is read is worth more than the convenience of one broad one.
+    ///
+    /// The distiller needs the calendar list, to exclude generated and holiday
+    /// calendars by name before reading anything, and the events themselves.
+    /// Neither is restricted, so this stays a sensitive-scope review and no CASA
+    /// assessment is triggered — unlike `fitness.*`, which is why Google health
+    /// data was never a possibility here even before its API closed.
+    static let googleCalendarScope = [
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/calendar.events.readonly",
+    ].joined(separator: " ")
+
     // MARK: Distillation limits (MVP guardrails so a distill finishes quickly)
 
     /// Maximum pages fetched per paginated endpoint (50 items/page for YouTube,

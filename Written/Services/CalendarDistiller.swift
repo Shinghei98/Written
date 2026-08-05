@@ -106,6 +106,43 @@ struct CalendarDistiller {
         return !isGenerated(calendar.title)
     }
 
+    /// Whether this phone is already supplying calendars from a Google account.
+    ///
+    /// **This is what decides whether connecting Google Calendar is worth
+    /// offering at all.** A Google account added in iOS Settings delivers its
+    /// events through EventKit as `caldav` — which is why the public-holiday
+    /// filter cannot rely on calendar type — so for those people the API would
+    /// collect the same dinner a second time, under a different `item_id` and a
+    /// different `source`. `append_source_records` dedupes *within* a source and
+    /// would not catch it: the ontology stage would see everything twice.
+    ///
+    /// Where a Google account is already here, the API adds nothing. Where none
+    /// is, it is the only way to reach those events. That is also the honest
+    /// answer to Google's "why do you need this scope" — *only for users whose
+    /// calendar we cannot otherwise see*.
+    ///
+    /// **Matched on the source, not the calendar.** A Google account arrives as
+    /// an `EKSource`, and its calendars are named whatever the person named
+    /// them — "Work", "家庭" — so the account is the only thing that identifies
+    /// itself. `sourceType` is `.calDAV` for Google, Fastmail and any other
+    /// CalDAV server alike, hence the title test as well.
+    ///
+    /// Returns false when calendar access has not been granted: with nothing
+    /// readable there is no evidence either way, and the safer answer is to let
+    /// somebody connect a source that turns out to be redundant rather than to
+    /// hide one they needed.
+    static func hasGoogleAccountOnDevice() -> Bool {
+        guard !isBlocked else { return false }
+        return EKEventStore().sources.contains { source in
+            guard source.sourceType == .calDAV || source.sourceType == .subscribed
+            else { return false }
+            let title = source.title.lowercased()
+            return title.contains("gmail")
+                || title.contains("google")
+                || title.contains("googlemail")
+        }
+    }
+
     /// Whether a calendar's name marks it as generated rather than arranged.
     ///
     /// Shared with the dashboard, which has to apply the same test to rows
