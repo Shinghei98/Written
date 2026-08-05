@@ -17,7 +17,7 @@ actor ChatService {
     struct Conversation: Identifiable, Equatable, Codable {
         let id: String
         let partnerID: String
-        let partnerName: String
+        var partnerName: String
         let partnerPhotoSeed: Int
         /// The partner's own photograph, where they have one.
         ///
@@ -101,9 +101,9 @@ actor ChatService {
             ])
             lastError = nil
             var list = rows.compactMap { Self.conversation(from: $0, me: me) }
-            let faces = await Self.photoPaths(for: list.map(\.partnerID))
+            let cards = await Self.cards(for: list.map(\.partnerID))
             for index in list.indices {
-                list[index].partnerPhotoPath = faces[list[index].partnerID]
+                Self.applyCard(cards[list[index].partnerID], to: &list[index])
             }
             return list
         } catch {
@@ -112,29 +112,57 @@ actor ChatService {
         }
     }
 
-    /// The newest photograph each of these people has, by user id.
+    /// What each of these people currently calls themselves, and what they look
+    /// like, by user id.
     ///
     /// One request for the whole list rather than one per row — a chat list of
     /// twenty would otherwise be twenty round trips before it could draw.
-    /// Failure is silent and returns nothing: a missing face falls back to the
-    /// generated portrait, which is a worse picture rather than a broken screen.
-    static func photoPaths(for ids: [String]) async -> [String: String] {
+    /// Failure is silent and returns nothing: the conversation's own stored
+    /// name and a generated portrait are the fallback, which is a worse row
+    /// rather than a broken screen.
+    ///
+    /// **The name is here for the same reason the photograph is.** A
+    /// conversation carries `user_a_name` / `user_b_name`, written once when the
+    /// thread was created out of a name `likes` had itself copied from somewhere
+    /// earlier — a copy of a copy, frozen, and never corrected. A person who
+    /// sets or changes their name after liking somebody is called the old thing
+    /// in that chat forever. `discovery_cards` is already the one table a
+    /// signed-in user may read about another, it already holds this, and a copy
+    /// on the conversation row is a second thing to keep in step.
+    struct Card {
+        var displayName: String?
+        var photoPath: String?
+    }
+
+    static func cards(for ids: [String]) async -> [String: Card] {
         let unique = Array(Set(ids))
         guard !unique.isEmpty else { return [:] }
         let rows = (try? await PostgREST.rows("rest/v1/discovery_cards", query: [
-            "select": "user_id,photo_paths",
+            "select": "user_id,display_name,photo_paths",
             "user_id": "in.(\(unique.joined(separator: ",")))",
         ])) ?? []
 
-        var found: [String: String] = [:]
+        var found: [String: Card] = [:]
         for row in rows {
-            guard let id = row["user_id"] as? String,
-                  let paths = row["photo_paths"] as? [String],
-                  let first = paths.first
-            else { continue }
-            found[id] = first
+            guard let id = row["user_id"] as? String else { continue }
+            let name = (row["display_name"] as? String)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            found[id] = Card(
+                displayName: (name?.isEmpty == false) ? name : nil,
+                photoPath: (row["photo_paths"] as? [String])?.first
+            )
         }
         return found
+    }
+
+    /// Applies whatever the card knows, leaving the stored values where it
+    /// knows nothing. Shared by the three fetches so a thread reached from the
+    /// list, from a notification tap and from accepting a like cannot disagree
+    /// about who it is with.
+    private static func applyCard(_ card: Card?, to conversation: inout Conversation) {
+        guard let card else { return }
+        if let name = card.displayName { conversation.partnerName = name }
+        conversation.partnerPhotoPath = card.photoPath
     }
 
     private static func conversation(from row: [String: Any], me: String) -> Conversation? {
@@ -308,7 +336,7 @@ actor ChatService {
                 prefer: "return=representation"
             )
             lastError = nil
-            if let first = inserted.first, let made = Self.conversation(from: first, me: me) {
+            if let made = await Self.resolved(inserted.first, me: me) {
                 return made
             }
             return await conversation(with: partnerID)
@@ -346,10 +374,23 @@ actor ChatService {
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
                     + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
             ])
-            return rows.first.flatMap { Self.conversation(from: $0, me: me) }
+            return await Self.resolved(rows.first, me: me)
         } catch {
             return nil
         }
+    }
+
+    /// One row, with the partner's current name and face applied.
+    ///
+    /// **The single-conversation fetches used to skip this entirely**, so a
+    /// thread opened from a notification tap drew the generated portrait and the
+    /// frozen name while the same thread opened from the list drew the real
+    /// ones — the very bug `cards(for:)` exists to fix, still present on the two
+    /// paths that do not go through the list.
+    private static func resolved(_ row: [String: Any]?, me: String) async -> Conversation? {
+        guard let row, var made = conversation(from: row, me: me) else { return nil }
+        applyCard(await cards(for: [made.partnerID])[made.partnerID], to: &made)
+        return made
     }
 
     private func conversation(with partnerID: String) async -> Conversation? {
@@ -362,7 +403,7 @@ actor ChatService {
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
                     + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
             ])
-            return rows.first.flatMap { Self.conversation(from: $0, me: me) }
+            return await Self.resolved(rows.first, me: me)
         } catch {
             return nil
         }

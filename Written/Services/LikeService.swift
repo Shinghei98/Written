@@ -15,7 +15,10 @@ actor LikeService {
         /// Their user id, which is also what identifies the like: the primary key
         /// is `(liker_id, liked_id)` and the second half is always you.
         let id: String
-        let name: String
+        /// **Not `let`**: the stored `liker_name` is a snapshot from the moment
+        /// the like was sent, and `admirers()` overwrites it with whatever the
+        /// person's card says they are called now.
+        var name: String
         let photoSeed: Int
         /// Their own photograph, where they have one. Same reasoning as
         /// `ChatService.Conversation.partnerPhotoPath`: a seed is the synthetic
@@ -243,10 +246,19 @@ actor LikeService {
                     likedAt: likedAt
                 )
             }
-            // Their faces, in one request rather than one per admirer.
-            let faces = await ChatService.photoPaths(for: list.map(\.id))
+            // Their faces **and their current names**, in one request rather
+            // than one per admirer. `liker_name` is denormalised onto the row
+            // when the like is sent and never corrected, so somebody who set or
+            // changed their name afterwards is listed as whoever they used to
+            // be — and that stale name is then copied onto the conversation the
+            // moment the like is accepted, where it stays. The card is the live
+            // answer; the stored column is the fallback for anybody who has
+            // never synced one.
+            let cards = await ChatService.cards(for: list.map(\.id))
             for index in list.indices {
-                list[index].photoPath = faces[list[index].id]
+                guard let card = cards[list[index].id] else { continue }
+                if let name = card.displayName { list[index].name = name }
+                list[index].photoPath = card.photoPath
             }
             return list
         } catch {
