@@ -304,21 +304,22 @@ final class DiscoveryModel: ObservableObject {
     /// this schema is ever deleted.
     /// Likes somebody, with an optional note.
     ///
-    /// **A note is not blocked by having already liked**, unlike a second bare
-    /// heart. Hearting somebody and then finding something to say is an ordinary
-    /// sequence, and `LikeService.attachMessage` is the path `0018`'s column
-    /// grant was widened to allow — without it the second write is swallowed by
-    /// `ignore-duplicates` and reports success.
+    /// **One invitation per person, and it is either a heart or a note.** This
+    /// reverses what stood here — that a note was *not* blocked by having
+    /// already liked, on the argument that hearting somebody and then finding
+    /// something to say is an ordinary sequence. It is, but it made the card
+    /// dishonest: the heart filled and the envelope stayed live, so the two
+    /// controls disagreed about whether anything had happened, and somebody
+    /// could send a second invitation to a person who had already had one.
+    ///
+    /// Both controls now go inert together — see `DiscoveryCard.actionRow` —
+    /// and this is the guard behind them, because a disabled button is a
+    /// drawing and not a rule. `LikeService.attachMessage` keeps its place as
+    /// the path `0018`'s column grant exists for; nothing in the feed calls it
+    /// any more.
     func like(_ personID: String, message: String? = nil) {
         let note = message?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if liked.contains(personID) {
-            guard let note, !note.isEmpty else { return }
-            Task {
-                guard await LikeService.shared.attachMessage(note, to: personID) == false else { return }
-                failure = await LikeService.shared.lastError
-            }
-            return
-        }
+        guard !liked.contains(personID) else { return }
         // Shown immediately, taken back if the write fails. A heart that waits
         // for a round trip feels broken at exactly the moment it matters.
         liked.insert(personID)
@@ -683,6 +684,17 @@ struct DiscoveryCard: View {
     /// has neither.
     private var actionRow: some View {
         HStack(spacing: 16) {
+            // **The two are one decision, so they go inert together.** An
+            // invitation is sent once and is either a heart or a note; leaving
+            // the envelope live after a like let somebody send a second
+            // invitation to a person who had already had one, and made the card
+            // disagree with itself about whether anything had happened.
+            //
+            // The heart stays *red* while the envelope goes grey, which is the
+            // asymmetry worth keeping: the heart is reporting what you did, and
+            // the envelope is reporting what is no longer available. Greying
+            // both would read as the card having been disabled rather than as an
+            // invitation having been sent.
             Button(action: likeFromPhoto) {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 19, weight: .regular))
@@ -696,20 +708,29 @@ struct DiscoveryCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isLiked ? "Liked \(profile.name)" : "Like \(profile.name)")
+            .disabled(isLiked)
+            .accessibilityLabel(isLiked ? "Already invited \(profile.name)" : "Like \(profile.name)")
 
-            // **Out of the decorative group, because this one does something
-            // now.** The paperplane and the bookmark stay in it: they are not
-            // part of this and must not start looking pressable by accident.
+            // **An envelope rather than a speech bubble.** A bubble is a
+            // conversation, and there is no conversation here — this is a note
+            // carried with an invitation to somebody who has not answered yet.
+            // A letter is the thing you send before you are talking.
+            //
+            // Out of the decorative group, because this one does something. The
+            // paperplane and the bookmark stay in it: they are not part of this
+            // and must not start looking pressable by accident.
             Button(action: onMessage) {
-                Image(systemName: "bubble.right")
+                Image(systemName: isLiked ? "envelope.fill" : "envelope")
                     .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(GardenPalette.ink.opacity(0.75))
+                    .foregroundStyle(GardenPalette.ink.opacity(isLiked ? 0.25 : 0.75))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Send \(profile.name) a message with your like")
+            .disabled(isLiked)
+            .accessibilityLabel(isLiked
+                                ? "Already invited \(profile.name)"
+                                : "Send \(profile.name) a message with your like")
 
             Group {
                 Image(systemName: "paperplane")
