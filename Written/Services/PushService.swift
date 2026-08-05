@@ -5,19 +5,26 @@ import UserNotifications
 /// Registering this device to be told about a like, a match or a message.
 ///
 /// **Asking is the whole design problem, not the plumbing.** iOS lets an app ask
-/// once, ever — a refusal can only be undone in Settings, which nobody visits —
-/// so *when* the question is put decides whether notifications work for that
-/// person at all. It is asked on the first admirer: somebody has just been
-/// liked, being told sooner next time obviously pays, and there is a name on
-/// screen to make it concrete.
+/// once, ever, and a refusal can only be undone in Settings, which nobody
+/// visits — so the system dialog is never shown cold. `NotificationPrimer` puts
+/// the question in the app's own voice first and only somebody who says yes
+/// there is passed to iOS. A "not now" spends nothing and is asked again in
+/// three days.
 ///
-/// **And it is deliberately nowhere near the Health sheet.** This project has
-/// already lost a week to two permission prompts colliding: the location fix
-/// firing from `DashboardView.task` is what stopped HealthKit's sheet drawing at
-/// all, because HealthKit hosts a remote view and cannot present over anything
-/// else. Any permission asked on `.task`/`.onAppear` in this app must be gated
-/// on that tab's `isVisible`, and this one is asked from Chat, which is not
-/// where Health is connected.
+/// **It has been in two wrong places already.** First the first admirer, which
+/// put the question one event *after* the like that would have used it — so
+/// nobody's first notification could ever arrive, and a tester reported being
+/// asked only when their first message came in. Then bare on arriving at
+/// Explore, which spent the single attempt cold and landed a system alert on
+/// the discovery feed at the moment somebody had tapped to see it.
+///
+/// **And it stays nowhere near the Health sheet.** This project lost a week to
+/// two permission prompts colliding: the location fix firing from
+/// `DashboardView.task` is what stopped HealthKit's sheet drawing at all,
+/// because HealthKit hosts a remote view and cannot present over anything else.
+/// Any permission asked on `.task`/`.onAppear` here must be gated on that tab's
+/// `isVisible`; this one hangs off a tab change, and neither Explore nor Chat is
+/// where a source gets connected.
 actor PushService {
 
     static let shared = PushService()
@@ -43,6 +50,47 @@ actor PushService {
         #else
         return "production"
         #endif
+    }
+
+    /// Whether the primer should be shown at all.
+    ///
+    /// Only for somebody iOS has never asked. Anybody who has answered — either
+    /// way — is left alone: a yes needs nothing, and a no is a decision this app
+    /// does not re-open with a sheet it controls.
+    ///
+    /// **The "not now" is deliberately cheap.** Declining the *primer* spends
+    /// nothing, because the system dialog was never shown, so the question can
+    /// be put again later. That is the whole reason the primer exists.
+    func shouldPrime() async -> Bool {
+        guard !hasAskedThisLaunch else { return false }
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        return status == .notDetermined
+    }
+
+    /// Records that the primer was declined, so it is not shown again today.
+    ///
+    /// Not permanent. Somebody who says "not now" is saying not now, and iOS has
+    /// not been asked — so the next launch may ask again. `UserDefaults` rather
+    /// than memory so the answer survives the app, and account-scoped because it
+    /// is a fact about a person rather than about a phone.
+    func declinePrimer() {
+        UserDefaults.standard.set(Date(), forKey: Self.primerDeclinedKey)
+    }
+
+    /// Whether the primer was turned down recently enough to leave alone.
+    ///
+    /// Three days. Long enough not to nag, short enough that somebody who is
+    /// actually using the app is offered it again while it still matters —
+    /// and no notification is lost in the meantime that would not have been
+    /// lost anyway.
+    func wasPrimerDeclinedRecently() -> Bool {
+        guard let last = UserDefaults.standard.object(forKey: Self.primerDeclinedKey) as? Date
+        else { return false }
+        return Date().timeIntervalSince(last) < 3 * 24 * 3600
+    }
+
+    private static var primerDeclinedKey: String {
+        "notificationPrimerDeclined.\(AccountScope.current)"
     }
 
     /// Asks, once, and registers if allowed.

@@ -43,6 +43,9 @@ struct AppShell: View {
     /// `PushDelegate` writes to it from outside the view tree entirely.
     @ObservedObject private var notifications = NotificationRouter.shared
 
+    /// Whether the notification primer is on screen. See `NotificationPrimer`.
+    @State private var isPrimingNotifications = false
+
     var body: some View {
         ZStack(alignment: .bottom) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -249,6 +252,22 @@ struct AppShell: View {
         // Offline first when both apply: "you're offline" explains the refusal
         // that follows it, and a PostgREST message underneath would only be the
         // same fact in worse words.
+        // Over every tab, not inside one: it is raised by a tab *change*, so a
+        // sheet owned by the arriving page would be racing its own appearance.
+        .overlay {
+            if isPrimingNotifications {
+                NotificationPrimer(
+                    onAllow: {
+                        isPrimingNotifications = false
+                        Task { await PushService.shared.askIfNeeded() }
+                    },
+                    onDismiss: {
+                        isPrimingNotifications = false
+                        Task { await PushService.shared.declinePrimer() }
+                    }
+                )
+            }
+        }
         .onChange(of: notifications.pending) { _ in openTabForNotification() }
         .onChange(of: tab) { moved in askForNotificationsIfDue(arrivingAt: moved) }
         .statusBanner(
@@ -402,7 +421,25 @@ struct AppShell: View {
     /// makes the correct behaviour depend on which SwiftUI applies first.
     private func askForNotificationsIfDue(arrivingAt destination: MainTab) {
         guard destination == .explore || destination == .chat else { return }
-        Task { await PushService.shared.askIfNeeded() }
+        Task {
+            // **The primer first, and iOS only for somebody who said yes.** The
+            // system dialog is the one attempt this app will ever have, and
+            // spending it cold means one distracted tap on "Don't Allow" ends
+            // notifications for that account permanently.
+            //
+            // Anybody who has already answered iOS — either way — skips both:
+            // a yes needs nothing, and a no is a decision this app does not
+            // re-open with a sheet of its own.
+            guard await PushService.shared.shouldPrime(),
+                  await !PushService.shared.wasPrimerDeclinedRecently()
+            else { return }
+            // **After the transition, not during it.** `finishOnboarding`
+            // animates for 0.45s, and a sheet arriving mid-slide covers the
+            // discovery feed at the exact moment somebody tapped to see it.
+            // This lets the page land first and then asks.
+            try? await Task.sleep(for: .milliseconds(900))
+            isPrimingNotifications = true
+        }
     }
 
     /// Moves to Chat when a notification was tapped.
