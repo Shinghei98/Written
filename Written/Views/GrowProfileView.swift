@@ -2058,7 +2058,13 @@ struct SourcePickerSheet: View {
         // Derived from the sources actually shown, so a third note later cannot
         // silently overflow the way a hardcoded count would.
         let notes = CGFloat(sources.filter { Self.note(forSource: $0) != nil }.count) * 18
-        return 116 + rows + notes + (sources.isEmpty ? 12 : 0)
+        // `privacyNotice`, which is drawn only when there are rows to grant.
+        // Two lines' worth plus its top padding at the default text size — and
+        // it is the *last* thing on the sheet, so an underestimate crops the one
+        // line that names the privacy policy. See the note above about why this
+        // is counted rather than assumed.
+        let notice: CGFloat = sources.isEmpty ? 0 : 48
+        return 116 + rows + notes + notice + (sources.isEmpty ? 12 : 0)
     }
 
     var body: some View {
@@ -2083,6 +2089,7 @@ struct SourcePickerSheet: View {
                     row(for: source)
                     Divider().padding(.leading, 62)
                 }
+                privacyNotice
             }
 
             Spacer(minLength: 0)
@@ -2100,6 +2107,37 @@ struct SourcePickerSheet: View {
         case 1: return "One tap, and the branch starts growing."
         default: return "Either one grows the branch. Both grow it further."
         }
+    }
+
+    /// One line under the rows, and the last thing on screen before a grant.
+    ///
+    /// **This is the sheet's notice, not a row's.** `note(forSource:)` above is
+    /// deliberately reserved for a source whose *next screen* is a dead end —
+    /// Podcasts' descriptive note was removed on exactly that principle — and
+    /// reinstating a per-source explanation here would undo it. What this says
+    /// is true of every row equally, so it belongs to the sheet.
+    ///
+    /// It exists because Google's OAuth verification requires in-product privacy
+    /// notifications to be *prominently displayed*, and the only one this app
+    /// had was on the sign-in screen, which somebody passed through weeks before
+    /// they ever granted YouTube. This is the moment the notice is about.
+    ///
+    /// The sentence is the snapshot, because that is the fact somebody is
+    /// actually deciding on: not what is read, which the next screen lists in
+    /// Google's or Apple's own words, but whether agreeing once means agreeing
+    /// forever. It does not.
+    private var privacyNotice: some View {
+        // `LocalizedStringKey` from a literal, so the markdown link renders —
+        // the same mechanism `SignInView` uses for its three. An interpolated
+        // `String` would print the brackets.
+        Text("Read once, never in the background. [Privacy Policy](https://written-stl.com/en-us/privacy/)")
+            .font(.system(size: 12))
+            .foregroundStyle(GardenPalette.muted)
+            .tint(GardenPalette.gold)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 32)
+            .padding(.top, 14)
     }
 
     /// Resolved at runtime rather than hard-coded, the same way

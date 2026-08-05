@@ -1,0 +1,41 @@
+# Response headers for the static site.
+#
+# Parsed by Workers static assets — like `_redirects`, this file is not itself
+# served. Redirects run first, so a path matching both is redirected and never
+# reaches these rules.
+#
+# **The point of this file is that the cookies page stops being a promise.**
+# That page says nothing is fetched from anywhere else and there is nothing to
+# consent to, which is true today and true only for as long as nobody pastes a
+# tag manager in. The policy below makes it enforced by the browser instead: a
+# third-party script added later does not quietly start working, it fails.
+
+/*
+  # `default-src 'self'` covers everything not named below.
+  #
+  # `style-src` needs 'unsafe-inline' because a handful of callouts carry a
+  # `style="margin:0"` attribute. Those could be moved into styles.css and the
+  # keyword dropped; until they are, this is honest about why it is here.
+  #
+  # `connect-src 'none'` because app.js makes no requests at all — checked, not
+  # assumed. It is the line that would have to change first if analytics were
+  # ever added, which is exactly the friction wanted.
+  #
+  # `frame-ancestors 'none'` stops the site being framed inside somebody else's
+  # page, which for a document a reviewer is asked to trust is worth refusing.
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+
+  # No sniffing a served type into something else.
+  X-Content-Type-Options: nosniff
+
+  # Outbound links go to Google, YouTube and Supabase. They get the origin, not
+  # the path — nobody needs to know which of our pages somebody left from.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # Nothing here uses any of these, so nothing here should be able to ask.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+
+  # Two years, subdomains included. Deliberately without `preload`: that is a
+  # submission to a browser-vendor list and is slow to undo, and it should be a
+  # decision taken on its own rather than a side effect of adding a header file.
+  Strict-Transport-Security: max-age=63072000; includeSubDomains

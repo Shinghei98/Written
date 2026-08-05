@@ -112,10 +112,11 @@
           <h3>Extraction</h3>
           <p>
             One button per app, and never a password typed into ours. YouTube
-            arrives through Google's own consent screen; Apple Music, Podcasts,
-            Calendar and Health through the system sheets your phone already
-            knows how to draw. What comes back is what you subscribed to, the
-            music you kept, the evenings you booked, the miles you actually ran.
+            and Google Calendar arrive through Google's own consent screen;
+            Apple Music, Podcasts, Calendar and Health through the system sheets
+            your phone already knows how to draw. What comes back is what you
+            subscribed to, the music you kept, the evenings you booked, the
+            miles you actually ran.
           </p>
           <p class="aside">
             Whatever a permission already covers is taken whole. Nothing new is
@@ -176,18 +177,23 @@
   </section>
 
   <!-- ---------------------------------------------------------------- -->
-  <!-- What Written connects to, and what each one is for. Google's      -->
-  <!-- verification wants this stated on the homepage, not only in the   -->
-  <!-- policy — so it is a section of the site rather than a footnote.   -->
+  <!-- Every source, and every Google scope by name. Google's            -->
+  <!-- verification wants this on the homepage and not only in the       -->
+  <!-- policy, so it is a section rather than a footnote.                -->
+  <!--                                                                   -->
+  <!-- **A source added to the app is added here in the same commit.**   -->
+  <!-- Google Calendar, phone sign-in and notifications all shipped and  -->
+  <!-- this list did not move, so for a day it described an app that no  -->
+  <!-- longer existed — and nothing catches that, because a page cannot  -->
+  <!-- fail to compile.                                                  -->
   <!-- ---------------------------------------------------------------- -->
   <section class="sources" id="sources">
     <div class="wrap">
-      <p class="eyebrow">Connected accounts</p>
-      <h2>What Written reads, and why</h2>
+      <p class="eyebrow">What it reads</p>
+      <h2>Every source, and what each one is for</h2>
       <p class="lede">
-        Each source is connected by you, one tap at a time, and can be
-        disconnected the same way. Written never asks for permission to write
-        anything back.
+        You choose each of these, one tap at a time. Every one is read-only —
+        Written never asks for permission to write anything back to any of them.
       </p>
 
       <div class="source-grid">
@@ -195,10 +201,23 @@
           <h3>YouTube</h3>
           <p class="scope"><code>youtube.readonly</code></p>
           <p>
-            Read-only. Your subscriptions, liked videos and playlists say what
-            you follow and what you keep — the strongest single description of
-            taste most people have. Watch history is not available through the
-            API and is not requested.
+            Your subscriptions, liked videos and playlists say what you follow
+            and what you keep — the strongest single description of taste most
+            people have. Watch history is not available through the API and is
+            not requested.
+          </p>
+        </article>
+        <article class="source">
+          <h3>Google Calendar</h3>
+          <p class="scope">
+            <code>calendar.calendarlist.readonly</code><br>
+            <code>calendar.events.readonly</code>
+          </p>
+          <p>
+            Two narrow scopes rather than one broad one. The first reads only
+            the <em>names</em> of your calendars, so holiday and birthday
+            calendars can be left out before anything inside them is opened;
+            the second reads the events themselves.
           </p>
         </article>
         <article class="source">
@@ -210,7 +229,7 @@
           </p>
         </article>
         <article class="source">
-          <h3>Calendar</h3>
+          <h3>Apple Calendar</h3>
           <p class="scope">EventKit</p>
           <p>
             The concerts, flights and exhibitions you booked, and the evenings
@@ -222,10 +241,64 @@
           <p class="scope">HealthKit</p>
           <p>
             Which sports you actually do and roughly when you are awake. These
-            readings are derived on your phone; the underlying workout and
+            readings are worked out on your phone; the underlying workouts and
             activity samples never leave it.
           </p>
         </article>
+        <article class="source">
+          <h3>Signing in</h3>
+          <p class="scope">Apple · Google · phone</p>
+          <p>
+            Whichever you choose is the only one used. Google here is sign-in
+            only — <code>openid email profile</code>, which reads no content of
+            any kind. A phone number is verified by SMS and shown to nobody.
+          </p>
+        </article>
+        <article class="source">
+          <h3>Notifications</h3>
+          <p class="scope">APNs</p>
+          <p>
+            If you allow them, your phone gives us a delivery token so Apple can
+            reach it when somebody likes you, matches with you or writes. It is
+            an address for that device and nothing else.
+          </p>
+        </article>
+      </div>
+
+      <!-- ------------------------------------------------------------ -->
+      <!-- The three sentences that matter most to a reviewer, placed   -->
+      <!-- immediately under the list rather than in a section of their -->
+      <!-- own. Each is a fact about the app rather than a promise: the -->
+      <!-- snapshot model, the strike-off pass, and account deletion.   -->
+      <!-- ------------------------------------------------------------ -->
+      <div class="pledges">
+        <div class="pledge">
+          <h3>A snapshot, not a subscription</h3>
+          <p>
+            Each read happens once, in the foreground, in the seconds after you
+            tap — and then it is over. Nothing polls, nothing syncs in the
+            background, nothing keeps watching. Between one snapshot and the
+            next, Written is not reading anything at all.
+          </p>
+        </div>
+        <div class="pledge">
+          <h3>What it took, you can strike out</h3>
+          <p>
+            Any artist, channel, sport, show or event can be struck off your
+            profile in the app. It is never used, never shown and never counted
+            again — and it stays struck off through every snapshot after it, so
+            you are not undoing the same thing twice.
+          </p>
+        </div>
+        <div class="pledge">
+          <h3>And you can take it all back</h3>
+          <p>
+            Delete your account from inside the app and everything goes with
+            it — your profile, your snapshots, your photographs and your
+            conversations — within seven days. For anything narrower, write to
+            us and we will delete it in the same seven.
+          </p>
+        </div>
       </div>
     </div>
   </section>
@@ -257,18 +330,20 @@
           <h3>YouTube data, and 30 days</h3>
           <p>
             Written uses YouTube API Services. Titles, channel names and
-            playlist contents are held for no more than 30 calendar days, after
-            which they are deleted or refreshed from YouTube; what remains is
-            the derived reading, which names nothing. Disconnecting YouTube in
-            the app removes that data within 7 days.
+            playlist contents are held for no more than 30 calendar days. A job
+            runs every day and removes them on that schedule whether or not you
+            ask, whether or not you are still signed in; what remains is the
+            derived reading, which names nothing.
           </p>
           <p class="fine">
-            By connecting YouTube you also agree to the
+            By using YouTube through Written you also agree to the
             <a href="https://www.youtube.com/t/terms" rel="noopener" target="_blank">YouTube Terms of Service</a>.
             Google's own handling of your data is described in the
             <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">Google Privacy Policy</a>.
-            You can review or revoke Written's access at any time at
-            <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>.
+            You can review or withdraw Written's access at any time at
+            <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>
+            — and because of the sweep above, anything read from YouTube is
+            already gone within the 30 days that withdrawal allows.
           </p>
         </div>
 
@@ -276,17 +351,19 @@
           <h3>What stays on your phone</h3>
           <p>
             Health is the clearest case: workouts and activity samples are read,
-            reduced to a handful of signals on the device, and discarded. The
-            raw samples are never uploaded.
+            reduced to a handful of general readings on the device, and thrown
+            away. The samples themselves are never uploaded — enforced in two
+            places rather than intended in one.
           </p>
         </div>
 
         <div class="policy-item">
           <h3>Deleting everything</h3>
           <p>
-            Deleting your account in Written removes your profile, your
-            distillation and your conversations. There is no archived copy kept
-            afterwards.
+            Deleting your account in the app removes your profile, your
+            snapshots, your photographs and your conversations from our live
+            systems within seven days. Encrypted backups roll over on their own
+            schedule and are never used to bring a deleted account back.
           </p>
         </div>
       </div>
@@ -294,8 +371,11 @@
       <p class="policy-note">
         This is the short account. <a href="/en-us/privacy/">Read the full
         privacy policy</a> — it is the document referenced by the app's sign-in
-        screen and by Google's OAuth consent screen. Alongside it:
-        <a href="/en-us/terms/">terms of service</a> and
+        screen and by Google's OAuth consent screen, and its
+        <a href="/en-us/privacy/#google-user-data">Google user data</a> section
+        sets out every scope one at a time. Alongside it:
+        <a href="/en-us/terms/">terms of service</a>,
+        <a href="/en-us/support/">support</a> and
         <a href="/en-us/cookies/">cookies</a>.
       </p>
     </div>
@@ -311,6 +391,7 @@
       <a href="/en-us/privacy/">Privacy</a> ·
       <a href="/en-us/terms/">Terms</a> ·
       <a href="/en-us/cookies/">Cookies</a> ·
+      <a href="/en-us/support/">Support</a> ·
       <a href="mailto:hello@written-stl.com">hello@written-stl.com</a> ·
       <span>© <span id="year">2026</span> Written</span>
     </p>

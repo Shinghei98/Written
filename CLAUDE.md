@@ -102,12 +102,24 @@ Publishing needs Google's OAuth app verification, and two gates get conflated:
   objection that removed Spotify, arriving for the source the product cannot
   drop.**
 
-  The resolution is **derive, then delete the raw**: rows live up to 30 days as
-  the ontology/embedding input, and after that only derived, non-identifying
-  output remains. Three stores hold YouTube strings and missing one makes the
-  sweep cosmetic — `distilled_records`, `discovery_cards.interests` (whose
-  `subject` is a channel name), and `shared_posts`, which is genuinely grey and
-  wants a written judgement rather than a guess.
+  The resolution is **derive, then delete the raw**, and it is built —
+  `0016_youtube_retention.sql`, a daily `pg_cron` job at 03:17. Rows live up to
+  30 days as the ontology/embedding input, and after that only derived,
+  non-identifying output remains. Three stores hold YouTube strings and missing
+  one makes the sweep cosmetic — `distilled_records`,
+  `discovery_cards.interests` (whose `subject` is a channel name), and
+  `shared_posts`, which is deliberately *not* swept: that video id came from a
+  public URL somebody pasted into the share sheet rather than from an authorised
+  API call, which is genuinely grey and wants a written judgement rather than a
+  delete written on a guess.
+
+  **The sweep also satisfies the 30-day revocation deadline for free, and this
+  is provable rather than hopeful.** Revoke at Google and everything read from
+  YouTube must be gone within 30 days of the revocation; the sweep deletes 30
+  days after *collection*, and a revocation is never earlier than the collection
+  it revokes, so `collection + 30 ≤ revocation + 30` always. No machinery is
+  needed for that route at all. It is the 7-day case — a deletion *request* —
+  that the sweep cannot cover, because that deadline can start on day zero.
 
   **Revocation is a hard deadline, not a courtesy.** Revoked in the app, that
   user's YouTube data must be gone within **7 days**; revoked at Google, 30.
@@ -513,6 +525,21 @@ afterwards reaches somebody who never got past it, so the only place to say so i
 **before**: `SourcePickerSheet.row` carries a second line on the Health row
 alone. `detentHeight` counts it, because that detent is a fixed height and would
 otherwise crop the very sentence that prevents the dead end.
+
+**A row's note is for a dead end; the sheet's notice is for everybody.** Those
+are two different things and keeping them apart is what stops
+`note(forSource:)` growing back into a per-source description — Podcasts had one
+explaining what it read and it was deliberately removed on exactly that
+principle. So `SourcePickerSheet.privacyNotice` sits *under* the rows rather
+than inside one: *"Read once, never in the background"*, with the privacy
+policy linked. It is there because Google's OAuth verification requires
+in-product privacy notices to be **prominently displayed**, and the only one
+this app had was on the sign-in screen — passed through weeks before anybody
+grants YouTube. The sentence is the snapshot rather than a list of fields,
+because the next screen lists the fields in Google's or Apple's own words and
+what it cannot say is whether agreeing once means agreeing forever. It does not.
+`detentHeight` counts this too, and it is the *last* thing on the sheet, so an
+underestimate crops the line naming the policy.
 - **It only happens to people who have never been asked**, which is why it
   survived so long: on any device that has answered once, the call returns
   instantly with nothing to present. Testing Health on your own phone proves
@@ -1672,20 +1699,28 @@ Real, deliberate, and unfinished as of 2026-08-05. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
 
-**Google OAuth verification is the next thing with a deadline.** The site is
-live, Google Calendar is built, and the decision was to submit both scopes
-together. Outstanding: Search Console as a **Domain** property signed in as an
-Owner of Cloud project `672788849005` — verifying as the wrong account is the
-standard rejection and Google does not say so; the consent screen at
-`console.cloud.google.com/auth/branding`; a justification per scope; and an
-Unlisted YouTube demo video. **The video is the hard part**: it must show the
-client ID, and `ASWebAuthenticationSession` has no address bar, so it has to be
-shown another way in the same recording. Until this is done every tester
-re-authorises YouTube weekly.
+**Google OAuth verification is the next thing with a deadline.** The site now
+carries what the submission needs — every scope named, a `#google-user-data`
+section per scope with why nothing narrower will do, the Limited Use disclosure,
+the retention rule and a support page — and the drafted justifications and video
+shot list are in `web/README.md`. Outstanding: Search Console as a **Domain**
+property signed in as an Owner of Cloud project `672788849005` — verifying as
+the wrong account is the standard rejection and Google does not say so; the
+consent screen at `console.cloud.google.com/auth/branding`; and an Unlisted
+YouTube demo video. **The video is the hard part**: it must show the client ID,
+and `ASWebAuthenticationSession` has no address bar, so it has to be shown
+another way in the same recording. Until this is done every tester re-authorises
+YouTube weekly.
+
+**The consent screen's URLs must be the final ones**, `https://written-stl.com/en-us/`
+and `.../en-us/privacy/`, matching `SignInView.swift` character for character —
+not `/privacy`, which 301s. Google checks that the homepage link and the consent
+screen link agree, and a redirect is not agreement.
 
 **Google Calendar has never been run.** It is built and unexercised: nobody has
-connected it, because the developer's own phone has a Google account and the
-source is therefore hidden there by design. It needs a device without one.
+connected it, because the developer's own phone has a Google account. It needs a
+device without one. Note the site now describes it to reviewers, so this is a
+source documented ahead of ever having worked.
 
 **Notifications are proven on sandbox and untested on production.** All three
 events, the avatar and the attachment previews were confirmed on a real device
@@ -1702,11 +1737,41 @@ has already been asked.
 does not open that conversation. The most obviously missing half of the feature
 once the banners themselves work.
 
-**The site is registered and not deployed.** `written-stl.com` exists at
-Cloudflare and resolves to nothing. `SignInView` links three pages on it, so the
-app currently ships dead links — and Google's OAuth verification cannot begin
-until the homepage and privacy policy are actually reachable. `web/README.md`
-has the steps; everything else about verification queues behind this.
+**The site is registered and its reachability is unconfirmed.** `written-stl.com`
+exists at Cloudflare. Whether it serves anything cannot be established from the
+development machine, whose network sinkholes the domain to
+`sinkhole.paloaltonetworks.com` on **every** resolver including 1.1.1.1 and
+8.8.8.8 — a transparent DNS interception, not a fact about the domain. Check
+from a phone on cellular. `SignInView` links four pages on it, so until that is
+answered the app may be shipping dead links, and Google's OAuth verification
+cannot begin either way. `web/README.md` has the deployment steps.
+
+**The site is written from the app and goes stale silently.** It described a
+one-sign-in-method app with no Google Calendar and no notifications for a day
+after all three had shipped, and it promised, six times across three pages, an
+in-app control for taking a single source back out — which has never existed.
+Nothing catches this: a page cannot fail to compile. **Adding a source, a
+sign-in method, or anything else that leaves the device means editing
+`web/en-us/privacy/` in the same commit**, and `web/README.md` says so at the
+top for the same reason.
+
+  Rewritten 2026-08-05 to say what is true, and the two words it now uses
+  exactly are worth keeping straight:
+
+  - **Struck off** — the `BanList` editing pass. `markedRemoved` annotates
+    `extra` with `removed_by_user=<stamp>` and **keeps the row**, deliberately,
+    because the ontology stage needs "collected then struck off" to be a
+    different fact from "never collected". So the site says never used, never
+    shown, never counted — and does not say deleted, which would be false.
+  - **Deleted** — only account deletion and the YouTube sweep, which are real
+    deletes.
+
+  The mandatory 7-day clause (*"must provide a way for a user to request that
+  you delete stored data… within 7 calendar days"*) therefore attaches to
+  **account deletion and written request**, which both exist, rather than to a
+  per-source control that does not. Deletion is actually immediate — the cascade
+  plus `delete-account` — so 7 days is a ceiling kept for the backups, which the
+  policy now describes rather than waving at.
 
 **Nothing here has reached a tester.** Build 15 is archived and predates all of
 it. Every fix from 2026-08-04 — the empty source, the crop screen, the sign-in
@@ -1730,13 +1795,26 @@ that has caught every layout regression here, and CoreSimulator has been
 unusable since it crashed on 2026-07-29 — several changes have shipped on
 arithmetic alone since. Restart the simulator and re-run it.
 
-**App Store privacy labels are not filled in.** The manifest now declares what
-is collected; App Store Connect's own questionnaire is a separate answer and
-still says nothing. So does the privacy policy, which Google's OAuth verification
-and external TestFlight both need anyway.
+**App Store privacy labels are not filled in.** The manifest declares eleven
+data types and App Store Connect's own questionnaire is a separate answer that
+still says nothing. **Fill it in from the manifest**, which is now the complete
+list — it gained `PhoneNumber`, `PhotosorVideos` and `EmailsOrTextMessages` on
+2026-08-05, and the way it had lost them is the thing to guard against: each
+arrived with a feature written months after anybody last opened a plist. A
+dating app not declaring photographs is the omission a reviewer finds first, and
+it had been true since `0015`.
 
-**Account deletion has never been run end to end.** Both halves exist and are
-deployed — the app deletes its own `public.users` row through RLS, which cascades
+**The privacy policy is written and published** — `web/en-us/privacy/` — so this
+no longer blocks external TestFlight or Google. The three answers that must
+agree are the manifest, that page, and the questionnaire; a disagreement between
+them is a routine rejection and none of the three checks the others.
+
+**Account deletion has never been run end to end, and it is now the
+load-bearing claim of the published privacy policy.** The site's answer to
+Google's mandatory *"a way for a user to request that you delete stored data"*
+is this button plus a written request — there is no per-source control — so a
+deletion that silently half-works is a policy that is false. Test it before
+submitting anything. Both halves exist and are deployed — the app deletes its own `public.users` row through RLS, which cascades
 every table, then calls `supabase/functions/delete-account` to remove the
 `auth.users` record, which only `service_role` can do. Confirmed `ACTIVE` with
 `verify_jwt` on, but confirming the *function* is not confirming the *flow*: it

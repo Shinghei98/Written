@@ -10,7 +10,9 @@ the root is a 404 locally. That is expected; open `/en-us/` directly.
 
 ## Why it exists
 
-Two jobs, and the second is the one with a deadline.
+Three jobs, and the last two are the ones with deadlines. **This is not a
+consumer funnel and should not be edited as though it were** — every page here
+is read by a reviewer before it is read by anybody looking for a date.
 
 1. It is the front door — the painting, the mark, and an account of what
    distillation is.
@@ -19,26 +21,53 @@ Two jobs, and the second is the one with a deadline.
    a privacy policy on a domain we own and have verified in Search Console.
    Until that exists the app's refresh tokens expire every 7 days and every
    tester re-authorises YouTube weekly.
+3. **It is the Support URL App Store Connect requires**, which is a separate
+   mandatory field from the privacy policy and cannot be a `mailto:`.
+   `/en-us/support/` is it, and it doubles as where Guideline 1.2's "published
+   contact information" and the account-deletion instructions live.
 
-That is why the page carries the Limited Use disclosure, the scope, the 30-day
-retention rule and the revocation link. They are not filler: a reviewer reads
-this page.
+That is why the pages carry the Limited Use disclosure, every scope by name, the
+30-day retention rule, the revocation link and a stated response time. They are
+not filler.
+
+**Every claim on this site has to be a fact about the shipped app**, and the way
+that goes wrong is not lying — it is the site staying still while the app moves.
+It described a one-sign-in-method app with no Google Calendar and no
+notifications for a day after all three had shipped, and it promised a control
+for removing a single source that has never existed. So: **adding a source, a
+sign-in method or anything that leaves the device means editing
+`en-us/privacy/` in the same commit.**
 
 ## Shape
 
     wrangler.jsonc                at the REPO root, not in here — so it is not
                                   itself one of the files served
     web/
-      _redirects                  /  ->  /en-us/, and the three short paths
+      _redirects                  /  ->  /en-us/, and the four short paths
+      _headers                    CSP and friends; see below
       404.html                    served by not_found_handling
       styles.css  app.js          served from the root, so every page shares them
       assets/                     referenced absolutely as /assets/…
       en-us/index.html            the page
       en-us/privacy/              the document Google's reviewer reads
+      en-us/support/              the document App Review reads
       en-us/terms/  en-us/cookies/
 
+Neither `_redirects` nor `_headers` is served — Workers static assets parses
+both and applies them to everything else. Redirects run before headers, so a
+path matching a rule in each is redirected and never reaches the header rule.
+
+**`_headers` is what makes the cookies page true rather than merely honest.**
+That page says nothing is fetched from anywhere else; the CSP is
+`default-src 'self'` with `connect-src 'none'`, so a tag manager pasted in later
+does not quietly start working — it fails. `style-src` carries `'unsafe-inline'`
+only because a few callouts use a `style="margin:0"` attribute; move those into
+`styles.css` and the keyword can go.
+
 `/en-us/` is a promise rather than a fact — nothing is translated. Dropping it
-is deleting four lines of `_redirects` and moving the directory up.
+is deleting the `_redirects` lines and moving the directory up — but **not until
+after Google's verification**, because the consent screen carries these URLs and
+a homepage that has moved is a homepage that does not match.
 
 Asset paths inside `styles.css` stay **relative** and must: the stylesheet sits
 at the root, so `assets/…` resolves from there whatever page loads it. Only the
@@ -67,10 +96,74 @@ Ordered. The first two block Google's verification and nothing else does.
   from what the app actually does, but they are legal documents. Two known
   open questions: whether a postal address is required where you operate, and
   whether a legal entity should be named rather than "Written".
-- **Spotify.** The beta build syncs Spotify rows and the privacy policy does not
-  mention it, because `CLAUDE.md` has it slated for removal before the App Store
-  build. Those two facts cannot both stay true once the policy is public —
-  either the code goes before the site does, or the policy has to say so.
+- **Spotify.** The beta build syncs Spotify rows and the site deliberately does
+  not mention it, because it is slated for removal before the App Store build.
+  **The code has to go before external TestFlight testers arrive**, not before
+  the App Store build — an external tester is covered by this published policy,
+  and the policy does not describe a source they can connect. Internal testers
+  are the developer's own team and are the window this arrangement has.
+
+## The Google submission, ready to file
+
+**The URLs, character for character.** These must match what the app links
+(`SignInView.swift`) and what the consent screen carries. Use the final paths,
+never the short redirecting ones — a 301 is legal and a mismatch is a rejection.
+
+| Field | Value |
+|---|---|
+| Application home page | `https://written-stl.com/en-us/` |
+| Privacy policy | `https://written-stl.com/en-us/privacy/` |
+| Terms of service | `https://written-stl.com/en-us/terms/` |
+| Per-scope disclosure | `https://written-stl.com/en-us/privacy/#google-user-data` |
+
+**Scope justifications.** One per scope, and each has to answer *why nothing
+narrower will do* as well as what it is for. Drafts, matching the table on the
+privacy page:
+
+- `youtube.readonly` — Written builds a dating profile from what a person
+  already follows and keeps. It reads subscriptions, liked videos, playlists and
+  playlist contents once, when the user taps Connect, and derives the subjects
+  the profile is written from. There is no narrower read scope for this data.
+  Titles and channel names are deleted after 30 days by a scheduled job; only
+  the derived, non-identifying reading remains.
+- `calendar.calendarlist.readonly` — Reads calendar *names* only, and its whole
+  purpose is to read less: birthday and public-holiday calendars are identified
+  by name and skipped before any event inside them is requested. Asking only for
+  the events scope would mean opening calendars we have no business reading.
+- `calendar.events.readonly` — Reads the events in the calendars that were not
+  skipped. Title, date, location, organiser and booking link are what separate a
+  concert somebody paid for from a note to themselves, which is the signal the
+  profile is built from. `calendar.readonly` would cover both of these in one
+  grant and is deliberately not requested.
+- **Only offered where it adds something.** Google Calendar is presented
+  alongside Apple Calendar rather than instead of it, and events from both are
+  reconciled into one diary before anything is shown, so nothing is counted
+  twice.
+
+**The demo video.** Unlisted on YouTube. It must show the app name and branding,
+the complete consent screen with these exact scopes, and the functionality that
+uses the data.
+
+**The hard part is the client ID**, which the video has to show and
+`ASWebAuthenticationSession` gives no address bar for. Two ways, and the second
+is safer: run the same grant once in Safari on a Mac where the URL is visible
+and film that alongside the device; or film the Google Cloud console's
+credentials page showing the client ID immediately before the grant, in one
+unbroken take.
+
+Shot list, one recording, no cuts:
+
+1. The app's sign-in screen, name and mark visible, with the three links.
+2. The client ID on screen by whichever route above.
+3. Tap Connect on Media → the Google consent screen, scopes legible.
+4. Grant, return to the app, the branch grows.
+5. Memories showing what was derived — the functionality the scope is for.
+6. Press and hold an entry, strike it off — this is the in-app control the
+   policy describes.
+7. Memories → Delete account → Delete everything.
+
+Step 7 is worth filming even though it is not asked for: the audit's questions
+about deletion are answered by watching it happen.
 
 ## Review flags
 

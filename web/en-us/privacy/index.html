@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Privacy Policy — Written</title>
-<meta name="description" content="What Written collects, why, where it is kept, how long it is held, and how to remove it.">
+<meta name="description" content="What Written reads, why, where it is kept, how long it is held, and how to remove it — scope by scope.">
 <meta name="theme-color" content="#F3EFE9">
 <link rel="canonical" href="https://written-stl.com/en-us/privacy/">
 <link rel="icon" href="/assets/w-logo.png" type="image/png">
@@ -29,7 +29,7 @@
     <div class="doc-head">
       <p class="eyebrow">Written</p>
       <h1>Privacy Policy</h1>
-      <p class="doc-dates">Effective 4 August 2026 · Last updated 4 August 2026</p>
+      <p class="doc-dates">Effective 5 August 2026 · Last updated 5 August 2026</p>
     </div>
 
     <div class="doc-body">
@@ -37,7 +37,7 @@
       <p>
         Written is an iPhone dating app. It builds your profile out of what you
         already listen to, watch, plan and do, so that you do not have to write
-        one. That only works if you connect accounts to it, which means this
+        one. That only works if you let it read some accounts, which means this
         document has to be specific rather than reassuring.
       </p>
 
@@ -47,40 +47,84 @@
         that makes Written.
       </p>
 
+      <!-- ------------------------------------------------------------------
+           The single most important paragraph for a reviewer, and it goes
+           first. Retention, deletion and the scope table downstream are all
+           easier to read once it is clear that no standing connection exists.
+           ------------------------------------------------------------------ -->
+      <h2>How Written reads: a snapshot, not a subscription</h2>
+
+      <div class="callout">
+        <p style="margin:0">
+          <strong>Written takes a snapshot.</strong> Each read happens once, in
+          the foreground, in the seconds after you tap — and then it is over.
+          Nothing polls, nothing runs in the background, nothing keeps watching
+          your account afterwards. Between one snapshot and the next, Written is
+          not reading anything at all. Everything below describes what a
+          snapshot picks up and what happens to it afterwards.
+        </p>
+      </div>
+
+      <p>
+        Two things follow from that, and they are the two we would most like you
+        to hold on to. <strong>What a snapshot took, you can strike out</strong>
+        — any artist, channel, sport, show or event, in the app, at any time.
+        And <strong>you can take all of it back</strong> by deleting your
+        account, which is a button in the app rather than a request to us.
+      </p>
+
       <h2>What we collect</h2>
 
       <h3>What you tell us</h3>
       <ul>
-        <li><strong>Your account.</strong> You sign in with Apple. We receive
-          the identifier Apple gives us and, if you allow it, your name and
-          email address. We never see your Apple password.</li>
+        <li><strong>Your account.</strong> You sign in one of three ways, and
+          only the one you choose is used.
+          <ul>
+            <li><em>Apple</em> — we receive the identifier Apple gives us and,
+              if you allow it, your name and email address, which is often a
+              private relay address.</li>
+            <li><em>Google</em> — sign-in only. We ask for
+              <code>openid email profile</code>, which reads no content from any
+              Google service, and we receive your email address and name.</li>
+            <li><em>Phone</em> — your phone number, verified by a code sent over
+              SMS. It is stored against your account and is shown to nobody.</li>
+          </ul>
+          We never see your Apple or Google password.</li>
         <li><strong>Your profile.</strong> First name, date of birth, gender,
           the district you live in, and optionally education and occupation.</li>
         <li><strong>Your photographs.</strong> Up to six, in the order you
           arranged them.</li>
         <li><strong>How you want to be approached.</strong> Two answers, given
           during sign-up, about flirtatiousness and how quickly you reply.</li>
-        <li><strong>What you write.</strong> Messages you send, people you like
-          or decline, links you share into the app, and anything you report.</li>
+        <li><strong>What you write.</strong> Messages you send — text, photos,
+          videos and voice notes — people you like or decline, links you share
+          into the app, and anything you report.</li>
+        <li><strong>A notification token</strong>, if you allow notifications: an
+          address Apple uses to reach that one device. It identifies the device,
+          not you, and it goes with your account when you delete it.</li>
       </ul>
 
-      <h3>What your connected accounts give us</h3>
+      <h3>What each source gives us</h3>
       <p>
-        Nothing is connected unless you tap Connect and grant it. Each source
-        can be disconnected again in the app.
+        Nothing is read unless you tap and grant it, one source at a time. Every
+        one of these is read-only: Written never asks any of them for permission
+        to write anything back.
       </p>
       <ul>
-        <li><strong>YouTube</strong> — read-only. Your subscriptions, liked
-          videos, playlists and the contents of those playlists. We do not
-          request, and cannot obtain, your watch history.</li>
+        <li><strong>YouTube</strong> — your subscriptions, liked videos,
+          playlists and the contents of those playlists. We do not request, and
+          cannot obtain, your watch history.</li>
+        <li><strong>Google Calendar</strong> — the names of your calendars, and
+          the events in them: title, date, location, organiser and any booking
+          link. Calendars of birthdays and public holidays are left out.</li>
         <li><strong>Apple Music</strong> — your library, playlists, recently
           added and recently played music, heavy rotation, recommendations, and
           the tracks you have marked liked or disliked.</li>
         <li><strong>Apple Podcasts</strong> — the episodes held on your device
           and the shows they belong to.</li>
-        <li><strong>Apple Calendar</strong> — event titles, dates, locations,
-          organisers and any booking link, within the window the app reads.
-          Birthday and public-holiday calendars are excluded.</li>
+        <li><strong>Apple Calendar</strong> — the same fields as Google
+          Calendar, within the window the app reads. Birthday and public-holiday
+          calendars are excluded.</li>
         <li><strong>Apple Health</strong> — workouts, exercise minutes, active
           energy, steps, walking and running distance, and your date of birth
           and biological sex.</li>
@@ -89,20 +133,141 @@
       <div class="callout">
         <p style="margin:0">
           <strong>Health data never leaves your phone.</strong> It is read on the
-          device, reduced there to a small number of general signals — roughly
+          device, reduced there to a small number of general readings — roughly
           when you are awake, which sports you do and at what level, and an
           average daily step count — and the underlying workouts and samples are
-          then discarded without ever being uploaded. Only those signals are
-          stored on our servers.
+          then thrown away without ever being uploaded. Only those readings are
+          stored on our servers. This is enforced in two separate places rather
+          than intended in one.
         </p>
       </div>
+
+      <p>
+        <strong>Calendar events are the one thing here that can name somebody
+        else.</strong> An event called "Dinner with Sam" carries a name that is
+        not yours. We keep events whole because the titles are the signal — a
+        booking a ticketing site wrote into your calendar is the strongest
+        statement of interest this app can see — and we say so here rather than
+        leaving it to be discovered.
+      </p>
 
       <h3>What we work out</h3>
       <p>
         From the above we derive the readings that make a profile: the subjects
         you care about, and where your interests, preferences and temperament
         sit relative to other people's. Some of these derived subjects — an
-        artist, a channel, a kind of music — appear on the card other people see.
+        artist, a channel, a kind of music — appear on the card other people
+        see.
+      </p>
+
+      <!-- ------------------------------------------------------------------
+           The anchored section. `#google-user-data` is linked from the
+           homepage and is the URL handed to Google's verification form, so
+           the fragment must not be renamed without changing both.
+           ------------------------------------------------------------------ -->
+      <h2 id="google-user-data">Google user data, scope by scope</h2>
+
+      <p>
+        Written asks Google for three things and no others. Each is set out here
+        with what it is called for, what is kept, and why a narrower scope would
+        not do.
+      </p>
+
+      <div class="doc-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Scope</th>
+              <th>What it is used for</th>
+              <th>What we store</th>
+              <th>How long</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>youtube.readonly</code></td>
+              <td>Reads your subscriptions, liked videos, playlists and playlist
+                contents, so the profile can say what you follow and what you
+                keep. There is no narrower read scope for this data.</td>
+              <td>Channel names, video titles and playlist names, plus the
+                categories YouTube assigns them.</td>
+              <td><strong>30 calendar days at most</strong>, then deleted
+                automatically.</td>
+            </tr>
+            <tr>
+              <td><code>calendar.calendarlist.readonly</code></td>
+              <td>Reads the <em>names</em> of your calendars only — no events —
+                so that calendars of birthdays and public holidays can be
+                identified and skipped before anything inside them is opened.</td>
+              <td>Calendar names, and whether each is your primary one.</td>
+              <td>While your account exists.</td>
+            </tr>
+            <tr>
+              <td><code>calendar.events.readonly</code></td>
+              <td>Reads the events in the calendars that were not skipped.
+                Title, date, location, organiser and booking link are what
+                separate a concert you paid for from a note to yourself.</td>
+              <td>Those fields per event, one row per repeating series rather
+                than per occurrence.</td>
+              <td>While your account exists.</td>
+            </tr>
+            <tr>
+              <td><code>openid email profile</code></td>
+              <td>Sign in with Google, if you choose it. Reads no content from
+                any Google service.</td>
+              <td>Your email address and name, as your account record.</td>
+              <td>While your account exists.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        <strong>Why two calendar scopes rather than one.</strong>
+        <code>calendar.readonly</code> would cover both in a single grant and we
+        deliberately do not ask for it. The two narrow scopes name exactly what
+        is read, and the first exists precisely so that calendars we have no
+        business reading can be recognised and skipped without being opened.
+      </p>
+
+      <h3>Limited Use</h3>
+      <p>
+        Written's use and transfer of information received from Google APIs
+        adheres to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener" target="_blank">Google
+        API Services User Data Policy</a>, including the Limited Use
+        requirements. Data from your Google account is used only to build and
+        present your own profile inside the app. It is never sold, never used
+        for advertising, never transferred to anyone except as needed to provide
+        the app, and never read by a person except where you have asked us to
+        look at something or where we are investigating a report of abuse.
+      </p>
+
+      <h3>YouTube, and the thirty days</h3>
+      <p>
+        Written uses YouTube API Services. By using them through Written you
+        also agree to the
+        <a href="https://www.youtube.com/t/terms" rel="noopener" target="_blank">YouTube
+        Terms of Service</a>, and Google's own handling of your data is
+        described in the
+        <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">Google
+        Privacy Policy</a>.
+      </p>
+      <p>
+        <strong>Titles, channel names and playlist contents are held for no more
+        than 30 calendar days.</strong> This is not a promise to act on a
+        request: a job runs once a day and removes them on that schedule whether
+        or not anybody asks, whether or not you are still signed in, and whether
+        or not you ever open the app again. What remains afterwards is the
+        derived reading, which names nothing.
+      </p>
+      <p>
+        You can review or withdraw Written's access at any time at
+        <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>.
+        Where access is withdrawn there, everything read from YouTube is deleted
+        within 30 days — and in practice the daily sweep above has already
+        removed it, because it deletes 30 days after the data arrived, which is
+        never later than 30 days after a withdrawal.
       </p>
 
       <h2>Why we collect it</h2>
@@ -111,13 +276,13 @@
         <li>To order what each person is shown about you by what the two of you
           have in common.</li>
         <li>To let you like, match with and message other people.</li>
+        <li>To tell you when somebody likes you, matches with you or writes.</li>
         <li>To keep the service working, and to investigate reports of abuse.</li>
       </ul>
       <p>
         We do not sell your data. We do not use it for advertising. We do not
-        share it with data brokers. Nobody on our team reads your messages or
-        your distillation except where you have asked us to look at something or
-        where we are investigating a report.
+        share it with data brokers. There is no analytics, attribution or
+        advertising software of any kind in the app or on this website.
       </p>
 
       <h2>What other people can see</h2>
@@ -128,89 +293,162 @@
       <ul>
         <li><strong>Your card</strong> — first name, age, district, your
           photographs, and derived subjects such as an artist or a channel name.
-          It deliberately contains nothing from which a distillation could be
+          It deliberately contains nothing from which a snapshot could be
           reconstructed.</li>
         <li><strong>Anything you choose to share</strong> — a link you publish
           with a sentence about it, shown with your first name.</li>
       </ul>
       <p>
-        Your conversations are visible only to you and the person you are talking
-        to. Nothing in Written is public on the open internet.
+        Your conversations are visible only to you and the person you are
+        talking to. Nothing in Written is public on the open internet.
       </p>
 
-      <h2>YouTube</h2>
+      <h2>Notifications</h2>
       <p>
-        Written uses YouTube API Services. By connecting YouTube you also agree
-        to the <a href="https://www.youtube.com/t/terms" rel="noopener" target="_blank">YouTube
-        Terms of Service</a>, and Google's own handling of your data is described
-        in the <a href="https://policies.google.com/privacy" rel="noopener" target="_blank">Google
-        Privacy Policy</a>.
-      </p>
-      <p>
-        Our use and transfer of information received from Google APIs adheres to
-        the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener" target="_blank">Google
-        API Services User Data Policy</a>, including the Limited Use
-        requirements. The scope we request is <code>youtube.readonly</code> and
-        nothing else.
-      </p>
-      <p>
-        <strong>We hold YouTube titles, channel names and playlist contents for
-        no more than 30 calendar days.</strong> After that they are deleted or
-        refreshed from YouTube; what remains is the derived reading, which names
-        nothing.
-      </p>
-      <p>
-        You can disconnect YouTube in the app at any time, and we will delete the
-        data obtained from it within 7 days. You can also revoke our access
-        directly at
-        <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>;
-        where you revoke it there, we delete within 30 days.
+        If you turn notifications on, your phone gives us a delivery token and
+        we send it to Apple's Push Notification service when there is something
+        to tell you. A notification carries the sender's first name, a short
+        line, an unread count, and — for a message — a link to that person's
+        photograph which expires after one hour. It is prepared on our servers
+        and delivered by Apple; nobody else is involved, and turning
+        notifications off in iOS stops all of it.
       </p>
 
       <h2>Where it is kept, and who else touches it</h2>
       <p>
         Your data is stored in a Postgres database and file storage operated by
         <a href="https://supabase.com/privacy" rel="noopener" target="_blank">Supabase</a>,
-        on servers in the United States. Access is enforced row by row: a signed-in
-        account can read its own rows, and the two tables described under
-        <em>What other people can see</em>, and nothing else.
-      </p>
-      <p>
-        One other service is contacted, and only with two words: to show the
-        lyrics of a song, we send that song's <strong>artist and title</strong> —
-        no account identifier, nothing about you — to
-        <a href="https://lrclib.net" rel="noopener" target="_blank">lrclib.net</a>,
-        and to music.163.com if the first has no answer.
-      </p>
-      <p>
-        Apple provides sign-in and the app's distribution. This website is served
-        by Cloudflare.
+        on servers in the United States. These are everyone who handles any part
+        of it:
       </p>
 
-      <h2>How long we keep it</h2>
+      <div class="doc-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Who</th>
+              <th>What they receive</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Supabase</td>
+              <td>Everything stored: the account, the profile, the snapshots,
+                photographs and conversations. United States.</td>
+            </tr>
+            <tr>
+              <td>Apple</td>
+              <td>Sign in with Apple; delivery of notifications; distribution of
+                the app itself.</td>
+            </tr>
+            <tr>
+              <td>Google</td>
+              <td>Only if you use Google to sign in or to read a Google source.
+                The grant happens on Google's own screen.</td>
+            </tr>
+            <tr>
+              <td>Twilio</td>
+              <td>Only if you sign in by phone: your number, to send one
+                verification code. Arranged through Supabase.</td>
+            </tr>
+            <tr>
+              <td>lrclib.net, and music.163.com if the first has no answer</td>
+              <td><strong>One song title, and to the first of them one artist
+                name.</strong> No account identifier, nothing about you, nothing
+                about the rest of your library — sent to fetch the words of a
+                song, and cached so a song is asked about once.</td>
+            </tr>
+            <tr>
+              <td>Cloudflare</td>
+              <td>Serves this website. Sees the ordinary details of a request
+                for a page, and nothing from the app.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>How it is protected</h2>
       <ul>
-        <li><strong>YouTube-derived text</strong> — 30 calendar days, as above.</li>
-        <li><strong>Everything else</strong> — for as long as your account
-          exists.</li>
-        <li><strong>After you delete your account</strong> — removed. Ordinary
-          backups may retain copies for a short period before they roll over.</li>
+        <li><strong>Access is enforced row by row, in the database itself.</strong>
+          A signed-in account can read its own rows and nothing else, with the
+          two deliberate exceptions described under <em>What other people can
+          see</em>. This is not a check in our code that could be forgotten; it
+          is a rule the database applies to every query.</li>
+        <li><strong>Photographs live in private storage.</strong> They are never
+          publicly addressable — each viewing uses a link that expires.</li>
+        <li><strong>Your session and any access tokens are kept in the iOS
+          Keychain</strong>, not in ordinary app storage.</li>
+        <li><strong>Everything travels over HTTPS.</strong></li>
+        <li><strong>There is no third-party analytics, advertising or tracking
+          software</strong> in the app or on this site, so there is nothing to
+          opt out of.</li>
       </ul>
+
+      <h2>How long we keep it</h2>
+
+      <div class="doc-table">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>How long</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>YouTube titles, channel names, playlist contents</td>
+              <td>30 calendar days, deleted by an automatic daily job.</td>
+            </tr>
+            <tr>
+              <td>Raw Health workouts and samples</td>
+              <td>Never stored. Reduced on the phone and thrown away there.</td>
+            </tr>
+            <tr>
+              <td>Everything else</td>
+              <td>For as long as your account exists.</td>
+            </tr>
+            <tr>
+              <td>After you delete your account</td>
+              <td>Removed from our live systems within 7 days.</td>
+            </tr>
+            <tr>
+              <td>After you write and ask us to delete something</td>
+              <td>Removed within 7 days.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Encrypted backups roll over on their own schedule, and are never used to
+        bring back an account or a record that was deleted.
+      </p>
 
       <h2>What you can do</h2>
       <ul>
-        <li><strong>Disconnect a source</strong> at any time in the app.</li>
+        <li><strong>Strike something out.</strong> Any artist, channel, sport,
+          show or event can be struck off your profile in the app. It is never
+          used, never shown and never counted again, and it stays struck off
+          through every snapshot after it — so you never have to remove the same
+          thing twice.</li>
         <li><strong>Correct your profile</strong> from the Memories tab. Every
-          field there can be changed after it is first set.</li>
+          field there can be changed after it is first set, including your
+          name.</li>
         <li><strong>Delete your account</strong> from the Memories tab. This
-          removes your profile, your distillation, your photographs and your
-          conversations.</li>
-        <li><strong>Ask us for a copy</strong> of what we hold, or ask us to
-          delete something specific, by writing to the address below.</li>
+          removes your profile, your snapshots, your photographs and your
+          conversations, within 7 days.</li>
+        <li><strong>Ask us to delete something narrower</strong>, or for a copy
+          of what we hold, by writing to the address below. We will do it within
+          7 days.</li>
+        <li><strong>Withdraw Google's grant directly</strong> at
+          <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>.</li>
       </ul>
       <p>
         Depending on where you live you may have further rights — to object to
         processing, to restrict it, or to complain to a supervisory authority.
         Write to us and we will honour them.
+        <a href="/en-us/support/">Support</a> sets out how to do each of these
+        step by step.
       </p>
 
       <h2>Children</h2>
@@ -245,6 +483,7 @@
       <a href="/en-us/privacy/">Privacy</a> ·
       <a href="/en-us/terms/">Terms</a> ·
       <a href="/en-us/cookies/">Cookies</a> ·
+      <a href="/en-us/support/">Support</a> ·
       <a href="mailto:hello@written-stl.com">hello@written-stl.com</a> ·
       <span>© <span id="year">2026</span> Written</span>
     </p>

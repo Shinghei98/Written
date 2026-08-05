@@ -36,11 +36,36 @@
 		</dict>
 
 		<!-- Sign in with Apple returns an address — often a private relay — and
-		     the auth provider stores it against the account. The app never asks
-		     for it, but it is collected, so it is declared. -->
+		     Sign in with Google returns a real one. Either way the auth provider
+		     stores it against the account. The app never asks for it, but it is
+		     collected, so it is declared. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- The third way in. Phone sign-in landed after this file was written
+		     and the omission is the shape of mistake this manifest is most prone
+		     to: everything here was true of the app on the day it was last read,
+		     and a sign-in route is exactly the kind of thing added without
+		     anybody thinking of a plist.
+
+		     Supabase stores the E.164 number against the account and Twilio
+		     Verify sees it once, to send a code. It is shown to no other user —
+		     `discovery_cards` carries a first name, an age and a district and
+		     nothing else — but it is collected, which is what this list is
+		     about. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhoneNumber</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
@@ -169,7 +194,7 @@
 			</array>
 		</dict>
 
-		<!-- Messages, which now includes recorded audio.
+		<!-- The recorded half of a message.
 		     A voice memo is a message like any other: it is held to record, kept
 		     on the device until the send arrow is tapped, then uploaded to the
 		     private `chat-media` bucket and readable only by the two people in
@@ -181,6 +206,53 @@
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- The written half, which the entry above was quietly standing in for.
+		     Its comment said "messages, which now includes recorded audio" — so
+		     the typed text of every conversation was declared only by the type
+		     named for sound, which is the one place in this list a reader
+		     searching for "messages" would not look.
+
+		     Text, and the caption on a photograph or a video. Readable by the
+		     two people in the conversation and by nobody else: `messages` is
+		     `auth.uid()`-scoped to the two participants, which is also why the
+		     unread query needs no conversation filter. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailsOrTextMessages</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Photographs and video, in two places with different audiences.
+		     Up to six profile photographs in the private `profile-photos`
+		     bucket, which the discovery card points at and any signed-in user
+		     may therefore see — that is the product. And photographs and videos
+		     sent in a conversation, in `chat-media`, which only the two people
+		     in it can reach.
+
+		     **A dating app not declaring photographs is the omission a reviewer
+		     finds first**, and this one had gone unnoticed since `0015` because
+		     the manifest was last read before the photo grid existed. Neither
+		     bucket is public; both are read through links that expire. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

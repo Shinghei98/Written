@@ -488,6 +488,24 @@ h3 {
   text-transform: none;
 }
 
+/* The three sentences that follow the source list.
+   --------------------------------------------------------------------------
+   Deliberately inside `.sources` rather than a section of their own. A reader
+   who has just finished the list of what is read should meet "and it is read
+   once, and you can strike it out, and you can delete it" in the same breath;
+   a section break puts a scroll between the question and the answer. */
+.pledges {
+  margin-top: clamp(40px, 6vh, 68px);
+  padding-top: clamp(30px, 4vh, 48px);
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: clamp(24px, 3.4vw, 44px);
+}
+
+.pledge h3 { margin: 0 0 .5rem; font-family: var(--display); font-weight: 400; }
+.pledge p { margin: 0; color: var(--muted); }
+
 /* ==========================================================================
    Privacy
    ========================================================================== */
@@ -579,6 +597,49 @@ h3 {
   border-left: 3px solid var(--brand);
   border-radius: 0 12px 12px 0;
 }
+
+/* Scope-by-scope and retention-by-item disclosures.
+   --------------------------------------------------------------------------
+   A table because a reviewer reads these by scanning a column, not by reading
+   prose — "which scope, what for, how long" is three questions asked of every
+   row. The wrapper is what scrolls on a narrow screen; letting the page scroll
+   sideways instead would move the whole document under the reader's thumb. */
+.doc-table {
+  overflow-x: auto;
+  margin: 1.4rem 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.doc-table table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 34rem;
+  font-size: .93em;
+}
+
+.doc-table th,
+.doc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: .7rem .9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.doc-table tr:last-child td { border-bottom: 0; }
+
+.doc-table th {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.doc-table td code { word-break: break-all; }
 
 .doc-back {
   display: inline-block;
