@@ -213,7 +213,9 @@ interface Payload {
 /// all land here — and the notification still has to go. A banner that arrives
 /// without a face beats one that does not arrive, so every failure below returns
 /// null rather than throwing.
-async function senderPhotoURL(senderId: string): Promise<string | null> {
+async function senderPhotoURL(
+  senderId: string,
+): Promise<{ url: string | null; why: string }> {
   try {
     const rows = await fetch(
       `${SUPABASE_URL}/rest/v1/photos?user_id=eq.${senderId}` +
@@ -226,15 +228,11 @@ async function senderPhotoURL(senderId: string): Promise<string | null> {
     // sign" — which is the same shape as `devices()` answering `[]`, written
     // into the same file on the same night after fixing it there.
     if (!rows.ok) {
-      console.error(`photos ${rows.status}: ${await rows.text()}`);
-      return null;
+      return { url: null, why: `photos ${rows.status}: ${await rows.text()}` };
     }
     const found = await rows.json();
     const path = found?.[0]?.object_path;
-    if (!path) {
-      console.log(`no photo row for ${senderId}`);
-      return null;
-    }
+    if (!path) return { url: null, why: `no photo row for ${senderId}` };
 
     // `profile-photos` is private by design — a public bucket is readable by URL
     // with no account at all, which would put faces on the open web the moment
@@ -257,19 +255,14 @@ async function senderPhotoURL(senderId: string): Promise<string | null> {
       },
     );
     if (!signed.ok) {
-      console.error(`sign ${signed.status}: ${await signed.text()}`);
-      return null;
+      return { url: null, why: `sign ${signed.status}: ${await signed.text()}` };
     }
     const { signedURL } = await signed.json();
-    if (!signedURL) {
-      console.error("sign returned no signedURL");
-      return null;
-    }
+    if (!signedURL) return { url: null, why: "sign returned no signedURL" };
     // The API answers a path beginning `/object/sign/…`, not an absolute URL.
-    return `${SUPABASE_URL}/storage/v1${signedURL}`;
+    return { url: `${SUPABASE_URL}/storage/v1${signedURL}`, why: "ok" };
   } catch (e) {
-    console.error(`senderPhotoURL threw: ${e}`);
-    return null;
+    return { url: null, why: `threw: ${e}` };
   }
 }
 
@@ -384,10 +377,10 @@ Deno.serve(async (req: Request) => {
   // No sender at all means `0025` has not been applied — the trigger is still
   // calling the five-argument `private.notify`. Worth naming, because it looks
   // identical to a person with no photograph.
-  if (!payload.sender_id) console.log("no sender_id in payload (is 0025 applied?)");
-  const imageURL = payload.sender_id
+  const face = payload.sender_id
     ? await senderPhotoURL(payload.sender_id)
-    : null;
+    : { url: null, why: "no sender_id in payload (is 0025 applied?)" };
+  const imageURL = face.url;
 
   const results = await Promise.all(targets.map((d) => send(d, payload, imageURL)));
   const sent = results.filter((r) => r === "ok").length;
@@ -400,5 +393,10 @@ Deno.serve(async (req: Request) => {
       ` face=${imageURL ? "yes" : "no"}` +
       (sent === targets.length ? "" : ` — ${results.filter((r) => r !== "ok").join("; ")}`),
   );
-  return json({ sent, results }, 200);
+  // **`face` is in the response body, not only in the logs.** `pg_net` records
+  // every response in `net._http_response`, which is readable from the SQL
+  // editor — so a diagnosis that travels in the body can be read without the
+  // log viewer, and without a curl that would need the shared secret. The logs
+  // were unreadable for exactly one run and that was one run too many.
+  return json({ sent, results, face: face.why }, 200);
 });
