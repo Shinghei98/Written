@@ -46,12 +46,17 @@ struct ChatView: View {
     /// this opens the page within it.
     @ObservedObject private var notifications = NotificationRouter.shared
 
-    /// What the tap routing actually did, drawn in the banner on Debug and
-    /// TestFlight builds. A tap that lands on the wrong page says nothing about
-    /// *why* — whether the destination arrived, whether this tab was visible,
-    /// whether the conversation was in the list — and a cold-launch tap cannot
-    /// be watched from a device console, because the launch is the tap. This is
-    /// the same argument `HealthKitDistiller.Trail` makes.
+    /// Says so when a tapped notification could not be honoured.
+    ///
+    /// **Only on failure.** It reported every route while the tap handling was
+    /// being built — which is how the real cause was found in one attempt after
+    /// three wrong guesses, since a cold-launch tap *is* the launch and no
+    /// console can be attached to watch it — and then had to be quietened,
+    /// because a banner on every successful tap reads to a tester as an error.
+    ///
+    /// What survives is the case worth saying out loud: somebody tapped and did
+    /// not arrive. That looks exactly like the tap having missed, and nothing
+    /// else in the app would ever mention it.
     @State private var routeTrail: String?
 
     var body: some View {
@@ -251,17 +256,9 @@ struct ChatView: View {
     /// somebody in that case.
     private func openForNotification(attempt: Int = 0) {
         guard isVisible, let destination = notifications.pending else {
-            if BuildKind.showsDiagnostics, notifications.pending != nil {
-                routeTrail = "route: pending but tab not visible"
-            }
             return
         }
-        if BuildKind.showsDiagnostics {
-            routeTrail = "route: \(destination) · try \(attempt)"
-                + " · \(model.conversations.count) convs"
-                + " · loaded \(model.hasLoaded)"
-                + (model.failure.map { " · \($0)" } ?? "")
-        }
+
         switch destination {
         case .chatList:
             break
@@ -270,9 +267,16 @@ struct ChatView: View {
         case .conversation(let id):
             guard let thread = model.conversations.first(where: { $0.id == id }) else {
                 guard attempt < 4 else {
+                    // **Silent on success, and only here.** A trail drawn on
+                    // every tap is noise a tester reads as an error — and this
+                    // one shipped that way for exactly one round. What is worth
+                    // saying is the case where somebody tapped a notification
+                    // and did not arrive: it looks like the tap having missed,
+                    // and nothing else in the app would ever mention it.
                     if BuildKind.showsDiagnostics {
-                        routeTrail = "route: gave up after \(attempt) tries,"
-                            + " \(model.conversations.count) convs, wanted \(id)"
+                        routeTrail = "Couldn't open that conversation"
+                            + " (\(model.conversations.count) loaded"
+                            + (model.failure.map { ", \($0)" } ?? "") + ")"
                     }
                     notifications.pending = nil
                     return
