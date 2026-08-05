@@ -373,6 +373,40 @@ Spotify's `/me/shows`, which inherits Spotify's removal date.
   person with no plans; and on iOS 17+
   the old `requestAccess(to:)` grants *write-only*, which reads nothing and looks
   exactly like an empty calendar, so `requestFullAccessToEvents` is required.
+- **Google Calendar** (`GoogleCalendarDistiller`) — **offered only where the
+  phone has no Google account**, and that condition is the whole design. A
+  Google account added in iOS Settings delivers its events through EventKit as
+  `caldav`, so `CalendarDistiller` already has them; collecting them again here
+  would put every dinner in the database twice, under a different `item_id` and
+  a different `source`, which `append_source_records` dedupes *within* a source
+  and would not catch. `CalendarDistiller.hasGoogleAccountOnDevice()` tests the
+  `EKSource`, not calendar names, which are whatever somebody called them.
+  `SourceAvailability` hides the row and `DistillViewModel` guards it too — a
+  hidden row is a drawing and not a rule, and somebody who adds the account
+  afterwards would otherwise start collecting everything twice.
+
+  **Two narrow scopes rather than `calendar.readonly`** —
+  `calendar.calendarlist.readonly` and `calendar.events.readonly` — because
+  verification asks for a justification per scope *and* why a narrower one will
+  not do. Neither is restricted, so this stays a sensitive-scope review with no
+  CASA assessment. The condition above is also the honest answer to "why do you
+  need this": *only for users whose calendar we cannot otherwise see*.
+
+  Nothing downstream knows it exists: the records carry the same `extra` keys,
+  so the events card, the booked-against-typed ranking and the ontology stage
+  are unchanged. Birthdays go by Google's own `eventType`, which beats the Apple
+  path's title matching — that one misses "Augh birthday" and always will.
+
+- **Google Health is not possible on iOS, and this is settled rather than
+  deferred.** The Fit REST API stopped accepting new developer signups on
+  2024-05-01 and is supported only to the end of 2026; Health Connect is an
+  Android-only on-device layer with no cloud API; and Google's own migration
+  guidance sends iOS developers to Apple HealthKit, which `HealthKitDistiller`
+  already uses. There is no API to apply for. Worth knowing `fitness.*` was a
+  **restricted** scope, so even when it existed it would have dragged this
+  project into a CASA third-party security assessment — losing it is cheaper
+  than having it.
+
 - **Apple Health** (`HealthKitDistiller`) — the spreadsheet's scope is "recorded
   sport type/duration, activity intensity/duration", so: one record per workout
   (sport, duration, energy, distance, recording app) and one per day (exercise
@@ -785,6 +819,20 @@ after a successful login almost always means the signed-in account isn't on it.
   `async let` per independent endpoint, then the passes that depend on their
   results through `inParallel`, which keeps five requests in flight rather than
   all of them (unbounded fan-out trades a slow distill for a rate-limited one).
+- **`Array.sort` is not stable in Swift.** Sorting messages on `sentAt` alone
+  left rows with equal timestamps in a different order on every four-second
+  poll, and the unread band — anchored to one message id — appeared to wander
+  between them. Ties break on `id` now. Equal timestamps are rarer in life than
+  in testing, since `now()` is the *transaction* time in Postgres and a batch
+  inserted in one statement shares it exactly, but two messages arriving in the
+  same microsecond is not a coin worth flipping on every poll.
+- **Version a cache file when its model gains a field whose absence means
+  something.** `ChatStore` writes `Message` as JSON; `read_at` was added and
+  every row written before decoded with `readAt = nil`, which is
+  indistinguishable from genuinely unread — so an ancient message put a phantom
+  unread band at the top of a thread and kept it there through every relaunch.
+  The prefix is `written-chat-v2-` for that reason. **An optional that decodes to
+  nil is a value, not a gap**, and every reader downstream will treat it as one.
 - Per-source failures are surfaced in that source's card (`SourceStatus.failed`)
   and never abort the other sources.
 
@@ -1259,6 +1307,40 @@ was right; the missing policy was for an operation the app never performs.
 `0021` adds it. So the rule is: **`merge-duplicates` needs update privilege *and*
 a select policy**, and every other table here happened to have both.
 
+**A name in a chat was a copy of a copy.** `likes.liker_name` is denormalised
+when a like is sent, `ChatService.open` copies *that* onto the conversation, and
+nothing ever corrected either — so a profile read "Chan Tai Man" in Explore and
+"Marco" in the chat header, and anything wrong at that instant was wrong forever.
+Names now come from `discovery_cards.display_name` through
+`ChatService.cards(for:)`, alongside the photograph, for the reason that table
+was already being read for faces: it is the one place a signed-in user may read
+about another, and a copy elsewhere is a second thing to keep in step. The stored
+columns remain as the fallback, because `0009`'s insert policy needs them at
+creation when no card may exist yet. `0031` refreshed the rows already written.
+
+**The same gap existed on the two single-conversation fetches**, which resolved
+no card at all — so a thread opened from a notification tap drew the generated
+portrait and the frozen name while the identical thread opened from the list drew
+the real ones.
+
+**One invitation per person, and it is either a heart or a note.** The card used
+to fill the heart whichever route was taken and leave the envelope live, so the
+two controls disagreed about whether anything had happened and a second
+invitation could be sent to somebody who had already had one. Whichever was used
+is now red and filled and the other fades; both go inert. This reverses a note
+that stood here — that a message was deliberately *not* blocked by having already
+liked — which was true and not worth a card that contradicts itself.
+
+**`23503` means the person deleted their account.** Every foreign key in this
+schema leads back to `public.users`, and deleting an account cascades from
+`auth.users` through it. A discovery card outlives the account because
+`DiscoveryFeed` is built once and scrolled rather than re-fetched, so liking
+somebody who has just left failed with `violates foreign key constraint
+"likes_liked_id_fkey"` on screen — accurate, unreadable and frightening.
+`PostgREST.Failure` carries the error code now rather than folding it into the
+message, and the feed removes them and says "That profile is no longer
+available."
+
 **Two accounts are needed to test any of this**, because RLS makes each half of
 a conversation invisible to the other. `tools/chat_e2e.py` plays the second
 person over REST — `users`, `like`, `reply`, `state` — and the six synthetic
@@ -1338,12 +1420,35 @@ nothing could satisfy it, including the app. `PUSH_SECRET` and the
   `api.push.apple.com`, and a TestFlight token fails the same way at the sandbox
   host. Both kinds exist here at once, so `device_tokens.environment` records
   which. `#if DEBUG` decides it.
-- **Permission is asked on the first admirer**, from `ChatView`, and deliberately
-  nowhere near Health — this project lost a week to two prompts colliding,
-  because HealthKit hosts a remote view and cannot present over anything else.
-  iOS allows the question once ever, so *when* it is put decides whether
-  notifications work for that person at all. `-push ask` exists because setting
-  this up otherwise requires arranging to be liked.
+- **Where permission is asked has been wrong twice, and both are worth keeping.**
+  iOS allows the question **once, ever** — a refusal is undoable only in
+  Settings, which nobody visits — so the moment decides whether notifications
+  work for that person at all.
+
+  It was first asked **on the first admirer**, which put the question one event
+  *after* the like that would have used it: nobody's first notification could
+  ever arrive, and a tester reported being asked only when their first message
+  came in. It was then asked bare **on arriving at Explore**, which spent the
+  single attempt cold and landed a system alert on the discovery feed at the
+  moment somebody had tapped to see it.
+
+  It now shows **`NotificationPrimer`** — the app's own sheet, naming what
+  arrives rather than asking to be allowed — and only somebody who taps *Turn
+  on* is passed to iOS. A "not now" spends nothing, because iOS was never asked,
+  and is offered again in three days. Fired from `AppShell.onChange(of: tab)` on
+  reaching Explore or Chat, 900ms after the transition so it does not cover the
+  page it interrupts, and deliberately nowhere near Health — this project lost a
+  week to two prompts colliding, because HealthKit hosts a remote view and cannot
+  present over anything else.
+
+  **And a refusal is now said out loud.** `ChatView` draws one line for anybody
+  in `.denied`, with a route to Settings. Left unsaid it was the same silent
+  failure as everything else here: `device_tokens` stays empty, every
+  notification reports `{"sent":0,"note":"no devices"}` — a *success* — and the
+  person hears about no like and no match and is never told why.
+
+  `-push ask` exists because setting any of this up otherwise requires arranging
+  to be liked.
 - **`SUPABASE_` is a reserved prefix** and a secret using it cannot be created.
   The function reads the platform-injected `SUPABASE_SERVICE_ROLE_KEY`, which on
   a project migrated to the new key system carries the `sb_secret_…` value
@@ -1463,16 +1568,75 @@ While checking it, `ChatView.lastLine` turned out to test only for `audio` and
 let everything else fall through to a camera, so **an uncaptioned video called
 itself "Photo"** — visible only to somebody who had sent one.
 
-**Not built, and each is a decision rather than an oversight:** badge counts are
-a separate mechanism and an unread count that never clears is its own bug; and
-taps do not route anywhere, though the payload already carries `category` and
-`thread`.
+### Unread, which nothing had ever counted
+
+`read_at`, its policy and its column grant have existed since `0009` and nothing
+used them until `0030`. The app had no idea what unread meant.
+
+**The icon badge is set from two ends and needs both.** The count travels with
+every message notification, which is what keeps it right while the app is
+closed — the only time anybody looks at it. The app recomputes on opening Chat,
+on opening a thread and on each poll while one is open, because the server cannot
+know something has been read until somebody reads it. A **null** badge means
+*leave the number alone*, which is what a like and a match send: neither is an
+unread message, and a 0 would wipe a badge that is correctly showing one.
+
+**One request answers both the icon and the rows.** `unreadByConversation()`
+returns a count per thread; the chat list draws each as a gold capsule and the
+icon draws their sum. It needs no conversation filter and that is not an
+oversight — `messages` is readable only to participants, so a bare query for
+unread rows you did not send returns exactly yours. RLS is doing the join.
+
+**The band in a thread is snapshotted before anything is marked read**, because
+opening a thread marks everything read — that is what clears the badge — so the
+boundary exists only in the first fetch. It is captured once and held for the
+life of the page; recomputing would find nothing and the band would vanish while
+somebody was reading towards it.
+
+**And it is read off the fetch, never off `messages`.** That array is seeded from
+`ChatStore` and merged with the fetch, so it also carries rows older than the
+page — and a cached row whose `readAt` is absent decodes as nil, which reads as
+*unread*. That put a phantom band at the top of a thread and kept it there
+through every relaunch, since `markRead` had nothing left to mark, while the chat
+list disagreed because it asks the server. See the cache-versioning note in
+Conventions.
+
+**Opening position is bottom when the unread fits and centred when it does not**,
+decided by scrolling to the end and asking whether the band survived it — no
+height arithmetic, and no guessing from a count that one photograph would
+falsify. A band `LazyVStack` never built reports nothing, which *is* the answer.
+
+**Taps route.** `NotificationRouter` records the destination rather than acting
+on it, because a tap that launches the app is delivered during start-up, before
+`AppShell` exists. `AppShell` moves the tab, `ChatView` opens the page, and a
+conversation not yet loaded is fetched by id rather than waited for.
+
+**Not built, and each is a decision rather than an oversight:** a photograph
+inside the banner needs a Notification Service Extension — which now exists, so
+this is only a matter of attaching one; and an unread count that never clears
+would be its own bug, which is why the badge is recomputed rather than
+decremented.
 
 ## Known gaps
 
 Real, deliberate, and unfinished as of 2026-08-05. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
+
+**Google OAuth verification is the next thing with a deadline.** The site is
+live, Google Calendar is built, and the decision was to submit both scopes
+together. Outstanding: Search Console as a **Domain** property signed in as an
+Owner of Cloud project `672788849005` — verifying as the wrong account is the
+standard rejection and Google does not say so; the consent screen at
+`console.cloud.google.com/auth/branding`; a justification per scope; and an
+Unlisted YouTube demo video. **The video is the hard part**: it must show the
+client ID, and `ASWebAuthenticationSession` has no address bar, so it has to be
+shown another way in the same recording. Until this is done every tester
+re-authorises YouTube weekly.
+
+**Google Calendar has never been run.** It is built and unexercised: nobody has
+connected it, because the developer's own phone has a Google account and the
+source is therefore hidden there by design. It needs a device without one.
 
 **Notifications are proven on sandbox and untested on production.** All three
 events, the avatar and the attachment previews were confirmed on a real device
