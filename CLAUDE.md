@@ -1798,10 +1798,9 @@ other way. The sinkhole intercepts DNS only; the TLS connection to Cloudflare is
 untouched once the address is supplied.
 
 **Cloudflare Web Analytics is switched on and the site's own CSP refuses it.**
-Every HTML response to a browser User-Agent — and only to a browser, which is
-why a plain `curl` does not show it — has a `static.cloudflareinsights.com`
-beacon appended by the edge. `_headers` sets `script-src 'self'` and
-`connect-src 'none'`, so the browser blocks it and the analytics record nothing.
+Every HTML page gets a `static.cloudflareinsights.com` beacon appended by the
+edge. `_headers` sets `script-src 'self'` and `connect-src 'none'`, so the
+browser blocks it and the analytics record nothing.
 
 The CSP is doing exactly its job, and that is the point: `_headers` says
 `connect-src` "is the line that would have to change first if analytics were
@@ -1810,10 +1809,30 @@ them without crossing it. So `web/en-us/cookies/` — a page a reviewer reads �
 tells them nothing is fetched from anywhere else while the edge attempts it on
 every load. **Turning Web Analytics off is the cheap resolution**; keeping it
 means widening two CSP directives *and* rewriting the cookies and privacy pages
-in the same commit, per the rule below. Check with:
+in the same commit, per the rule below.
 
-    curl -s -A 'Mozilla/5.0 … Chrome/126' https://written-stl.com/en-us/ \
-        | grep -c cloudflareinsights          # 0 once it is off
+**The injection keys off `Accept: text/html`, not the User-Agent**, and getting
+that backwards produced a check that could only ever agree with you. Measured on
+the live site, same page, four ways:
+
+    plain curl                  0
+    UA only (short)             0
+    UA only (full Chrome)       0
+    UA + Accept: text/html      1      <- and 1 on all five pages
+
+The first version of this note claimed the trigger was a browser User-Agent and
+offered `curl -A 'Mozilla/5.0 …' | grep -c cloudflareinsights`, which answers
+**0 unconditionally** — it would have confirmed "the analytics are off" while
+the beacon was live on every page. Tenth instance of the defect this file keeps
+recording: *a call that cannot fail, a result nobody checks, and the symptom
+surfacing somewhere else.* The check is:
+
+    curl -s -H 'Accept: text/html' https://written-stl.com/en-us/ \
+        | grep -c cloudflareinsights          # 1 while on, 0 once off
+
+**Run it while the beacon is still on before trusting a 0.** A test never
+observed to fail proves nothing — the rule the podcasts zero taught, which is in
+this file already and was broken again here.
 
 **The site is written from the app and goes stale silently.** It described a
 one-sign-in-method app with no Google Calendar and no notifications for a day
