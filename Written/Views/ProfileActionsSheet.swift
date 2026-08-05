@@ -13,6 +13,16 @@ import SwiftUI
 /// have nothing to accuse anyone of. Report is second, in red, and reads as the
 /// heavier thing it is. Putting them the other way round would invite a report
 /// from somebody who only meant "not for me", and a report is read by a person.
+///
+/// **Cancel is a card of its own**, separated by a gap. That is what makes it
+/// read as "none of these" rather than as a third choice — and it keeps the
+/// safe option a clear distance from the destructive one, which is the whole
+/// reason iOS action sheets have looked this way for fifteen years.
+///
+/// The person's name is deliberately absent. It said back what the card behind
+/// the sheet already says, and a heading above two buttons is a third thing to
+/// read before either can be pressed. It survives in the accessibility hints,
+/// where the surrounding card is not available to read.
 struct ProfileActionsSheet: View {
     let name: String
     let onRemove: () -> Void
@@ -28,33 +38,33 @@ struct ProfileActionsSheet: View {
                 // two buttons, one of which accuses somebody.
                 .onTapGesture(perform: onCancel)
 
-            VStack(spacing: 0) {
-                Text(name)
-                    .font(BrandFont.body(15))
-                    .foregroundStyle(GardenPalette.muted)
-                    .lineLimit(1)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 18)
-                    .padding(.bottom, 14)
+            // **Two cards, not three rows.** The gap is what makes Cancel read
+            // as "none of these" rather than as a third thing you might be
+            // choosing — the arrangement every iOS action sheet uses, and the
+            // one the reference follows. A Cancel sharing the card with a
+            // destructive row is one mis-tap away from being the wrong button.
+            VStack(spacing: 10) {
+                VStack(spacing: 0) {
+                    // No name row. It said back what the card behind it already
+                    // says, on a sheet whose whole job is two decisions — and a
+                    // heading above two buttons is a third thing to read before
+                    // either can be pressed.
+                    row("Remove", tint: GardenPalette.ink, action: onRemove)
+                        .accessibilityHint("Takes \(name) out of your Explore for good")
 
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                    Divider().overlay(GardenPalette.ink.opacity(0.08))
 
-                row("Remove", tint: GardenPalette.ink, action: onRemove)
-                    .accessibilityHint("Takes \(name) out of your Explore for good")
+                    row("Report", tint: Self.reportRed, action: onReport)
+                        .accessibilityHint("Tells us about \(name), and removes them")
+                }
+                .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 20))
 
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-                row("Report", tint: Self.reportRed, action: onReport)
-                    .accessibilityHint("Tells us about \(name), and removes them")
+                row("Cancel", tint: GardenPalette.ink, action: onCancel)
+                    .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 20))
             }
-            .frame(maxWidth: 280)
-            .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 22))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22)
-                    .strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1)
-            }
-            .shadow(color: GardenPalette.ink.opacity(0.18), radius: 24, y: 10)
-            .padding(.horizontal, 40)
+            .frame(maxWidth: 340)
+            .shadow(color: GardenPalette.ink.opacity(0.16), radius: 24, y: 10)
+            .padding(.horizontal, 24)
         }
     }
 
