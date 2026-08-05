@@ -184,7 +184,15 @@ struct ConversationView: View {
         }
         .preferredColorScheme(.light)
         .task {
-            myID = await SupabaseAuth.shared.userID
+            // **`currentUserID()`, not the raw property.** `userID` is a cache
+            // filled in by the token exchange, so on a cold launch — which is
+            // exactly what a tapped notification is — it is nil until
+            // `restoreSession` has been round the network. It decides both which
+            // side each bubble is drawn on and which messages count as unread,
+            // so an empty one draws the whole thread as theirs. The same defect
+            // was cleared out of `ChatService` and `LikeService` this morning
+            // and this call was missed.
+            myID = await SupabaseAuth.shared.currentUserID()
 #if DEBUG
             isPartnerTyping = DebugLaunch.showsTypingIndicator
             // Without this the sample thread draws entirely as *their* messages.
