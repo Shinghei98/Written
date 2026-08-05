@@ -199,6 +199,11 @@ interface Payload {
   thread?: string;
   // Who it is *from* — see `0025`. Not the recipient. Used to find a face.
   sender_id?: string;
+  // Unread messages waiting for the recipient, for the app icon. **Null means
+  // leave the badge alone**, which is what a like or a match wants — neither is
+  // an unread message, and sending 0 would wipe a number that is correctly
+  // showing one. See `0030`.
+  badge?: number | null;
   // The person's name on its own, because a communication notification renames
   // the title to it. "Marco", not "Marco likes you". See `0027`.
   sender_name?: string;
@@ -307,6 +312,8 @@ async function send(
           body: payload.body ? payload.body : undefined,
         },
         sound: "default",
+        // Omitted entirely when null, so iOS leaves the existing number alone.
+        badge: payload.badge ?? undefined,
         // Names the notification's kind so the app can group by conversation
         // and, later, so a service extension can attach a photograph.
         "thread-id": payload.thread ?? payload.category ?? "written",

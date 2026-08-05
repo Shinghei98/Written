@@ -142,6 +142,34 @@ actor PushService {
         await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
     }
 
+    /// Puts the unread count on the app icon.
+    ///
+    /// **Set from the server on every push and corrected by the app.** APNs
+    /// carries a `badge` with each message notification, which is what keeps the
+    /// number right while the app is closed — the only time anybody looks at it.
+    /// The app then recomputes on opening Chat, on reading a thread, and on
+    /// coming back to the foreground, because the server cannot know when
+    /// somebody has read something until they have.
+    ///
+    /// **A failed count must never reach here.** `ChatService.unreadCount`
+    /// answers `nil` rather than 0 for a request it could not make, and 0 clears
+    /// the badge — so a dropped request would quietly hide waiting messages.
+    func setBadge(_ count: Int) async {
+        await MainActor.run {
+            UNUserNotificationCenter.current().setBadgeCount(max(0, count))
+        }
+    }
+
+    /// Asks the server how many are waiting and draws it.
+    ///
+    /// Silent on failure, leaving whatever the last push set — a stale number
+    /// beats a wrong one, and the next notification or the next visit corrects
+    /// it either way.
+    func refreshBadge() async {
+        guard let count = await ChatService.shared.unreadCount() else { return }
+        await setBadge(count)
+    }
+
     /// Records why APNs would not issue a token.
     ///
     /// Kept rather than logged, because the one cause worth naming is

@@ -722,6 +722,11 @@ final class ChatModel: ObservableObject {
         let chatFailure = await ChatService.shared.lastError
         failure = likeFailure ?? chatFailure
 
+        // The badge is set by the server on every push, which keeps it right
+        // while the app is shut. This is the other half: the server cannot know
+        // anything has been read until somebody reads it.
+        await PushService.shared.refreshBadge()
+
     }
 
     /// Accepts and opens the thread, or declines and drops the row.

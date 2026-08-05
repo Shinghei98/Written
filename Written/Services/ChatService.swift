@@ -159,6 +159,62 @@ actor ChatService {
         )
     }
 
+    // MARK: - Read state
+
+    /// Marks everything the other person has said in this thread as read.
+    ///
+    /// **`0009` built for this and nothing ever called it.** The column, the
+    /// policy — `auth.uid() <> sender_id`, so only the recipient may — and the
+    /// column grant have all existed since chat shipped, unused, which is why
+    /// the app has never had an unread count or a badge.
+    ///
+    /// Failure is silent and deliberate: it costs a badge that is one too high
+    /// until the next read, and interrupting somebody reading a message to tell
+    /// them the *marking* failed would be worse than the wrong number.
+    func markRead(in conversationID: String) async {
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return }
+        _ = try? await PostgREST.update(
+            "rest/v1/messages",
+            query: [
+                "conversation_id": "eq.\(conversationID)",
+                // Never your own. The policy refuses it anyway, and a refusal
+                // would take the whole statement with it.
+                "sender_id": "neq.\(me)",
+                // Only the ones still unread, so re-opening a thread does not
+                // rewrite timestamps that already mean something.
+                "read_at": "is.null",
+            ],
+            body: ["read_at": PostgREST.string(Date())]
+        )
+    }
+
+    /// How many messages are waiting, across every thread.
+    ///
+    /// **No conversation filter is needed and that is not an oversight.**
+    /// `messages` is readable only to participants — `0009`'s select policy —
+    /// so a bare query for unread rows not sent by you returns exactly the ones
+    /// addressed to you. Row-level security is doing the join.
+    ///
+    /// `nil` means *could not ask*, never zero. The badge is set from this, and
+    /// a failed request reading as "nothing unread" would silently clear a badge
+    /// that should be showing — the same defect this codebase has now met seven
+    /// times.
+    func unreadCount() async -> Int? {
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return nil }
+        do {
+            let rows = try await PostgREST.rows("rest/v1/messages", query: [
+                "read_at": "is.null",
+                "sender_id": "neq.\(me)",
+                "select": "id",
+            ])
+            lastError = nil
+            return rows.count
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     // MARK: - Reporting
 
     /// Files a report about somebody. See `0014_reports.sql`.

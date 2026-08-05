@@ -201,14 +201,30 @@ struct ConversationView: View {
             }
 #endif
             await reload()
+            await markRead()
             // Cancelled with the view. A `while true` here would be a leak; this
             // one ends when the page does.
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
                 guard !Task.isCancelled else { break }
                 await reload()
+                // **Every pass, not only the first.** A message arriving while
+                // somebody is looking at the thread has been read by definition,
+                // and leaving it unread would put a badge on the icon of an app
+                // they are holding open.
+                await markRead()
             }
         }
+    }
+
+    /// Marks their messages read, then redraws the icon badge.
+    ///
+    /// Both, in that order: the count is read back from the server rather than
+    /// decremented locally, so the number cannot drift away from the truth
+    /// across two devices or a failed write.
+    private func markRead() async {
+        await ChatService.shared.markRead(in: conversation.id)
+        await PushService.shared.refreshBadge()
     }
 
     /// Puts the keyboard away without owning the focus.
