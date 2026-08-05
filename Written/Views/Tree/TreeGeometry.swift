@@ -7,6 +7,14 @@ enum GardenPalette {
     static let parchment = Color(red: 0.953, green: 0.937, blue: 0.914)
     static let ink = Color(red: 0.102, green: 0.102, blue: 0.094)
     static let softInk = Color(red: 0.35, green: 0.34, blue: 0.32)
+    /// The band that separates read messages from unread ones in a thread.
+    ///
+    /// Paler than any bubble on purpose: it is a rule drawn across the list
+    /// rather than something in it, and anything with weight would read as a
+    /// message. Against parchment it is barely a shade — which is the point,
+    /// since the words carry it.
+    static let unreadBand = Color(red: 0.902, green: 0.890, blue: 0.871)
+
     static let muted = Color(red: 0.431, green: 0.416, blue: 0.388)
     static let gold = Color(red: 0.549, green: 0.478, blue: 0.333)
     static let card = Color(red: 0.988, green: 0.980, blue: 0.965)

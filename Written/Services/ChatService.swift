@@ -71,6 +71,14 @@ actor ChatService {
         /// path with no kind is a file the client cannot decide how to draw.
         var attachmentPath: String?
         var attachmentKind: String?
+        /// When the recipient read it, if they have.
+        ///
+        /// **Carried so the thread can draw the unread divider**, and the
+        /// ordering matters: opening a conversation marks everything read, so
+        /// the boundary only exists in the *first* fetch. `ConversationView`
+        /// takes its snapshot before `markRead` runs and holds it for the life
+        /// of the page.
+        var readAt: Date?
 
         var isVideo: Bool { attachmentKind == "video" }
         /// A voice memo. Drawn as a player rather than as a thumbnail, so it has
@@ -424,7 +432,7 @@ actor ChatService {
         do {
             var query: [String: String] = [
                 "conversation_id": "eq.\(conversationID)",
-                "select": "id,sender_id,body,created_at,attachment_path,attachment_kind",
+                "select": "id,sender_id,body,created_at,read_at,attachment_path,attachment_kind",
                 "order": "created_at.desc",
                 "limit": String(Self.messagePageSize),
             ]
@@ -446,7 +454,8 @@ actor ChatService {
                     body: body,
                     sentAt: sentAt,
                     attachmentPath: row["attachment_path"] as? String,
-                    attachmentKind: row["attachment_kind"] as? String
+                    attachmentKind: row["attachment_kind"] as? String,
+                    readAt: (row["read_at"] as? String).flatMap(PostgREST.date)
                 )
             }.reversed()
         } catch {

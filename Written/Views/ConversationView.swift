@@ -201,6 +201,8 @@ struct ConversationView: View {
             }
 #endif
             await reload()
+            // **Before `markRead`, which is what destroys the evidence.**
+            captureUnread()
             await markRead()
             // Cancelled with the view. A `while true` here would be a leak; this
             // one ends when the page does.
@@ -285,6 +287,17 @@ struct ConversationView: View {
                     ForEach(Self.days(in: messages)) { day in
                         Section {
                             ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
+                                // **Inside the section, above the message.**
+                                // That is what puts it *under* the date pill
+                                // when the boundary falls on a new day, with no
+                                // special case: the pill is the section header,
+                                // so anything at the top of the section's
+                                // content is beneath it. Mid-day it simply sits
+                                // between two bubbles.
+                                if unreadMark?.firstID == message.id {
+                                    unreadBand
+                                        .id(Self.unreadAnchor)
+                                }
                                 let previous = index > 0 ? day.messages[index - 1] : nil
                                 // **A photo ends the run.** The rule was "same
                                 // sender as the message before", which is right
@@ -353,14 +366,84 @@ struct ConversationView: View {
             // The end of the thread is where a conversation is read from, so it
             // opens there rather than at its beginning.
             .onChange(of: messages.count) { _ in scroll(proxy) }
+            // **Ordering, not decoration.** `captureUnread` runs after the first
+            // load, so by then `messages.count` has already changed and the
+            // scroll above has already fired — against a band that did not exist
+            // yet. This is the one that lands on it.
+            .onChange(of: unreadMark?.firstID) { _ in scroll(proxy) }
             // The dots push the last message up, so follow them too.
             .onChange(of: isPartnerTyping) { _ in scroll(proxy) }
         }
     }
 
     private static let typingAnchor = "typing-indicator"
+    /// The scroll id of the unread band, so opening can land on it.
+    private static let unreadAnchor = "unread-divider"
+
+    /// Where the divider goes, and how many are below it.
+    ///
+    /// **Captured once, before anything is marked read, and never recomputed.**
+    /// Opening a thread marks everything read — that is what clears the badge —
+    /// so the boundary exists only in the very first fetch. Recomputing it later
+    /// would find nothing and the band would vanish while somebody was reading
+    /// towards it, which is the one thing it must not do. It also stays put as
+    /// new messages arrive: it marks where you *were*, not where the end is.
+    @State private var unreadMark: (firstID: String, count: Int)?
+    /// So the snapshot is only ever taken on the first load.
+    @State private var hasMarkedUnread = false
+    /// So the thread lands on the band once and then behaves normally.
+    @State private var hasCentredOnUnread = false
+
+    /// Reads the boundary out of a freshly loaded thread.
+    ///
+    /// Their messages only: your own are never unread, and `read_at` is null on
+    /// everything you have sent until they open it.
+    private func captureUnread() {
+        guard !hasMarkedUnread else { return }
+        hasMarkedUnread = true
+        guard let me = myID else { return }
+        let theirs = messages.filter { $0.senderID != me && $0.readAt == nil }
+        guard let first = theirs.first, theirs.count > 0 else { return }
+        unreadMark = (first.id, theirs.count)
+    }
+
+    /// The band that separates what you have read from what you have not.
+    ///
+    /// Edge to edge, because it is a *rule across the thread* rather than an
+    /// item in it — a pill would read as another message, and the point is that
+    /// it belongs to the list rather than to either side of it.
+    private var unreadBand: some View {
+        ZStack {
+            GardenPalette.unreadBand
+            Text(unreadMark.map { "\($0.count) unread message\($0.count == 1 ? "" : "s")" } ?? "")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(GardenPalette.ink.opacity(0.55))
+        }
+        .frame(height: 26)
+        // Cancels the list's own inset so the band reaches both edges. The
+        // bubbles are padded individually, so nothing else has to change.
+        .padding(.horizontal, -16)
+        .padding(.vertical, 6)
+    }
 
     private func scroll(_ proxy: ScrollViewProxy) {
+        // **The band wins on the first pass, once.** With more unread than fits
+        // a screen, landing at the bottom means scrolling back up hunting for
+        // where you stopped — so the first thing drawn is the boundary, in the
+        // middle of the screen, with the last read message above it and the
+        // first unread one below.
+        //
+        // Only once: after that the thread behaves normally and follows new
+        // messages down, or somebody replying would be yanked back to a line
+        // they have already passed.
+        if unreadMark != nil, !hasCentredOnUnread {
+            hasCentredOnUnread = true
+            // Without animation. This is where the page *opens*, not somewhere
+            // it travels to, and a visible scroll from the bottom would suggest
+            // the thread had moved on its own.
+            proxy.scrollTo(Self.unreadAnchor, anchor: .center)
+            return
+        }
         let target = isPartnerTyping ? Self.typingAnchor : messages.last?.id
         guard let target else { return }
         withAnimation(.easeOut(duration: 0.25)) {
