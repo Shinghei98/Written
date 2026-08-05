@@ -33,7 +33,19 @@ enum ChatStore {
 
     /// Everything this store writes begins with this, which is what makes
     /// `clear()` able to find its own files and nobody else's.
-    private static var prefix: String { "written-chat-\(AccountScope.current)" }
+    /// **`v2` because `Message` gained `read_at`, and the old files lie.**
+    /// A cached message written before that field existed decodes with
+    /// `readAt = nil`, which is indistinguishable from genuinely unread — so an
+    /// ancient message put the unread band at the top of a thread and kept it
+    /// there through every relaunch, while the chat list, which asks the server,
+    /// showed nothing. Renaming the file discards those in one move.
+    ///
+    /// **Bump this whenever `Message` or `Conversation` gains a field whose
+    /// absence means something.** An optional that decodes to nil is a value,
+    /// not a gap, and every reader downstream will treat it as one. The old
+    /// files are left on disk rather than deleted: they are small, and
+    /// `signOutLocalState` clears the directory anyway.
+    private static var prefix: String { "written-chat-v2-\(AccountScope.current)" }
 
     private static var conversationsURL: URL? {
         directory?.appendingPathComponent("\(prefix)-conversations.json")

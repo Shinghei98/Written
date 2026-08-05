@@ -209,8 +209,6 @@ struct ConversationView: View {
             }
 #endif
             await reload()
-            // **Before `markRead`, which is what destroys the evidence.**
-            captureUnread()
             // **Positions the thread exactly once, whatever the load found.**
             // `onChange(of: messages.count)` was the only trigger, and a thread
             // opened before is seeded from `ChatStore` in the initialiser — so a
@@ -469,12 +467,12 @@ struct ConversationView: View {
     ///
     /// Their messages only: your own are never unread, and `read_at` is null on
     /// everything you have sent until they open it.
-    private func captureUnread() {
+    private func captureUnread(in fetched: [ChatService.Message]) {
         guard !hasMarkedUnread else { return }
         hasMarkedUnread = true
         guard let me = myID else { return }
-        let theirs = messages.filter { $0.senderID != me && $0.readAt == nil }
-        guard let first = theirs.first, theirs.count > 0 else { return }
+        let theirs = fetched.filter { $0.senderID != me && $0.readAt == nil }
+        guard let first = theirs.first else { return }
         unreadMark = (first.id, theirs.count)
     }
 
@@ -1062,7 +1060,18 @@ struct ConversationView: View {
             return
         }
 #endif
-        merge(await ChatService.shared.messages(in: conversation.id))
+        let fetched = await ChatService.shared.messages(in: conversation.id)
+        merge(fetched)
+        // **The band is read off what the server just said, never off
+        // `messages`.** That array is seeded from `ChatStore` and merged with
+        // the fetch, so it also carries anything older than the page — and a
+        // cached row whose `readAt` is absent decodes as nil, which reads as
+        // unread. That put the band at the top of a thread and kept it there
+        // through every relaunch, since `markRead` had nothing left to mark.
+        //
+        // Versioning the cache fixed the rows already written; this makes the
+        // question unanswerable from the cache at all.
+        captureUnread(in: fetched)
     }
 }
 
