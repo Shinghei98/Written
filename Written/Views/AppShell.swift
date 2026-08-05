@@ -219,6 +219,16 @@ struct AppShell: View {
             // where they are, because a token can change without the app ever
             // being told.
             await PushService.shared.registerIfAlreadyAllowed()
+
+#if DEBUG
+            // `-push ask`; see `DebugLaunch`. After the line above, so a device
+            // that has already granted re-registers either way, and the ask only
+            // does something on one that has not.
+            if DebugLaunch.asksForPush, DebugLaunch.firesOnce("push") {
+                try? await Task.sleep(nanoseconds: UInt64(DebugLaunch.pushDelay * 1_000_000_000))
+                await PushService.shared.askIfNeeded()
+            }
+#endif
         }
         // One placement for every tab, rather than five that can disagree — the
         // same argument `isOnboarding` makes for owning the bar here.

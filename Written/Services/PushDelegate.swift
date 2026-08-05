@@ -43,6 +43,15 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         // APNs hands over 32 raw bytes; the wire format is lowercase hex.
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
         Self.currentToken = token
+#if DEBUG
+        // Printed unconditionally rather than behind `-push ask`, because the
+        // moment it is wanted is rarely the moment it was asked for — and it
+        // costs one line in a console nobody ships. Paste it into Apple's Push
+        // Notifications Console to prove the entitlement, the key and the
+        // environment before any of our own machinery is involved.
+        print("[push] device token: \(token)")
+        print("[push] environment: \(PushService.environment)")
+#endif
         Task { await PushService.shared.register(token: token) }
     }
 

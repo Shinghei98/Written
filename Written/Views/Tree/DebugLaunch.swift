@@ -85,6 +85,31 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "connect")
     }
 
+    /// `-push ask` → ask for notification permission shortly after launch, and
+    /// print the device token when APNs answers.
+    ///
+    /// **Setting push up requires a token, and a token requires being liked.**
+    /// `PushService.askIfNeeded` fires on the first admirer, which is the right
+    /// moment for a user — somebody has just been liked, so being told sooner
+    /// obviously pays — and an absurd prerequisite for the person wiring APNs,
+    /// who has to arrange a like against an account that cannot yet receive
+    /// anything.
+    ///
+    /// The print matters as much as the ask. A token is 64 characters of hex
+    /// with no structure to check it against, and Apple's Push Notifications
+    /// Console wants it pasted exactly — transcribing one off a phone screen is
+    /// how an hour goes to `BadDeviceToken`.
+    static var asksForPush: Bool {
+        UserDefaults.standard.string(forKey: "push") == "ask"
+    }
+
+    /// Long enough for the shell to have settled, so the alert is not competing
+    /// with a screen still being built. Notification permission draws its own
+    /// alert rather than hosting a remote view, so it is nothing like as fragile
+    /// as HealthKit's — but the standing rule in this app is still that two
+    /// permission prompts must never be near each other.
+    static let pushDelay: Double = 1.5
+
     /// `-survey media` → dump every field the media library exposes for
     /// podcasts and audiobooks to `Documents/media-survey.json`, for pulling off
     /// a connected device with `devicectl`. See `MediaFieldSurvey`; delete both
