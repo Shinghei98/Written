@@ -42,6 +42,10 @@ struct ChatView: View {
     @State private var pendingReport: ChatService.Conversation?
     @State private var isReporting = false
 
+    /// Where a tapped notification wants to go. `AppShell` brings the tab here;
+    /// this opens the page within it.
+    @ObservedObject private var notifications = NotificationRouter.shared
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
@@ -163,9 +167,15 @@ struct ChatView: View {
             }
         }
         .preferredColorScheme(.light)
+        .onChange(of: notifications.pending) { _ in openForNotification() }
         .task(id: isVisible) {
             guard isVisible else { return }
             await model.load()
+            // **After the load, not before it.** A tap that launched the app
+            // arrives while this list is still empty, so a conversation looked
+            // up any earlier is never found. Running it here and again on
+            // change covers both a cold launch and a tap while the app is open.
+            openForNotification()
 #if DEBUG
             // `-chat admirers` / `-chat thread`; see `DebugLaunch`. After the load,
             // so the pushed page has something in it.
@@ -209,6 +219,41 @@ struct ChatView: View {
     /// this device knows about it. Removing them from the model would mean
     /// re-filtering after every four-second poll and after every restore; doing
     /// it here means the ban list is the only thing that has to be right.
+    /// Opens whichever page a tapped notification asked for.
+    ///
+    /// **Only when this tab is on screen**, because every tab stays mounted:
+    /// without the guard, a tap would push a thread onto a navigation stack
+    /// nobody is looking at, and it would be waiting there the next time
+    /// somebody opened Chat.
+    ///
+    /// **A conversation that has not loaded yet leaves the destination
+    /// pending** rather than giving up — a tap from a cold launch beats the
+    /// fetch, and clearing it there would silently drop the request. It is
+    /// cleared once `hasLoaded` says the list is complete and the thread still
+    /// is not in it, which is the ordinary case for somebody who has since
+    /// unmatched: the chat list is then a reasonable place to be left.
+    private func openForNotification() {
+        guard isVisible, let destination = notifications.pending else { return }
+        switch destination {
+        case .chatList:
+            break
+        case .admirers:
+            isShowingAdmirers = true
+        case .conversation(let id):
+            guard let thread = model.conversations.first(where: { $0.id == id }) else {
+                if model.hasLoaded { notifications.pending = nil }
+                return
+            }
+            // Admirers first, for the reason `AdmirersView.onOpened` gives:
+            // pushing from underneath a page being popped leaves the stack with
+            // two destinations mid-animation.
+            isShowingAdmirers = false
+            openThread = thread
+            isShowingThread = true
+        }
+        notifications.pending = nil
+    }
+
     private var visibleConversations: [ChatService.Conversation] {
         let blocked = viewModel.bans.keys(.person)
         guard !blocked.isEmpty else { return model.conversations }

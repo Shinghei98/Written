@@ -66,6 +66,22 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         Task { await PushService.shared.registrationFailed(error.localizedDescription) }
     }
 
+    /// Somebody tapped a notification.
+    ///
+    /// **This is also how a cold launch arrives.** Tapping a banner for an app
+    /// that is not running launches it and delivers here during start-up, which
+    /// is why the delegate is assigned in `didFinishLaunchingWithOptions` rather
+    /// than lazily — a delegate set any later has already missed it. Nothing in
+    /// the view tree exists at that moment, so the destination is recorded and
+    /// the screens consume it when they are built. See `NotificationRouter`.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let info = response.notification.request.content.userInfo
+        await MainActor.run { NotificationRouter.shared.receive(userInfo: info) }
+    }
+
     /// Shows a banner even while the app is open.
     ///
     /// Without this, iOS suppresses foreground notifications entirely — which

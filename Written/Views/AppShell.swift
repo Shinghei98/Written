@@ -39,6 +39,10 @@ struct AppShell: View {
     /// the screen, so it should not be able to shift under a redraw.
     @State private var isOnboarding = SupabaseAuth.shared.onboardingStep != .done
 
+    /// Where a tapped notification wants to go. Observed rather than owned —
+    /// `PushDelegate` writes to it from outside the view tree entirely.
+    @ObservedObject private var notifications = NotificationRouter.shared
+
     var body: some View {
         ZStack(alignment: .bottom) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -220,6 +224,11 @@ struct AppShell: View {
             // being told.
             await PushService.shared.registerIfAlreadyAllowed()
 
+            // A tap that launched the app arrives before this view exists, so
+            // the destination is already waiting by the time we get here. Later
+            // taps come through `onChange` below.
+            openTabForNotification()
+
 #if DEBUG
             // `-push ask`; see `DebugLaunch`. After the line above, so a device
             // that has already granted re-registers either way, and the ask only
@@ -240,6 +249,7 @@ struct AppShell: View {
         // Offline first when both apply: "you're offline" explains the refusal
         // that follows it, and a PostgREST message underneath would only be the
         // same fact in worse words.
+        .onChange(of: notifications.pending) { _ in openTabForNotification() }
         .statusBanner(
             reachability.isOnline ? viewModel.saveError : "You're offline. Changes won't save.",
             isWarning: true
@@ -365,6 +375,24 @@ struct AppShell: View {
 
     /// "Explore" on the profile preview: the one moment onboarding ends.
     ///
+    /// Moves to Chat when a notification was tapped.
+    ///
+    /// **Only the tab.** Which admirer or which thread is `ChatView`'s to open,
+    /// because it owns that navigation state and — more to the point — it may
+    /// not have loaded the conversation yet. The router keeps the destination
+    /// until somebody consumes it, so the two halves need no ordering between
+    /// them.
+    ///
+    /// **Not during onboarding.** That is a line rather than a place you
+    /// navigate: there is no tab bar, so switching would strand somebody on a
+    /// page with no way back to the step they were on. Nobody has matches at
+    /// that point either, so the destination is left pending and honoured the
+    /// moment the shell becomes a tab bar.
+    private func openTabForNotification() {
+        guard notifications.pending != nil, !isOnboarding else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { tab = .chat }
+    }
+
     /// The bar arrives and the garden gives up its arrow together, which is why
     /// both read the same flag rather than each deciding for itself.
     private func finishOnboarding() {
