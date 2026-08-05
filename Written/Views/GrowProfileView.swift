@@ -1434,20 +1434,28 @@ struct AppMark: View {
         }
     }
 
-    /// Google Calendar's mark: the blue tile and the white 31.
+    /// Google Calendar's mark: the waisted blue leaf and the white 31.
     ///
-    /// **Inverted from the first attempt**, which drew a white tile with blue
-    /// text. Measured off the app icon: a white rounded tile with a *blue* one
-    /// inside it carrying a white numeral — the white reads as a rim on three
-    /// sides and a band across the top, where the blue is lighter.
+    /// **Three shapes, and the profile was measured off the icon rather than
+    /// read off it.** Scanning the app icon row by row, as fractions of the
+    /// white tile:
     ///
-    /// Sampled: the blue is rgb(84,143,243) with rgb(159,167,252) along its top
-    /// edge. Measured: the blue is 0.97 of the tile wide and 0.84 tall, inset
-    /// 0.02 at the sides and bottom and 0.15 from the top.
+    ///     y 0.20   width 0.502   the cap, lightest blue
+    ///     y 0.30   width 0.655   cap meets body — widest
+    ///     y 0.55   width 0.606   the waist
+    ///     y 0.75   width 0.655   widest again
+    ///     y 0.82   —             bottom
     ///
-    /// It has to be told from Apple's at 26 points, which is what the Events bar
-    /// now asks — Apple's is a live date with a red weekday above it, and this
-    /// is the fixed 31 its icon has always carried.
+    /// So the body is two smooth-edged trapeziums meeting at their narrow ends,
+    /// with the join reading as a faint fold because the gradient crosses it;
+    /// and above them a third, weaker-blue trapezium whose *wide* side is the
+    /// one the body's top covers. The waist is only 7% — a gentle curve, not a
+    /// pinch, and drawing it any deeper reads as an hourglass.
+    ///
+    /// The piece is **0.655 of the tile wide**, centred, with 0.17 of clear
+    /// white either side. Two earlier drafts had it far too large: a plain white
+    /// tile with blue text, then a blue rectangle at 0.78 with almost no
+    /// padding.
     private var googleCalendar: some View {
         ZStack {
             RoundedRectangle(cornerRadius: diameter * 0.26)
@@ -1457,25 +1465,33 @@ struct AppMark: View {
                         .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
                 }
 
-            RoundedRectangle(cornerRadius: diameter * 0.20)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.624, green: 0.655, blue: 0.988),
-                            Color(red: 0.322, green: 0.549, blue: 0.953),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+            ZStack {
+                // The cap, behind the body so the body's wide top covers its
+                // wide bottom — which is how the icon hides the join.
+                GoogleCalendarCap()
+                    .fill(Color(red: 0.706, green: 0.769, blue: 0.996))
+                    .frame(width: diameter * 0.655, height: diameter * 0.20)
+                    .offset(y: -diameter * 0.215)
+
+                GoogleCalendarBody()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.459, green: 0.600, blue: 0.969),
+                                Color(red: 0.318, green: 0.545, blue: 0.965),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
-                .frame(width: diameter * 0.78, height: diameter * 0.68)
-                .offset(y: diameter * 0.06)
-                .overlay {
-                    Text("31")
-                        .font(.system(size: diameter * 0.38, weight: .medium))
-                        .foregroundStyle(.white)
-                        .offset(y: diameter * 0.06)
-                }
+                    .frame(width: diameter * 0.655, height: diameter * 0.52)
+                    .offset(y: diameter * 0.055)
+
+                Text("31")
+                    .font(.system(size: diameter * 0.30, weight: .medium))
+                    .foregroundStyle(.white)
+                    .offset(y: diameter * 0.055)
+            }
         }
         .frame(width: diameter, height: diameter)
     }
@@ -2197,5 +2213,53 @@ private struct PodcastBody: Shape {
         )
         path.closeSubpath()
         return path
+    }
+}
+
+/// The body of Google Calendar's mark: two smooth-edged trapeziums meeting at
+/// their narrow ends, so the sides curve gently inward at the waist.
+///
+/// Measured at 0.655 of the tile wide at its widest and 0.606 at the waist — a
+/// 7% draw-in. Deeper than that and it reads as an hourglass rather than as the
+/// slight fold the icon actually has.
+private struct GoogleCalendarBody: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        let r = w * 0.20                 // corner rounding
+        let waist = w * 0.037            // half of the 7% draw-in
+        var p = Path()
+        p.move(to: CGPoint(x: r, y: 0))
+        p.addLine(to: CGPoint(x: w - r, y: 0))
+        p.addQuadCurve(to: CGPoint(x: w, y: r), control: CGPoint(x: w, y: 0))
+        // Right side, curving in to the waist and back out.
+        p.addQuadCurve(to: CGPoint(x: w, y: h - r), control: CGPoint(x: w - waist * 2, y: h / 2))
+        p.addQuadCurve(to: CGPoint(x: w - r, y: h), control: CGPoint(x: w, y: h))
+        p.addLine(to: CGPoint(x: r, y: h))
+        p.addQuadCurve(to: CGPoint(x: 0, y: h - r), control: CGPoint(x: 0, y: h))
+        p.addQuadCurve(to: CGPoint(x: 0, y: r), control: CGPoint(x: waist * 2, y: h / 2))
+        p.addQuadCurve(to: CGPoint(x: r, y: 0), control: CGPoint(x: 0, y: 0))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// The weaker-blue trapezium above it: narrow at the top, widening to the
+/// bottom, where the body's own wide edge covers the join.
+private struct GoogleCalendarCap: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        // 0.502 against 0.655 at its widest — measured off the icon.
+        let inset = w * (1 - 0.502 / 0.655) / 2
+        let r = w * 0.16
+        var p = Path()
+        p.move(to: CGPoint(x: inset + r, y: 0))
+        p.addLine(to: CGPoint(x: w - inset - r, y: 0))
+        p.addQuadCurve(to: CGPoint(x: w - inset, y: r), control: CGPoint(x: w - inset, y: 0))
+        p.addLine(to: CGPoint(x: w, y: h))
+        p.addLine(to: CGPoint(x: 0, y: h))
+        p.addLine(to: CGPoint(x: inset, y: r))
+        p.addQuadCurve(to: CGPoint(x: inset + r, y: 0), control: CGPoint(x: inset, y: 0))
+        p.closeSubpath()
+        return p
     }
 }
