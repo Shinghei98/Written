@@ -203,6 +203,14 @@ struct ConversationView: View {
             await reload()
             // **Before `markRead`, which is what destroys the evidence.**
             captureUnread()
+            // **Positions the thread exactly once, whatever the load found.**
+            // `onChange(of: messages.count)` was the only trigger, and a thread
+            // opened before is seeded from `ChatStore` in the initialiser — so a
+            // reload returning the same number of messages changed no count,
+            // fired nothing, and left the page sitting at the top of the
+            // conversation. Every thread with nothing new in it opened at its
+            // beginning.
+            hasLoadedOnce = true
             await markRead()
             // Cancelled with the view. A `while true` here would be a leak; this
             // one ends when the page does.
@@ -366,6 +374,13 @@ struct ConversationView: View {
             // A child's `minY` in this space is its offset from the *visible*
             // top rather than from the content's, which is what makes "is the
             // band on screen" answerable without tracking scroll offsets.
+            // Straight to the end from the cached messages, before the network
+            // has answered. Unanimated because this is where the page opens; the
+            // load a moment later refines it to the unread band if there is one.
+            .onAppear {
+                guard let last = messages.last?.id else { return }
+                proxy.scrollTo(last, anchor: .bottom)
+            }
             .coordinateSpace(name: Self.threadSpace)
             .background(
                 GeometryReader { geometry in
@@ -376,11 +391,10 @@ struct ConversationView: View {
             // The end of the thread is where a conversation is read from, so it
             // opens there rather than at its beginning.
             .onChange(of: messages.count) { _ in scroll(proxy) }
-            // **Ordering, not decoration.** `captureUnread` runs after the first
-            // load, so by then `messages.count` has already changed and the
-            // scroll above has already fired — against a band that did not exist
-            // yet. This is the one that lands on it.
-            .onChange(of: unreadMark?.firstID) { _ in scroll(proxy) }
+            // The one that always fires. `captureUnread` runs after the first
+            // load, so by then any count change has already been and gone — and
+            // for a thread with nothing new there was no count change at all.
+            .onChange(of: hasLoadedOnce) { _ in scroll(proxy) }
             // The dots push the last message up, so follow them too.
             .onChange(of: isPartnerTyping) { _ in scroll(proxy) }
         }
@@ -403,6 +417,9 @@ struct ConversationView: View {
     @State private var hasMarkedUnread = false
     /// So the thread lands on the band once and then behaves normally.
     @State private var hasCentredOnUnread = false
+    /// Flipped after the first fetch, purely so something can be observed. The
+    /// value means nothing; the transition is the signal.
+    @State private var hasLoadedOnce = false
 
     private static let threadSpace = "thread"
     /// The band's offset from the top of the visible area, or nil when it has
