@@ -154,11 +154,25 @@ assets with no Worker script. `/` 301s to `/en-us/`, a missing path 404s, and
 the two URLs Google's consent screen must name — `/en-us/` and `/en-us/privacy/`
 — both answer 200 with no redirect, which is what that check requires.
 
-**`www.written-stl.com` does not exist**, and it is the one way somebody can
-find this site down. There is no A record at all — NXDOMAIN, not a Cloudflare
-error — so a browser says the server could not be found rather than anything
-about Written. The apex is the only hostname that works. One proxied CNAME at
-Cloudflare fixes it.
+**`www.written-stl.com` 301s to the apex**, added 2026-08-05 after it spent a
+day as NXDOMAIN — which is the one way somebody could genuinely find this site
+down, since a browser then says the server could not be found rather than
+anything about Written.
+
+**The record is an `A` to `192.0.2.1`, proxied, and the placeholder is the
+point.** That is TEST-NET-1 and routes nowhere; because the record is
+*proxied*, the request terminates at Cloudflare and a Redirect Rule answers it,
+so the address is never contacted. Grey-cloud it and Cloudflare hands
+`192.0.2.1` to the browser and the connection hangs — worse than no record.
+**Not a CNAME to the apex**: the apex is a Worker custom domain, and a proxied
+CNAME onto one is the configuration that returns Cloudflare Error 1000.
+
+The rule is *dynamic*, `concat("https://written-stl.com", http.request.uri.path)`
+with the query string preserved, rather than a static redirect to the homepage —
+Google's reviewer follows deep links, and `www…/en-us/privacy/` landing on the
+front page is a mismatch. Verified end to end: `www/` and `www/en-us/privacy/`
+both reach the right page with bytes identical to `web/`, an unknown path still
+404s, and Universal SSL covers the subdomain (`ssl_verify=0`).
 
 A free host subdomain cannot stand in, and that is a rule rather than a
 preference: Google requires the homepage be *"Hosted on a verified domain you

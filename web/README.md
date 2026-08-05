@@ -89,8 +89,18 @@ Ordered. The first two block Google's verification and nothing else does.
   **deploy command (`npx wrangler deploy`, the default)**. What points it at the
   site is `wrangler.jsonc` at the repo root, which serves `./web` as static
   assets with no Worker script.
-- **A `www` → apex Redirect Rule** in the Cloudflare dashboard. It cannot live
-  in `_redirects`, which matches paths and not hosts.
+- ~~**A `www` → apex Redirect Rule**~~ — **done 2026-08-05.** It cannot live in
+  `_redirects`, which matches paths and not hosts. Two parts, and the first is
+  the non-obvious one: an **`A` record, name `www`, `192.0.2.1`, proxied, TTL
+  auto**. That address is TEST-NET-1 and routes nowhere — the record exists only
+  so Cloudflare accepts traffic for the hostname, and because it is *proxied*
+  the Redirect Rule answers at the edge and the address is never contacted.
+  **Not a CNAME to the apex**, which is a Worker custom domain and returns Error
+  1000. Then Rules → Redirect Rules, matching `Hostname equals
+  www.written-stl.com`, type **dynamic**, expression `concat("https://written-stl.com",
+  http.request.uri.path)`, 301, preserve query string. Dynamic because a static
+  redirect drops the path, and a reviewer following a deep link would land on
+  the homepage.
 - **Email routing** for `hello@written-stl.com`, which every page now prints.
 - **Read the terms and the privacy policy before they go up.** They are written
   from what the app actually does, but they are legal documents. Two known
