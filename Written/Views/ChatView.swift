@@ -84,6 +84,7 @@ struct ChatView: View {
                             ForEach(visibleConversations) { conversation in
                                 SwipeableConversationRow(
                                     conversation: conversation,
+                                    unread: model.unread[conversation.id] ?? 0,
                                     openRowID: $openRowID,
                                     onTap: {
                                         openThread = conversation
@@ -447,6 +448,8 @@ struct AdmirersBanner: View {
 struct SwipeableConversationRow: View {
 
     let conversation: ChatService.Conversation
+    /// How many of their messages are waiting. Zero draws nothing.
+    var unread = 0
     /// Which row is open, shared across the list so only one ever is.
     @Binding var openRowID: String?
     var onTap: () -> Void
@@ -470,7 +473,7 @@ struct SwipeableConversationRow: View {
             // in one is what stopped the swipe registering at all. A tap gesture
             // on plain content competes with the drag on equal terms, and the
             // 15pt minimum below is what separates them.
-            ConversationRow(conversation: conversation)
+            ConversationRow(conversation: conversation, unread: unread)
                 .frame(width: rowWidth)
                 .contentShape(Rectangle())
                 .onTapGesture { isOpen ? close() : onTap() }
@@ -562,6 +565,8 @@ struct SwipeableConversationRow: View {
 
 struct ConversationRow: View {
     let conversation: ChatService.Conversation
+    /// How many of their messages are waiting. Zero draws nothing.
+    var unread = 0
 
     /// Whatever was said last, by either of you.
     ///
@@ -619,6 +624,27 @@ struct ConversationRow: View {
         }
     }
 
+    /// The gold disc carrying the number of messages waiting.
+    ///
+    /// **A capsule rather than a circle**, which matters at two digits: a fixed
+    /// circle either clips "12" or is sized for a number nobody has, so the
+    /// shape grows with the text and stays a circle for the single digit that
+    /// is almost always what it is. `minWidth` is what keeps "1" round.
+    ///
+    /// Gold rather than red. Red is the system's colour for a problem, and this
+    /// is somebody having written to you — the same gold the garden's badges and
+    /// "Say something" already use, so the app has one colour for *there is
+    /// something here for you*.
+    private var unreadBadge: some View {
+        Text("\(unread)")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(GardenPalette.badgeGold, in: Capsule())
+            .accessibilityLabel("\(unread) unread")
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // `ProfilePhotoView`, not `PortraitView`: the latter only ever
@@ -638,10 +664,17 @@ struct ConversationRow: View {
 
             Spacer(minLength: 0)
 
-            if let at = conversation.lastMessageAt {
-                Text(RelativeTime.short(since: at))
-                    .font(.system(size: 12))
-                    .foregroundStyle(GardenPalette.muted)
+            // The time and the count stack, rather than sitting side by side:
+            // the row is already tight at 54 points of portrait plus two lines
+            // of text, and a third column would push the name into truncating
+            // on a narrow phone.
+            VStack(alignment: .trailing, spacing: 6) {
+                if let at = conversation.lastMessageAt {
+                    Text(RelativeTime.short(since: at))
+                        .font(.system(size: 12))
+                        .foregroundStyle(GardenPalette.muted)
+                }
+                if unread > 0 { unreadBadge }
             }
         }
         .padding(.horizontal, 20)
@@ -664,6 +697,12 @@ final class ChatModel: ObservableObject {
     @Published private(set) var conversations: [ChatService.Conversation] = ChatStore.conversations()
 
     @Published private(set) var admirers: [LikeService.Admirer] = []
+
+    /// How many messages are waiting in each thread, by conversation id.
+    ///
+    /// Absent rather than zero for a thread with nothing waiting, so a row reads
+    /// `unread[id] ?? 0` and draws no badge when there is nothing to say.
+    @Published private(set) var unread: [String: Int] = [:]
     @Published private(set) var failure: String?
 
     /// Whether a load has finished at least once this session.
@@ -722,10 +761,18 @@ final class ChatModel: ObservableObject {
         let chatFailure = await ChatService.shared.lastError
         failure = likeFailure ?? chatFailure
 
-        // The badge is set by the server on every push, which keeps it right
-        // while the app is shut. This is the other half: the server cannot know
-        // anything has been read until somebody reads it.
-        await PushService.shared.refreshBadge()
+        // **One request for the rows, two things drawn from it**: a number on
+        // each row and their sum on the app icon. The server sets the icon on
+        // every push, which keeps it right while the app is shut; this is the
+        // other half, because the server cannot know anything has been read
+        // until somebody reads it.
+        //
+        // A nil answer is left alone rather than treated as nothing waiting —
+        // clearing badges because a request failed would hide messages.
+        if let counts = await ChatService.shared.unreadByConversation() {
+            unread = counts
+            await PushService.shared.setBadge(counts.values.reduce(0, +))
+        }
 
     }
 

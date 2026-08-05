@@ -200,15 +200,33 @@ actor ChatService {
     /// that should be showing — the same defect this codebase has now met seven
     /// times.
     func unreadCount() async -> Int? {
+        await unreadByConversation().map { $0.values.reduce(0, +) }
+    }
+
+    /// How many are waiting in each thread, by conversation id.
+    ///
+    /// **One request answers both this and the icon's total**, which is the
+    /// whole reason the counting is shaped this way: the chat list draws a
+    /// number per row and the app icon draws their sum, and asking twice for the
+    /// same rows would be a second round trip for arithmetic.
+    ///
+    /// Threads with nothing waiting are absent rather than present as zero, so
+    /// a caller reads `unread[id] ?? 0` and a row with no entry draws no badge.
+    func unreadByConversation() async -> [String: Int]? {
         guard let me = await SupabaseAuth.shared.currentUserID() else { return nil }
         do {
             let rows = try await PostgREST.rows("rest/v1/messages", query: [
                 "read_at": "is.null",
                 "sender_id": "neq.\(me)",
-                "select": "id",
+                "select": "conversation_id",
             ])
             lastError = nil
-            return rows.count
+            var counts: [String: Int] = [:]
+            for row in rows {
+                guard let id = row["conversation_id"] as? String else { continue }
+                counts[id, default: 0] += 1
+            }
+            return counts
         } catch {
             lastError = error.localizedDescription
             return nil
