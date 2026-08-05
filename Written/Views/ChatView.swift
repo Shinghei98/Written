@@ -73,7 +73,13 @@ struct ChatView: View {
                         // which is what read as the chat disappearing. Nothing
                         // is drawn until there is something true to say.
                         if visibleConversations.isEmpty {
-                            if model.hasLoaded { empty }
+                            // **Not while a tapped notification is still being
+                            // opened.** The list fetch races `restoreSession` on
+                            // a cold launch, so a tap that is about to push a
+                            // thread would first announce "No conversations
+                            // yet" — which reads as the tap having gone
+                            // somewhere wrong and then correcting itself.
+                            if model.hasLoaded, notifications.pending == nil { empty }
                         } else {
                             ForEach(visibleConversations) { conversation in
                                 SwipeableConversationRow(
@@ -254,48 +260,46 @@ struct ChatView: View {
     /// because a thread really can be absent — unmatched, or belonging to
     /// another account — and the chat list is a reasonable place to leave
     /// somebody in that case.
-    private func openForNotification(attempt: Int = 0) {
-        guard isVisible, let destination = notifications.pending else {
-            return
-        }
-
+    private func openForNotification() {
+        guard isVisible, let destination = notifications.pending else { return }
+        notifications.pending = nil
         switch destination {
         case .chatList:
-            break
+            return
         case .admirers:
             isShowingAdmirers = true
         case .conversation(let id):
-            guard let thread = model.conversations.first(where: { $0.id == id }) else {
-                guard attempt < 4 else {
-                    // **Silent on success, and only here.** A trail drawn on
-                    // every tap is noise a tester reads as an error — and this
-                    // one shipped that way for exactly one round. What is worth
-                    // saying is the case where somebody tapped a notification
-                    // and did not arrive: it looks like the tap having missed,
-                    // and nothing else in the app would ever mention it.
-                    if BuildKind.showsDiagnostics {
-                        routeTrail = "Couldn't open that conversation"
-                            + " (\(model.conversations.count) loaded"
-                            + (model.failure.map { ", \($0)" } ?? "") + ")"
-                    }
-                    notifications.pending = nil
-                    return
-                }
-                Task {
-                    try? await Task.sleep(for: .seconds(1))
-                    await model.load()
-                    openForNotification(attempt: attempt + 1)
-                }
+            // Straight from the list when it is already there — the ordinary
+            // case, and it opens with no round trip at all.
+            if let thread = model.conversations.first(where: { $0.id == id }) {
+                push(thread)
                 return
             }
-            // Admirers first, for the reason `AdmirersView.onOpened` gives:
-            // pushing from underneath a page being popped leaves the stack with
-            // two destinations mid-animation.
-            isShowingAdmirers = false
-            openThread = thread
-            isShowingThread = true
+            // Otherwise fetch that one row. **Not a retry loop over the whole
+            // list**, which is what this was and why a tap from a cold launch
+            // sat on "No conversations yet" for a second before correcting
+            // itself: the list fetch races `restoreSession`, and waiting for it
+            // meant waiting for something we never needed. The id is in the
+            // payload.
+            Task {
+                guard let thread = await ChatService.shared.conversation(id: id) else {
+                    if BuildKind.showsDiagnostics {
+                        routeTrail = "Couldn't open that conversation"
+                    }
+                    return
+                }
+                push(thread)
+            }
         }
-        notifications.pending = nil
+    }
+
+    /// Admirers first, for the reason `AdmirersView.onOpened` gives: pushing
+    /// from underneath a page being popped leaves the stack with two
+    /// destinations mid-animation and the second arrives without its transition.
+    private func push(_ thread: ChatService.Conversation) {
+        isShowingAdmirers = false
+        openThread = thread
+        isShowingThread = true
     }
 
     private var visibleConversations: [ChatService.Conversation] {

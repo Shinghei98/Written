@@ -250,6 +250,34 @@ actor ChatService {
         }
     }
 
+    /// One conversation by its own id.
+    ///
+    /// **For a tapped notification, which knows the id and should not have to
+    /// wait for a list.** Opening a thread used to mean loading every
+    /// conversation and searching it, and on a cold launch that fetch races
+    /// `restoreSession` — so the tap landed on an empty chat list saying "No
+    /// conversations yet" and pushed the thread a second or two later, which
+    /// reads as the tap having gone to the wrong place and then correcting
+    /// itself. One row is one round trip and needs nothing else to have
+    /// happened.
+    ///
+    /// `validAccessToken()` inside `PostgREST.send` is what makes this safe
+    /// during a cold launch: it refreshes rather than reading the in-memory
+    /// token, which is nil until `restoreSession` has been round the network.
+    func conversation(id: String) async -> Conversation? {
+        guard let me = await SupabaseAuth.shared.userID else { return nil }
+        do {
+            let rows = try await PostgREST.rows("rest/v1/conversations", query: [
+                "id": "eq.\(id)",
+                "select": "id,user_a,user_b,user_a_name,user_b_name,"
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
+            ])
+            return rows.first.flatMap { Self.conversation(from: $0, me: me) }
+        } catch {
+            return nil
+        }
+    }
+
     private func conversation(with partnerID: String) async -> Conversation? {
         guard let me = await SupabaseAuth.shared.userID else { return nil }
         let pair = [me, partnerID].map { $0.lowercased() }.sorted()
