@@ -8,6 +8,19 @@ One static page. No build step, no dependencies, no framework — `index.html`,
 `_redirects` is Cloudflare's, so a plain static server does not honour it and
 the root is a 404 locally. That is expected; open `/en-us/` directly.
 
+**Everything in this directory is published, including this file.** That is easy
+to disbelieve because the two config files here are *not*: Workers consumes
+`_headers` and `_redirects` itself, so both answer 404, which makes it look as
+though non-HTML is somehow exempt. It is not. This README was served at
+`https://written-stl.com/README.md` for a day — the Google scope
+justifications, the demo-video plan, and the paragraph recording that the beta
+syncs Spotify while the privacy policy deliberately omits it, on the domain
+whose policy Google is being asked to trust. `.assetsignore` excludes it now.
+**Anything added here that is notes rather than site goes in that file in the
+same commit**, and the check is one line:
+
+    curl -s -o /dev/null -w '%{http_code}\n' https://written-stl.com/README.md   # 404
+
 ## Why it exists
 
 Three jobs, and the last two are the ones with deadlines. **This is not a

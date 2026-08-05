@@ -1,0 +1,18 @@
+# Files under web/ that must NOT be uploaded as static assets.
+#
+# Everything in this directory is served, which is easy to forget because the
+# two config files here are not: Workers consumes `_headers` and `_redirects`
+# itself, so they answer 404 and give the false impression that anything
+# non-HTML is safe. `README.md` was served for a day at
+# https://written-stl.com/README.md — 12KB of deployment notes, the Google
+# scope justifications, the demo-video plan, and the paragraph saying the beta
+# syncs Spotify while the privacy policy deliberately omits it.
+#
+# Syntax is .gitignore's. Anything added under web/ that is notes rather than
+# site belongs here in the same commit.
+
+README.md
+
+# Excluded by Workers already; listed so a future reader does not have to
+# know that to be sure.
+.assetsignore
