@@ -95,8 +95,28 @@ actor ChatService {
 
     // MARK: - The list
 
-    func conversations() async -> [Conversation] {
-        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
+    /// Every thread this account is in, or **nil for "could not ask"**.
+    ///
+    /// **Never `[]` for a request that failed**, and that distinction is not
+    /// stylistic here — it destroyed data. This used to answer `[]` both for
+    /// somebody with no conversations and for a device with no reachable
+    /// session, and `ChatModel.load` reads an empty answer as authoritative:
+    /// it assigned it *and wrote it to `ChatStore`*. So going offline emptied
+    /// the chat list and then overwrote the cache that would have filled it,
+    /// leaving the threads gone until the next successful fetch.
+    ///
+    /// A guard existed for exactly this and could not see it — it tested
+    /// `lastError`, and the no-session return set nothing. A boolean two files
+    /// from the thing it protects is not a guard. The optional is, because the
+    /// compiler will not let a caller ignore it.
+    ///
+    /// Ninth instance of this shape in the project and the first to lose
+    /// anything; see `PhotoService.paths()` for the same fix.
+    func conversations() async -> [Conversation]? {
+        guard let me = await SupabaseAuth.shared.currentUserID() else {
+            lastError = "You're not signed in."
+            return nil
+        }
         do {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "or": "(user_a.eq.\(me),user_b.eq.\(me))",
@@ -116,7 +136,7 @@ actor ChatService {
             return list
         } catch {
             lastError = error.localizedDescription
-            return []
+            return nil
         }
     }
 

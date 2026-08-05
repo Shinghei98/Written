@@ -1477,7 +1477,8 @@ wrong one were one condition and one 401, wanting opposite fixes. And
 signature and a thrown exception identically, so `face=no` could not distinguish
 "this person has no photograph" from "storage would not sign". That makes
 **seven** instances of *a call that can fail, a result nobody reads, and the
-symptom surfacing somewhere else.*
+symptom surfacing somewhere else.* (Nine by the end of the same week — see the
+offline chat list below, where it finally destroyed data rather than hiding it.)
 
 ### The banner is a person, not an app
 
@@ -1616,6 +1617,54 @@ inside the banner needs a Notification Service Extension — which now exists, s
 this is only a matter of attaching one; and an unread count that never clears
 would be its own bug, which is why the badge is recomputed rather than
 decremented.
+
+### Offline: the cache existed, and the failure erased it
+
+**The chat list was empty offline, and it was not a missing cache.** `ChatStore`
+has held the threads all along and `ChatModel.conversations` is seeded from it,
+so they draw before any request is made. What emptied the screen was the fetch
+that followed — and it did not merely blank the list, it **wrote its empty answer
+back to `ChatStore`**, so the threads were gone until the next successful load.
+Being offline cost more than the network.
+
+`ChatService.conversations()` opened `guard let me = await currentUserID() else
+{ return [] }`. Offline that guard is what fires: `currentUserID()` awaits
+`validAccessToken()`, the refresh cannot complete, and it answers nil. **A guard
+against exactly this existed and could not see it** — it tested `lastError`, and
+that return path set none:
+
+    let chatFailed = await ChatService.shared.lastError != nil   // false
+    if !fetched.isEmpty || !chatFailed { conversations = fetched; ChatStore.save(fetched) }
+
+**Ninth instance of the same defect, and the first to destroy anything.** The
+eight before it hid data or reported a failure as a success; this one overwrote
+the copy that would have survived. `LikeService.admirers()` had the identical
+opening and emptied the admirers banner the same way.
+
+**The fix is the type, not another boolean.** Both return an optional now — nil
+for *could not ask* — so the caller is `if let fetched { … }` and there is
+nothing left to remember. A boolean in one file guarding an early return in
+another is not a guard; it is a convention, and this is what it costs when it
+lapses. Same treatment as `PhotoService.paths()` and `unreadByConversation()`,
+which were already right.
+
+Three things fell out of it, all about not asserting what was never asked:
+
+- **`hasLoaded` moves only on a real answer.** It meant *a load finished*, which
+  is why it was already wrong for notification routing.
+- **The empty state has two sentences.** "No conversations yet" is a claim about
+  an account; offline with no cache — a fresh install, a new phone — the app
+  cannot make it. `couldNotReach` picks the other one.
+- **No second banner while offline.** `AppShell`'s offline banner covers every
+  tab, and the service's own message on that path is "You're not signed in" —
+  true of the token it could not refresh, and nonsense to somebody on a train.
+
+**Nothing about synchronisation changed.** The server is still the source of
+truth, the cache is still a cache and is still replaced wholesale by every
+successful fetch, and nothing is written offline. Only an *unsuccessful* fetch
+stopped being mistaken for a successful empty one. Threads themselves were never
+affected — `ConversationView.merge` unions the fetch onto what it holds, so an
+empty answer there changes nothing.
 
 ## Known gaps
 

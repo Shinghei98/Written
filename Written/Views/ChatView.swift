@@ -85,7 +85,8 @@ struct ChatView: View {
                             // thread would first announce "No conversations
                             // yet" — which reads as the tap having gone
                             // somewhere wrong and then correcting itself.
-                            if model.hasLoaded, notifications.pending == nil { empty }
+                            if model.hasLoaded || model.couldNotReach,
+                               notifications.pending == nil { empty }
                         } else {
                             ForEach(visibleConversations) { conversation in
                                 SwipeableConversationRow(
@@ -257,11 +258,13 @@ struct ChatView: View {
     /// **A conversation that is not in the list yet is waited for, not given up
     /// on.** This is the whole difficulty, and `hasLoaded` is the wrong thing to
     /// test: it means *a load finished*, not *a load succeeded*. On a cold
-    /// launch the tap arrives while `restoreSession` is still in flight,
-    /// `ChatService.conversations()` answers `[]` for the refused request, and
-    /// `hasLoaded` flips true regardless — so reading it as "the list is
-    /// complete and your thread is not in it" dropped the destination and left
-    /// somebody on an empty chat list. Which is exactly what it did.
+    /// launch the tap arrives while `restoreSession` is still in flight, the
+    /// list fetch is refused, and `hasLoaded` flipped true regardless — so
+    /// reading it as "the list is complete and your thread is not in it" dropped
+    /// the destination and left somebody on an empty chat list. Which is exactly
+    /// what it did. (`conversations()` answers nil for that refusal now, and
+    /// `hasLoaded` no longer moves on it — but the id in the payload is still a
+    /// better answer than any amount of waiting for the list.)
     ///
     /// So it reloads and tries again, a few times, a second apart. `.task` fires
     /// only when `isVisible` changes, so nothing else would ever retry. Bounded
@@ -406,15 +409,24 @@ struct ChatView: View {
         .buttonStyle(.plain)
     }
 
+    /// **Two different sentences, because they are two different facts.**
+    ///
+    /// "No conversations yet" is a claim about somebody's account, and offline
+    /// with nothing cached — a fresh install, a new phone — the app is in no
+    /// position to make it. It said it anyway, which is the same mistake as the
+    /// one that emptied the list: a question that could not be asked reported as
+    /// an answer of nothing.
     private var empty: some View {
         VStack(spacing: 10) {
-            Image(systemName: "paperplane")
+            Image(systemName: model.couldNotReach ? "wifi.exclamationmark" : "paperplane")
                 .font(.system(size: 26, weight: .light))
                 .foregroundStyle(GardenPalette.gold)
-            Text("No conversations yet")
+            Text(model.couldNotReach ? "Can't reach your chats" : "No conversations yet")
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(GardenPalette.ink)
-            Text("When you and somebody both say yes, this is where it happens.")
+            Text(model.couldNotReach
+                 ? "You're offline. They'll be here when you're back."
+                 : "When you and somebody both say yes, this is where it happens.")
                 .font(.system(size: 14))
                 .foregroundStyle(GardenPalette.muted)
                 .multilineTextAlignment(.center)
@@ -764,6 +776,15 @@ final class ChatModel: ObservableObject {
     /// screen, so nothing is pending from the reader's point of view even though
     /// a fetch is in flight.
     @Published private(set) var hasLoaded: Bool = !ChatStore.conversations().isEmpty
+
+    /// Whether the last attempt failed to reach the server at all.
+    ///
+    /// Separate from `failure`, which is a banner over content that is still
+    /// valid. This one changes what the *empty* state is allowed to say: with no
+    /// cache to fall back on there is nothing on screen, and "No conversations
+    /// yet" would be an assertion about an account the app never managed to ask
+    /// about.
+    @Published private(set) var couldNotReach = false
     /// Which admirer is mid-answer, so their two buttons can be disabled without
     /// freezing the rest of the list.
     @Published private(set) var answering: String?
@@ -790,29 +811,43 @@ final class ChatModel: ObservableObject {
         // `DiscoveryModel.load` fans out.
         async let admirersTask = LikeService.shared.admirers()
         async let conversationsTask = ChatService.shared.conversations()
-        admirers = await admirersTask
+        // **Only a real answer replaces what is on screen.** Both services now
+        // say nil for a request they could not make, so an empty list means an
+        // empty account and nothing else.
+        if let fetchedAdmirers = await admirersTask { admirers = fetchedAdmirers }
         let fetched = await conversationsTask
 
-        // A failed fetch must not wipe what is on screen. `conversations()`
-        // returns `[]` for a refused or offline request exactly as it does for
-        // an account with no threads, so assigning it blindly would empty a chat
-        // because the network hiccupped — the flash this whole change exists to
-        // remove, arriving by a different door.
-        // Bound before the test, not inside it: `||` takes an autoclosure, and
-        // an `await` cannot live in one.
-        let chatFailed = await ChatService.shared.lastError != nil
-        if !fetched.isEmpty || !chatFailed {
+        // **A failed fetch must not wipe what is on screen, and this used to be
+        // a boolean that could not see the failure it guarded against.** It
+        // tested `lastError`, and the no-session path — which is what offline
+        // reaches — returned an empty list without setting one. So going
+        // offline emptied the list *and wrote the empty list to `ChatStore`*,
+        // losing the cache that would have filled it.
+        //
+        // The optional replaces the guard entirely. There is nothing left to
+        // remember, because the type will not let a caller confuse "no threads"
+        // with "no answer".
+        if let fetched {
             conversations = fetched
             ChatStore.save(fetched)
         }
-        hasLoaded = true
+        // Only when something was actually established. Otherwise the empty
+        // state claims "No conversations yet" on a device that never managed to
+        // ask — see `empty`.
+        hasLoaded = hasLoaded || fetched != nil
+        couldNotReach = fetched == nil
 
         // Bound separately: `await a ?? b` does not mean "await a, then await b if
         // it was nil" — the whole expression is one suspension and both actors are
         // hit regardless, which reads as a bug the first time somebody profiles it.
         let likeFailure = await LikeService.shared.lastError
         let chatFailure = await ChatService.shared.lastError
-        failure = likeFailure ?? chatFailure
+        // **Nothing to add while offline.** `AppShell` already carries the
+        // offline banner over every tab, and the service's own message there is
+        // "You're not signed in" — true of the token it could not refresh, and
+        // alarming nonsense to somebody on a train who is perfectly signed in.
+        // Two banners saying different things about one cause is worse than one.
+        failure = Reachability.shared.isOnline ? (likeFailure ?? chatFailure) : nil
 
         // **One request for the rows, two things drawn from it**: a number on
         // each row and their sum on the app icon. The server sets the icon on

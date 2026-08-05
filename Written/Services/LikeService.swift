@@ -214,9 +214,18 @@ actor LikeService {
 
     // MARK: - Being liked
 
-    /// The people waiting for an answer, newest first.
-    func admirers() async -> [Admirer] {
-        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
+    /// The people waiting for an answer, newest first — or **nil for "could not
+    /// ask"**.
+    ///
+    /// Same reasoning as `ChatService.conversations()`: an empty list is a fact
+    /// about an account and must never stand in for a request that did not
+    /// happen. Here it emptied the admirers banner offline; there it wiped the
+    /// cached chat list.
+    func admirers() async -> [Admirer]? {
+        guard let me = await SupabaseAuth.shared.currentUserID() else {
+            lastError = "You're not signed in."
+            return nil
+        }
         do {
             let rows = try await PostgREST.rows("rest/v1/likes", query: [
                 "liked_id": "eq.\(me)",
@@ -263,7 +272,7 @@ actor LikeService {
             return list
         } catch {
             lastError = error.localizedDescription
-            return []
+            return nil
         }
     }
 
