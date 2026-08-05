@@ -427,6 +427,8 @@ struct ConversationView: View {
     private static let typingAnchor = "typing-indicator"
     /// The scroll id of the unread band, so opening can land on it.
     private static let unreadAnchor = "unread-divider"
+    /// Air above and below the band. See `unreadBand`.
+    private static let bandSpacing: CGFloat = 16
 
     /// Where the divider goes, and how many are below it.
     ///
@@ -492,7 +494,14 @@ struct ConversationView: View {
         // Cancels the list's own inset so the band reaches both edges. The
         // bubbles are padded individually, so nothing else has to change.
         .padding(.horizontal, -16)
-        .padding(.vertical, 6)
+        // **Measured against the two gaps the thread already uses**, rather than
+        // picked. Bubbles sit 4.7pt apart inside a run and 13.3pt apart across a
+        // change of speaker, and the `LazyVStack` adds 5 on top — so at 6 the
+        // band was separated by 11pt, barely more than one person interrupting
+        // another. It is a larger break than either: not a new speaker but a new
+        // *sitting*. 16 puts 21pt on each side, comfortably clear of the 13.3
+        // that already means "somebody else is talking".
+        .padding(.vertical, Self.bandSpacing)
         .background(
             GeometryReader { geometry in
                 Color.clear.preference(
