@@ -1429,8 +1429,39 @@ struct AppMark: View {
         case "spotify": spotify
         case "health": health
         case "apple_calendar": calendar
+        case "google_calendar": googleCalendar
         default: unknown
         }
+    }
+
+    /// Google Calendar's mark: a white tile with the blue 31.
+    ///
+    /// **It has to be told from Apple's at 26 points**, which is the whole
+    /// constraint — the Events bar now carries both. Apple's is a *live* date
+    /// with a red weekday above it; Google's is the fixed **31** its icon has
+    /// always carried, in Google blue, with no weekday. Side by side that is
+    /// enough: one changes with the day and one never does.
+    ///
+    /// A first attempt gave it the blue-red-yellow-green run, which is Drive and
+    /// Photos rather than Calendar — the real mark is a plain white tile and the
+    /// numeral.
+    ///
+    /// Drawn rather than shipped, like every mark here: there are no brand
+    /// assets in the bundle, and at this size a tile and a numeral read as the
+    /// logo.
+    private var googleCalendar: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: diameter * 0.26)
+                .fill(.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: diameter * 0.26)
+                        .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
+                }
+            Text("31")
+                .font(.system(size: diameter * 0.46, weight: .medium))
+                .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.96))
+        }
+        .frame(width: diameter, height: diameter)
     }
 
     /// Apple Health's mark: a white tile with the pink-to-red heart.

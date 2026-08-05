@@ -177,3 +177,165 @@ User Info: {
     "sdk_variant" = iphonesimulator;
     "sdk_version_monotonic" = 2305008100;
 }
+2026-08-05 15:16:35.194 xcodebuild[13179:3666144]  iOSSimulator: D527271E-38D1-445A-B80A-15B6D6D37ACA: Failed to launch app with identifier: com.written.datingapp.WrittenUITests.xctrunner and options: {
+    "activate_suspended" = 1;
+    arguments =     (
+        "-probe",
+        podcasts,
+        "-push",
+        ask
+    );
+    environment =     {
+        "APP_DISTRIBUTOR_ID_OVERRIDE" = "com.apple.AppStore";
+        "CA_ASSERT_MAIN_THREAD_TRANSACTIONS" = 0;
+        "CA_DEBUG_TRANSACTIONS" = 0;
+        "DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks";
+        "DYLD_INSERT_LIBRARIES" = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        "DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib";
+        "LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/A38EFDE8-7C01-47BD-ACD9-A549DBC7C53B-13179-0000035BD693BE66/45AC4814-B058-45BB-9679-9963A43267BE-%p%c.profraw";
+        NSApplicationQuitWithoutSuddenTermination = YES;
+        NSUnbufferedIO = YES;
+        "OS_ACTIVITY_DT_MODE" = YES;
+        "PERFC_ENABLE_EXTENDED_DIAGNOSTIC_FORMAT" = 1;
+        "PERFC_ENABLE_PROFILE_MODE" = 1;
+        "PERFC_RESET_INSERT_LIBRARIES" = 1;
+        "PERFC_SUPPRESS_SYSTEM_REPORTS" = 1;
+        "RUN_DESTINATION_DEVICE_NAME" = "Clone 3 of audit-i17";
+        "RUN_DESTINATION_DEVICE_PLATFORM_IDENTIFIER" = "com.apple.platform.iphonesimulator";
+        "RUN_DESTINATION_DEVICE_UDID" = "D527271E-38D1-445A-B80A-15B6D6D37ACA";
+        "SQLITE_ENABLE_THREAD_ASSERTIONS" = 1;
+        "SWIFT_BACKTRACE" = "enable=no";
+        TERM = dumb;
+        "XCODE_SCHEME_NAME" = Written;
+        "XCODE_TEST_PLAN_NAME" = Written;
+        XCTestBundleInjectPath = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        XCTestBundlePath = "PlugIns/WrittenUITests.xctest";
+        XCTestConfigurationFilePath = "";
+        XCTestSessionIdentifier = "904F4F05-406A-4A61-87ED-FED53E44D3CF";
+        "__XCODE_BUILT_PRODUCTS_DIR_PATHS" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/A38EFDE8-7C01-47BD-ACD9-A549DBC7C53B-13179-0000035BD693BE66/45AC4814-B058-45BB-9679-9963A43267BE-%p%c.profraw";
+    };
+    stderr = "/dev/ttys007";
+    stdout = "/dev/ttys007";
+    "terminate_running_process" = 1;
+    "wait_for_debugger" = 1;
+} (error = Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner." UserInfo={NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSUnderlyingError=0x8dbf94630 {Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed." UserInfo={BSErrorCodeDescription=RequestDenied, NSLocalizedDescription=The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed., NSUnderlyingError=0x8dbf94480 {Error Domain=FBProcessExit Code=64 "The process failed to launch." UserInfo={NSUnderlyingError=0x8dbf94510 {Error Domain=RBSRequestErrorDomain Code=5 "Launch failed." UserInfo=0x8d791b5c0 (not displayed)}, BSErrorCodeDescription=launch-failed, NSLocalizedFailureReason=The process failed to launch.}}, FBSOpenApplicationRequestID=0x50e9, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace).}}, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace)., FBSOpenApplicationRequestID=0x50e9, SimCallingSelector=launchApplicationWithID:options:pid:error:, BSErrorCodeDescription=RequestDenied})
+2026-08-05 15:19:25.634 xcodebuild[13179:3661603]  iOSSimulator: 9C28B4A4-CA24-4280-A05D-5073412C00A5: Failed to launch app with identifier: com.written.datingapp.WrittenUITests.xctrunner and options: {
+    "activate_suspended" = 1;
+    arguments =     (
+        "-probe",
+        podcasts,
+        "-push",
+        ask
+    );
+    environment =     {
+        "APP_DISTRIBUTOR_ID_OVERRIDE" = "com.apple.AppStore";
+        "CA_ASSERT_MAIN_THREAD_TRANSACTIONS" = 0;
+        "CA_DEBUG_TRANSACTIONS" = 0;
+        "DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks";
+        "DYLD_INSERT_LIBRARIES" = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        "DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib";
+        "LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/0DBB0D4B-2661-4B33-AB70-36030B23DC65-13179-0000035B6BB44F56/CEC7CEF8-1296-47FA-9015-A5836FE518B4-%p%c.profraw";
+        NSApplicationQuitWithoutSuddenTermination = YES;
+        NSUnbufferedIO = YES;
+        "OS_ACTIVITY_DT_MODE" = YES;
+        "PERFC_ENABLE_EXTENDED_DIAGNOSTIC_FORMAT" = 1;
+        "PERFC_ENABLE_PROFILE_MODE" = 1;
+        "PERFC_RESET_INSERT_LIBRARIES" = 1;
+        "PERFC_SUPPRESS_SYSTEM_REPORTS" = 1;
+        "RUN_DESTINATION_DEVICE_NAME" = "Clone 2 of audit-i17";
+        "RUN_DESTINATION_DEVICE_PLATFORM_IDENTIFIER" = "com.apple.platform.iphonesimulator";
+        "RUN_DESTINATION_DEVICE_UDID" = "9C28B4A4-CA24-4280-A05D-5073412C00A5";
+        "SQLITE_ENABLE_THREAD_ASSERTIONS" = 1;
+        "SWIFT_BACKTRACE" = "enable=no";
+        TERM = dumb;
+        "XCODE_SCHEME_NAME" = Written;
+        "XCODE_TEST_PLAN_NAME" = Written;
+        XCTestBundleInjectPath = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        XCTestBundlePath = "PlugIns/WrittenUITests.xctest";
+        XCTestConfigurationFilePath = "";
+        XCTestSessionIdentifier = "9F235907-44CB-49CB-8FC2-4C0A959BB7DE";
+        "__XCODE_BUILT_PRODUCTS_DIR_PATHS" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/0DBB0D4B-2661-4B33-AB70-36030B23DC65-13179-0000035B6BB44F56/CEC7CEF8-1296-47FA-9015-A5836FE518B4-%p%c.profraw";
+    };
+    stderr = "/dev/ttys006";
+    stdout = "/dev/ttys006";
+    "terminate_running_process" = 1;
+    "wait_for_debugger" = 1;
+} (error = Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner." UserInfo={NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSUnderlyingError=0x8dbf945a0 {Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed." UserInfo={BSErrorCodeDescription=RequestDenied, NSLocalizedDescription=The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed., NSUnderlyingError=0x8dbf94600 {Error Domain=FBProcessExit Code=64 "The process failed to launch." UserInfo={NSUnderlyingError=0x8dbf95230 {Error Domain=RBSRequestErrorDomain Code=5 "Launch failed." UserInfo=0x8d7057080 (not displayed)}, BSErrorCodeDescription=launch-failed, NSLocalizedFailureReason=The process failed to launch.}}, FBSOpenApplicationRequestID=0xae0e, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace).}}, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace)., FBSOpenApplicationRequestID=0xae0e, SimCallingSelector=launchApplicationWithID:options:pid:error:, BSErrorCodeDescription=RequestDenied})
+2026-08-05 15:20:02.777 xcodebuild[13179:3712795]  iOSSimulator: 6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2: Failed to launch app with identifier: com.written.datingapp.WrittenUITests.xctrunner and options: {
+    "activate_suspended" = 1;
+    arguments =     (
+        "-probe",
+        podcasts,
+        "-push",
+        ask
+    );
+    environment =     {
+        "APP_DISTRIBUTOR_ID_OVERRIDE" = "com.apple.AppStore";
+        "CA_ASSERT_MAIN_THREAD_TRANSACTIONS" = 0;
+        "CA_DEBUG_TRANSACTIONS" = 0;
+        "DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks";
+        "DYLD_INSERT_LIBRARIES" = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        "DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator:/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib";
+        "LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/741C877C-A5F8-41D7-8810-0ADAE1D3218D-13179-0000035C88B5DB73/C01F9D2C-E9BC-4B3C-BED6-DC5E43B3C7A2-%p%c.profraw";
+        NSApplicationQuitWithoutSuddenTermination = YES;
+        NSUnbufferedIO = YES;
+        "OS_ACTIVITY_DT_MODE" = YES;
+        "PERFC_ENABLE_EXTENDED_DIAGNOSTIC_FORMAT" = 1;
+        "PERFC_ENABLE_PROFILE_MODE" = 1;
+        "PERFC_RESET_INSERT_LIBRARIES" = 1;
+        "PERFC_SUPPRESS_SYSTEM_REPORTS" = 1;
+        "RUN_DESTINATION_DEVICE_NAME" = "Clone 4 of audit-i17";
+        "RUN_DESTINATION_DEVICE_PLATFORM_IDENTIFIER" = "com.apple.platform.iphonesimulator";
+        "RUN_DESTINATION_DEVICE_UDID" = "6A6C4D6A-07F8-4F96-AA07-0E57F02D6BA2";
+        "SQLITE_ENABLE_THREAD_ASSERTIONS" = 1;
+        "SWIFT_BACKTRACE" = "enable=no";
+        TERM = dumb;
+        "XCODE_SCHEME_NAME" = Written;
+        "XCODE_TEST_PLAN_NAME" = Written;
+        XCTestBundleInjectPath = "/usr/lib/libRPAC.dylib:/Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/usr/lib/libMainThreadChecker.dylib:/usr/lib/libRPAC.dylib";
+        XCTestBundlePath = "PlugIns/WrittenUITests.xctest";
+        XCTestConfigurationFilePath = "";
+        XCTestSessionIdentifier = "B835E581-0010-40B9-A957-0934AD696365";
+        "__XCODE_BUILT_PRODUCTS_DIR_PATHS" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_FRAMEWORK_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_DYLD_LIBRARY_PATH" = "/Users/shingheimok/Library/Developer/Xcode/DerivedData/Written-aomxzmeccwvsxyblvyaadgqusuyw/Build/Products/Debug-iphonesimulator";
+        "__XPC_LLVM_PROFILE_FILE" = "/var/folders/zq/8cbfcwd96rxcn4kgyh084xz40000gn/T/com.written.datingapp.WrittenUITests.xctrunner/741C877C-A5F8-41D7-8810-0ADAE1D3218D-13179-0000035C88B5DB73/C01F9D2C-E9BC-4B3C-BED6-DC5E43B3C7A2-%p%c.profraw";
+    };
+    stderr = "/dev/ttys008";
+    stdout = "/dev/ttys008";
+    "terminate_running_process" = 1;
+    "wait_for_debugger" = 1;
+} (error = Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner." UserInfo={NSLocalizedDescription=Simulator device failed to launch com.written.datingapp.WrittenUITests.xctrunner., NSUnderlyingError=0x8dc4643f0 {Error Domain=FBSOpenApplicationServiceErrorDomain Code=1 "The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed." UserInfo={BSErrorCodeDescription=RequestDenied, NSLocalizedDescription=The request to open "com.written.datingapp.WrittenUITests.xctrunner" failed., NSUnderlyingError=0x8dbf95230 {Error Domain=FBProcessExit Code=64 "The process failed to launch." UserInfo={NSUnderlyingError=0x8dbf95260 {Error Domain=RBSRequestErrorDomain Code=5 "Launch failed." UserInfo=0x8d44ecfc0 (not displayed)}, BSErrorCodeDescription=launch-failed, NSLocalizedFailureReason=The process failed to launch.}}, FBSOpenApplicationRequestID=0xacd9, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace).}}, NSLocalizedFailureReason=The request was denied by service delegate (SBMainWorkspace)., FBSOpenApplicationRequestID=0xacd9, SimCallingSelector=launchApplicationWithID:options:pid:error:, BSErrorCodeDescription=RequestDenied})
+2026-08-05 15:21:00.817 xcodebuild[13179:3562476] [MT] IDETestOperationsObserverDebug: 2749.088 elapsed -- Testing started completed.
+2026-08-05 15:21:00.826 xcodebuild[13179:3562476] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-08-05 15:21:00.831 xcodebuild[13179:3562476] [MT] IDETestOperationsObserverDebug: 2749.088 sec, +2749.088 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/shingheimok/Desktop/WrittenApp/out/layout/i17_default.xcresult
+
+Testing failed:
+	Failed to send signal 19 to process 35659: 3
+	Failed to send signal 19 to process 43669: 3
+
+Failing tests:
+	HealthPermissionTests.testConnectingHealthResolvesRatherThanSpinning()
+	LayoutAuditTests.testDumpEveryScreen()
+	SwipeActionsTests.testSwipingARowRevealsUnmatchThenReport()
+	SwipeActionsTests.testTheListStillScrolls()
+
+** TEST EXECUTE FAILED **
+
+Testing started
+Test suite 'HealthPermissionTests' started on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)'
+Test case 'HealthPermissionTests.testConnectingHealthResolvesRatherThanSpinning()' failed on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)' (52.217 seconds)
+Test suite 'LayoutAuditTests' started on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)'
+Test case 'LayoutAuditTests.testDumpEveryScreen()' failed on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)' (410.742 seconds)
+Test suite 'SwipeActionsTests' started on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)'
+Test case 'SwipeActionsTests.testSwipingARowRevealsUnmatchThenReport()' failed on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)' (298.188 seconds)
+Test case 'SwipeActionsTests.testTheListStillScrolls()' failed on 'Clone 1 of audit-i17 - WrittenUITests-Runner (19825)' (670.970 seconds)

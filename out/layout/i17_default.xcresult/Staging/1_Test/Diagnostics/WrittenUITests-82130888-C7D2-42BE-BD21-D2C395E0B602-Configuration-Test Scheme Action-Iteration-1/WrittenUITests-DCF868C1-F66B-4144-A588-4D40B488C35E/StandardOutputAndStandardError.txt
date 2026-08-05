@@ -1,4 +1,0 @@
-
-
-*** If you believe this error represents a bug, please attach the result bundle at /Users/shingheimok/Desktop/WrittenApp/out/layout/i17_default.xcresult
-
