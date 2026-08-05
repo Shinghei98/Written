@@ -1584,17 +1584,24 @@ struct AppMark: View {
     /// the badge on the plant and the mark in the bar agree; Apple's own
     /// concentric-arc figure has no SF Symbol equivalent and would read as mush
     /// at this size anyway.
-    /// Apple Podcasts' mark: the broadcast figure on purple.
+    /// Apple Podcasts' mark: the broadcast figure inside three discs.
     ///
-    /// **Measured off the app icon rather than approximated.** It drew a
-    /// `mic.fill` before, which is a microphone and not what Apple ships — the
-    /// real glyph is a circle over a tapered body inside two faint rings, the
-    /// "someone broadcasting" figure. Colours sampled from the icon: the tile
-    /// runs rgb(155,88,205) at the top to rgb(111,54,168) at the bottom, and the
-    /// rings are the same purple lightened rather than white.
+    /// **They are filled discs, not stroked rings**, and that was the error in
+    /// the previous draft — two thin white circles on a flat tile, which read as
+    /// one uniform purple square. A radial scan of the real icon, by fraction of
+    /// the tile:
     ///
-    /// Proportions, also measured, as fractions of the tile: the glyph is 0.25
-    /// wide and 0.56 tall, the head about 0.17 across.
+    ///     r 0.00–0.06   white                the figure
+    ///     r 0.08–0.20   rgb(181,148,208)     inner disc, palest
+    ///     r 0.216       rgb(233,198,255)     bright rim
+    ///     r 0.24–0.33   rgb(157,111,197)     middle disc
+    ///     r 0.353       rgb(203,154,245)     bright rim
+    ///     r 0.37+       rgb(130,70,184)      the tile, darkest
+    ///
+    /// So each disc is paler than the one outside it, and the boundaries are
+    /// bright rims rather than shadows. The tile itself also runs a vertical
+    /// gradient — rgb(155,88,205) at the top to rgb(111,54,168) at the bottom —
+    /// which is why a single flat purple looks nothing like it.
     private var applePodcasts: some View {
         ZStack {
             RoundedRectangle(cornerRadius: diameter * 0.26)
@@ -1609,31 +1616,40 @@ struct AppMark: View {
                     )
                 )
 
-            // The two broadcast rings, lightened rather than white — at this
-            // size a white ring reads as a border on the tile.
+            // Middle disc, 0.71 across, with its brighter rim.
             Circle()
-                .strokeBorder(.white.opacity(0.28), lineWidth: diameter * 0.055)
-                .frame(width: diameter * 0.70, height: diameter * 0.70)
-                .offset(y: -diameter * 0.04)
+                .fill(Color(red: 0.616, green: 0.435, blue: 0.773))
+                .overlay {
+                    Circle().strokeBorder(
+                        Color(red: 0.796, green: 0.604, blue: 0.961),
+                        lineWidth: diameter * 0.022
+                    )
+                }
+                .frame(width: diameter * 0.71, height: diameter * 0.71)
+
+            // Inner disc, 0.43 across, paler again.
             Circle()
-                .strokeBorder(.white.opacity(0.34), lineWidth: diameter * 0.05)
-                .frame(width: diameter * 0.44, height: diameter * 0.44)
-                .offset(y: -diameter * 0.04)
+                .fill(Color(red: 0.710, green: 0.580, blue: 0.816))
+                .overlay {
+                    Circle().strokeBorder(
+                        Color(red: 0.914, green: 0.776, blue: 1.000),
+                        lineWidth: diameter * 0.020
+                    )
+                }
+                .frame(width: diameter * 0.43, height: diameter * 0.43)
 
             // The head.
             Circle()
                 .fill(.white)
                 .frame(width: diameter * 0.17, height: diameter * 0.17)
-                .offset(y: -diameter * 0.12)
+                .offset(y: -diameter * 0.10)
 
-            // The body: wide at the shoulders, tapering to a rounded point.
-            // A capsule would be simpler and reads as a pill rather than a
-            // figure, which is the difference between this and the microphone
-            // it replaced.
+            // The body: wide at the shoulders, tapering to a rounded point. A
+            // capsule reads as a pill rather than a figure.
             PodcastBody()
                 .fill(.white)
                 .frame(width: diameter * 0.20, height: diameter * 0.30)
-                .offset(y: diameter * 0.16)
+                .offset(y: diameter * 0.17)
         }
         .frame(width: diameter, height: diameter)
     }
