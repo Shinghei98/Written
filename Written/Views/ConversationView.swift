@@ -382,12 +382,28 @@ struct ConversationView: View {
             // A child's `minY` in this space is its offset from the *visible*
             // top rather than from the content's, which is what makes "is the
             // band on screen" answerable without tracking scroll offsets.
-            // Straight to the end from the cached messages, before the network
-            // has answered. Unanimated because this is where the page opens; the
-            // load a moment later refines it to the unread band if there is one.
+            // **Hidden until it is sitting where it belongs.** On iOS 16 the
+            // initial layout at the top of the content cannot be prevented —
+            // `defaultScrollAnchor` is 17 — only hidden, so the list draws at
+            // zero opacity and appears already at the end. One frame of empty
+            // parchment instead of a visible journey down the thread.
+            //
+            // A `scrollTo` here used to try to do this and could not: a
+            // `LazyVStack` builds from the top, so at `onAppear` the last
+            // message has no view to scroll to and the call is a no-op.
+            .opacity(isPositioned ? 1 : 0)
+            // **A hang must not leave a blank page.** Everything above reveals
+            // the thread once it is positioned, and all of it hangs off the
+            // first fetch — so a request that never returns would hold the
+            // screen empty for the sixty seconds `URLSession` allows. Half a
+            // second is longer than any load that is going to succeed quickly,
+            // and a thread that arrives unpositioned is worth vastly more than
+            // one that never arrives.
             .onAppear {
-                guard let last = messages.last?.id else { return }
-                proxy.scrollTo(last, anchor: .bottom)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    isPositioned = true
+                }
             }
             .coordinateSpace(name: Self.threadSpace)
             .background(
@@ -428,6 +444,9 @@ struct ConversationView: View {
     /// Flipped after the first fetch, purely so something can be observed. The
     /// value means nothing; the transition is the signal.
     @State private var hasLoadedOnce = false
+    /// Whether the thread has been put where it opens. Until it has, the list is
+    /// drawn but invisible.
+    @State private var isPositioned = false
 
     private static let threadSpace = "thread"
     /// The band's offset from the top of the visible area, or nil when it has
@@ -512,18 +531,47 @@ struct ConversationView: View {
             // its chance to report.
             Task { @MainActor in
                 await Task.yield()
-                guard !isBandOnScreen else { return }
                 // Unanimated: this is where the page *opens*, not somewhere it
                 // travels to, and a visible slide would read as the thread
                 // moving on its own.
-                proxy.scrollTo(Self.unreadAnchor, anchor: .center)
+                if !isBandOnScreen {
+                    proxy.scrollTo(Self.unreadAnchor, anchor: .center)
+                }
+                reveal()
             }
             return
         }
         let target = isPartnerTyping ? Self.typingAnchor : messages.last?.id
-        guard let target else { return }
-        withAnimation(.easeOut(duration: 0.25)) {
+        guard let target else {
+            // Nothing to scroll to — an accepted like nobody has written in.
+            // Still counts as positioned, or the thread stays hidden forever.
+            reveal()
+            return
+        }
+        // **The first one is not animated, and every later one is.** Animation
+        // is for movement somebody is watching: a message arriving, the typing
+        // dots pushing the thread up. Opening a page is not movement, and that
+        // quarter second was the whole of the slide from the top.
+        if isPositioned {
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo(target, anchor: .bottom)
+            reveal()
+        }
+    }
+
+    /// Shows the thread, once it is sitting where it belongs.
+    ///
+    /// **On the next runloop, not this one.** The scroll has to settle before
+    /// the content appears, or the first frame drawn is still the top — which is
+    /// the thing being hidden.
+    private func reveal() {
+        guard !isPositioned else { return }
+        Task { @MainActor in
+            await Task.yield()
+            isPositioned = true
         }
     }
 
