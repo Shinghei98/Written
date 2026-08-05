@@ -250,6 +250,7 @@ struct AppShell: View {
         // that follows it, and a PostgREST message underneath would only be the
         // same fact in worse words.
         .onChange(of: notifications.pending) { _ in openTabForNotification() }
+        .onChange(of: tab) { moved in askForNotificationsIfDue(arrivingAt: moved) }
         .statusBanner(
             reachability.isOnline ? viewModel.saveError : "You're offline. Changes won't save.",
             isWarning: true
@@ -375,6 +376,35 @@ struct AppShell: View {
 
     /// "Explore" on the profile preview: the one moment onboarding ends.
     ///
+    /// Asks for notification permission on arriving at Explore or Chat.
+    ///
+    /// **It used to be asked on somebody's first admirer, and that was the
+    /// wrong moment by exactly one event.** The question was put *after* the
+    /// like or message that would have used it, so the first one anybody
+    /// received could never notify them — reported as being asked only when the
+    /// first message arrived, which is the feature working as built. Reaching
+    /// Explore is the end of onboarding and the first moment somebody is
+    /// discoverable, so it is the last point before a like is possible.
+    ///
+    /// **Keyed on the tab moving, not on a `.task`.** Every tab is mounted at
+    /// once, so any `.task` here fires during start-up for everybody — which is
+    /// the shape that stopped HealthKit's sheet drawing at all. A tab change is
+    /// a deliberate move by somebody already looking at the app, and neither
+    /// Explore nor Chat is where a source gets connected.
+    ///
+    /// One site rather than two: `PushService.askIfNeeded` handles asking once
+    /// per launch and never re-asking somebody who has answered.
+    ///
+    /// **No `isOnboarding` guard, deliberately.** Neither tab is reachable
+    /// during onboarding — there is no bar, and `finishOnboarding` is the only
+    /// route to `.explore` — so the flag would add nothing except a race with
+    /// itself: it and `tab` are set in the same transaction, and testing both
+    /// makes the correct behaviour depend on which SwiftUI applies first.
+    private func askForNotificationsIfDue(arrivingAt destination: MainTab) {
+        guard destination == .explore || destination == .chat else { return }
+        Task { await PushService.shared.askIfNeeded() }
+    }
+
     /// Moves to Chat when a notification was tapped.
     ///
     /// **Only the tab.** Which admirer or which thread is `ChatView`'s to open,

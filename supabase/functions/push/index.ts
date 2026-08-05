@@ -286,6 +286,13 @@ async function send(
       // 10 is "deliver now". A 5 would let iOS hold it back for battery, which
       // for a message is the wrong trade.
       "apns-priority": "10",
+      // **Absent, this defaults to 0 — deliver once, now, and discard if the
+      // device cannot be reached.** Somebody in a lift or on a plane loses the
+      // notification outright rather than getting it late, and nothing anywhere
+      // reports that it happened. Four hours: long enough to survive a flight,
+      // short enough that "Marco likes you" is not delivered the following
+      // afternoon as though it had just happened.
+      "apns-expiration": String(Math.floor(Date.now() / 1000) + 4 * 3600),
       "content-type": "application/json",
     },
     body: JSON.stringify({
