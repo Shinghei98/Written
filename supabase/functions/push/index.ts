@@ -197,9 +197,68 @@ interface Payload {
   // where a tap handler reads them; nothing draws them yet.
   category?: string;
   thread?: string;
+  // Who it is *from* — see `0025`. Not the recipient. Used to find a face.
+  sender_id?: string;
 }
 
-async function send(device: Device, payload: Payload): Promise<string> {
+/// A short-lived URL for the sender's first profile photograph, or null.
+///
+/// **Signed here rather than passed in by the trigger.** The trigger could join
+/// `public.photos` and hand over a path, which would put storage layout in the
+/// schema and give it a second place to change. This function already holds the
+/// secret key and already speaks to the REST API.
+///
+/// **Null is a normal answer and must stay cheap.** Somebody with no photograph,
+/// a synthetic account seeded with only a portrait *seed*, or a storage hiccup
+/// all land here — and the notification still has to go. A banner that arrives
+/// without a face beats one that does not arrive, so every failure below returns
+/// null rather than throwing.
+async function senderPhotoURL(senderId: string): Promise<string | null> {
+  try {
+    const rows = await fetch(
+      `${SUPABASE_URL}/rest/v1/photos?user_id=eq.${senderId}` +
+        `&select=object_path&order=position.asc&limit=1`,
+      { headers: { apikey: SECRET_KEY, Authorization: `Bearer ${SECRET_KEY}` } },
+    );
+    if (!rows.ok) return null;
+    const found = await rows.json();
+    const path = found?.[0]?.object_path;
+    if (!path) return null;
+
+    // `profile-photos` is private by design — a public bucket is readable by URL
+    // with no account at all, which would put faces on the open web the moment
+    // one link escaped. So the extension gets a signature rather than a path.
+    //
+    // An hour, because a notification can sit undelivered on a locked or
+    // offline phone and a URL that expires first draws nothing. It is longer
+    // than the app's own signed URLs and bounded by the same thing: the link
+    // reveals one photograph that any signed-in user could already see.
+    const signed = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/sign/profile-photos/${path}`,
+      {
+        method: "POST",
+        headers: {
+          apikey: SECRET_KEY,
+          Authorization: `Bearer ${SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      },
+    );
+    if (!signed.ok) return null;
+    const { signedURL } = await signed.json();
+    // The API answers a path beginning `/object/sign/…`, not an absolute URL.
+    return signedURL ? `${SUPABASE_URL}/storage/v1${signedURL}` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function send(
+  device: Device,
+  payload: Payload,
+  imageURL: string | null,
+): Promise<string> {
   const host = HOSTS[device.environment] ?? HOSTS.production;
   const response = await fetch(`${host}/3/device/${device.token}`, {
     method: "POST",
@@ -224,6 +283,13 @@ async function send(device: Device, payload: Payload): Promise<string> {
         "mutable-content": 1,
       },
       category: payload.category ?? "",
+      // Read by the Notification Service Extension, which turns them into an
+      // `INSendMessageIntent` so the banner renders as a person rather than as
+      // this app. Absent or null when the sender has no photograph — the
+      // extension falls back to the plain banner, which is why neither is
+      // required.
+      sender_id: payload.sender_id ?? null,
+      image_url: imageURL,
     }),
   });
 
@@ -293,10 +359,22 @@ Deno.serve(async (req: Request) => {
     return json({ sent: 0, note: "no devices" }, 200);
   }
 
-  const results = await Promise.all(targets.map((d) => send(d, payload)));
+  // Signed once for the whole fan-out rather than per device: one person's
+  // phone and iPad want the same face, and the signing round trip is the
+  // expensive part of this function.
+  const imageURL = payload.sender_id
+    ? await senderPhotoURL(payload.sender_id)
+    : null;
+
+  const results = await Promise.all(targets.map((d) => send(d, payload, imageURL)));
   const sent = results.filter((r) => r === "ok").length;
+  // `face=no` is the one that will need explaining: it means the sender has no
+  // photograph, or storage could not sign one, and the banner arrives plain
+  // rather than as a person. Both are survivable and neither is visible from
+  // the phone, so the log is the only place either is ever said.
   console.log(
     `${payload.category ?? "push"}: ${sent}/${targets.length} delivered` +
+      ` face=${imageURL ? "yes" : "no"}` +
       (sent === targets.length ? "" : ` — ${results.filter((r) => r !== "ok").join("; ")}`),
   );
   return json({ sent, results }, 200);
