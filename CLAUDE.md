@@ -1569,6 +1569,20 @@ Three things generalise from it:
   fills the id in on a cold launch. Guarding on it first reports "not signed in"
   for a session that is merely not restored yet — the same bug wearing different
   words, and it was written into `pushUserObject` while fixing this one.
+
+  **It was then written eleven more times, and it broke the whole Chat tab.**
+  Every fetch in `ChatService` and `LikeService` guarded on the raw property, so
+  on a cold launch each answered "not signed in" and returned `[]` — and an
+  empty list is indistinguishable from an account with no threads, so the tab
+  simply drew "No conversations yet" and no admirers, on every launch, until
+  something else happened to reload it. It surfaced only because a tapped
+  notification could not find its conversation, and two attempts at fixing
+  *that* — a retry loop, then a fetch by id — each contained the same bug again.
+
+  **`SupabaseAuth.currentUserID()` is the fix and the rule.** It awaits
+  `validAccessToken()` and then reads the property, and it is what any code
+  needing a user id before a request should call. The raw property is a cache;
+  reaching for it is the mistake, not forgetting to await something near it.
 - **Every `return false` on a push path must set `lastError` first**, or a dead
   session reports itself as a network problem and sends the user to check their
   signal.
