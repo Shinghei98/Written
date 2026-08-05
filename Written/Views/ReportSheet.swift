@@ -36,6 +36,10 @@ struct ReportSheet: View {
             subtitle: "Every report is read by a person, and this one stays "
                 + "between you and us. Tell us what happened.",
             confirmEnabled: !trimmed.isEmpty,
+            // Matches `ProfileActionsSheet`, which is one of the two things that
+            // raises this — handing over between them must not look like the
+            // page lighting up.
+            dim: 0.42,
             confirmTitle: "Report",
             onConfirm: { onSend(trimmed) },
             onCancel: onCancel

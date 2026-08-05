@@ -26,6 +26,14 @@ struct BiographicsSheet<Content: View>: View {
     /// "Confirm" everywhere it is a biographics row. The report sheet says
     /// "Report", because a button that names what it does is the difference
     /// between confirming an edit and accusing somebody.
+    /// How far the page behind is dimmed.
+    ///
+    /// A birthday sheet is a small edit and 0.18 is enough to say "this first".
+    /// A decision *about a person* wants more — and it has to match whatever
+    /// raised it, or handing over from one sheet to the next reads as the screen
+    /// brightening. `ProfileActionsSheet` dims to 0.42, so `ReportSheet` does
+    /// too.
+    var dim: Double = 0.18
     var confirmTitle = "Confirm"
     let onConfirm: () -> Void
     let onCancel: () -> Void
@@ -33,7 +41,7 @@ struct BiographicsSheet<Content: View>: View {
 
     var body: some View {
         ZStack {
-            GardenPalette.ink.opacity(0.18)
+            GardenPalette.ink.opacity(dim)
                 .ignoresSafeArea()
                 .onTapGesture(perform: onCancel)
 

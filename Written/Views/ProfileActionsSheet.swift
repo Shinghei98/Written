@@ -31,12 +31,18 @@ struct ProfileActionsSheet: View {
 
     var body: some View {
         ZStack {
-            GardenPalette.ink.opacity(0.18)
+            // **Darker than `BiographicsSheet`'s, and it takes every tap.**
+            // That sheet dims to 0.18 and closes when you tap outside, which is
+            // right for editing a birthday and wrong here: the feed behind is a
+            // scrolling wall of faces, and a decision about one of them should
+            // not be dismissible by the same flick that was already in progress.
+            //
+            // No `onTapGesture`, deliberately — a plain `Color` is hit-testable,
+            // so this both dims the feed and makes it unreachable. The way out
+            // is Cancel, which is why Cancel is a full-width row of its own
+            // rather than a corner glyph.
+            GardenPalette.ink.opacity(0.42)
                 .ignoresSafeArea()
-                // Tapping away is a way out. It cancels rather than choosing,
-                // which is the only safe reading of a tap that landed outside
-                // two buttons, one of which accuses somebody.
-                .onTapGesture(perform: onCancel)
 
             // **Two cards, not three rows.** The gap is what makes Cancel read
             // as "none of these" rather than as a third thing you might be
@@ -79,7 +85,13 @@ struct ProfileActionsSheet: View {
     private func row(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(BrandFont.body(17))
+                // `.system` semibold rather than `BrandFont`, and that is not a
+                // slip: only Quicksand *Regular* is registered, so asking the
+                // brand face for weight would synthesise a faux bold — thicker
+                // strokes smeared off the regular one, which reads as blurry at
+                // this size. The system face has a real semibold, and it is
+                // what every other prominent button in the app already uses.
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
