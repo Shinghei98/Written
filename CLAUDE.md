@@ -1194,7 +1194,10 @@ an app to unexpected sound is worse than tapping once to ask for it.
 
 ## The share extension
 
-`ShareToWritten` is a second target — the first this project has had. It needs
+`ShareToWritten` is the second of three targets — the first this project had.
+(`NotificationService` is the third; see the notifications section, and note it
+deliberately carries *neither* the App Group nor the keychain group, because its
+image URL arrives pre-signed and it needs no session at all.) It needs
 three things on **both** targets: the App Group, a shared keychain group so the
 extension can read the session and post as that user, and matching bundle ids.
 Verify entitlements in the *signed* binary, not the `.entitlements` file; Xcode
@@ -1275,10 +1278,23 @@ the banner, through a real ES256 signature and a real sandbox token.
 
 **`pg_net` is fire-and-forget and that is the point.** `net.http_post` queues and
 returns, so a slow or dead APNs cannot make a like fail. The cost is that a
-failure is invisible from SQL — it lands in the function's logs and nowhere the
-app would ever see. Right trade here: not being notified is a disappointment,
-not being able to like somebody is a broken app. **So when a notification does
-not arrive, Edge Functions → push → Logs is the only place the answer exists.**
+failure is invisible from the app. Right trade here: not being notified is a
+disappointment, not being able to like somebody is a broken app.
+
+**But it is not invisible from SQL, and believing it was cost an hour.**
+`pg_net` records every response in **`net._http_response`**, readable from the
+SQL editor:
+
+    select (content::jsonb ->> 'face') as face, status_code, created
+      from net._http_response order by created desc limit 3;
+
+The function's own log lines went unfindable for a known `execution_id` — the
+viewer would not show them at any severity — and the fix was to stop logging the
+diagnosis and *return* it, where `pg_net` writes it down. **Anything the function
+needs to say should travel in the response body**, not only to `console`: the
+body needs no log viewer, no curl, and no copy of `PUSH_SECRET`. That
+`net._http_response` exists was written into `0020`'s own header comment and
+still took an hour to reach for.
 
 **The URL and the shared secret live in `private.push_config`**, a table in a
 schema nothing is granted on, filled in by hand. Not a GUC (invisible to the
@@ -1322,20 +1338,123 @@ nothing could satisfy it, including the app. `PUSH_SECRET` and the
   despite the stale name. A first draft preferred `SUPABASE_SECRET_KEY` — a name
   that can never exist — and would have fallen through forever without saying so.
 
-**The recurring defect appeared twice more here**, in code written after the
-lesson was already in this file. `devices()` returned `[]` for a request it
-could not make, and the caller reports that as `{"sent":0,"note":"no devices"}`
-— a *success* — so a dead key would have made every notification vanish while
-the logs said everything was fine. And an unset `PUSH_SECRET` and a wrong one
-were one condition and one 401, which want opposite fixes. Both now name
-themselves. That makes six instances of *a call that can fail, a result nobody
-reads, and the symptom surfacing somewhere else.*
+**`create or replace function` does not replace a function whose *signature*
+changed — it overloads it.** Adding `sender uuid default null` to
+`private.notify` left `0020`'s five-argument version in place beside the new
+one; `pg_proc` answered two rows. Nothing broke, which is the dangerous part:
+every trigger passed six arguments and only the six-argument function matches
+that. What was left was a **latent ambiguity** — both have four required
+parameters and defaults after, so any four- or five-argument call matches both
+and Postgres refuses it with `42725`, *from inside a trigger on `likes`*, where
+the like fails rather than the notification. `0026` cleared the pair up and
+`0027` drops before creating. **Changing a function's parameters means `drop
+function` naming the old signature in full.**
 
-**Not built, and each is a decision rather than an oversight:** a photograph in
-the banner needs a Notification Service Extension, a third build target; badge
-counts are a separate mechanism and an unread count that never clears is its own
-bug; and taps do not route anywhere, though the payload already carries
-`category` and `thread`.
+**The recurring defect appeared three more times here**, in code written after
+the lesson was already in this file — twice in the same file on the same night,
+the second time three functions below the first fix. `devices()` returned `[]`
+for a request it could not make, which the caller reports as
+`{"sent":0,"note":"no devices"}` — a *success*. An unset `PUSH_SECRET` and a
+wrong one were one condition and one 401, wanting opposite fixes. And
+`senderPhotoURL` returned null from a refused query, an empty result, a refused
+signature and a thrown exception identically, so `face=no` could not distinguish
+"this person has no photograph" from "storage would not sign". That makes
+**seven** instances of *a call that can fail, a result nobody reads, and the
+symptom surfacing somewhere else.*
+
+### The banner is a person, not an app
+
+`NotificationService` — the project's **third** target — turns each notification
+into a communication notification: the sender's photograph on the left, their
+name where the app's name would be, the message beneath. Proven on device
+2026-08-05 for all three events.
+
+**A `UNNotificationAttachment` cannot do this.** It puts a thumbnail on the
+*right*, beside the app icon, and the banner still says "Written". The person
+treatment needs **three things in three different places, each of which silently
+does nothing on its own**:
+
+- `com.apple.developer.usernotifications.communication` in `Written.entitlements`
+- `INSendMessageIntent` in `NSUserActivityTypes`
+- an `INSendMessageIntent` donated from the extension, then
+  `content.updating(from: intent)`
+
+**That Info.plist key needs a real file, because `INFOPLIST_KEY_` ignores names
+it does not know.** The app declares everything else through `INFOPLIST_KEY_*`
+build settings and has no plist of its own, so `INFOPLIST_KEY_NSUserActivityTypes`
+was the obvious move — and Xcode wrote nothing at all. No error, no warning, a
+built plist without the key. `Written-Info.plist` exists for that one key, at the
+repo root beside `Written.entitlements` rather than under `Written/`, because
+that folder is a synchronized group and a plist swept into Copy Bundle Resources
+ships twice. **Read the built `Info.plist`, never the setting.**
+
+**`updating(from:)` renames the title to the sender's display name**, which is
+why `0027` passes `sender_name` and `subtitle` separately. The title is a
+headline — "Marco likes you" — and using it as a display name announces somebody
+called "Marco likes you". The headline moves to `subtitle`, which
+`updating(from:)` leaves alone.
+
+**The photograph is signed server-side.** `functions/push` looks up
+`public.photos`, signs a one-hour URL against the private `profile-photos`
+bucket, and puts it in the payload; the extension only downloads. An extension
+that authenticated for itself would need the session out of the shared keychain
+and a refresh, inside a process with a thirty-second life, for a picture. An
+hour because a notification can wait on a locked phone, and bounded by the fact
+that the link reveals one photograph any signed-in user could already see.
+
+**Everything in the extension falls back to the plain banner** — a missing
+photograph, an expired URL, a rejected intent. A notification that arrives
+looking ordinary is enormously better than one that does not arrive.
+
+Two smaller ones: `INPersonHandle` is `.unknown` rather than an email or phone,
+because claiming either invites iOS to match against Contacts and put somebody's
+saved contact photo on a stranger's profile; and `INInteraction.direction` must
+be set to `.incoming`, since the default is outgoing and would teach Siri that
+*you* messaged everyone who has ever messaged you.
+
+**The small app icon badged on the avatar is iOS's, not ours.** Every
+communication notification carries it and there is no API to remove it.
+
+### The invitation becomes the first message
+
+`0018` let a like carry a note, and once accepted that sentence had nowhere to
+go — the admirers row disappeared with the like and the thread opened empty. A
+trigger on `conversations` insert copies it in as a message from the liker,
+stamped with the *like's* `created_at`.
+
+**A trigger rather than app code, and that is forced.** The conversation is
+created by the accepter, the message must come from the liker, and `0009` gives
+`messages` an insert policy of `auth.uid() = sender_id`. The only client
+positioned to write the row is the one person forbidden from writing it.
+
+**It notifies nobody, tested by timestamp rather than a flag.** A message
+carrying the like's time necessarily predates a conversation that exists only
+because the like was accepted, so a message older than its own conversation
+cannot be one somebody sent. Anything typed in gets `now()` and is later by
+construction.
+
+### An attachment with no caption
+
+`0010` relaxed the body constraint so a photo could travel without words, and the
+app satisfies `not null` with an empty string. The notification passed it through
+unread, so an uncaptioned attachment produced the sender's name and **a blank
+line** — with voice notes the worst case, since nothing in the app ever pairs
+text with one, so every voice message would have notified as nothing. It says
+`📷 Photo` / `📹 Video` / `🎤 Voice message` now, and a caption still wins where
+there is one.
+
+**Emoji rather than SF Symbols, and that is the medium.** An APNs alert body is
+plain text rendered by SpringBoard — no attributed string, no reach into the
+symbol set the app draws with. The chat list uses `camera.fill` / `video.fill` /
+`mic.fill` for the same three, which is right there and impossible in a banner.
+While checking it, `ChatView.lastLine` turned out to test only for `audio` and
+let everything else fall through to a camera, so **an uncaptioned video called
+itself "Photo"** — visible only to somebody who had sent one.
+
+**Not built, and each is a decision rather than an oversight:** badge counts are
+a separate mechanism and an unread count that never clears is its own bug; and
+taps do not route anywhere, though the payload already carries `category` and
+`thread`.
 
 ## Known gaps
 
@@ -1343,15 +1462,20 @@ Real, deliberate, and unfinished as of 2026-08-05. Ordered by what would hurt
 soonest. Delete an entry when it stops being true rather than letting the list
 rot — a stale gap list is worse than none.
 
-**Notifications are proven for a like and unproven for the other two.** The
-match and message triggers are written and applied and have never fired. Both
-are testable from the SQL editor without a secret key — accept a like on the
-device for the match, then insert a `messages` row from the other side — and the
-match leg can only be read in the function's logs, because the synthetic
-accounts have no devices. **Production is untested entirely**: every token so
-far is `sandbox`, and a TestFlight build mints a production one against a
-different host. That is the same shape of mistake as testing HealthKit on a
-phone that has already been asked.
+**Notifications are proven on sandbox and untested on production.** All three
+events, the avatar and the attachment previews were confirmed on a real device
+on 2026-08-05 — but every device token so far reads `sandbox`. A TestFlight
+build mints a **production** token against a different host, and nothing has
+exercised it. Build 19 is the first archive containing `NotificationService`
+(18 predates the target and is the plain-banner version). Confirm a second
+`device_tokens` row reading `production`, then send one message and check the
+face still arrives. Same shape of mistake as testing HealthKit on a phone that
+has already been asked.
+
+**A notification tap opens the app wherever it left off.** The payload carries
+`category` and `thread` and nothing reads them, so tapping a message notification
+does not open that conversation. The most obviously missing half of the feature
+once the banners themselves work.
 
 **The site is registered and not deployed.** `written-stl.com` exists at
 Cloudflare and resolves to nothing. `SignInView` links three pages on it, so the
@@ -1732,10 +1856,14 @@ the shape of mistake that made the July rotation confusing.
 **Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 15, which
 is archived but predates the discovery, crop and authentication work — uploading
 it would give testers a build that fixes nothing they reported.
-It appears **six times** in `project.pbxproj` — Debug and Release for the app,
-the share extension and the UI tests — and all six have to move together. The app
-and its extension sharing a build number is a hard requirement of the upload,
-not a tidiness rule.
+It appears **eight times** in `project.pbxproj` — Debug and Release for the app,
+the share extension, the notification service extension and the UI tests — and
+all eight have to move together. The app and **every** embedded extension sharing
+a build number is a hard requirement of the upload, not a tidiness rule.
+
+**That number grows with every target**, and it said six until
+`NotificationService` was added. Count it rather than trusting this line:
+`grep -c CURRENT_PROJECT_VERSION project.pbxproj`.
 
 **"Uploaded" is four states short of "a tester has it", and the gap is silent
 at every step.** Testers reported on 2026-08-03 that they were still on build 1.
