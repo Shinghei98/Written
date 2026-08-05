@@ -496,10 +496,16 @@ struct ConversationRow: View {
                 }
                 .foregroundStyle(GardenPalette.muted)
             } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // **`video` used to draw here as "Photo".** The branch above
+                // tests `audio` and everything else fell through to a camera,
+                // so a clip sent without a caption named itself wrong — visible
+                // only to somebody who sent one, which is why it lasted. The
+                // kind is on the summary already; it just was not being asked.
                 HStack(spacing: 4) {
-                    Image(systemName: "camera.fill")
+                    Image(systemName: conversation.lastMessageKind == "video"
+                          ? "video.fill" : "camera.fill")
                         .font(.system(size: 11))
-                    Text("Photo")
+                    Text(conversation.lastMessageKind == "video" ? "Video" : "Photo")
                         .font(.system(size: 14))
                 }
                 .foregroundStyle(GardenPalette.muted)
