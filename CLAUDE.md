@@ -858,6 +858,15 @@ after a successful login almost always means the signed-in account isn't on it.
   assets — `wrangler.jsonc` at the repo root, and `web/README.md` for the
   deployment, the review flags and the two headless-Chrome traps that cost a
   measurement each.
+  **Every file in that directory is published**, and the two config files being
+  exceptions is what makes it easy to believe otherwise: Workers consumes
+  `_headers` and `_redirects` itself so both answer 404, which reads as "notes
+  are not served". They are. `README.md` was live at
+  `https://written-stl.com/README.md` for a day — the Google scope
+  justifications and the paragraph recording that the beta syncs Spotify while
+  the privacy policy deliberately omits it, on the domain whose policy Google is
+  being asked to trust. `web/.assetsignore` excludes it; **anything added there
+  that is notes rather than site goes in that file in the same commit.**
 - Pagination is capped by `AppConfig.maxPagesPerEndpoint` /
   `maxPlaylistsExpanded` / `maxSongsRated` so a distill finishes in seconds. A
   per-item fetch that can't be capped is a red flag — Apple Music's ratings pass
