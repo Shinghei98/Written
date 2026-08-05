@@ -867,6 +867,25 @@ after a successful login almost always means the signed-in account isn't on it.
   the privacy policy deliberately omits it, on the domain whose policy Google is
   being asked to trust. `web/.assetsignore` excludes it; **anything added there
   that is notes rather than site goes in that file in the same commit.**
+  **A Cloudflare dashboard toggle can add a third-party script to this site
+  without touching the repo**, and one did. Web Analytics was set to *Enable,
+  excluding visitor data in the EU*, so every non-EU page load carried a
+  `static.cloudflareinsights.com` beacon while `web/en-us/cookies/` told
+  reviewers nothing is fetched from anywhere else. The CSP in `_headers` refused
+  it — which is precisely what that file says the `connect-src` line is for — so
+  the promise held, the analytics recorded nothing, and none of it surfaced.
+  Disabled 2026-08-05 via Web Analytics → Manage site → **Disable**; measured
+  afterwards, every `src` on every page is same-origin, so the claim is now true
+  at the network rather than only enforced at the browser. The check:
+
+      curl -s -H 'Accept: text/html' https://written-stl.com/en-us/ \
+          | grep -c cloudflareinsights          # 0
+
+  **The header is load-bearing — injection keys off `Accept: text/html`, not the
+  User-Agent.** A version keyed on the User-Agent answers 0 unconditionally, was
+  briefly committed here, and would have confirmed the analytics were off while
+  the beacon was on all five pages. Run any such check while the thing is still
+  switched on before trusting its zero.
 - Pagination is capped by `AppConfig.maxPagesPerEndpoint` /
   `maxPlaylistsExpanded` / `maxSongsRated` so a distill finishes in seconds. A
   per-item fetch that can't be capped is a red flag — Apple Music's ratings pass
@@ -1796,43 +1815,6 @@ answer pinned —
 That is how the deployment was confirmed on 2026-08-05. Another network is the
 other way. The sinkhole intercepts DNS only; the TLS connection to Cloudflare is
 untouched once the address is supplied.
-
-**Cloudflare Web Analytics is switched on and the site's own CSP refuses it.**
-Every HTML page gets a `static.cloudflareinsights.com` beacon appended by the
-edge. `_headers` sets `script-src 'self'` and `connect-src 'none'`, so the
-browser blocks it and the analytics record nothing.
-
-The CSP is doing exactly its job, and that is the point: `_headers` says
-`connect-src` "is the line that would have to change first if analytics were
-ever added, which is exactly the friction wanted", and a dashboard toggle added
-them without crossing it. So `web/en-us/cookies/` — a page a reviewer reads —
-tells them nothing is fetched from anywhere else while the edge attempts it on
-every load. **Turning Web Analytics off is the cheap resolution**; keeping it
-means widening two CSP directives *and* rewriting the cookies and privacy pages
-in the same commit, per the rule below.
-
-**The injection keys off `Accept: text/html`, not the User-Agent**, and getting
-that backwards produced a check that could only ever agree with you. Measured on
-the live site, same page, four ways:
-
-    plain curl                  0
-    UA only (short)             0
-    UA only (full Chrome)       0
-    UA + Accept: text/html      1      <- and 1 on all five pages
-
-The first version of this note claimed the trigger was a browser User-Agent and
-offered `curl -A 'Mozilla/5.0 …' | grep -c cloudflareinsights`, which answers
-**0 unconditionally** — it would have confirmed "the analytics are off" while
-the beacon was live on every page. Tenth instance of the defect this file keeps
-recording: *a call that cannot fail, a result nobody checks, and the symptom
-surfacing somewhere else.* The check is:
-
-    curl -s -H 'Accept: text/html' https://written-stl.com/en-us/ \
-        | grep -c cloudflareinsights          # 1 while on, 0 once off
-
-**Run it while the beacon is still on before trusting a 0.** A test never
-observed to fail proves nothing — the rule the podcasts zero taught, which is in
-this file already and was broken again here.
 
 **The site is written from the app and goes stale silently.** It described a
 one-sign-in-method app with no Google Calendar and no notifications for a day
