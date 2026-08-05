@@ -442,6 +442,28 @@ final class SupabaseAuth: NSObject, ObservableObject {
     ///
     /// Sixty seconds of slack: a token that expires mid-flight produces a 401
     /// the caller has no good way to distinguish from a permissions problem.
+    /// Who is signed in, **after** making sure the session has been restored.
+    ///
+    /// **`userID` on its own is a cache and is nil far more often than it
+    /// looks.** It is filled in by the token exchange, so on a cold launch it
+    /// stays nil until `restoreSession()` has been round the network — and
+    /// `RootView` deliberately does not wait for that, because the first frame
+    /// is decided from the Keychain. So somebody can be legitimately signed in,
+    /// looking at their garden, with this property empty.
+    ///
+    /// CLAUDE.md records this as its own recurring bug and it kept recurring:
+    /// ten reads across `ChatService` and `LikeService` guarded on the raw
+    /// property, which is why a cold launch showed an empty chat list and no
+    /// admirers — every fetch answered "not signed in" and returned `[]`, and
+    /// an empty list is indistinguishable from an account with no threads.
+    ///
+    /// This is the accessor to use anywhere a user id is needed before a
+    /// request. `validAccessToken()` is what does the waiting.
+    func currentUserID() async -> String? {
+        guard await validAccessToken() != nil else { return nil }
+        return userID
+    }
+
     func validAccessToken() async -> String? {
         if let accessToken, let expiry = accessTokenExpiry, expiry.timeIntervalSinceNow > 60 {
             lastTokenFailure = nil

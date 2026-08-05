@@ -88,7 +88,7 @@ actor ChatService {
     // MARK: - The list
 
     func conversations() async -> [Conversation] {
-        guard let me = await SupabaseAuth.shared.userID else { return [] }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
         do {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "or": "(user_a.eq.\(me),user_b.eq.\(me))",
@@ -167,7 +167,7 @@ actor ChatService {
     /// disappear, this is what tells us why. A block that quietly also filed a
     /// report would be reporting people who only wanted to unmatch.
     func report(_ personID: String, named name: String, body: String) async -> Bool {
-        guard let me = await SupabaseAuth.shared.userID else {
+        guard let me = await SupabaseAuth.shared.currentUserID() else {
             lastError = "You're not signed in."
             return false
         }
@@ -201,7 +201,7 @@ actor ChatService {
     /// race past the read, so a failed insert re-reads once rather than surfacing
     /// a constraint violation to somebody who simply tapped Chat.
     func open(with partnerID: String, partnerName: String, partnerPhotoSeed: Int) async -> Conversation? {
-        guard let me = await SupabaseAuth.shared.userID else { return nil }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return nil }
         let myName = await SupabaseAuth.shared.firstName ?? "Someone"
 
         if let existing = await conversation(with: partnerID) { return existing }
@@ -265,7 +265,7 @@ actor ChatService {
     /// during a cold launch: it refreshes rather than reading the in-memory
     /// token, which is nil until `restoreSession` has been round the network.
     func conversation(id: String) async -> Conversation? {
-        guard let me = await SupabaseAuth.shared.userID else { return nil }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return nil }
         do {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "id": "eq.\(id)",
@@ -279,7 +279,7 @@ actor ChatService {
     }
 
     private func conversation(with partnerID: String) async -> Conversation? {
-        guard let me = await SupabaseAuth.shared.userID else { return nil }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return nil }
         let pair = [me, partnerID].map { $0.lowercased() }.sorted()
         do {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
@@ -345,7 +345,7 @@ actor ChatService {
         in conversationID: String,
         attachment: MediaService.Upload? = nil
     ) async -> Bool {
-        guard let me = await SupabaseAuth.shared.userID else { return false }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return false }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         // Either half will do, which is exactly what `messages_have_content`
         // says: `0009` required text, and a photo sent without a caption is the

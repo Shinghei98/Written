@@ -49,7 +49,7 @@ actor LikeService {
     /// draws a filled heart from this, so a relaunch or a second device has to be
     /// able to arrive at the same answer.
     func likedPersonIDs() async -> Set<String> {
-        guard let me = await SupabaseAuth.shared.userID else { return [] }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
         do {
             let rows = try await PostgREST.rows("rest/v1/likes", query: [
                 "liker_id": "eq.\(me)",
@@ -89,7 +89,7 @@ actor LikeService {
     /// A refusal here is `42501` and means the policy is wrong, not the caller.
     @discardableResult
     func attachMessage(_ message: String, to personID: String) async -> Bool {
-        guard let me = await SupabaseAuth.shared.userID else {
+        guard let me = await SupabaseAuth.shared.currentUserID() else {
             lastError = "You're not signed in."
             return false
         }
@@ -118,7 +118,7 @@ actor LikeService {
     /// them up: `public.users` is closed and a real account has no
     /// `discovery_cards` row to read. See the migration's header.
     func like(personID: String, message: String? = nil) async -> Bool {
-        guard let me = await SupabaseAuth.shared.userID else { return false }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return false }
         let myName = await SupabaseAuth.shared.firstName ?? "Someone"
         // Trimmed here rather than at the sheet, so every route in gets the same
         // answer about what counts as a note. `0018` refuses an empty string at
@@ -171,7 +171,7 @@ actor LikeService {
 
     /// The people waiting for an answer, newest first.
     func admirers() async -> [Admirer] {
-        guard let me = await SupabaseAuth.shared.userID else { return [] }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return [] }
         do {
             let rows = try await PostgREST.rows("rest/v1/likes", query: [
                 "liked_id": "eq.\(me)",
@@ -220,7 +220,7 @@ actor LikeService {
     /// decision recorded in the plan: a decline removes them from the list
     /// without hiding them, and they are never told.
     func respond(to likerID: String, accept: Bool) async -> Bool {
-        guard let me = await SupabaseAuth.shared.userID else { return false }
+        guard let me = await SupabaseAuth.shared.currentUserID() else { return false }
         do {
             try await PostgREST.update(
                 "rest/v1/likes",
