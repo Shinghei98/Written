@@ -493,10 +493,22 @@ struct HealthKitDistiller {
         var records: [DistilledRecord] = []
         let now = Date()
 
+        // **The floor is checked here as well as in `setBirthday`, because this
+        // is a second door into the same field.** Health carries a date of
+        // birth, and without this an age below the minimum would arrive on the
+        // profile without anybody typing it — the gate on the sheet would read
+        // as correct and exclude nothing, which is the failure this codebase
+        // has already recorded once for the calendar filter.
+        //
+        // Dropped rather than treated as a reason to refuse the account: a
+        // device's Health profile is not proof of who is holding it, and the
+        // authoritative answer is the one the person gives. With no record the
+        // profile simply has no age until they enter one, and that is where the
+        // rule bites.
         if let components = try? store.dateOfBirthComponents(),
            let birthday = Calendar.current.date(from: components),
            let age = Calendar.current.dateComponents([.year], from: birthday, to: now).year,
-           (0...130).contains(age) {
+           (DistillViewModel.minimumAge...130).contains(age) {
             records.append(
                 DistilledRecord(
                     source: "health", dataType: "age", itemID: "age",

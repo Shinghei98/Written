@@ -1219,6 +1219,10 @@ final class DistillViewModel: ObservableObject {
 
     /// A birthday the user typed in, replacing whatever age Health reported.
     ///
+    /// The floor the Terms of Service have always stated, enforced rather than
+    /// assumed. See `setBirthday`.
+    static let minimumAge = 18
+
     /// Stored as a record like everything else, so it exports with the rest and
     /// the ontology stage can see that this figure was entered rather than
     /// distilled. `nil` when the three fields don't make a real date — 31
@@ -1235,7 +1239,30 @@ final class DistillViewModel: ObservableObject {
         guard components.isValidDate(in: calendar),
               let birthday = calendar.date(from: components),
               let age = calendar.dateComponents([.year], from: birthday, to: Date()).year,
-              (0...130).contains(age) else { return false }
+              (0...130).contains(age) else {
+            saveError = "That doesn't look like a real date."
+            return false
+        }
+
+        // **Eighteen, and it is enforced here or nowhere.** The Terms have said
+        // "you must be 18 or older" since they were written and nothing checked
+        // it — a rule with no mechanism, the same shape as `users.phone` being
+        // unique and never written. This is the only place an age enters the
+        // app, so it is the only place the rule can live.
+        //
+        // Apple's June 2026 guidance is explicit that an app children or teens
+        // may reach must be age-appropriate in itself rather than relying on
+        // platform parental controls, and a dating app is the clearest case
+        // there is. Reviewers test it by typing a birth date.
+        //
+        // **It says why.** Returning false alone left the sheet sitting open
+        // with nothing to explain it, which is indistinguishable from the
+        // confirm button being broken — precisely how the biographics failures
+        // were reported before `saveError` existed.
+        guard age >= Self.minimumAge else {
+            saveError = "You must be 18 or older to use Written."
+            return false
+        }
 
         // The server first, and the local copy only if it took. Postgres is the
         // record; a device that showed an age the server never received would be
