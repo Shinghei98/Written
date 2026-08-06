@@ -35,6 +35,25 @@
 			</array>
 		</dict>
 
+		<!-- Contacts, and only when Sync contacts is switched on in Settings →
+		     Block list. Names alone are read; no phone numbers or email
+		     addresses are taken, and the names that are kept are the ones the
+		     user is blocking. They travel with the ban list to Postgres, which
+		     is why this is declared at all — a purely on-device match would
+		     not be collection. -->
+		<dict>
+			<key>NSPrivacyCollectedDataTypeCollected</key>
+			<string>NSPrivacyCollectedDataTypeContacts</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
 		<!-- Sign in with Apple returns an address — often a private relay — and
 		     Sign in with Google returns a real one. Either way the auth provider
 		     stores it against the account. The app never asks for it, but it is
