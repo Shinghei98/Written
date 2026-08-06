@@ -107,6 +107,20 @@ enum Ontology {
     /// `nil` is a real answer and not a failure: a video we cannot place is
     /// better left out of the profile than described with a guess, and the
     /// caller treats it that way.
+    ///
+    /// **This has no callers, and must never be given YouTube data.** Its two
+    /// callers were `ExampleProfile`'s liked-video and subscription loops, and
+    /// both now read YouTube's own labels through
+    /// `domain(youTubeTopics:categoryID:)` instead. Applying a term list to a
+    /// title or channel name is *"infer or estimate the content category/type
+    /// of a video or channel"*, which YouTube's compliance guide lists as a
+    /// don't for developers who have not been accepted under the
+    /// derived-metrics amendment.
+    ///
+    /// It is kept rather than deleted because the term table is a real asset
+    /// and the restriction is YouTube's alone — Apple Music, Podcasts and
+    /// Calendar carry no such term, and this is the right tool for them when
+    /// the ontology stage reaches them. **Check the source before calling it.**
     static func classify(title: String, channel: String, detail: String) -> Domain? {
         let haystack = "\(title) \(channel) \(detail)".lowercased()
         for domain in Domain.allCases where domain != .playedSport {
@@ -114,6 +128,98 @@ enum Ontology {
             if list.contains(where: haystack.contains) { return domain }
         }
         return nil
+    }
+
+    // MARK: - Reading YouTube's own labels
+
+    /// Topics we will not carry into a profile, whatever YouTube says.
+    ///
+    /// **These are not domains we lack a sentence for — they are inferences we
+    /// decline to make.** Religion, politics and health status are protected
+    /// characteristics, and a content tag is exactly how one arrives without
+    /// anybody deciding to collect it: subscribe to a diocese's channel and a
+    /// naive mapping writes down your religion. `Military` is here for the same
+    /// reason at one remove.
+    ///
+    /// They are dropped at the mapping rather than filtered later, so there is
+    /// one place to look and no path around it.
+    private static let refusedTopics: Set<String> = [
+        "Religion", "Politics", "Health", "Military", "Society"
+    ]
+
+    /// A domain from YouTube's own topic categories and video category id.
+    ///
+    /// **This exists so the category is read rather than inferred.** The
+    /// compliance guide's don't-list includes *"Infer or estimate the content
+    /// category/type of a video or channel"*, under the heading *"Only offer
+    /// metrics that are available via YouTube's API services"* — and the
+    /// category is available, so `classify` is the wrong tool for anything
+    /// that came from YouTube. `classify` remains right for Apple Music and the
+    /// rest, which carry no such term.
+    ///
+    /// Topics win over the category id because they are more specific: a
+    /// channel tagged `Technology` is placed better than the same video's
+    /// category 28, which is "Science & Technology" and cannot tell the two
+    /// apart on its own.
+    ///
+    /// `nil` again means *unplaced*, and it is a more common answer here than
+    /// with `classify` — YouTube leaves plenty of channels untagged. That is
+    /// the trade: fewer lines, none of them guessed.
+    static func domain(youTubeTopics topics: [String], categoryID: String?) -> Domain? {
+        for topic in topics {
+            if refusedTopics.contains(topic) { continue }
+            if let domain = domainForTopic(topic) { return domain }
+        }
+        guard let categoryID else { return nil }
+        return domainForCategoryID(categoryID)
+    }
+
+    /// YouTube's topic categories are Wikipedia article names, so they are
+    /// matched on substrings of a known vocabulary rather than exhaustively —
+    /// the music and gaming families alone run to a dozen entries each
+    /// (`Rock_music`, `Strategy_video_game`) and all of them end the same way.
+    private static func domainForTopic(_ topic: String) -> Domain? {
+        if topic.hasSuffix("music") || topic == "Music" || topic == "Jazz" { return .music }
+        if topic.hasSuffix("game") || topic == "Video_game_culture" { return .gaming }
+        if topic == "Humor" { return .comedy }
+        if topic == "Movies" || topic == "TV_shows" { return .film }
+        if topic == "Performing_arts" { return .art }
+        if topic == "Fitness" { return .fitness }
+        if topic == "Food" { return .food }
+        if topic == "Technology" { return .tech }
+        if topic == "Tourism" { return .travel }
+        if topic == "Knowledge" { return .learning }
+        // The sports family: the topic list names individual sports directly.
+        let sports: Set<String> = [
+            "Sport", "American_football", "Baseball", "Basketball", "Boxing",
+            "Cricket", "Football", "Golf", "Ice_hockey", "Mixed_martial_arts",
+            "Motorsport", "Tennis", "Volleyball", "Professional_wrestling"
+        ]
+        if sports.contains(topic) { return .spectatorSport }
+        // `Entertainment`, `Lifestyle_(sociology)`, `Hobby`, `Business`,
+        // `Fashion`, `Pets`, `Vehicles` are deliberately unplaced: each is
+        // broad enough that a line written from it would say nothing.
+        return nil
+    }
+
+    /// The numeric ids are YouTube's own and stable. Only the ones that map to
+    /// a domain we can write a sentence about are here.
+    ///
+    /// **25 (News & Politics) and 29 (Nonprofits & Activism) are absent by
+    /// decision**, matching `refusedTopics`.
+    private static func domainForCategoryID(_ id: String) -> Domain? {
+        switch id {
+        case "10": return .music
+        case "20": return .gaming
+        case "23", "34": return .comedy
+        case "1", "18", "30", "31", "32", "33", "35", "36", "37", "38", "39", "40", "41", "43", "44":
+            return .film
+        case "17": return .spectatorSport
+        case "19": return .travel
+        case "26", "27": return .learning
+        case "28": return .science
+        default: return nil
+        }
     }
 
     // MARK: - Writing the line

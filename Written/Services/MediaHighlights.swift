@@ -71,6 +71,24 @@ enum MediaHighlights {
         /// The description prefix the distiller kept. Thin, but it is often the
         /// only place a video says what it is when the title is a joke.
         let detail: String
+        /// YouTube's own topic categories, already reduced to the article name.
+        /// **What the video is about, according to YouTube** — as opposed to
+        /// what a term list of ours would guess it is about, which is the
+        /// distinction `Ontology.domain(youTubeTopics:categoryID:)` exists for.
+        let topics: [String]
+        /// YouTube's numeric video category. Broader than the topics and used
+        /// only when they are absent.
+        let categoryID: String?
+    }
+
+    /// A subscribed channel and what YouTube says it is about.
+    ///
+    /// This used to be a bare `[String]` of names, which was enough while the
+    /// name was the only thing anything read. It stopped being enough when the
+    /// name stopped being an acceptable basis for deciding what a channel is.
+    struct SubscribedChannel: Hashable {
+        let name: String
+        let topics: [String]
     }
 
     /// Liked videos in the order YouTube returned them, newest like first.
@@ -96,7 +114,9 @@ enum MediaHighlights {
                     title: title,
                     channel: record.creator.trimmingCharacters(in: .whitespacesAndNewlines),
                     artworkURL: artworkURL(of: record),
-                    detail: record.detail
+                    detail: record.detail,
+                    topics: topics(of: record),
+                    categoryID: record.extraValue("category_id")
                 )
             )
             if videos.count == limit { break }
@@ -110,11 +130,26 @@ enum MediaHighlights {
     /// here is not who they watch most but *what kinds of thing* they follow at
     /// all, so the whole list matters and a top six would throw away exactly the
     /// long tail that distinguishes one person's interests from another's.
-    static func subscribedChannels(in records: [DistilledRecord]) -> [String] {
+    static func subscribedChannels(in records: [DistilledRecord]) -> [SubscribedChannel] {
         media(in: records)
             .filter { $0.dataType == "subscription" }
-            .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            .map {
+                SubscribedChannel(
+                    name: $0.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                    topics: topics(of: $0)
+                )
+            }
+            .filter { !$0.name.isEmpty }
+    }
+
+    /// `topics=A|B|C` out of `extra`, written by `YouTubeDistiller` from
+    /// YouTube's `topicDetails`. Empty when YouTube said nothing — which is
+    /// common, and means unplaced rather than uninteresting.
+    private static func topics(of record: DistilledRecord) -> [String] {
+        record.extraValue("topics")?
+            .split(separator: "|")
+            .map(String.init)
+            .filter { !$0.isEmpty } ?? []
     }
 
     /// Channels the user subscribes to and channels whose videos they liked,

@@ -180,22 +180,35 @@ struct ExampleProfile: Equatable {
             if !channel.isEmpty { subjects[domain, default: [:]][channel, default: 0] += weight }
         }
 
+        // **YouTube's own labels, never our term list.** Both loops below used
+        // to call `Ontology.classify`, which matches a title and channel name
+        // against terms we wrote — that is *"infer or estimate the content
+        // category/type of a video or channel"*, which YouTube's compliance
+        // guide lists as a don't for developers without the derived-metrics
+        // amendment. The category is available from the API, so it is read.
+        //
+        // The cost is real and accepted: YouTube leaves plenty of channels
+        // untagged, so fewer items are placed than before. Fewer lines, none of
+        // them guessed.
+        //
+        // These were `classify`'s only two callers, so it now has none — see the
+        // note on it. The music line never went through it; it comes from
+        // `musicLine(for:)` and Apple Music's own genres.
         for video in MediaHighlights.topLikedVideos(in: records, limit: likesConsidered) {
-            guard let domain = Ontology.classify(
-                title: video.title, channel: video.channel, detail: video.detail
+            guard let domain = Ontology.domain(
+                youTubeTopics: video.topics, categoryID: video.categoryID
             ), domain != .music else { continue }
 
             credit(domain, channel: video.channel, weight: 1)
             if titles[domain] == nil { titles[domain] = video.title }
         }
 
-        // A subscription is only a name, so that name is the whole haystack —
-        // which is enough for the channels whose name says what they are about.
         for channel in MediaHighlights.subscribedChannels(in: records) {
-            guard let domain = Ontology.classify(title: "", channel: channel, detail: ""),
-                  domain != .music else { continue }
+            guard let domain = Ontology.domain(
+                youTubeTopics: channel.topics, categoryID: nil
+            ), domain != .music else { continue }
 
-            credit(domain, channel: channel, weight: MediaHighlights.subscribedMultiplier)
+            credit(domain, channel: channel.name, weight: MediaHighlights.subscribedMultiplier)
         }
 
         // Ties break on the domain's own name, and below on the channel's, so

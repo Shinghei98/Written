@@ -88,19 +88,39 @@ struct YouTubeDistiller {
             path: "subscriptions",
             query: ["part": "snippet", "mine": "true", "maxResults": "50"]
         )
+        // **What each channel is about, in YouTube's own words.**
+        // `subscriptions.list` has no `topicDetails` part, so this is a second
+        // call against `channels.list` — 1 unit per 50 channels, and squarely
+        // the "second query against a library already open" the extraction rule
+        // prefers over guessing.
+        //
+        // It is not an enrichment for its own sake. The compliance guide's
+        // don't-list includes *"Infer or estimate the content category/type of a
+        // video or channel"*, and the heading over it is *"Only offer metrics
+        // that are available via YouTube's API services"* — so the category has
+        // to come from YouTube rather than from a term list of ours. Liked
+        // videos already carried theirs; subscriptions arrived unlabelled and
+        // were being classified by name.
+        let subscribedIDs = subscriptions.compactMap { $0.snippet?.resourceId?.channelId }
+        let channelTopics = await channelTopics(token: token, channelIDs: subscribedIDs)
+
         records += subscriptions.map { item in
-            record(
+            let channelID = item.snippet?.resourceId?.channelId ?? item.id ?? ""
+            // Pulled out as locals rather than inlined into the array literal:
+            // Swift's type checker times out on long heterogeneous lists of
+            // optionals, and this one was already close to the edge.
+            let subscribedAt = "subscribed_at=\(item.snippet?.publishedAt ?? "")"
+            let artwork: String? = item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
+            let topics: String? = channelTopics[channelID].map { "topics=" + $0.joined(separator: "|") }
+            return record(
                 dataType: "subscription",
-                itemID: item.snippet?.resourceId?.channelId ?? item.id ?? "",
+                itemID: channelID,
                 name: item.snippet?.title ?? "",
                 creator: item.snippet?.title ?? "",
                 detail: snippetPrefix(item.snippet?.description),
                 // The channel's own avatar, which is what a subscription's
                 // thumbnails are.
-                extra: joined([
-                    "subscribed_at=\(item.snippet?.publishedAt ?? "")",
-                    item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
-                ])
+                extra: joined([subscribedAt, artwork, topics])
             )
         }
 
@@ -182,6 +202,52 @@ struct YouTubeDistiller {
     }
 
     // MARK: - Helpers
+
+    /// YouTube's own topic categories for a set of channels, keyed by channel id.
+    ///
+    /// `channels.list` takes up to 50 ids per call and costs 1 unit each, so a
+    /// 200-channel subscription list is 4 units on top of a ~185-unit distill.
+    ///
+    /// **Failure is silent on purpose, and this is the one place in this file
+    /// where that is right.** A channel with no topics simply goes unlabelled;
+    /// the alternative is failing a whole distillation over an enrichment. It
+    /// answers an empty dictionary rather than throwing, and the caller treats
+    /// a missing entry and an empty entry identically — both mean "YouTube did
+    /// not say", which is a different thing from "we decided not to look".
+    /// Nothing downstream guesses in either case.
+    private func channelTopics(token: String, channelIDs: [String]) async -> [String: [String]] {
+        var topics: [String: [String]] = [:]
+
+        for batch in stride(from: 0, to: channelIDs.count, by: 50) {
+            let ids = Array(channelIDs[batch..<min(batch + 50, channelIDs.count)])
+            guard var components = URLComponents(string: "\(Self.baseURL)/channels") else { continue }
+            components.queryItems = [
+                URLQueryItem(name: "part", value: "topicDetails"),
+                URLQueryItem(name: "id", value: ids.joined(separator: ",")),
+                URLQueryItem(name: "maxResults", value: "50")
+            ]
+            guard let url = components.url else { continue }
+
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let page = try? JSONDecoder().decode(Page.self, from: data)
+            else { continue }
+
+            for item in page.items {
+                guard let id = item.id,
+                      let categories = item.topicDetails?.topicCategories
+                else { continue }
+                // Wikipedia URLs in, the topic itself out — same shape the liked
+                // videos already store, so one parser serves both.
+                let names = categories.compactMap { URL(string: $0)?.lastPathComponent }
+                if !names.isEmpty { topics[id] = names }
+            }
+        }
+        return topics
+    }
 
     private func fetchAllPages(
         token: String,
