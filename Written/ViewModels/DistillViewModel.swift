@@ -879,12 +879,19 @@ final class DistillViewModel: ObservableObject {
     /// leaves the device — a card is only worth publishing once there is a
     /// distillation behind it, and this is where one has just landed.
     ///
-    /// **Subjects only.** Artist names, channel names, show names: things a
-    /// sentence can be *about*. The songs, videos and episodes they came from
-    /// stay behind the policy that has always guarded them. See the header of
-    /// `0007_discovery.sql` — this table is readable by every signed-in user,
-    /// which is true of nothing else in this schema, and it stays worth that
-    /// only by staying this thin.
+    /// **Subjects only.** Things a sentence can be *about*. The songs and
+    /// videos they came from stay behind the policy that has always guarded
+    /// them. See the header of `0007_discovery.sql` — this table is readable by
+    /// every signed-in user, which is true of nothing else in this schema, and
+    /// it stays worth that only by staying this thin.
+    ///
+    /// **Which is also why it is narrower than "subjects".** Being publishable
+    /// takes two things, not one: the subject has to be something a sentence
+    /// can be about *and* something the source's terms allow a stranger to see.
+    /// Apple Music artists pass both. YouTube channels pass the first and fail
+    /// the second — see the note at the call site. Any source added here needs
+    /// the second question asked as well, and it is the one that is easy to
+    /// forget, because nothing in the schema or the type system asks it.
     func publishDiscoveryCard() {
         guard let name = SupabaseAuth.shared.firstName, !name.isEmpty else { return }
 
@@ -894,13 +901,32 @@ final class DistillViewModel: ObservableObject {
         interests += musicArtists.map {
             (Ontology.Domain.music.rawValue, $0.name, "applemusic")
         }
-        interests += mediaChannels.compactMap { channel in
-            // Classified from the channel's own name, which is the only thing
-            // travelling anyway. An unclassifiable channel is dropped rather
-            // than filed under a guess.
-            guard let domain = Ontology.classify(title: "", channel: channel.name, detail: "") else { return nil }
-            return (domain.rawValue, channel.name, "youtube")
-        }
+        // **YouTube channels are deliberately absent, and this is a rule rather
+        // than a simplification.** The YouTube API Services Developer Policies
+        // III.E.3.b: an API Client "must not display or allow access to
+        // Authorized Data to anyone other than the authorizing user or agents
+        // expressly approved by that user". A subscription list is Authorized
+        // Data, and a channel name lifted straight out of it does not stop being
+        // Authorized Data by being called a subject — `discovery_cards` is the
+        // one table in this schema every signed-in user may read, so a channel
+        // written here is shown to strangers by construction.
+        //
+        // It used to append `mediaChannels` as `(domain, channel.name,
+        // "youtube")`, so every real card carried them.
+        //
+        // **This is the interim shape of what the hub design fixes properly.**
+        // Once YouTube records are summarised into keyword hubs and each is put
+        // to the user for approval, what travels is Written's own vocabulary
+        // rather than a copy of a YouTube record, and it can be published — the
+        // test being whether a reader can recover the channel from the keyword.
+        // "Long-form science" cannot; "Kurzgesagt-style space animation" can,
+        // and is still Authorized Data wearing a different hat.
+        //
+        // Apple Music is untouched: `applemusic` subjects are covered by no
+        // such term. `podcastShows` is the obvious substitute for the lost
+        // richness and is deliberately *not* added here — publishing a new
+        // category of subject about somebody is its own decision, not a
+        // consolation prize for this one.
 
         Task.detached(priority: .utility) { [weak self] in
             // Read from the server rather than from anything local: the photos
