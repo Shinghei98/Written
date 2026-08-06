@@ -34,6 +34,7 @@ struct SettingsView: View {
     @State private var isConfirmingDelete = false
     @State private var isDeleting = false
     @State private var deleteError: String?
+    @State private var isConfirmingDisconnect = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -268,6 +269,37 @@ struct SettingsView: View {
     /// chevron is somewhere to go, and these are not.
     private var accountSection: some View {
         VStack(spacing: 0) {
+            // **Above sign out, because it is the smaller of the two.** Signing
+            // out keeps everything and comes back; this keeps the account and
+            // throws the distillation away. Ordered by how much is lost, which
+            // is the order the delete row below already follows.
+            Button {
+                isConfirmingDisconnect = true
+            } label: {
+                if viewModel.isDisconnectingAll {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(GardenPalette.muted)
+                } else {
+                    Text("Disconnect all")
+                        .font(.system(size: 16))
+                        .foregroundStyle(GardenPalette.muted)
+                }
+            }
+            .disabled(viewModel.isDisconnectingAll)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .confirmationDialog(
+                "Disconnect everything?",
+                isPresented: $isConfirmingDisconnect,
+                titleVisibility: .visible
+            ) {
+                Button("Disconnect all", role: .destructive) { viewModel.disconnectAll() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every connected app is disconnected and everything read from them is deleted. Your plant goes back to the beginning. Your account, your photographs and your conversations stay.")
+            }
+
             Button("Sign out") { isConfirmingSignOut = true }
                 .font(.system(size: 16))
                 .foregroundStyle(GardenPalette.muted)

@@ -357,12 +357,66 @@ actor SyncService {
     /// literally named that — PostgREST answers 404 and the filter never
     /// applies. Getting it wrong the other way would be worse: a DELETE that
     /// reached the table with no filter at all.
+    /// Erases every distillation this account has, and the derived health
+    /// figures with it.
+    ///
+    /// **Behind "Disconnect all", which is one action rather than five.**
+    /// `deleteSource` handles one source at a time and is still what the
+    /// per-source controls use; this is the whole lot, including sources that
+    /// were connected on another device and are not in this one's
+    /// `knownConnections`. Deleting only what the phone remembers would leave
+    /// rows nobody could see and nobody could remove.
+    ///
+    /// `health_signals` and `health_sports` are included because they are the
+    /// only thing Health leaves behind — the raw samples were never uploaded,
+    /// so without these two a disconnected Health account would keep answering
+    /// for the chronotype and the sport levels on the profile.
+    ///
+    /// Returns nil on success or the first failure's message. Reported rather
+    /// than swallowed: somebody who asked for everything to go and got a
+    /// partial result must not be told it worked.
+    func deleteEverything() async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "Not signed in."
+            return lastError
+        }
+        // Read *after* the token: the refresh is what fills the id in on a cold
+        // launch, and reading it first reports "not signed in" for a session
+        // that is merely not restored yet.
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "No account id."
+            return lastError
+        }
+
+        for table in ["distilled_records", "source_connections",
+                      "health_signals", "health_sports"] {
+            do {
+                _ = try await delete(table: table, filter: ("user_id", userID), token: token)
+            } catch {
+                lastError = error.localizedDescription
+                return lastError
+            }
+        }
+        lastError = nil
+        return nil
+    }
+
     private func delete(table: String, source: String, token: String) async throws -> Data {
+        try await delete(table: table, filter: ("source", source), token: token)
+    }
+
+    private func delete(
+        table: String,
+        filter: (column: String, value: String),
+        token: String
+    ) async throws -> Data {
         var components = URLComponents(
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/\(table)"),
             resolvingAgainstBaseURL: false
         )
-        components?.queryItems = [URLQueryItem(name: "source", value: "eq.\(source)")]
+        components?.queryItems = [
+            URLQueryItem(name: filter.column, value: "eq.\(filter.value)")
+        ]
         guard let url = components?.url else {
             throw SyncError.server("Could not form the delete request.")
         }

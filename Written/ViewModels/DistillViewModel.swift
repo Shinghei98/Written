@@ -74,6 +74,9 @@ final class DistillViewModel: ObservableObject {
     /// banner in one place beats a second that can disagree with it.
     @Published var saveError: String?
 
+    /// Guards the one action here that must not be started twice.
+    @Published private(set) var isDisconnectingAll = false
+
     /// The example match on the profile screen. Derived from `identity` and the
     /// records together, so it is recomputed alongside everything else rather
     /// than being built in the view — a `body` that ranks songs would rebuild
@@ -1682,6 +1685,69 @@ final class DistillViewModel: ObservableObject {
             withdrawDiscoveryCard()
         } else {
             publishDiscoveryCard()
+        }
+    }
+
+    /// Ends every connection and takes the plant back to bare soil.
+    ///
+    /// **One control instead of five, and it replaces the YouTube pair.** Those
+    /// existed because YouTube's Developer Policies give 7 calendar days to act
+    /// on a deletion request or an in-client revocation — an obligation this
+    /// still meets, and more broadly: it deletes what YouTube gave us *and*
+    /// revokes the grant, along with everything else.
+    ///
+    /// Four things go, and the fourth is the one that is easy to miss:
+    ///
+    /// - **The grants.** Forgetting a token is not revoking it, so this goes
+    ///   through `revoke()` rather than `disconnect()` — otherwise Written
+    ///   stays listed at `myaccount.google.com` holding live permission.
+    /// - **The rows**, every source, including ones connected on another device
+    ///   and absent from this phone's `knownConnections`.
+    /// - **The derived health figures**, which are all Health leaves behind:
+    ///   the raw samples were never uploaded, so the chronotype and sport
+    ///   levels would otherwise keep answering for a disconnected account.
+    /// - **The device's own copy.** Cleared only after the server agrees, the
+    ///   same trade the biographics rows make — a phone that emptied itself on
+    ///   a failed request would show a disconnected account while the rows sat
+    ///   in Postgres.
+    ///
+    /// The ban list stays. It is the user's editorial judgement about what they
+    /// did not want shown, not a connection, and re-connecting a source should
+    /// not resurrect everything they struck off.
+    func disconnectAll() {
+        guard !isDisconnectingAll else { return }
+        isDisconnectingAll = true
+        Task {
+            // Revocation first and unconditionally: a token thrown away cannot
+            // be used for a retry that is not going to be offered anyway.
+            await googleOAuth.revoke()
+            await googleCalendarOAuth.revoke()
+            spotifyOAuth.disconnect()
+
+            if let failure = await SyncService.shared.deleteEverything() {
+                saveError = "Couldn't disconnect everything — \(failure)"
+                isDisconnectingAll = false
+                return
+            }
+
+            records.removeAll()
+            knownConnections.removeAll()
+            chronotype = nil
+            hourlyActivity = []
+            sports = []
+            averageDailySteps = nil
+            ConnectionStore.clear()
+            RecordStore.clear()
+            LifestyleStore.clear()
+            // Back to bare soil: the plant is drawn from the connected
+            // modalities, so emptying those is what returns it to stage zero.
+            recomputeDerived()
+            // Republished rather than withdrawn. They still have a name and a
+            // face and are still in the pool — they simply have nothing to say
+            // about themselves yet, which is where everybody starts.
+            publishDiscoveryCard()
+            saveError = nil
+            isDisconnectingAll = false
         }
     }
 

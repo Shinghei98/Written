@@ -48,7 +48,6 @@ struct DashboardView: View {
     /// passed down rather than worked out again.
     var isVisible = true
 
-    @State private var isConfirmingYouTube = false
     @State private var isShowingSettings = false
 
     /// How far the content has scrolled, negative as it rises. Drives the
@@ -119,33 +118,21 @@ struct DashboardView: View {
                         // you visit, the profile preview it led to is reachable
                         // from the tab bar, and a button that finishes something
                         // already finished is chrome.
+                        // **Nothing follows it in regular use.** Sign out,
+                        // Delete account and Disconnect all are all in
+                        // Settings: they are account actions rather than
+                        // things about this page, and the cog is where
+                        // somebody looks for them.
+                        //
+                        // The YouTube pair went with them, replaced by
+                        // *Disconnect all*, which does what they did and more.
+                        // The Developer Policies' 7-day deadlines for a
+                        // deletion request and an in-client revocation are
+                        // still met — they require the user to have a way, not
+                        // a per-source one.
                         if isOnboarding {
                             confirmButton
                                 .padding(.top, 8)
-                        } else {
-                            // **Sign out and Delete account live in Settings
-                            // now.** They are account actions rather than
-                            // things about this page, and the cog is where
-                            // somebody looks for them — leaving them at the
-                            // bottom of Memories meant scrolling past the
-                            // photographs and the biographics to reach them.
-                            //
-                            // The YouTube row stays: it is about the
-                            // distillation on this screen, not about the
-                            // account.
-                            //
-                            // **Kept even though YouTube is ARCHIVED-YOUTUBE.**
-                            // Nobody new can connect it, but beta testers who
-                            // already did still have rows on the server — and
-                            // the Developer Policies' 7-day deadlines for a
-                            // deletion request and an in-client revocation
-                            // apply to *them*, not to whether the source is
-                            // still on offer. Removing this would strand their
-                            // data with no way to take it back.
-                            if viewModel.knownConnections.contains("youtube") {
-                                youtubeDataButton
-                                    .padding(.top, 6)
-                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -315,41 +302,6 @@ struct DashboardView: View {
             )
         )
         .frame(maxWidth: .infinity)
-    }
-
-    /// The two YouTube controls the Developer Policies require, behind one row.
-    ///
-    /// **Two actions rather than one, and the distinction is theirs not ours.**
-    /// III.E.4.g is a request to delete stored data; III.D.2.c.1 is revoking
-    /// access through the client. Both carry 7 calendar days, and offering only
-    /// the second would make somebody end a connection they were happy with in
-    /// order to clear an import they were not.
-    ///
-    /// One entry point because the page's quiet end is already three rows long,
-    /// and a dialog is where iOS expects a destructive choice to be made
-    /// anyway. The sentence has to do real work here: nothing on either button
-    /// says that neither touches YouTube itself, which is the first thing
-    /// somebody about to tap "delete" will want to know.
-    private var youtubeDataButton: some View {
-        Button("YouTube data") { isConfirmingYouTube = true }
-            .font(.system(size: 15))
-            .foregroundStyle(GardenPalette.muted)
-            .frame(maxWidth: .infinity)
-            .confirmationDialog(
-                "YouTube data",
-                isPresented: $isConfirmingYouTube,
-                titleVisibility: .visible
-            ) {
-                Button("Delete what was read", role: .destructive) {
-                    viewModel.deleteYouTube(revoking: false)
-                }
-                Button("Disconnect YouTube", role: .destructive) {
-                    viewModel.deleteYouTube(revoking: true)
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Deleting removes everything read from YouTube and leaves the connection in place. Disconnecting does that and also withdraws Written's access at Google. Neither changes anything in your YouTube account.")
-            }
     }
 
     // MARK: - Collapse
