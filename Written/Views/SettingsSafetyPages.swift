@@ -14,6 +14,7 @@ struct BlockListView: View {
     @State private var contactsDenied = false
     @State private var isAdding = false
     @State private var draft = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         SettingsSubPage(title: "Block list") {
@@ -42,7 +43,7 @@ struct BlockListView: View {
                 entries
 
                 Button {
-                    isAdding = true
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = true }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus")
@@ -64,13 +65,55 @@ struct BlockListView: View {
             guard on else { return }
             Task { await importContacts() }
         }
-        .alert("Block someone", isPresented: $isAdding) {
-            TextField("Name or phone number", text: $draft)
-            Button("Cancel", role: .cancel) { draft = "" }
-            Button("Block") {
-                viewModel.block(name: draft)
-                draft = ""
+        // The same sheet the word filter and the biographics rows use, for the
+        // same reason: two screens that ask the same kind of question should
+        // not answer it in two different shapes.
+        .overlay { addSheet }
+    }
+
+    /// **"Block" rather than "Confirm", and that follows `ReportSheet`.** A
+    /// button that names what it does is the difference between confirming an
+    /// edit and shutting somebody out. No Cancel: `BiographicsSheet` dismisses
+    /// on a tap outside.
+    @ViewBuilder
+    private var addSheet: some View {
+        if isAdding {
+            BiographicsSheet(
+                title: "Block someone",
+                subtitle: "They won't see your profile, and you won't see theirs.",
+                confirmEnabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty,
+                confirmTitle: "Block",
+                onConfirm: {
+                    viewModel.block(name: draft)
+                    draft = ""
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
+                },
+                onCancel: {
+                    draft = ""
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
+                }
+            ) {
+                TextField("Name or phone number", text: $draft)
+                    .font(BrandFont.body(17))
+                    .foregroundStyle(GardenPalette.ink)
+                    .multilineTextAlignment(.center)
+                    // A person's name more often than not, so the biographics
+                    // sheets' capitalisation rather than the word filter's —
+                    // the two fields take genuinely different things.
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($isFocused)
+                    .padding(.vertical, 11)
+                    .padding(.horizontal, 14)
+                    .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                    }
             }
+            .onAppear { isFocused = true }
+            .transition(.opacity)
         }
     }
 
