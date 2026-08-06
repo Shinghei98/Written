@@ -78,6 +78,23 @@ struct BanList: Codable, Equatable {
 
     var isEmpty: Bool { entries.isEmpty }
 
+    /// Whether an invitation's note trips the word filter.
+    ///
+    /// **Lives here rather than on the view model**, because the two things
+    /// that need it cannot both reach one: the settings page edits the list
+    /// through `DistillViewModel`, and `ChatModel` — which draws the admirers —
+    /// owns no view model at all. `BanList` is account-scoped and static, so
+    /// both sides read the same answer with no plumbing.
+    ///
+    /// Substring, and lowercased on both sides. Somebody filtering a word means
+    /// the word, not one spelling of it, and over-matching costs an invitation
+    /// nobody wanted to see — which is what they asked for.
+    func filters(note: String?) -> Bool {
+        guard let note, !note.isEmpty else { return false }
+        let haystack = note.lowercased()
+        return keys(.word).contains { haystack.contains($0) }
+    }
+
     func contains(_ kind: Kind, _ key: String) -> Bool {
         let needle = key.lowercased()
         return entries.contains { $0.kind == kind && $0.key.lowercased() == needle }

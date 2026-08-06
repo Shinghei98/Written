@@ -166,6 +166,14 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             sectionLabel("LEGAL")
 
+            // **Contact information is not optional here.** Guideline 1.2
+            // requires an app with user-generated content to publish a way to
+            // reach the people who make it, alongside filtering, reporting and
+            // blocking — and this app had all three of those and no address
+            // anywhere in it. The website carried one; a reviewer looking in
+            // the app would not have found it.
+            link("Contact support", to: "mailto:hello@written-stl.com")
+            link("Help and safety", to: "https://written-stl.com/en-us/support/")
             link("Privacy policy", to: "https://written-stl.com/en-us/privacy/")
             link("Terms of service", to: "https://written-stl.com/en-us/terms/")
             link("Licenses", to: "https://github.com/Shinghei98/Written")

@@ -814,7 +814,20 @@ final class ChatModel: ObservableObject {
         // **Only a real answer replaces what is on screen.** Both services now
         // say nil for a request they could not make, so an empty list means an
         // empty account and nothing else.
-        if let fetchedAdmirers = await admirersTask { admirers = fetchedAdmirers }
+        // **The word filter is applied here or nowhere.** Settings lets somebody
+        // list words that should keep an invitation from reaching them, and
+        // this is the one place invitations arrive — the list was editable and
+        // read by nothing until it was wired in, which is the defect this
+        // codebase keeps recording rather than the feature it looked like.
+        //
+        // The whole invitation goes, not just its note: "block incoming invites
+        // with comments containing these words" is what the setting says, and
+        // showing the person anyway with their message quietly removed would be
+        // answering a different request.
+        if let fetchedAdmirers = await admirersTask {
+            let bans = BanList.load()
+            admirers = fetchedAdmirers.filter { !bans.filters(note: $0.message) }
+        }
         let fetched = await conversationsTask
 
         // **A failed fetch must not wipe what is on screen, and this used to be

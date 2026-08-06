@@ -1616,12 +1616,9 @@ final class DistillViewModel: ObservableObject {
     ///
     /// Read-side rather than server-side: the note has already crossed the wire
     /// by the time anything could filter it, so this needs no policy change and
-    /// no migration. Substring, and lowercased on both sides.
-    func isFiltered(note: String?) -> Bool {
-        guard let note, !note.isEmpty else { return false }
-        let haystack = note.lowercased()
-        return filteredWords.contains { haystack.contains($0) }
-    }
+    /// no migration. The test itself is `BanList.filters(note:)`, because
+    /// `ChatModel` — which actually draws the admirers — owns no view model.
+    func isFiltered(note: String?) -> Bool { bans.filters(note: note) }
 
     /// Dating preferences, saved locally by the settings page and synced here.
     ///
