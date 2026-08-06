@@ -120,7 +120,8 @@ struct DashboardTab: View {
                             viewModel.signOutLocalState()
                             onSignOut()
                         },
-                        isOnboarding: isOnboarding
+                        isOnboarding: isOnboarding,
+                        isVisible: isVisible
                     )
                     .offset(y: lift)
                     // Offscreen but still mounted, so it must stop taking taps

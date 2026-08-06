@@ -97,6 +97,14 @@ struct SettingsView: View {
         // the sub-pages have their own Save, and the toggles on this page have
         // nothing to confirm. A settings screen that loses a switch because
         // somebody swiped away is the kind of bug nobody reports.
+        .fileExporter(
+            isPresented: $viewModel.isExporterPresented,
+            document: viewModel.exportDocument,
+            contentType: .commaSeparatedText,
+            defaultFilename: CSVExporter.suggestedFilename()
+        ) { result in
+            viewModel.handleExportResult(result)
+        }
         .onChange(of: preferences) { _ in
             DatingPreferencesStore.save(preferences)
             viewModel.syncDatingPreferences(preferences)
@@ -240,10 +248,12 @@ struct SettingsView: View {
             link("Licenses", to: "https://github.com/Shinghei98/Written")
 
             Button {
-                // The same export the garden offers, reached from where
-                // somebody actually looks for it. `AppShell` already hosts the
-                // `.fileExporter` bound to `isExporterPresented`, so this only
-                // has to prepare the document and raise the flag.
+                // **The `.fileExporter` is on this view**, not on the garden
+                // where the export used to live. A file exporter is presented
+                // by whatever it is attached to, and the garden is a
+                // mounted-but-hidden tab underneath this cover — so raising the
+                // flag from here reached a modifier nothing on screen owned,
+                // and the row silently did nothing.
                 viewModel.prepareExport()
             } label: {
                 row("Download my data", value: nil, showsChevron: false, trailingIcon: "arrow.down.circle")

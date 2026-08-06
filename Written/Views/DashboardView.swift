@@ -41,6 +41,12 @@ struct DashboardView: View {
     /// route in the corner is chrome for something already handled — during
     /// onboarding there is no bar, so it is the only way back and it stays.
     var isOnboarding = false
+    /// Whether this tab is the one being looked at.
+    ///
+    /// Only used to send the page back to the top on returning to it —
+    /// `DashboardTab` already tracks this for the location fix, so it is
+    /// passed down rather than worked out again.
+    var isVisible = true
 
     @State private var isConfirmingYouTube = false
     @State private var isShowingSettings = false
@@ -78,6 +84,14 @@ struct DashboardView: View {
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
+                  VStack(spacing: 0) {
+                    // **Above the header padding, deliberately.** Anchoring to
+                    // the first section instead would scroll that section's top
+                    // to the viewport's top — which is the *collapsed* position,
+                    // with the photographs tucked under the pinned header. This
+                    // sits before the padding, so "top" means offset zero.
+                    Color.clear.frame(height: 0).id("top")
+
                     VStack(spacing: 14) {
                         photosSection
                             .id("photos")
@@ -139,6 +153,7 @@ struct DashboardView: View {
                     // slides *under* it from there, as in the reference.
                     .padding(.top, Self.expandedHeaderHeight)
                     .padding(.bottom, 36)
+                  }
                 }
                 // How far the content has travelled, which is what the header
                 // collapses against.
@@ -187,6 +202,20 @@ struct DashboardView: View {
                             withAnimation(.easeOut(duration: 0.18)) { editingEntry = armed }
                         }
                     }
+                }
+                // **Back to the top every time this tab is returned to.**
+                // `AppShell` keeps all four tabs mounted, so a scroll position
+                // survives leaving and coming back — somebody who scrolled to
+                // their podcasts, went to Chat and returned found the page
+                // where they left it rather than where it starts, and the
+                // header collapsed with no obvious way to see the title again.
+                //
+                // Not animated: it is not a movement anybody watched happen,
+                // and animating it would draw the eye to a scroll the user did
+                // not perform.
+                .onChange(of: isVisible) { visible in
+                    guard visible else { return }
+                    proxy.scrollTo("top", anchor: .top)
                 }
                 // `-scroll media`; see `DebugLaunch`.
                 .onAppear {

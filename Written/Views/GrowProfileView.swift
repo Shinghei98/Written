@@ -457,14 +457,6 @@ struct GrowProfileView: View {
             )
             sheet.presentationDetents([.height(sheet.detentHeight)])
         }
-        .fileExporter(
-            isPresented: $viewModel.isExporterPresented,
-            document: viewModel.exportDocument,
-            contentType: .commaSeparatedText,
-            defaultFilename: CSVExporter.suggestedFilename()
-        ) { result in
-            viewModel.handleExportResult(result)
-        }
     }
 
     // MARK: - Sections
@@ -594,35 +586,18 @@ struct GrowProfileView: View {
             // account: bare soil, shoot, then each generated branch, then
             // back to bare soil. Delete this along with
             // `advancePreviewStage()` when it has served its purpose.
-            Button(action: viewModel.advancePreviewStage) {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("\(viewModel.treeState.branches.count)/\(DistillViewModel.previewStages)")
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                }
-                .foregroundStyle(GardenPalette.gold)
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .overlay {
-                    Capsule().strokeBorder(GardenPalette.gold.opacity(0.4), lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Advance growth stage")
+            // The `↻ n/4` preview stepper is gone. `-stage N` on the launch
+            // line does the same job without a control on screen, and it was
+            // the only thing on this page that existed for us rather than for
+            // whoever is using it. `advancePreviewStage` stays for the flag.
 #endif
 
-            // The CSV export the distillation pipeline still depends on,
-            // kept out of the way rather than removed.
-            Button(action: viewModel.prepareExport) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(viewModel.hasRecords ? GardenPalette.muted : GardenPalette.muted.opacity(0.35))
-                    .frame(width: 40, height: 40)
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.hasRecords)
-            .accessibilityLabel("Export distilled records")
+            // The export moved to Settings → Download my data, which is where
+            // somebody looks for it. **The `.fileExporter` moved with it**, and
+            // had to: a file exporter is presented by the view it is attached
+            // to, and this one is on a tab that is mounted-but-hidden whenever
+            // Settings is open — so the row in Settings raised a flag that
+            // nothing on screen was listening for.
         }
     }
 
