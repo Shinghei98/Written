@@ -44,7 +44,8 @@ discarded all of them at one line; classical listening was invisible as a result
 since the "artist" of a Bach partita is whoever performed it. YouTube's
 `categoryId` sat inside a snippet that was already being decoded.
 
-Two things this rule does **not** license, because they are different questions:
+Three things this rule does **not** license, because they are different
+questions:
 
 - **It is not a licence to ask for more permissions.** Health's sheet lists only
   the types actually read, and widening it for something speculative is the one
@@ -53,6 +54,13 @@ Two things this rule does **not** license, because they are different questions:
 - **It is not a licence to widen the list of what leaves the device.** That list
   is kept short and complete on purpose, and `PrivacyInfo.xcprivacy` has to keep
   agreeing with it.
+- **It is not a licence to work out what a source already states.** *Keeping* a
+  field and *inferring* one are different acts under different rules, and for
+  YouTube the second is prohibited outright — "infer or estimate the content
+  category/type of a video or channel". This rule was in force while
+  `Ontology.classify` was reading channel names, and it does not excuse it. Take
+  every field; add `part=topicDetails` to reach one more; do not compute a
+  label the source would have given you for the asking. See III.E.4.h above.
 
 Within one already-granted permission, though, take everything: extra fields on a
 response already fetched, extra `part=` on a request already being made, a second
@@ -107,11 +115,23 @@ Publishing needs Google's OAuth app verification, and two gates get conflated:
   30 days as the ontology/embedding input, and after that only derived,
   non-identifying output remains. Three stores hold YouTube strings and missing
   one makes the sweep cosmetic — `distilled_records`,
-  `discovery_cards.interests` (whose `subject` is a channel name), and
+  `discovery_cards.interests` (whose `subject` was a channel name), and
   `shared_posts`, which is deliberately *not* swept: that video id came from a
   public URL somebody pasted into the share sheet rather than from an authorised
   API call, which is genuinely grey and wants a written judgement rather than a
   delete written on a guess.
+
+  **`discovery_cards` no longer receives YouTube subjects at all** — see
+  III.E.3.b below — so `0016`'s second statement now only ever finds rows
+  written before `c39342e`, and `0032` swept those in one pass. Keep it: it
+  costs nothing and it is the backstop if anything ever writes one again.
+
+  **And `0016`'s premise may be wrong.** "Only derived, non-identifying output
+  remains" assumes derived output may persist indefinitely because it names
+  nothing. The derived-metrics amendment's headline benefit being 36-month
+  storage *for accepted clients* implies the opposite — that derived data is
+  otherwise inside the ordinary 30-day cap. Unresolved, and it decides whether
+  this file is describing a retention model or a hole in one.
 
   **The sweep also satisfies the 30-day revocation deadline for free, and this
   is provable rather than hopeful.** Revoke at Google and everything read from
@@ -145,6 +165,172 @@ Publishing needs Google's OAuth app verification, and two gates get conflated:
   which is the state being asked for. The local half runs regardless, because
   the token needed to retry is exactly what is being thrown away, and keeping it
   would mean keeping the connection the user just ended.
+
+### The rest of the Developer Policies, worked through on 2026-08-05
+
+Two third-party review reports were assessed against the clause text and the
+code. What follows is what survived. **Read the clauses, never a summary of
+them** — two confident readings were produced in that session from summarised
+fetches and both were wrong, each corrected only because somebody pushed back.
+The findings below are the ones anchored to quoted text.
+
+**III.E.3.b — Authorized Data goes to nobody but its owner.** *"must not display
+or allow access to Authorized Data to anyone other than the authorizing user or
+agents expressly approved by that user."* `publishDiscoveryCard` was appending
+every ranked YouTube channel as `(domain, channel.name, "youtube")`, and
+`discovery_cards` is the one table in this schema every signed-in user may read
+— so a subscription list was being shown to strangers. That was the session's
+only *live* violation rather than a disclosure mismatch. YouTube subjects are
+gone from the card and `0032` swept the rows already written. **Apple Music is
+untouched: no such term covers it.** The two-part test for anything added to
+that card is now "is it something a sentence can be about" *and* "do the
+source's terms allow a stranger to see it" — nothing in the schema or the type
+system asks the second, which is why it is written down here.
+
+**III.A.1 — the link belongs in the terms of use.** *"API Clients must display a
+link to YouTube's Terms of Service … and they must also state in their own terms
+of use that, by using those API Clients, users are agreeing to be bound by the
+YouTube Terms of Service."* It was on the homepage and in the privacy policy,
+which are the wrong documents. `web/en-us/terms/` carries it now.
+
+**III.E.4.h — the derived-data prohibition, and the reason `Ontology.classify`
+has no callers.** *"must not (i) replace API Data with similar, independently
+calculated data, or (ii) access or use API Data to create new or derived data or
+metrics."* In force since **18 December 2017**. The compliance guide spells out
+what that means with a don't-list, every bullet scoped to **channels and
+videos** rather than to the authorizing user:
+
+- "Estimate the watch time or unique reach of a channel or video."
+- "Estimate audience affinities, demographics, or audience composition of a
+  channel or video."
+- **"Infer or estimate the content category/type of a video or channel."**
+
+That last one was `Ontology.classify(title:channel:detail:)` exactly — a term
+list of ours matched against a title and a channel name — and `ExampleProfile`
+ran it over every liked video and every subscription.
+
+**The remedy is in the heading over that list: *"Only offer metrics that are
+available via YouTube's API services."*** The category *is* available, so it is
+read rather than guessed. `Ontology.domain(youTubeTopics:creatorTags:categoryID:)`
+maps YouTube's own vocabulary onto ours, in that precedence — topics beat
+creator tags beat the numeric category, most specific first, because category 28
+is "Science & Technology" and cannot tell those apart while a channel tagged
+`Technology` can. Three sources, all returned by the API:
+
+- `topicDetails.topicCategories` — Wikipedia article names, reduced to the last
+  path component. Liked videos carried these already; **subscriptions did not**,
+  because `subscriptions.list` has no `topicDetails` part, so
+  `YouTubeDistiller.channelTopics` makes a second `channels.list` call — 1 unit
+  per 50 channels against a ~185-unit distill.
+- `snippet.tags` — creator-supplied, stored as `tags=` for months and read by
+  nothing. **Matched whole and lowercased against a small controlled vocabulary,
+  never as substrings.** A tag is an explicit label, so recognising `physics` is
+  translation; matching `phys` inside a title would be a guess wearing the same
+  clothes, and that is the thing this whole change exists to stop.
+- `snippet.categoryId` — the numeric fallback.
+
+**`refusedTopics` drops Religion, Politics, Health, Military and Society
+whatever YouTube says**, and categories 25 and 29 are absent from the id table
+for the same reason. These are not domains we lack a sentence for — they are
+inferences we decline to make, and a content tag is exactly how a protected
+characteristic arrives without anybody deciding to collect it. Subscribe to a
+diocese and a naive mapping writes down your religion.
+
+**`classify` is kept and has no callers.** The term table is a real asset and
+the restriction is YouTube's alone — Apple Music, Podcasts and Calendar carry no
+such term and it is the right tool for them when the ontology stage reaches
+them. **Check the source before calling it.** The music line never went through
+it; that comes from `musicLine(for:)` and Apple Music's own genres.
+
+**The cost is real and unmeasured.** YouTube leaves plenty of channels untagged,
+so fewer items are placed than before — possibly none for some people. Nobody
+has run this against a real subscription list. **Measure the compliant baseline
+on its own and do not run the old classifier alongside to compare**: coverage of
+`topicCategories` on subscribed channels, of `categoryId` and creator tags on
+liked videos, unique labels per user after dedup, and the share of users left
+with nothing actionable.
+
+**The way out is an amendment, not an argument — and it is the one Google built
+for this.** `developers.google.com/youtube/terms/derived-metrics-policy` lists
+six acceptable-use categories, one of which is **Content Categorization and
+Tagging**: developers may *"use analysis to assign descriptive sub-genres or
+tags to videos and channels"* provided they are *"additive and distinct from
+YouTube's video categories"*. Worked examples permit *"labeling a video in the
+'Gaming' category with specific tags such as 'Speedrun' or 'Minecraft'"* and
+*"creating your own tagging system that includes similar terms already found in
+the API Data … so long as it is clearly disclosed to the user that they are your
+tags."* That is Written's ontology stage, described by Google, with permission
+attached — and note the shape it licenses is **YouTube's category with our tag
+beneath it**, so reading YouTube's label is the substrate rather than the
+alternative.
+
+Four things about applying:
+
+- **The bet is the analytics use case.** Acceptance is via the support form —
+  *Section 5: Use Cases, API Integration, and Feature Implementation* →
+  *Analytics & Reporting* — and Google requires the service to "reflect an
+  analytics use case on YouTube", judging the whole submission rather than the
+  category name. Written is a dating app. The coherent case is that the
+  API-facing component genuinely analyses videos and channels, and what happens
+  downstream does not change what that component is. **That is a case, not a
+  fit**, and everything else depends on it.
+- **Sequence, and it is easy to get backwards.** Approval is prospective and the
+  audit examines the *current* state. Do not apply while running the unlicensed
+  version of the thing being applied for. As of `92e9a68` we are not.
+- **The amendment's text is not public** — it sits behind the acceptance form,
+  so applying is partly agreeing to terms sight unseen.
+- **Storage, and it cuts against `0016`'s premise.** The amendment's headline
+  benefit is 36-month storage of derived metrics *for accepted clients*, which
+  implies derived data is otherwise inside the ordinary 30-day cap. If so, a
+  persisted weight is capped too and "what remains is the derived reading, which
+  names nothing" is the wrong argument. **Settle this before anything derived is
+  persisted.**
+
+**There is no general prohibition on merging YouTube data with other sources**,
+which is worth stating because both reports claimed there was and so did a first
+pass here. The sentence they leaned on is a compliance-guide bullet under *"Only
+offer metrics that are available via YouTube's API services"* carrying its own
+condition — *"you must make the difference clear to the user"* — a labelling
+requirement. The actual clauses are narrower: III.E.2.a is aggregation **across
+channels** (exception: same content owner, viewable only by them), III.E.2.b is
+insight into **YouTube's own** business, III.C.5 is **search-result** mixing.
+
+**Written will be audited, unlike most apps.** Audits are triggered by *quota
+requests*; almost every consumer app sits inside the default 10,000 units and is
+never examined. A worst-case distill is ~185 units — about 54 a day — so
+extended quota is needed to launch at all, and the same form carries the
+derived-metrics request.
+
+**Takeout is ruled out and should not come back.** The legal point is sound —
+API Data is defined as data provided *through the YouTube API services*, so a
+user-exported file is outside III.E.4 entirely — but the export is a manual
+request that arrives days later as a ZIP somebody must upload. That is the
+one-button rule broken at every step, and this file already refused the
+identical shape once for Apple's Data & Privacy export.
+
+**The plan of record: submit only once hubs exist.** Accepted cost — testers
+re-authorise YouTube weekly while the consent screen stays in Testing. The
+architecture being aimed at is hubs built from *other* modalities and a
+predefined vocabulary, with YouTube cross-comparing and validating them. That
+defeats a but-for objection to the hubs themselves, but **the validation
+contributes a delta or a weight and that weight is derived data** — so it does
+not escape III.E.4.h, which is why the amendment is the route rather than a
+cleverer description. Two constraints follow whatever happens: the YouTube
+contribution must be **separable and reversible**, or the 7-day deletion on
+revocation cannot be honoured without recomputing every profile; and **YouTube
+must not become load-bearing**, since a refusal would arrive after the pipeline
+is built.
+
+**The site describes the conservative reading**, matching what the app does
+today: YouTube's own classifications are used, nothing is worked out from a
+title, description or channel name, and some of what somebody watches stays
+unplaced. It deliberately does **not** describe letting the user hand-pick
+interests after reviewing an import — that flow does not exist. **The day the
+ontology layer is enabled for YouTube, the site moves in the same commit**, and
+that is now a compliance statement rather than a description. Design the layer
+assuming approval — one pipeline, not two — but gate the YouTube path on a
+server-side entitlement so enabling it for the other sources cannot switch it on
+here by accident.
 
 **`youtube.readonly` is *sensitive*, not *restricted*, and that is worth weeks.**
 Restricted scopes — Gmail, Drive, Fit, Chat, Health, Data Portability — require a
@@ -1801,6 +1987,23 @@ and `ASWebAuthenticationSession` has no address bar, so it has to be shown
 another way in the same recording. Until this is done every tester re-authorises
 YouTube weekly.
 
+**But the deadline is now deliberately deferred: submit once the hubs exist.**
+Decided 2026-08-05 after working through the Developer Policies. Submitting
+earlier would mean shooting the video against a pipeline about to be replaced,
+and the same form carries the derived-metrics request, which needs the ontology
+stage to describe. The weekly re-authorisation is the accepted cost. **Nothing
+about that defers the policies themselves** — they bind every API Client,
+verified or not, which is why the III.E.3.b, III.A.1, revocation and III.E.4.h
+work all shipped on 2026-08-05 rather than waiting for the submission.
+
+**Three things are unfinished and none of them is code.** Nobody has measured
+what the conservative reading costs — coverage of `topicCategories`,
+`categoryId` and creator tags across a real subscription list, and how many
+users end up with nothing. *Delete what was read* and *Disconnect YouTube* have
+never been exercised against a real Google account, and the published privacy
+policy now makes a 7-day claim resting on them. And whether to apply for
+Content Categorization and Tagging is a decision nobody has taken.
+
 **The consent screen's URLs must be the final ones**, `https://written-stl.com/en-us/`
 and `.../en-us/privacy/`, matching `SignInView.swift` character for character —
 not `/privacy`, which 301s. Google checks that the homepage link and the consent
@@ -1871,15 +2074,20 @@ top for the same reason.
     because the ontology stage needs "collected then struck off" to be a
     different fact from "never collected". So the site says never used, never
     shown, never counted — and does not say deleted, which would be false.
-  - **Deleted** — only account deletion and the YouTube sweep, which are real
+  - **Deleted** — account deletion, the YouTube sweep, and now
+    `SyncService.deleteSource(_:)` behind the two YouTube controls. All real
     deletes.
 
-  The mandatory 7-day clause (*"must provide a way for a user to request that
-  you delete stored data… within 7 calendar days"*) therefore attaches to
-  **account deletion and written request**, which both exist, rather than to a
-  per-source control that does not. Deletion is actually immediate — the cascade
-  plus `delete-account` — so 7 days is a ceiling kept for the backups, which the
-  policy now describes rather than waving at.
+  **The per-source control now exists for YouTube**, added 2026-08-05, so the
+  clause below no longer has to route around its absence. It is still *only*
+  YouTube: the other four sources have no such control, and the site must not
+  imply otherwise. The mandatory 7-day clause (*"must provide a way for a user
+  to request that you delete stored data… within 7 calendar days"*) is answered
+  for YouTube by *Delete what was read* and *Disconnect YouTube*, and for
+  everything else by **account deletion and written request**. Deletion is
+  immediate in every case — the cascade, `delete-account`, or the scoped delete
+  — so 7 days is a ceiling kept for the backups, which the policy describes
+  rather than waves at.
 
 **Nothing here has reached a tester.** Build 15 is archived and predates all of
 it. Every fix from 2026-08-04 — the empty source, the crop screen, the sign-in
