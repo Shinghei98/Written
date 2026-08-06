@@ -140,6 +140,7 @@ struct WordFilterView: View {
 
     @State private var isAdding = false
     @State private var draft = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         SettingsSubPage(title: "Word filter") {
@@ -166,7 +167,7 @@ struct WordFilterView: View {
                 }
 
                 Button {
-                    isAdding = true
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = true }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus")
@@ -180,16 +181,84 @@ struct WordFilterView: View {
             }
             .padding(.horizontal, 20)
         }
-        .alert("Add a word", isPresented: $isAdding) {
-            TextField("Word", text: $draft)
-            Button("Cancel", role: .cancel) { draft = "" }
-            Button("Add") {
-                viewModel.filter(word: draft)
-                draft = ""
+        // **`BiographicsSheet`, like every other sheet in this app.** A system
+        // alert was the quick thing and the wrong one: it drew a different
+        // shape, a different typeface and a different field from the sheets
+        // that ask the same kind of question two screens away. This inherits
+        // the dimmed backdrop, the field and the disabled-until-typed confirm
+        // rather than reproducing any of them.
+        .overlay { addSheet }
+        .background { debugOpener }
+    }
+}
+
+extension WordFilterView {
+    /// **No Cancel button, and that is inherited rather than omitted.**
+    /// `BiographicsSheet` dismisses on a tap outside, which every other sheet
+    /// here relies on — a cancel button would be a second way to do what the
+    /// backdrop already does, and this sheet asks for one word.
+    @ViewBuilder
+    var addSheet: some View {
+        if isAdding {
+            BiographicsSheet(
+                title: "Add a word",
+                subtitle: "Invitations whose message contains it won't be shown to you.",
+                // Nothing typed is nothing to add — the same rule the
+                // biographics sheets use for an empty field.
+                confirmEnabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty,
+                confirmTitle: "Add",
+                onConfirm: {
+                    viewModel.filter(word: draft)
+                    draft = ""
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
+                },
+                onCancel: {
+                    draft = ""
+                    withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
+                }
+            ) {
+                // The same field as the school, occupation and favourite
+                // sheets, down to the corner radius.
+                TextField("Word", text: $draft)
+                    .font(BrandFont.body(17))
+                    .foregroundStyle(GardenPalette.ink)
+                    .multilineTextAlignment(.center)
+                    // Lower-cased, unlike the biographics fields: these are
+                    // matched lower-cased anyway, and capitalising the first
+                    // letter of a word somebody is filtering would only make
+                    // the tag disagree with what they typed.
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($isFocused)
+                    .padding(.vertical, 11)
+                    .padding(.horizontal, 14)
+                    .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                    }
             }
-        } message: {
-            Text("Invitations whose message contains this word will not be shown to you.")
+            .onAppear { isFocused = true }
+            .transition(.opacity)
         }
+    }
+}
+
+extension WordFilterView {
+    /// `-words add` → raise the Add a word sheet on appearing, since the `+`
+    /// can only be tapped and `simctl` cannot tap.
+    @ViewBuilder
+    var debugOpener: some View {
+#if DEBUG
+        Color.clear.onAppear {
+            guard DebugLaunch.opensAddWord, DebugLaunch.firesOnce("add-word") else { return }
+            Task {
+                try? await Task.sleep(nanoseconds: 900_000_000)
+                withAnimation(.easeOut(duration: 0.18)) { isAdding = true }
+            }
+        }
+#endif
     }
 }
 

@@ -96,7 +96,12 @@ enum DebugLaunch {
     /// looked at with strings of genuinely different lengths. Wrapping is the
     /// whole question and one-word test data never answers it.
     static var seedsFilteredWords: Bool {
-        UserDefaults.standard.string(forKey: "words") == "sample"
+        ["sample", "add"].contains(UserDefaults.standard.string(forKey: "words") ?? "")
+    }
+
+    /// `-words add` → raise the Add a word sheet, which is otherwise a tap away.
+    static var opensAddWord: Bool {
+        UserDefaults.standard.string(forKey: "words") == "add"
     }
 
     /// `-screen dashboard` → plays the move to the dashboard shortly after
