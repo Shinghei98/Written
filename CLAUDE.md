@@ -121,9 +121,30 @@ Publishing needs Google's OAuth app verification, and two gates get conflated:
   needed for that route at all. It is the 7-day case — a deletion *request* —
   that the sweep cannot cover, because that deadline can start on day zero.
 
-  **Revocation is a hard deadline, not a courtesy.** Revoked in the app, that
-  user's YouTube data must be gone within **7 days**; revoked at Google, 30.
-  `OAuthPKCEService.disconnect()` exists and no UI calls it.
+  **Revocation is a hard deadline, not a courtesy.** Revoked in the app
+  (III.D.2.c.1), that user's YouTube data must be gone within **7 days**;
+  revoked at Google (III.D.2.c.2), 30. A deletion *request* (III.E.4.g) is 7.
+
+  **Both routes are built**, on the dashboard beside sign-out and only for
+  people who have connected YouTube: *Delete what was read* keeps the grant,
+  *Disconnect YouTube* revokes it too. `DistillViewModel.deleteYouTube(revoking:)`
+  is the pair, and it takes the biographics trade — the server first, the local
+  copy only if the server agreed, because a device that cleared itself on a
+  failed request would show an erased source while the rows sat in Postgres.
+  The failure goes through `saveError`, since `youtubeStatus` is drawn on the
+  garden's source card and this button is on a different tab.
+
+  **`disconnect()` is not revocation, and the distinction is the whole of
+  `revoke()`.** It deletes our copy of the token; the grant carries on existing
+  in the user's Google account, so somebody who "disconnected" would still find
+  Written listed at `myaccount.google.com` with live permission. That is also
+  why we cannot claim the 7-day clock for an action that never reached Google —
+  `revoke()` POSTs the *refresh* token to `oauth2.googleapis.com/revoke`, which
+  kills the whole grant, where an access token would revoke only itself. It
+  treats **400 as success**: that means Google has already forgotten the token,
+  which is the state being asked for. The local half runs regardless, because
+  the token needed to retry is exactly what is being thrown away, and keeping it
+  would mean keeping the connection the user just ended.
 
 **`youtube.readonly` is *sensitive*, not *restricted*, and that is worth weeks.**
 Restricted scopes — Gmail, Drive, Fit, Chat, Health, Data Portability — require a
@@ -646,6 +667,23 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   back is silently lost), and it **excludes `collected_at` / `distilled_at` /
   `updated_at`**, which differ on every pass and would make every row look
   changed.
+
+  **Three exceptions, and none of them is a change of mind.** Account deletion,
+  the YouTube 30-day sweep (`0016`), and `SyncService.deleteSource(_:)` behind
+  the two YouTube controls. All three are obligations rather than features: an
+  annotation is not a deletion, and "we kept it, marked as removed" is the
+  answer that fails an audit. **`markedRemoved` is still right for striking a
+  row off** — that keeps "collected then struck off" distinct from "never
+  collected", which the ontology stage needs — but it is a *reading* decision
+  and cannot stand in for a deletion somebody is owed.
+
+  `deleteSource` needs **no edge function**: `0001`'s policies are `for all
+  using (auth.uid() = user_id)`, which covers delete, so a session can only ever
+  reach its own rows. Note the trap in building that request — PostgREST wants a
+  query string, and `URL.appendingPathComponent` escapes the `?`, turning
+  `distilled_records?source=eq.youtube` into a request for a table of that name.
+  It 404s, which is the lucky failure; the unlucky one is a DELETE that arrives
+  with no filter at all. `URLComponents`, always.
 - **Read through the `summary_*` views, never the tables.** They return the
   latest row per item across all runs — a union, deliberately **not** a sum: a
   HealthKit run reports sessions over a 365-day lookback and Apple Music reports

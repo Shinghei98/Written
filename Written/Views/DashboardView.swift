@@ -45,6 +45,7 @@ struct DashboardView: View {
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingDelete = false
     @State private var isDeleting = false
+    @State private var isConfirmingYouTube = false
     @State private var deleteError: String?
 
     /// How far the content has scrolled, negative as it rises. Drives the
@@ -111,6 +112,13 @@ struct DashboardView: View {
                             confirmButton
                                 .padding(.top, 8)
                         } else {
+                            // Only for people who have connected it. A control
+                            // for undoing something nobody did is noise, and
+                            // this row is already the quiet end of the page.
+                            if viewModel.knownConnections.contains("youtube") {
+                                youtubeDataButton
+                                    .padding(.top, 6)
+                            }
                             signOutButton
                                 .padding(.top, 6)
                             deleteAccountButton
@@ -250,6 +258,41 @@ struct DashboardView: View {
             )
         )
         .frame(maxWidth: .infinity)
+    }
+
+    /// The two YouTube controls the Developer Policies require, behind one row.
+    ///
+    /// **Two actions rather than one, and the distinction is theirs not ours.**
+    /// III.E.4.g is a request to delete stored data; III.D.2.c.1 is revoking
+    /// access through the client. Both carry 7 calendar days, and offering only
+    /// the second would make somebody end a connection they were happy with in
+    /// order to clear an import they were not.
+    ///
+    /// One entry point because the page's quiet end is already three rows long,
+    /// and a dialog is where iOS expects a destructive choice to be made
+    /// anyway. The sentence has to do real work here: nothing on either button
+    /// says that neither touches YouTube itself, which is the first thing
+    /// somebody about to tap "delete" will want to know.
+    private var youtubeDataButton: some View {
+        Button("YouTube data") { isConfirmingYouTube = true }
+            .font(.system(size: 15))
+            .foregroundStyle(GardenPalette.muted)
+            .frame(maxWidth: .infinity)
+            .confirmationDialog(
+                "YouTube data",
+                isPresented: $isConfirmingYouTube,
+                titleVisibility: .visible
+            ) {
+                Button("Delete what was read", role: .destructive) {
+                    viewModel.deleteYouTube(revoking: false)
+                }
+                Button("Disconnect YouTube", role: .destructive) {
+                    viewModel.deleteYouTube(revoking: true)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Deleting removes everything read from YouTube and leaves the connection in place. Disconnecting does that and also withdraws Written's access at Google. Neither changes anything in your YouTube account.")
+            }
     }
 
     /// Plain text, not a filled capsule: this is not the way forward from this

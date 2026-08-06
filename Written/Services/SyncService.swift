@@ -310,6 +310,79 @@ actor SyncService {
     }
 
     @discardableResult
+    /// Erases one source's rows from the server, permanently.
+    ///
+    /// **The one place this schema deletes, and it is not a change of mind.**
+    /// Everything else here appends: `append_source_records` stamps a run and
+    /// keeps every earlier version, and a row the user struck off is *annotated*
+    /// rather than removed, because the ontology stage needs "collected then
+    /// struck off" to be a different fact from "never collected". That rule
+    /// holds for every source and every reason but this one.
+    ///
+    /// The exception is not ours to decline. YouTube's Developer Policies give
+    /// 7 calendar days to delete Authorized Data when a user revokes through the
+    /// client (III.D.2.c.1) or asks for deletion (III.E.4.g). An annotation is
+    /// not a deletion, and "we kept it, marked as removed" is the answer that
+    /// fails an audit.
+    ///
+    /// No edge function: `0001`'s policies are `for all using (auth.uid() =
+    /// user_id)`, which covers delete, so the session can only ever reach its
+    /// own rows and the filter below is a convenience rather than the security.
+    ///
+    /// Returns nil on success, or why it failed — the caller has to know,
+    /// because a deletion the user asked for and did not get is the one failure
+    /// here that must not be silent. That is the tenth time this codebase has
+    /// had to learn it.
+    func deleteSource(_ source: String) async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "Not signed in."
+            return lastError
+        }
+
+        for table in ["distilled_records", "source_connections"] {
+            do {
+                _ = try await delete(table: table, source: source, token: token)
+            } catch {
+                lastError = error.localizedDescription
+                return lastError
+            }
+        }
+        lastError = nil
+        return nil
+    }
+
+    /// **Built with `URLComponents`, not by appending a string.**
+    /// `appendingPathComponent` escapes the `?`, so
+    /// `distilled_records?source=eq.youtube` becomes a request for a table
+    /// literally named that — PostgREST answers 404 and the filter never
+    /// applies. Getting it wrong the other way would be worse: a DELETE that
+    /// reached the table with no filter at all.
+    private func delete(table: String, source: String, token: String) async throws -> Data {
+        var components = URLComponents(
+            url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/\(table)"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "source", value: "eq.\(source)")]
+        guard let url = components?.url else {
+            throw SyncError.server("Could not form the delete request.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                .flatMap { $0?["message"] as? String }
+            throw SyncError.server(detail ?? "Delete failed (\(status)).")
+        }
+        return data
+    }
+
     private func post(
         path: String,
         token: String,

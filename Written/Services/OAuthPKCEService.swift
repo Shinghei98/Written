@@ -31,6 +31,17 @@ struct OAuthProvider {
     /// nobody and outlive the sign-in.
     var persistsRefreshToken: Bool = true
 
+    /// Where to tell the provider the grant is over, if it offers such a place.
+    ///
+    /// **Forgetting a token is not revoking it**, and the difference is the
+    /// whole of `revoke()`. Deleting the Keychain entry stops *this app* using
+    /// the grant; the grant itself carries on existing in the user's Google
+    /// account until somebody says otherwise. YouTube's Developer Policies
+    /// III.D.2.c.1 gives 7 calendar days to delete Authorized Data when a user
+    /// revokes **through the client**, which presupposes that revoking through
+    /// the client revokes something.
+    var revocationURL: String? = nil
+
     var isConfigured: Bool { !clientID.hasPrefix("YOUR_") }
 
     static var google: OAuthProvider {
@@ -43,7 +54,8 @@ struct OAuthProvider {
             redirectURI: AppConfig.googleRedirectURI,
             scope: AppConfig.youtubeScope,
             extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
-            configHint: "AppConfig.googleClientID"
+            configHint: "AppConfig.googleClientID",
+            revocationURL: "https://oauth2.googleapis.com/revoke"
         )
     }
 
@@ -70,7 +82,11 @@ struct OAuthProvider {
             // As YouTube's: a distillation that has to ask again next month is
             // not the one-button experience this app is built around.
             extraAuthParameters: ["access_type": "offline", "prompt": "consent"],
-            configHint: "AppConfig.googleClientID"
+            configHint: "AppConfig.googleClientID",
+            // A separate consent flow means a separate grant and a separate
+            // refresh token, so revoking one leaves the other alone. Somebody
+            // disconnecting YouTube does not silently lose their calendar.
+            revocationURL: "https://oauth2.googleapis.com/revoke"
         )
     }
 
@@ -204,6 +220,52 @@ final class OAuthPKCEService: NSObject {
         KeychainStore.delete(refreshTokenKey)
         accessToken = nil
         accessTokenExpiry = .distantPast
+    }
+
+    /// Tells the provider the grant is over, then forgets it locally.
+    ///
+    /// **`disconnect()` alone is not revocation.** It deletes our copy of the
+    /// token; the grant carries on existing in the user's Google account, so
+    /// somebody who "disconnected" would still find Written listed at
+    /// myaccount.google.com with permission it no longer intends to use. That
+    /// gap is what this closes, and it is the difference between the two
+    /// deadlines in YouTube's Developer Policies: III.D.2.c.1 gives 7 calendar
+    /// days when the user revokes *through the client*, III.D.2.c.2 gives 30
+    /// when they revoke at Google. We cannot be on the 7-day clock for an
+    /// action that never reached Google.
+    ///
+    /// **The local half runs whether or not the network half does.** A revoke
+    /// that fails leaves a grant alive at Google — recoverable, because the
+    /// user can still revoke it there, and because the token we would have
+    /// needed to try again is exactly what we are throwing away. Keeping the
+    /// token in order to retry would mean keeping the connection the user just
+    /// ended, which is the worse failure of the two.
+    ///
+    /// Returns whether Google confirmed. The caller deletes the data either
+    /// way — deletion is owed on the *request*, not on the acknowledgement.
+    @discardableResult
+    func revoke() async -> Bool {
+        // Prefer the refresh token: Google revokes the whole grant it belongs
+        // to, where an access token revokes only itself and leaves the refresh
+        // token able to mint another.
+        let token = KeychainStore.read(refreshTokenKey) ?? accessToken
+        defer { disconnect() }
+
+        guard let urlString = provider.revocationURL,
+              let url = URL(string: urlString),
+              let token else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = "token=\(token)".data(using: .utf8)
+
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return false }
+        // 200 is success. 400 means Google has never heard of the token, or has
+        // already forgotten it — which is the state we were asking for, so it
+        // counts.
+        return http.statusCode == 200 || http.statusCode == 400
     }
 
     /// Returns a valid access token, reusing/refreshing silently when possible

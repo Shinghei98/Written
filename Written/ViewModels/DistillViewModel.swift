@@ -463,6 +463,64 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
+    /// Erases everything read from YouTube, and optionally ends the grant.
+    ///
+    /// **Two controls rather than one, because they answer different
+    /// questions.** "I regret this import" and "I want Google to stop trusting
+    /// this app" are not the same wish, and offering only the second makes
+    /// somebody revoke a connection they were happy with in order to clear a
+    /// distillation they were not. YouTube's Developer Policies treat them
+    /// separately too: III.E.4.g is a deletion request, III.D.2.c.1 is
+    /// revocation through the client, and both carry 7 calendar days.
+    ///
+    /// **The server first, and the local state only if it agreed.** Same trade
+    /// as the biographics rows: Postgres is the record, so nothing is shown as
+    /// gone that is not gone. A device that cleared its own copy on a failed
+    /// request would show an erased source while the rows sat on the server —
+    /// which is precisely the state the user asked not to be in, wearing the
+    /// appearance of success.
+    ///
+    /// Revocation is the exception and runs *first*, unconditionally: it throws
+    /// away the token, and a token we have thrown away cannot be used for a
+    /// retry we are not going to offer.
+    func deleteYouTube(revoking: Bool) {
+        guard !youtubeStatus.isRunning else { return }
+        youtubeStatus = .running
+        Task {
+            if revoking { await googleOAuth.revoke() }
+
+            if let failure = await SyncService.shared.deleteSource("youtube") {
+                // Nothing local has changed, so the source still reads as
+                // connected — which is true, and is why this is surfaced rather
+                // than swallowed.
+                //
+                // **Through `saveError`, not only `youtubeStatus`.** The status
+                // is drawn on the source's card in the garden, and this button
+                // is on the dashboard — somebody who taps delete here would
+                // watch the row disappear from the dialog and be told nothing.
+                // `saveError` is the one banner `AppShell` draws over every tab.
+                // A deletion the user asked for and did not get is the last
+                // failure in this app that should be quiet.
+                youtubeStatus = .failed(message: failure)
+                saveError = "Couldn't delete your YouTube data — \(failure)"
+                return
+            }
+
+            records.removeAll { $0.source == "youtube" }
+            knownConnections.remove("youtube")
+            ConnectionStore.save(knownConnections)
+            RecordStore.save(records)
+            recomputeDerived()
+            youtubeStatus = .idle
+
+            // The card is rebuilt from what is left. It carries no YouTube
+            // subjects either way — see `publishDiscoveryCard` — but it does
+            // carry a `record_count`-shaped view of this person, and leaving a
+            // stale one behind is the same class of mistake as leaving the rows.
+            publishDiscoveryCard()
+        }
+    }
+
     /// Apple Podcasts, through the media library. Shaped like Apple Music
     /// because it is the same framework family and the same one system dialog.
     func distillPodcasts() {
