@@ -126,65 +126,90 @@ Ordered. The first two block Google's verification and nothing else does.
   and the policy does not describe a source they can connect. Internal testers
   are the developer's own team and are the window this arrangement has.
 
-## The derived-metrics disclosure — written, NOT published
+## The derived-metrics disclosure — written, NOT yet published
 
-**Do not put this on the site yet.** It describes the workflow as it will be
-*after* Google accepts Written for the Content Categorization and Tagging
-allowance, and three of its claims are false today: nothing generates ontology
-tags from YouTube (`Ontology.classify` has no callers — see `CLAUDE.md`), there
-is no private review layer, and no application has been made. This project has
-already published controls that did not exist three times over; doing it in the
-document a reviewer reads would be the expensive version.
+The wording below goes live **with the feature and before acceptance**, not
+after it. That ordering is not a preference: Google requires the demo video to
+show real end-to-end functionality and says scopes must not be requested for
+hypothetical features, so a submission describing something that does not run is
+refused on its own terms. The way through is to build it, demonstrate it, keep
+**production** gated behind the entitlement, and have the site say Written is
+*requesting* approval.
 
-It is kept here so it is ready, and so the app can be built against a sentence
-somebody has already agreed to.
+**Publish when both are true:** the ontology layer and the review screen exist
+in the build, and an application has actually been filed. It then replaces the
+conservative paragraphs on `web/en-us/` and `web/en-us/privacy/` **in the same
+commit as the feature**. On acceptance, "is requesting approval to operate" is
+changed to the operative form — a two-word edit, and the last one.
 
-**Publish it when, and only when, all three are true:** the amendment has been
-accepted, the ontology layer is enabled for YouTube, and the review screen
-exists. Then it replaces the conservative paragraphs on `web/en-us/` and
-`web/en-us/privacy/` **in the same commit as the feature**.
+> ### How Written uses YouTube information
+>
+> When you choose Distill YouTube, Written reads the YouTube information you
+> authorize, including metadata associated with your subscriptions, liked
+> videos, and playlists. Written analyzes the subject matter of those videos and
+> channels and may assign additional descriptive tags using Written's own
+> content ontology — for example, "long-form science education," "independent
+> cinema," or "strategy gaming." These tags are generated independently by
+> Written from the YouTube information you authorized. They are not supplied,
+> approved, or endorsed by YouTube, and they do not replace or modify YouTube's
+> published categories, statistics, or labels. Written first shows the resulting
+> analysis privately to you so that you can review, edit, or remove it. Tags you
+> choose to retain may be summarized into broader interests and used with
+> information you confirm from other sources to improve your Written profile,
+> dynamic bio, and conversational suggestions. Written does not use this
+> analysis to produce alternative YouTube engagement metrics, evaluate creator
+> performance, estimate YouTube's business or revenue, or infer sensitive
+> protected characteristics. Written is requesting approval to operate this
+> workflow under YouTube's additional derived-metrics policies for Content
+> Categorization and Tagging, which permit accepted developers to create
+> additive proprietary tags that are clearly distinguished from YouTube-supplied
+> data.
 
-> When you choose "Distill YouTube," Written uses the YouTube information you
-> authorize — such as metadata associated with your subscriptions, liked videos,
-> and playlists — to generate additional descriptive content tags using
-> Written's own ontology. These Written-generated tags may identify themes such
-> as long-form science education, independent cinema, regional cooking, or
-> strategy gaming. They are additive to YouTube's published categories and do
-> not replace or modify any category, label, statistic, or other information
-> supplied by YouTube. Written clearly identifies these results as generated
-> independently by Written and not created, sourced, approved, or endorsed by
-> YouTube. The tags are first shown privately to you so that you can review,
-> edit, or remove them. Tags you choose to retain may be summarized into broader
-> interest themes and used with information you have confirmed from other
-> sources to improve your Written profile, dynamic bio, and conversational
-> suggestions. Written does not use this analysis to evaluate creators, generate
-> substitute YouTube engagement metrics, estimate YouTube's usage or revenue, or
-> infer sensitive attributes such as race, religion, political affiliation,
-> sexual orientation, or health status. This derived-analysis workflow is
-> operated only to the extent accepted by Google under YouTube's additional
-> policies for derived metrics, which expressly allow approved developers to
-> create additive descriptive subgenres and proprietary tagging systems,
-> provided the results are prominently identified as independently generated
-> rather than directly sourced from YouTube; all other YouTube API policies
-> continue to apply.
+**Three corrections against an earlier draft, each worth keeping:**
 
-**It is also the specification.** Every clause is a requirement on the build,
-and four of them are not yet met:
+- **Never say the tags are "not sourced from YouTube."** They are generated from
+  authorized YouTube API Data and saying otherwise is inaccurate — which is the
+  exact misrepresentation III.E.4.h's disclosure limb exists to prevent. The
+  true distinction is *generated independently by Written from YouTube
+  information you authorized; not supplied, approved, or endorsed by YouTube*.
+- **Never imply the approval already exists.** "Is requesting" until it is not.
+- **Disclose the whole downstream chain**, and resist the instinct to describe
+  only the tagging step. The amendment is granted for the *submitted* use case,
+  so a submission that hides the summarisation into user-level interests would
+  buy approval for a narrower product than Written actually is. Google should
+  see: `YouTube metadata → Written-generated tags → user review → broader
+  interest themes → profile, bio and conversation prompts`.
 
-- *"additive to YouTube's published categories"* — the tag sits **beneath**
-  YouTube's own category, which is why `YouTubeDistiller.channelTopics` fetching
-  `topicDetails` stays even after the ontology is switched back on. Additive to
-  a category you never retrieved is not demonstrable.
-- *"clearly identifies these results as generated independently by Written"* —
-  a visible label on the review screen and anywhere a tag is shown, not a line
-  in a policy. This is III.E.4.h's disclosure limb and it is mandatory
-  regardless of the amendment.
-- *"first shown privately to you so that you can review, edit, or remove"* — the
-  review layer. Does not exist.
-- *"does not … infer sensitive attributes"* — `Ontology.refusedTopics` is the
-  start of this and covers YouTube's topic vocabulary only. A proprietary
-  ontology needs its own exclusions, and they need to hold for tags the ontology
-  invents rather than ones YouTube supplied.
+**And the privacy policy needs its own sentence, separately:** ordinary metadata
+— titles, creator names, descriptions — stays on the standard 30-day
+delete-or-refresh rules, while accepted derived outputs may be retained up to 36
+months **only if** the amendment is granted. That sentence is also the answer to
+the open question flagged in `CLAUDE.md` about whether `0016`'s premise survives.
+
+**Every clause is a requirement on the build**, and four are unmet:
+
+- *"do not replace or modify YouTube's published categories"* — the tag sits
+  **beneath** YouTube's own category, which is why
+  `YouTubeDistiller.channelTopics` fetching `topicDetails` stays even after the
+  ontology is switched back on. Additive to a category never retrieved is not
+  demonstrable.
+- *"generated independently by Written"* — a visible label wherever a tag is
+  shown, not a line in a policy. III.E.4.h's disclosure limb, mandatory with or
+  without the amendment.
+- *"first shows the resulting analysis privately to you"* — the review layer.
+  Does not exist.
+- *"does not … infer sensitive protected characteristics"* —
+  `Ontology.refusedTopics` is the start and covers YouTube's topic vocabulary
+  only. A proprietary ontology needs exclusions that hold for tags it *invents*,
+  which is the harder half and is not started.
+
+**One judgement left to a person.** Running the ontology over YouTube data in a
+build shown to Google, before acceptance, is defensible — the demonstration is
+*for* the party whose permission is being sought, and production stays gated —
+but it is still the operation the guide tells unapproved clients not to perform.
+Decide it deliberately rather than by drifting into it, and keep the gate real:
+one server-side entitlement, off by default, so the review build and production
+cannot diverge by accident.
 
 ## The Google submission, ready to file
 
