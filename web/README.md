@@ -142,6 +142,29 @@ conservative paragraphs on `web/en-us/` and `web/en-us/privacy/` **in the same
 commit as the feature**. On acceptance, "is requesting approval to operate" is
 changed to the operative form — a two-word edit, and the last one.
 
+**No application has been filed as of 2026-08-05.** The strategy, decided that
+day: build a site and a demo compelling enough to win approval first, and treat
+the approved feature as a starting position rather than the finished product.
+That is a reasonable way round — the gate is approval, and a demo narrower than
+the mature product is ordinary.
+
+**It works on one condition, and the condition is the whole of it: a narrow
+*demo* is fine, a narrow *disclosure* is not.** The amendment is granted for the
+submitted use case and Google judges the complete submission, so the approval
+covers exactly what was described. Show a simplified feature if that is what
+exists; describe the full chain regardless — `YouTube metadata →
+Written-generated tags → user review → broader interest themes → profile, bio
+and conversation prompts`. A submission that mentions only the tagging step
+would buy permission for a product this is not, and running the real one would
+then sit outside the grant. Every instinct to trim the description for
+tidiness is the instinct to resist.
+
+**Unverified, and load-bearing if relied upon:** the working assumption that
+scopes and permissions can be widened through discussion once approved. The
+amendment's existence and its use-case gating were confirmed against Google's
+published text; nothing found there says post-approval expansion is
+straightforward. Treat it as a plan that survives being wrong, not a promise.
+
 > ### How Written uses YouTube information
 >
 > When you choose Distill YouTube, Written reads the YouTube information you
