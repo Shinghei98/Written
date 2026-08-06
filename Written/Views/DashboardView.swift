@@ -139,7 +139,23 @@ struct DashboardView: View {
                     // Clear of the pinned header at its tallest; the content
                     // slides *under* it from there, as in the reference.
                     .padding(.top, Self.expandedHeaderHeight)
-                    .padding(.bottom, 36)
+                    // **And clear of the tab bar at the bottom.** The bar
+                    // overlays and never insets — that rule is why the garden's
+                    // plant stays where it is — so every page that scrolls has
+                    // to keep `MainTabBar.overlayHeight` free at its own
+                    // bottom edge. Chat, Explore and the admirers list all do;
+                    // Memories was the one that did not, and its last section
+                    // sat under the bar.
+                    //
+                    // Derived rather than a round number near it: hardcoding 86
+                    // once reserved 22 points more than the bar occupies, which
+                    // on the garden was empty parchment the connected rows
+                    // could have had.
+                    //
+                    // Not added during onboarding, where there is no bar — the
+                    // whole point of that half of the app is that it has one way
+                    // forward and no tabs to reach.
+                    .padding(.bottom, isOnboarding ? 36 : 36 + MainTabBar.overlayHeight)
                   }
                 }
                 // How far the content has travelled, which is what the header
