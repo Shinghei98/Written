@@ -372,6 +372,8 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // asked their boundaries and inheriting a stranger's.
         UserDefaults.standard.removeObject(forKey: Self.hasExploredKey)
         CommunicationStyleStore.clear()
+        DatingPreferencesStore.clear()
+        clearSignInProvider()
     }
 
     /// Deletes the account and everything hanging off it.
@@ -549,6 +551,39 @@ final class SupabaseAuth: NSObject, ObservableObject {
         UserDefaults.standard.set(session.user.id, forKey: Self.userIDKey)
     }
 
+    // MARK: - Which method opened this account
+
+    /// How somebody signs in. Recorded so the settings page can say which of
+    /// the three this account belongs to.
+    ///
+    /// **Not read from the session**, though it could be: Supabase carries
+    /// identities on the user object, and reading them would need a second
+    /// request on a screen that should draw immediately. This is one string
+    /// written once at sign-in, and the settings row is the only reader.
+    enum SignInProvider: String {
+        case apple, google, phone
+    }
+
+    /// Global rather than account-scoped, deliberately: it is written during
+    /// sign-in, and `AccountScope` still resolves to `local` at that moment
+    /// because the account id has not been stored yet. That ordering is the
+    /// same trap `googleSignIn` documents for refresh tokens.
+    private static let signInProviderKey = "written.signin.provider"
+
+    @Published private(set) var signInProvider: SignInProvider? =
+        UserDefaults.standard.string(forKey: SupabaseAuth.signInProviderKey)
+            .flatMap(SignInProvider.init(rawValue:))
+
+    func recordSignIn(_ provider: SignInProvider) {
+        signInProvider = provider
+        UserDefaults.standard.set(provider.rawValue, forKey: Self.signInProviderKey)
+    }
+
+    private func clearSignInProvider() {
+        signInProvider = nil
+        UserDefaults.standard.removeObject(forKey: Self.signInProviderKey)
+    }
+
     // MARK: - Google
 
     /// Signs in with Google, by the same trade Apple's path makes.
@@ -574,6 +609,7 @@ final class SupabaseAuth: NSObject, ObservableObject {
             grantType: "id_token",
             body: ["provider": "google", "id_token": identity]
         )
+        recordSignIn(.google)
         // Apple's path loads the profile through its delegate; this one has no
         // delegate, so without this `onboardingStep` is asked where the user is
         // before anything knows their name.
@@ -611,6 +647,7 @@ final class SupabaseAuth: NSObject, ObservableObject {
         )
         adopt(try JSONDecoder().decode(Session.self, from: data))
         // Apple's path loads the profile through its delegate; this one has no
+        recordSignIn(.phone)
         // delegate, so the name has to be fetched before anything asks whether
         // onboarding is done.
         await loadProfile()
@@ -691,6 +728,7 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
                     grantType: "id_token",
                     body: ["provider": "apple", "id_token": idToken, "nonce": nonce]
                 )
+                recordSignIn(.apple)
                 // Always, not only when a name came with it. Apple offers the
                 // name on the *first* sign-in and never again, but this row is
                 // what every foreign key in the schema points at — skip it on a

@@ -50,6 +50,30 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "tab")
     }
 
+    /// `-onboarded 1` → draw the shell as though onboarding had finished.
+    ///
+    /// **The regular-use half of the app is otherwise unreachable without a
+    /// real account**, and several things exist only there: the tab bar, the
+    /// dashboard's sign-out and delete rows, and now the settings cog. Without
+    /// this they can be checked on a device and nowhere else, which is the same
+    /// hole `-route` was added to close for the onboarding pages.
+    ///
+    /// Note it does not fabricate a session — nothing that needs the server
+    /// will work. It answers the layout question only.
+    static var forcesOnboarded: Bool {
+        UserDefaults.standard.string(forKey: "onboarded") == "1"
+    }
+
+    /// `-settings 1` → open the settings page over Memories on launch.
+    ///
+    /// Same reason as `-tab` and `-chat`: the cog can only be reached by
+    /// tapping and `simctl` cannot tap, so the page and its five sections are
+    /// otherwise unscreenshottable. Pair it with `-onboarded 1`, without which
+    /// the cog is not drawn at all.
+    static var opensSettings: Bool {
+        UserDefaults.standard.string(forKey: "settings") == "1"
+    }
+
     /// `-screen dashboard` → plays the move to the dashboard shortly after
     /// launch. It is otherwise only reachable by tapping "View Dashboard", and
     /// `simctl` cannot tap; screenshotting during the delay and after it covers

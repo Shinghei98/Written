@@ -120,4 +120,63 @@ actor DiscoveryCardService {
         }
     }
 
+    /// Removes this account's card, which is the whole of "pause".
+    ///
+    /// **A delete rather than a flag on the row**, because a flag would need a
+    /// migration, a policy that still lets others read the row, and every
+    /// reader to remember to check it. `DiscoveryService` reads this table and
+    /// nothing else, so an absent row is already understood by everything
+    /// downstream — and `0007` has carried an own-row delete policy from the
+    /// start.
+    ///
+    /// Nothing is lost by it. The card is derived: `publish` rebuilds it from
+    /// the distillation and the photographs whenever the user unpauses or
+    /// distils again.
+    ///
+    /// Built with `URLComponents` for the reason `SyncService.delete` records —
+    /// `appendingPathComponent` escapes the `?`, and a DELETE that loses its
+    /// filter is the worst possible version of this call. Here RLS would still
+    /// confine it to one row, which is the second reason the policies matter.
+    @discardableResult
+    func withdraw() async -> Bool {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = "Not signed in."
+            return false
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "No account id."
+            return false
+        }
+
+        var components = URLComponents(
+            url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/discovery_cards"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "user_id", value: "eq.\(userID)")]
+        guard let url = components?.url else {
+            lastError = "Could not form the request."
+            return false
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                lastError = String(data: data, encoding: .utf8) ?? "Could not pause (\(status))."
+                return false
+            }
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
 }

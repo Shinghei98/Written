@@ -46,6 +46,7 @@ struct DashboardView: View {
     @State private var isConfirmingDelete = false
     @State private var isDeleting = false
     @State private var isConfirmingYouTube = false
+    @State private var isShowingSettings = false
     @State private var deleteError: String?
 
     /// How far the content has scrolled, negative as it rises. Drives the
@@ -219,6 +220,21 @@ struct DashboardView: View {
         )
         .overlay { biographicsSheet }
         .overlay { favouriteSheet }
+        // Full screen rather than a sheet: settings is a place, not a decision,
+        // and the sub-pages need a navigation stack of their own. The cross
+        // inside dismisses the whole cover from any depth.
+        .fullScreenCover(isPresented: $isShowingSettings) {
+            SettingsView(viewModel: viewModel) { isShowingSettings = false }
+        }
+#if DEBUG
+        .onAppear {
+            // `-settings 1`, and once only: `firesOnce` is what stops the page
+            // reopening every time this view reappears behind it.
+            if DebugLaunch.opensSettings, !isOnboarding, DebugLaunch.firesOnce("settings") {
+                isShowingSettings = true
+            }
+        }
+#endif
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
         // was a `.task` on this view, and `AppShell` mounts every tab at launch
@@ -483,9 +499,32 @@ struct DashboardView: View {
     /// screen.
     private var header: some View {
         VStack(spacing: 14) {
+            // The cog is an *overlay* on the title rather than a row beside it.
+            // "Memories" is centred and has to stay centred — putting the two in
+            // an `HStack` moves the title left by half the cog, which is
+            // visible against the collapsed header's own centring and would
+            // need a matching spacer on the other side to undo.
             Text("Memories")
                 .font(BrandFont.title(44))
                 .foregroundStyle(GardenPalette.ink)
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .trailing) {
+                    // Hidden during onboarding, with sign-out and delete: a
+                    // settings page there is a fifth exit from a sequence whose
+                    // whole point is that it has one.
+                    if !isOnboarding {
+                        Button { isShowingSettings = true } label: {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 19))
+                                .foregroundStyle(GardenPalette.muted)
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Settings")
+                        // Fades with the header as it collapses, so it does not
+                        // sit over the summary line once the title has gone.
+                        .opacity(Double(1 - min(collapse * 1.6, 1)))
+                    }
+                }
 
             // Cross-faded rather than re-laid-out: interpolating one stack's
             // spacing and icon size fights the layout system every frame, and

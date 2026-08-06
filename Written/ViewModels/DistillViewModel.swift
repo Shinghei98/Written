@@ -1548,6 +1548,133 @@ final class DistillViewModel: ObservableObject {
 
     func hasBanned(_ personID: String) -> Bool { bans.contains(.person, personID) }
 
+    // MARK: - The settings page
+
+    /// Everyone this account has blocked, however they were blocked.
+    ///
+    /// One list rather than two: a person struck off from a profile and a name
+    /// typed into the block list are the same fact, and a settings page that
+    /// showed only the ones typed here would look like it had lost the others.
+    var blockedKeys: Set<String> { bans.keys(.person) }
+
+    var filteredWords: Set<String> { bans.keys(.word) }
+
+    /// Blocks by whatever the user typed. **Not the same key space as
+    /// `banPerson`**, which uses a user id — this is a name or a number
+    /// somebody wrote down, and there may be no account behind it at all.
+    /// Both live under `.person` because both answer "do not show me this",
+    /// and a match on either is a match.
+    func block(name: String) {
+        let key = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        bans.add(.person, key)
+        bans.save()
+        syncBans()
+    }
+
+    /// The contacts import, in one write rather than one per name.
+    ///
+    /// An address book runs to hundreds of entries and `syncBans` pushes the
+    /// whole list, so blocking them one at a time would be hundreds of
+    /// identical uploads of a list that grew by one each time.
+    func block(names: [String]) {
+        var changed = false
+        for name in names {
+            let key = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !bans.contains(.person, key) else { continue }
+            bans.add(.person, key)
+            changed = true
+        }
+        guard changed else { return }
+        bans.save()
+        syncBans()
+    }
+
+    func unblock(key: String) {
+        bans.remove(.person, key)
+        bans.save()
+        syncBans()
+    }
+
+    /// Stored lowercased so the match does not have to care about capitals —
+    /// somebody filtering a word means the word, not one spelling of it.
+    func filter(word: String) {
+        let key = word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !key.isEmpty else { return }
+        bans.add(.word, key)
+        bans.save()
+        syncBans()
+    }
+
+    func unfilter(word: String) {
+        bans.remove(.word, word)
+        bans.save()
+        syncBans()
+    }
+
+    /// Whether an invitation's note trips the filter.
+    ///
+    /// Read-side rather than server-side: the note has already crossed the wire
+    /// by the time anything could filter it, so this needs no policy change and
+    /// no migration. Substring, and lowercased on both sides.
+    func isFiltered(note: String?) -> Bool {
+        guard let note, !note.isEmpty else { return false }
+        let haystack = note.lowercased()
+        return filteredWords.contains { haystack.contains($0) }
+    }
+
+    /// Dating preferences, saved locally by the settings page and synced here.
+    ///
+    /// They own no column, so they travel as `user` records and apply at once —
+    /// the asymmetry `setEducation` and `setOccupation` already follow. Nothing
+    /// reads them yet; see `DatingPreferences`.
+    ///
+    /// **Pause is the exception and is not just a record.** It has to change
+    /// what other people see, so it withdraws the discovery card. Republishing
+    /// on unpause goes through the same `publishDiscoveryCard` every
+    /// distillation uses, so there is one definition of what a card contains.
+    func syncDatingPreferences(_ preferences: DatingPreferences) {
+        let now = Date()
+        let rows = [
+            ("gender_preference", preferences.gender.rawValue),
+            ("matching_radius_miles", String(preferences.radiusMiles)),
+            ("age_range", "\(preferences.minAge)-\(preferences.maxAge)"),
+            ("paused", preferences.isPaused ? "1" : "0"),
+        ].map { key, value in
+            DistilledRecord(
+                source: "user", dataType: key, itemID: key,
+                name: value, creator: "", detail: "", extra: "", collectedAt: now
+            )
+        }
+
+        // Every other `user` row survives: `replaceRecords` swaps the whole
+        // source, so handing it only these four would erase the name, the
+        // education and everything else that shares it.
+        let replaced = Set(rows.map(\.dataType))
+        let kept = records.filter { $0.source == "user" && !replaced.contains($0.dataType) }
+        replaceRecords(from: "user", with: kept + rows)
+
+        if preferences.isPaused {
+            withdrawDiscoveryCard()
+        } else {
+            publishDiscoveryCard()
+        }
+    }
+
+    /// Takes this person out of the pool without touching anything else.
+    ///
+    /// **Deleting the card is the whole of pausing**, and it gives exactly what
+    /// the setting promises: `DiscoveryService` reads `discovery_cards`, so no
+    /// card means nobody new is shown this person — while `likes`,
+    /// `conversations` and `messages` are untouched, so invitations already
+    /// sent stay valid and existing threads keep working. No column, no
+    /// migration, and nothing downstream has to learn a new state.
+    private func withdrawDiscoveryCard() {
+        Task.detached(priority: .utility) {
+            await DiscoveryCardService.shared.withdraw()
+        }
+    }
+
     /// Marks a record removed if it belongs to something banned. Rows are kept
     /// and annotated rather than deleted — see `DistilledRecord.markedRemoved`.
     private func applyingBans(_ record: DistilledRecord) -> DistilledRecord {

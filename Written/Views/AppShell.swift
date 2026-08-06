@@ -37,7 +37,16 @@ struct AppShell: View {
     /// Read once into state rather than observed: the answer only changes at the
     /// single moment `finishOnboarding` runs, and it decides the whole shape of
     /// the screen, so it should not be able to shift under a redraw.
-    @State private var isOnboarding = SupabaseAuth.shared.onboardingStep != .done
+    @State private var isOnboarding = AppShell.initialOnboardingState
+
+    private static var initialOnboardingState: Bool {
+#if DEBUG
+        // `-onboarded 1` reaches the regular-use half of the app, which is
+        // otherwise only visible behind a real account.
+        if DebugLaunch.forcesOnboarded { return false }
+#endif
+        return SupabaseAuth.shared.onboardingStep != .done
+    }
 
     /// Where a tapped notification wants to go. Observed rather than owned —
     /// `PushDelegate` writes to it from outside the view tree entirely.

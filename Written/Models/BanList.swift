@@ -48,6 +48,22 @@ struct BanList: Codable, Equatable {
         /// four things are called "Lunch", none of them says anything, and
         /// somebody who strikes one is unlikely to be defending the other three.
         case event
+        /// A word that keeps an invitation from ever being shown.
+        ///
+        /// **The second kind that hides something rather than striking it off,
+        /// after `person`** — and it earns the same place for the same reasons.
+        /// It is account-scoped, cached so a filter applies with no round trip,
+        /// pushed by `SyncService.pushBans`, restored by `RestoreService`, and
+        /// covered by a `bans` policy that is already `auth.uid() = user_id`.
+        /// `bans.kind` is plain text with no check constraint, so this needs no
+        /// migration either.
+        ///
+        /// Stored lowercased and matched as a substring of the note a like
+        /// carries. Substring rather than whole-word deliberately: somebody
+        /// filtering a slur is not also going to think of its plurals, and the
+        /// cost of over-matching here is one invitation nobody sees, which is
+        /// the outcome they asked for.
+        case word
     }
 
     struct Entry: Codable, Hashable {
