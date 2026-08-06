@@ -2486,6 +2486,58 @@ same time: `service_role` keys are disabled on this project, so the name
 described a credential that no longer exists while continuing to work, which is
 the shape of mistake that made the July rotation confusing.
 
+**An App Store reviewer cannot create an account, and this is the likeliest
+rejection on the board.** Sign-up is phone-only and verified by SMS, and Twilio
+Verify's geo permissions allow Hong Kong, Taiwan and the US only — so a reviewer
+outside those cannot receive a code at all, and one inside them still needs a
+number they control. Apple and Google cannot rescue it: they now refuse any
+identity that is not already linked, which is the whole point of the rule.
+Guideline 2.1 rejections for "we could not sign in" are routine and slow.
+
+**The answer is a pre-linked demo account**, which has the merit of exercising
+the real returning-user path rather than a bypass nobody else will ever take.
+In order, and the order matters:
+
+1. **The three server prerequisites must be live first**, or the demo account
+   cannot be signed into either: `0033` applied (without it no account has a
+   phone in `public.users`, so `resolve-signin` refuses *everybody*),
+   `resolve-signin` deployed with JWT verification on, and manual linking
+   enabled at the project.
+2. **Create the account by phone on a device**, with a number you control.
+   Complete onboarding far enough that the app is worth looking at — a name at
+   minimum, photographs preferably, since a card with no face is never
+   published and Explore will look emptier than it is.
+3. **Link Google from Settings → Connected accounts**, using an account you
+   control.
+4. **Add that Google account to the OAuth consent screen's test users**, at
+   `console.cloud.google.com`. **This is the step that will be forgotten.** The
+   consent screen is in Testing, which allowlists 100 users and gates *every*
+   scope on that client — including `openid email profile`. A reviewer signing
+   in with an account that is not on the list gets a 403 after a successful
+   Google login, which reads as the app being broken.
+5. **Give App Store Connect the Google credentials**, not the phone number, and
+   say in the review notes to tap **Sign in with Google** rather than Create
+   account.
+
+**Use a Google account without two-factor authentication.** A reviewer cannot
+pass a 2FA challenge on somebody else's account, and that failure looks
+identical to the app not working.
+
+**Rehearse it on a second device, because the reviewer's first launch is a path
+nothing has ever run.** They will sign in to an account whose data is entirely
+on the server — which is exactly the restore this file lists as built and
+unproven. The mechanism checks out on inspection: `restoreFromServer()` is
+called from `DistillViewModel.init`, the view model is a `@StateObject` on
+`AppShell`, and `AppShell` is created the moment the route changes after
+sign-in, so hydration runs for a fresh sign-in and not only for a stored
+session. That is an argument, not a test. Sign in to the demo account on an
+erased simulator and confirm the profile, the photographs and the garden all
+come back before anybody at Apple does it first.
+
+A sign-in failure is at least legible: `WrittenApp.swift` shows
+`error.localizedDescription` in a "Couldn't sign in" alert, so a 403 or a
+refused identity says something rather than nothing.
+
 **Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 15, which
 is archived but predates the discovery, crop and authentication work — uploading
 it would give testers a build that fixes nothing they reported.
