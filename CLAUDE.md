@@ -2562,9 +2562,9 @@ A sign-in failure is at least legible: `WrittenApp.swift` shows
 `error.localizedDescription` in a "Couldn't sign in" alert, so a 403 or a
 refused identity says something rather than nothing.
 
-**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** At 15, which
-is archived but predates the discovery, crop and authentication work — uploading
-it would give testers a build that fixes nothing they reported.
+**Every TestFlight upload needs `CURRENT_PROJECT_VERSION` bumped.** **At 23,
+measured 2026-08-06 rather than remembered** — it read 15 here for a while after
+it was not.
 It appears **eight times** in `project.pbxproj` — Debug and Release for the app,
 the share extension, the notification service extension and the UI tests — and
 all eight have to move together. The app and **every** embedded extension sharing
@@ -2611,7 +2611,11 @@ exceed the app's.** Xcode gives a new target the *SDK* version by default, so
 `ShareToWritten` was created at **26.5** against the app's 16.0 and shipped that
 way in builds 6 and 8 — anyone below 26.5 gets an app with no share extension in
 it. This was found while diagnosing the above and is *not* what stranded the
-testers; it is a real defect that the symptom happened to lead to. Check the
+testers; it is a real defect that the symptom happened to lead to.
+**Fixed, and confirmed in the bundles on 2026-08-06**: the app,
+`ShareToWritten` and `NotificationService` all read `MinimumOSVersion` 16.0 and
+`CFBundleVersion` 23. Keep checking the bundles rather than the settings — the
+check below is what makes that stick. Check the
 bundles, not the build settings, because it only becomes visible once baked in:
 
     A="$(ls -dt ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)"
