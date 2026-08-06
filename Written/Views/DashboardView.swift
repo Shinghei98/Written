@@ -42,12 +42,8 @@ struct DashboardView: View {
     /// onboarding there is no bar, so it is the only way back and it stays.
     var isOnboarding = false
 
-    @State private var isConfirmingSignOut = false
-    @State private var isConfirmingDelete = false
-    @State private var isDeleting = false
     @State private var isConfirmingYouTube = false
     @State private var isShowingSettings = false
-    @State private var deleteError: String?
 
     /// How far the content has scrolled, negative as it rises. Drives the
     /// header's collapse.
@@ -113,9 +109,16 @@ struct DashboardView: View {
                             confirmButton
                                 .padding(.top, 8)
                         } else {
-                            // Only for people who have connected it. A control
-                            // for undoing something nobody did is noise, and
-                            // this row is already the quiet end of the page.
+                            // **Sign out and Delete account live in Settings
+                            // now.** They are account actions rather than
+                            // things about this page, and the cog is where
+                            // somebody looks for them — leaving them at the
+                            // bottom of Memories meant scrolling past the
+                            // photographs and the biographics to reach them.
+                            //
+                            // The YouTube row stays: it is about the
+                            // distillation on this screen, not about the
+                            // account.
                             //
                             // **Kept even though YouTube is ARCHIVED-YOUTUBE.**
                             // Nobody new can connect it, but beta testers who
@@ -129,10 +132,6 @@ struct DashboardView: View {
                                 youtubeDataButton
                                     .padding(.top, 6)
                             }
-                            signOutButton
-                                .padding(.top, 6)
-                            deleteAccountButton
-                                .padding(.top, 10)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -233,7 +232,11 @@ struct DashboardView: View {
         // and the sub-pages need a navigation stack of their own. The cross
         // inside dismisses the whole cover from any depth.
         .fullScreenCover(isPresented: $isShowingSettings) {
-            SettingsView(viewModel: viewModel) { isShowingSettings = false }
+            SettingsView(
+                viewModel: viewModel,
+                onClose: { isShowingSettings = false },
+                onSignOut: onSignOut
+            )
         }
 #if DEBUG
         .onAppear {
@@ -318,80 +321,6 @@ struct DashboardView: View {
             } message: {
                 Text("Deleting removes everything read from YouTube and leaves the connection in place. Disconnecting does that and also withdraws Written's access at Google. Neither changes anything in your YouTube account.")
             }
-    }
-
-    /// Plain text, not a filled capsule: this is not the way forward from this
-    /// screen, and it should not compete with the button that is.
-    private var signOutButton: some View {
-        Button("Sign out") { isConfirmingSignOut = true }
-            .font(.system(size: 15))
-            .foregroundStyle(GardenPalette.muted)
-            .frame(maxWidth: .infinity)
-            .confirmationDialog("Sign out?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
-                Button("Sign out", role: .destructive, action: onSignOut)
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                // Signing out no longer disconnects anything: the connections,
-                // the ban list and the snapshot are stored per account, so they
-                // are still there on the way back in. Say so — the old warning
-                // told people the opposite.
-                Text("Your connections stay as they are.")
-            }
-    }
-
-    /// Below sign-out and quieter still, because it is the one action here that
-    /// cannot be undone.
-    private var deleteAccountButton: some View {
-        Button {
-            isConfirmingDelete = true
-        } label: {
-            if isDeleting {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(GardenPalette.muted)
-            } else {
-                Text("Delete account")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.red.opacity(0.75))
-            }
-        }
-        .disabled(isDeleting)
-        .frame(maxWidth: .infinity)
-        .confirmationDialog(
-            "Delete your account?",
-            isPresented: $isConfirmingDelete,
-            titleVisibility: .visible
-        ) {
-            Button("Delete everything", role: .destructive) { delete() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Your profile, your distillation and everything connected to it are erased. This can't be undone.")
-        }
-        .alert("Couldn't delete your account", isPresented: .constant(deleteError != nil)) {
-            Button("OK") { deleteError = nil }
-        } message: {
-            Text(deleteError ?? "")
-        }
-    }
-
-    private func delete() {
-        isDeleting = true
-        Task {
-            // Local first, and while still signed in: `AccountScope` reads the
-            // stored user id to know which files and Keychain items belong to
-            // this account, and after the session goes it would resolve to
-            // `local` and clear the wrong ones.
-            viewModel.deleteAccountLocalState()
-            do {
-                try await SupabaseAuth.shared.deleteAccount()
-            } catch {
-                // The server call throws only after the data itself is gone, so
-                // this reports what survived rather than cancelling anything.
-                deleteError = error.localizedDescription
-            }
-            isDeleting = false
-            onSignOut()
-        }
     }
 
     // MARK: - Collapse
@@ -529,9 +458,14 @@ struct DashboardView: View {
                                 .frame(width: 44, height: 44)
                         }
                         .accessibilityLabel("Settings")
-                        // Fades with the header as it collapses, so it does not
-                        // sit over the summary line once the title has gone.
-                        .opacity(Double(1 - min(collapse * 1.6, 1)))
+                        // **Does not fade with the collapse.** It used to, on
+                        // the reasoning that it would otherwise sit over the
+                        // summary line — but the header is pinned and the
+                        // content scrolls under it, so the cog holds its place
+                        // at every collapse value and nothing is behind it.
+                        // What fading actually did was take the only route to
+                        // Settings away from anybody who had scrolled, which is
+                        // most people by the time they want it.
                     }
                 }
 

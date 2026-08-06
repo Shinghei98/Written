@@ -15,8 +15,17 @@ struct SettingsView: View {
 
     @ObservedObject var viewModel: DistillViewModel
     let onClose: () -> Void
+    /// Passed through from `AppShell` rather than reimplemented. That chain
+    /// flushes staged photographs and forgets the push token *before* the
+    /// session is dropped, and both would be lost by a second sign-out written
+    /// here — the same reason `GrowProfileView` deliberately has none.
+    let onSignOut: () -> Void
 
     @State private var preferences = DatingPreferencesStore.saved ?? DatingPreferences()
+    @State private var isConfirmingSignOut = false
+    @State private var isConfirmingDelete = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationStack {
@@ -24,6 +33,7 @@ struct SettingsView: View {
                 GardenPalette.parchment.ignoresSafeArea()
 
                 ScrollView {
+                    ScrollViewReader { proxy in
                     VStack(spacing: 0) {
                         profileSection
                         divider
@@ -34,10 +44,32 @@ struct SettingsView: View {
                         accountsSection
                         divider
                         legalSection
+                        divider
+                        accountSection
+                            .id("account")
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, Self.bannerHeight + 8)
                     .padding(.bottom, 48)
+#if DEBUG
+                    // `-settings bottom` → open already scrolled to Sign out
+                    // and Delete account. Same reason the dashboard has
+                    // `-scroll`: those rows are below the fold on every phone
+                    // and `simctl` cannot drag, so they are otherwise
+                    // unscreenshottable. Asked more than once because the
+                    // cover is still presenting when this first fires.
+                    .onAppear {
+                        guard DebugLaunch.scrollsSettingsToBottom,
+                              DebugLaunch.firesOnce("settings-scroll") else { return }
+                        Task {
+                            for delay in [0.4, 1.2, 2.0] {
+                                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                                proxy.scrollTo("account", anchor: .bottom)
+                            }
+                        }
+                    }
+#endif
+                    }
                 }
 
                 banner
@@ -187,6 +219,96 @@ struct SettingsView: View {
             } label: {
                 row("Download my data", value: nil, showsChevron: false, trailingIcon: "arrow.down.circle")
             }
+        }
+    }
+
+    /// **No label, and that is the point.** Every other section here names a
+    /// group of settings; these two are not settings at all, they are things
+    /// that happen to the account. Centring them rather than using the leading
+    /// `row(...)` treatment says the same thing a second way — a row with a
+    /// chevron is somewhere to go, and these are not.
+    private var accountSection: some View {
+        VStack(spacing: 0) {
+            Button("Sign out") { isConfirmingSignOut = true }
+                .font(.system(size: 16))
+                .foregroundStyle(GardenPalette.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .confirmationDialog(
+                    "Sign out?",
+                    isPresented: $isConfirmingSignOut,
+                    titleVisibility: .visible
+                ) {
+                    Button("Sign out", role: .destructive) { signOut() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    // Signing out does not disconnect anything: the
+                    // connections, the ban list and the snapshot are stored per
+                    // account, so they are still there on the way back in.
+                    Text("Your connections stay as they are.")
+                }
+
+            Button {
+                isConfirmingDelete = true
+            } label: {
+                if isDeleting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(GardenPalette.muted)
+                } else {
+                    Text("Delete account")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color(red: 0.72, green: 0.18, blue: 0.16))
+                }
+            }
+            .disabled(isDeleting)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .confirmationDialog(
+                "Delete your account?",
+                isPresented: $isConfirmingDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete everything", role: .destructive) { delete() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your profile, your distillation and everything connected to it are erased. This can't be undone.")
+            }
+            .alert("Couldn't delete your account", isPresented: .constant(deleteError != nil)) {
+                Button("OK") { deleteError = nil }
+            } message: {
+                Text(deleteError ?? "")
+            }
+        }
+    }
+
+    /// **The cover comes down before the session does.** This page is a
+    /// `fullScreenCover` over the dashboard, and signing out swaps the whole
+    /// route underneath it — leaving a settings page floating over the sign-in
+    /// screen it was never meant to cover.
+    private func signOut() {
+        onClose()
+        onSignOut()
+    }
+
+    private func delete() {
+        isDeleting = true
+        Task {
+            // Local first, and while still signed in: `AccountScope` reads the
+            // stored user id to know which files and Keychain items belong to
+            // this account, and after the session goes it would resolve to
+            // `local` and clear the wrong ones.
+            viewModel.deleteAccountLocalState()
+            do {
+                try await SupabaseAuth.shared.deleteAccount()
+            } catch {
+                // The server call throws only after the data itself is gone, so
+                // this reports what survived rather than cancelling anything.
+                deleteError = error.localizedDescription
+            }
+            isDeleting = false
+            onClose()
+            onSignOut()
         }
     }
 

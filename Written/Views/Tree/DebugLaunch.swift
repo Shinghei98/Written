@@ -70,8 +70,17 @@ enum DebugLaunch {
     /// tapping and `simctl` cannot tap, so the page and its five sections are
     /// otherwise unscreenshottable. Pair it with `-onboarded 1`, without which
     /// the cog is not drawn at all.
+    /// **Any value opens it**, not only `1`. `-settings bottom` also has to
+    /// present the page before it can scroll it, and testing `== "1"` here
+    /// meant the scrolling variant opened nothing at all.
     static var opensSettings: Bool {
-        UserDefaults.standard.string(forKey: "settings") == "1"
+        UserDefaults.standard.string(forKey: "settings") != nil
+    }
+
+    /// `-settings bottom` → open Settings scrolled to Sign out and Delete
+    /// account, which sit below the fold on every phone.
+    static var scrollsSettingsToBottom: Bool {
+        UserDefaults.standard.string(forKey: "settings") == "bottom"
     }
 
     /// `-screen dashboard` → plays the move to the dashboard shortly after
