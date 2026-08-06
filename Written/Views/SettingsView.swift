@@ -21,6 +21,14 @@ struct SettingsView: View {
     /// here — the same reason `GrowProfileView` deliberately has none.
     let onSignOut: () -> Void
 
+    /// **A typed path rather than four bare `NavigationLink` destinations.**
+    /// The sub-pages are otherwise reachable only by tapping, and `simctl`
+    /// cannot tap — so the radius map, the age range, the block list and the
+    /// word filter were all unscreenshottable. Same argument as `-tab`,
+    /// `-scroll` and `-chat`.
+    enum Page: Hashable { case gender, radius, ageRange, blockList, wordFilter }
+
+    @State private var path: [Page] = []
     @State private var preferences = DatingPreferencesStore.saved ?? DatingPreferences()
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingDelete = false
@@ -28,7 +36,7 @@ struct SettingsView: View {
     @State private var deleteError: String?
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .top) {
                 GardenPalette.parchment.ignoresSafeArea()
 
@@ -75,6 +83,15 @@ struct SettingsView: View {
                 banner
             }
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: Page.self) { page in
+                switch page {
+                case .gender:     GenderPreferenceView(selection: $preferences.gender)
+                case .radius:     MatchingRadiusView(miles: $preferences.radiusMiles)
+                case .ageRange:   AgeRangeView(minAge: $preferences.minAge, maxAge: $preferences.maxAge)
+                case .blockList:  BlockListView(viewModel: viewModel)
+                case .wordFilter: WordFilterView(viewModel: viewModel)
+                }
+            }
         }
         // Written the moment anything changes rather than on a Save button:
         // the sub-pages have their own Save, and the toggles on this page have
@@ -84,6 +101,28 @@ struct SettingsView: View {
             DatingPreferencesStore.save(preferences)
             viewModel.syncDatingPreferences(preferences)
         }
+#if DEBUG
+        // `-settings wordFilter` and friends; see `DebugLaunch`.
+        .task {
+            if DebugLaunch.seedsFilteredWords, DebugLaunch.firesOnce("words") {
+                for word in ["escort", "crypto", "sugar daddy", "onlyfans",
+                             "investment opportunity", "nsfw", "telegram"] {
+                    viewModel.filter(word: word)
+                }
+            }
+            guard let name = DebugLaunch.settingsPage,
+                  DebugLaunch.firesOnce("settings-page") else { return }
+            let page: Page? = switch name {
+            case "gender": .gender
+            case "radius": .radius
+            case "ageRange": .ageRange
+            case "blockList": .blockList
+            case "wordFilter": .wordFilter
+            default: nil
+            }
+            if let page { path = [page] }
+        }
+#endif
     }
 
     private static let bannerHeight: CGFloat = 56
@@ -149,21 +188,15 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             sectionLabel("DATING PREFERENCES")
 
-            NavigationLink {
-                GenderPreferenceView(selection: $preferences.gender)
-            } label: {
+            NavigationLink(value: Page.gender) {
                 row("Gender preference", value: preferences.gender.label)
             }
 
-            NavigationLink {
-                MatchingRadiusView(miles: $preferences.radiusMiles)
-            } label: {
+            NavigationLink(value: Page.radius) {
                 row("Matching radius", value: "\(preferences.radiusMiles) mi")
             }
 
-            NavigationLink {
-                AgeRangeView(minAge: $preferences.minAge, maxAge: $preferences.maxAge)
-            } label: {
+            NavigationLink(value: Page.ageRange) {
                 row("Age range", value: "\(preferences.minAge)–\(preferences.maxAge)")
             }
         }
@@ -173,15 +206,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             sectionLabel("SAFETY")
 
-            NavigationLink {
-                BlockListView(viewModel: viewModel)
-            } label: {
+            NavigationLink(value: Page.blockList) {
                 row("Block list", subtitle: "Block anyone who you do not wish to see your profile.")
             }
 
-            NavigationLink {
-                WordFilterView(viewModel: viewModel)
-            } label: {
+            NavigationLink(value: Page.wordFilter) {
                 row("Word filter", subtitle: "Block incoming invites with comments containing these words.")
             }
         }

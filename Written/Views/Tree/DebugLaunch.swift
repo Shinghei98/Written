@@ -83,6 +83,22 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "settings") == "bottom"
     }
 
+    /// `-settings gender|radius|ageRange|blockList|wordFilter` → open Settings
+    /// with that sub-page already pushed. They are reachable only by tapping a
+    /// row, which `simctl` cannot do.
+    static var settingsPage: String? {
+        let value = UserDefaults.standard.string(forKey: "settings")
+        return ["gender", "radius", "ageRange", "blockList", "wordFilter"].contains(value ?? "")
+            ? value : nil
+    }
+
+    /// `-words sample` → seed a few filtered words, so the tag layout can be
+    /// looked at with strings of genuinely different lengths. Wrapping is the
+    /// whole question and one-word test data never answers it.
+    static var seedsFilteredWords: Bool {
+        UserDefaults.standard.string(forKey: "words") == "sample"
+    }
+
     /// `-screen dashboard` → plays the move to the dashboard shortly after
     /// launch. It is otherwise only reachable by tapping "View Dashboard", and
     /// `simctl` cannot tap; screenshotting during the delay and after it covers

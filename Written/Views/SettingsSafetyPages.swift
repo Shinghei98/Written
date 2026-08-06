@@ -152,24 +152,17 @@ struct WordFilterView: View {
                         .foregroundStyle(GardenPalette.muted)
                         .padding(.vertical, 16)
                 } else {
-                    ForEach(words, id: \.self) { word in
-                        HStack {
-                            Text(word)
-                                .font(.system(size: 16))
-                                .foregroundStyle(GardenPalette.ink)
-                            Spacer()
-                            Button {
-                                viewModel.unfilter(word: word)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(GardenPalette.muted)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .accessibilityLabel("Stop filtering \(word)")
+                    // **Tags rather than rows, because a filtered word is not a
+                    // setting with a value.** A full-width row per word implies
+                    // each has properties worth the space; a list of short
+                    // strings reads faster packed, and twenty of them fit on one
+                    // screen instead of five.
+                    FlowLayout(spacing: 8) {
+                        ForEach(words, id: \.self) { word in
+                            WordTag(word: word) { viewModel.unfilter(word: word) }
                         }
-                        .padding(.vertical, 6)
                     }
+                    .padding(.vertical, 12)
                 }
 
                 Button {
@@ -197,6 +190,113 @@ struct WordFilterView: View {
         } message: {
             Text("Invitations whose message contains this word will not be shown to you.")
         }
+    }
+}
+
+/// One filtered word, with the cross that removes it.
+///
+/// **Only the cross removes it, not the whole tag.** A pill that deletes itself
+/// wherever you touch it is a word lost to a thumb resting on the screen, and
+/// there is no undo here — the word simply stops being filtered and the next
+/// invitation carrying it arrives.
+private struct WordTag: View {
+    let word: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(word)
+                .font(.system(size: 15))
+                .foregroundStyle(GardenPalette.ink)
+                .lineLimit(1)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(GardenPalette.muted.opacity(0.55))
+            }
+            .accessibilityLabel("Stop filtering \(word)")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(GardenPalette.unreadBand))
+    }
+}
+
+/// Lays its subviews left to right, wrapping to the next line when the row is
+/// full.
+///
+/// **A real `Layout` rather than an approximation**, which iOS 16 is the floor
+/// for and this project's deployment target is exactly. The usual workarounds —
+/// a `LazyVGrid` with adaptive columns, or measuring text and building rows by
+/// hand — both get variable-width items wrong: the grid forces every cell to
+/// one width, so "sex" and "cryptocurrency" would occupy the same box, and hand
+/// measurement has to guess at font metrics the layout system already knows.
+///
+/// Sized against `proposal.replacingUnspecifiedDimensions().width`, so it wraps
+/// to the width it is actually given rather than to the screen — which matters
+/// because this sits inside a page with its own horizontal padding.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.replacingUnspecifiedDimensions().width)
+        let height = rows.reduce(CGFloat.zero) { $0 + $1.height } +
+            spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.replacingUnspecifiedDimensions().width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var height: CGFloat = 0
+    }
+
+    /// Walked once and reused by both passes, so the wrap points cannot differ
+    /// between measuring and placing — which is how a flow layout ends up
+    /// reporting one height and drawing another.
+    private func rows(for subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        var x: CGFloat = 0
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            // The first item on a row is placed however wide it is: wrapping it
+            // would leave an empty line above an item that still overflows.
+            if !current.indices.isEmpty, x + size.width > width {
+                rows.append(current)
+                current = Row()
+                x = 0
+            }
+            current.indices.append(index)
+            current.height = max(current.height, size.height)
+            x += size.width + spacing
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }
 
