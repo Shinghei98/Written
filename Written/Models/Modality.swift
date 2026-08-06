@@ -51,37 +51,47 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
     /// Apps. Every other source's switch is on the app's page.
     var opensHealthApp: Bool { sources.contains("health") }
 
+    /// Which sources each modality offers.
+    ///
+    /// **This array is the archive switch, and that is deliberate.** A source
+    /// missing here is never drawn in `SourcePickerSheet`, never connected,
+    /// never distilled and never synced — so taking one out is one line, and
+    /// putting it back is one line, while its distiller, its OAuth provider and
+    /// every read path that understands its rows stay compiled and correct.
+    /// Deleting those instead would make restoring the source a rewrite.
+    ///
+    /// **`grep -rn "ARCHIVED-"` finds everything held back for the App Store
+    /// build.** Two sources are, and for unrelated reasons:
+    ///
+    /// - **Spotify** — its Developer Terms forbid storing Spotify Content in a
+    ///   third-party database, so it is the one source whose rows could never
+    ///   be restored to a new device, and it cannot leave development mode
+    ///   anyway (five testers; extended quota needs 250,000 monthly actives).
+    ///   It was here for the data-collection beta only.
+    /// - **YouTube** — needs Google OAuth verification and a quota extension,
+    ///   which are weeks of review this build is not waiting for. Nothing about
+    ///   the integration is wrong; see `CLAUDE.md` for the compliance work,
+    ///   which stands and is what makes it liftable in one line.
+    ///
+    /// **The share sheet and the embedded player are not affected.** Those use
+    /// public URLs and the IFrame player, never the Data API and never OAuth,
+    /// so they need no verification and stay exactly as they are.
     var sources: [String] {
         switch self {
         // Order matters: this array drives the rows in `SourcePickerSheet` and
         // the marks in the "Connected to …" bars.
         //
-        // Apple Music alone. Spotify sat beside it until the server became the
-        // source of truth: its Developer Terms forbid storing Spotify Content in
-        // a third-party database, so it was the one source whose data could
-        // never be restored to a new device — and it could never have left
-        // development mode anyway, which allows five testers against an extended
-        // quota needing 250,000 monthly active users.
-        // **Spotify is here for the data-collection beta and comes out before
-        // the App Store build.** It was dropped when Postgres became the source
-        // of truth: its Developer Terms forbid storing Spotify Content in a
-        // third-party database, so it is the one source whose rows could never
-        // be restored to a new device — and it cannot leave development mode
-        // anyway, which allows five testers against an extended quota needing
-        // 250,000 monthly actives. Neither fact has changed. What changed is the
-        // purpose: a beta that exists to gather listening data is worth a second
-        // music source for a few weeks. See CLAUDE.md for the removal condition.
-        //
         // Apple Music first: it is the one the product depends on, and the
         // picker draws these in order.
-        case .music: return ["apple_music", "spotify"]
-        // YouTube first: it is the larger footprint and the one that has
-        // always been here. Apple Podcasts is the **second source not in
-        // `written_api.xlsx`**, after Apple Calendar — a podcast is hours of
-        // attention given to one show over weeks, which is a stronger claim
-        // about a person than a follow costs, and it belongs beside YouTube
-        // because it is the same kind of claim.
-        case .media: return ["youtube", "apple_podcasts"]
+        // ARCHIVED-SPOTIFY — `"spotify"` removed for the App Store build.
+        case .music: return ["apple_music"]
+        // ARCHIVED-YOUTUBE — `"youtube"` removed for the App Store build.
+        //
+        // Apple Podcasts is the **second source not in `written_api.xlsx`**,
+        // after Apple Calendar — a podcast is hours of attention given to one
+        // show over weeks, which is a stronger claim about a person than a
+        // follow costs.
+        case .media: return ["apple_podcasts"]
         // Not in `written_api.xlsx` — the first source that isn't. A calendar
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid

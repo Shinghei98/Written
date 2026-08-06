@@ -116,6 +116,15 @@ struct DashboardView: View {
                             // Only for people who have connected it. A control
                             // for undoing something nobody did is noise, and
                             // this row is already the quiet end of the page.
+                            //
+                            // **Kept even though YouTube is ARCHIVED-YOUTUBE.**
+                            // Nobody new can connect it, but beta testers who
+                            // already did still have rows on the server — and
+                            // the Developer Policies' 7-day deadlines for a
+                            // deletion request and an in-client revocation
+                            // apply to *them*, not to whether the source is
+                            // still on offer. Removing this would strand their
+                            // data with no way to take it back.
                             if viewModel.knownConnections.contains("youtube") {
                                 youtubeDataButton
                                     .padding(.top, 6)

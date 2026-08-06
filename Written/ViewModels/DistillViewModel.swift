@@ -1661,6 +1661,38 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
+    /// Erases rows belonging to a source that has been archived.
+    ///
+    /// **Only Spotify, and it is an obligation rather than housekeeping.** Its
+    /// Developer Terms forbid storing Spotify Content in a third-party
+    /// database, and beta testers who connected it have rows in Postgres right
+    /// now. Taking the source out of `Modality.sources` stops anybody *new*
+    /// storing any; it does nothing about what is already there, and "we
+    /// stopped offering it" is not an answer to "you are still holding it".
+    ///
+    /// **YouTube is deliberately not swept.** Its data may be kept for 30 days
+    /// and is; the difference is that Spotify's may not be kept at all. Testers
+    /// keep the *Delete what was read* and *Disconnect YouTube* controls on the
+    /// dashboard, so removing theirs is their decision rather than one taken
+    /// for them at launch — and `0016` sweeps it on schedule regardless.
+    ///
+    /// Runs on every launch and costs nothing after the first: with no rows,
+    /// the DELETE matches nothing and the local filter removes nothing.
+    func purgeArchivedSources() {
+        let hadRows = records.contains { $0.source == "spotify" }
+        records.removeAll { $0.source == "spotify" }
+        knownConnections.remove("spotify")
+        if hadRows {
+            ConnectionStore.save(knownConnections)
+            RecordStore.save(records)
+            recomputeDerived()
+        }
+
+        Task.detached(priority: .utility) {
+            await SyncService.shared.deleteSource("spotify")
+        }
+    }
+
     /// Takes this person out of the pool without touching anything else.
     ///
     /// **Deleting the card is the whole of pausing**, and it gives exactly what

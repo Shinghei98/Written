@@ -8,7 +8,15 @@ import SwiftUI
 /// from three icons to five moves every one of them.
 enum MainTab: Int, CaseIterable, Identifiable {
     case explore
-    case wish
+    // ARCHIVED-WISH — the bottle. `AppShell` drew `ComingSoonView` for it,
+    // which is the one true placeholder this app shipped: a tab you can reach
+    // that does nothing. `BottleIcon` and the copy are kept below and in
+    // `AppShell` so restoring it is uncommenting rather than redrawing.
+    //
+    // Note the raw values shift when this returns. Nothing persists a `MainTab`
+    // — `AppShell` holds it in `@State` and the `-tab` flag matches on names —
+    // so that is safe today and would not be if anything ever stored one.
+    // case wish
     case chat
     case distill
     case dashboard
@@ -24,7 +32,7 @@ enum MainTab: Int, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .explore:   return "book"
-        case .wish:      return "sailboat"
+        // case .wish:      return "sailboat"   // ARCHIVED-WISH
         case .chat:      return "paperplane"
         case .distill:   return "tree"
         case .dashboard: return "person.crop.circle"
@@ -39,10 +47,12 @@ enum MainTab: Int, CaseIterable, Identifiable {
     @ViewBuilder
     func image(size: CGFloat) -> some View {
         switch self {
-        case .wish:
-            BottleIcon()
-                .stroke(style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
-                .frame(width: size, height: size)
+        // ARCHIVED-WISH — `BottleIcon` stays drawn and unused, so the tab
+        // comes back as a comment change rather than a redraw.
+        // case .wish:
+        //     BottleIcon()
+        //         .stroke(style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
+        //         .frame(width: size, height: size)
         case .distill:
             PottedPlantIcon()
                 .stroke(style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
@@ -56,7 +66,7 @@ enum MainTab: Int, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .explore:  return "Explore"
-        case .wish:     return "Wish"
+        // case .wish:     return "Wish"          // ARCHIVED-WISH
         case .chat:     return "Chat"
         case .distill:   return "Your garden"
         case .dashboard: return "Dashboard"

@@ -60,7 +60,9 @@ struct AppShell: View {
             GardenPalette.parchment.ignoresSafeArea()
 
             page(.explore) { DiscoveryView(viewModel: viewModel) }
-            page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
+            // ARCHIVED-WISH — the only screen in this app that was a
+            // placeholder. `ComingSoonView` stays below, unused.
+            // page(.wish) { ComingSoonView(tab: .wish, note: "A bottle you can put something in, and someone else can find.") }
             page(.chat) {
                 ChatView(viewModel: viewModel, isVisible: tab == .chat, hidesTabBar: $isThreadOpen)
             }
@@ -181,6 +183,10 @@ struct AppShell: View {
         // answered two screens before this view is built. Idempotent, and
         // `restoreFromServer` calls it again once the server's version lands.
         .task { viewModel.adoptStoredCommunicationStyle() }
+        // ARCHIVED-SPOTIFY. Its terms forbid a third-party database holding
+        // Spotify Content, and beta testers have rows in one — so archiving the
+        // source is not enough on its own. See `purgeArchivedSources`.
+        .task { viewModel.purgeArchivedSources() }
         // **The grid starts empty on every launch**, because `photos` is state
         // on `RootView` and nothing ever read the account's own back. So the
         // pictures were in the bucket, on the discovery card, and absent from
@@ -348,7 +354,7 @@ struct AppShell: View {
             guard let name = DebugLaunch.forcedTab, DebugLaunch.firesOnce("tab") else { return }
             switch name {
             case "explore":  tab = .explore
-            case "wish":     tab = .wish
+            // case "wish":     tab = .wish   // ARCHIVED-WISH
             case "chat":     tab = .chat
             case "dashboard": tab = .dashboard
             default:         break

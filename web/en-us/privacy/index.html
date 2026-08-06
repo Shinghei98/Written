@@ -111,9 +111,6 @@
         to write anything back.
       </p>
       <ul>
-        <li><strong>YouTube</strong> — your subscriptions, liked videos,
-          playlists and the contents of those playlists. We do not request, and
-          cannot obtain, your watch history.</li>
         <li><strong>Google Calendar</strong> — the names of your calendars, and
           the events in them: title, date, location, organiser and any booking
           link. Calendars of birthdays and public holidays are left out.</li>
@@ -159,20 +156,10 @@
         artist, a kind of music — appear on the card other people see.
       </p>
       <p>
-        <strong>Nothing read from YouTube appears there.</strong> Channel names,
-        video titles, playlists and what you have subscribed to or liked are
-        shown to you and to nobody else. That is a condition YouTube sets on
-        every app that reads your account, and it is described in full under
-        <a href="#google-user-data">Google user data</a>.
-      </p>
-      <p>
-        <strong>And YouTube is not categorised by us at all.</strong> For every
-        other source, working out what something is about is the whole job. For
-        YouTube we use only the classifications YouTube itself returns — the
-        category on a video, the topics on a channel, the tags its creator
-        wrote — and never work one out from a title, a description or a
-        channel's name. It is a narrower reading than the other sources get, and
-        the practical effect is that some of what you watch stays unplaced.
+        <strong>Nothing here comes from YouTube.</strong> Written no longer
+        connects to a YouTube account. If you connected one during the beta,
+        nothing read from it was ever shown to another user, and what was read
+        is deleted automatically 30 days after it arrived.
       </p>
 
       <!-- ------------------------------------------------------------------
@@ -199,19 +186,6 @@
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td><code>youtube.readonly</code></td>
-              <td>Reads your subscriptions, liked videos, playlists and playlist
-                contents, so the profile can say what you follow and what you
-                keep. There is no narrower read scope for this data.</td>
-              <td>Channel names, video titles and playlist names, plus the
-                classifications YouTube itself returns — a video's category, a
-                channel's topics, and the tags its creator wrote. Written does
-                not work out a category of its own from a title, a description
-                or a channel's name.</td>
-              <td><strong>30 calendar days at most</strong>, then deleted
-                automatically.</td>
-            </tr>
             <tr>
               <td><code>calendar.calendarlist.readonly</code></td>
               <td>Reads the <em>names</em> of your calendars only — no events —
@@ -261,10 +235,15 @@
         look at something or where we are investigating a report of abuse.
       </p>
 
-      <h3>YouTube, and the thirty days</h3>
+      <h3>YouTube</h3>
       <p>
-        Written uses YouTube API Services. By using them through Written you
-        also agree to the
+        <strong>Written no longer connects to a YouTube account.</strong> The
+        integration is not offered, and no new YouTube data is collected.
+      </p>
+      <p>
+        Written still uses YouTube API Services in one place: videos other
+        people share into Written play here through YouTube's own embedded
+        player. By using Written you also agree to the
         <a href="https://www.youtube.com/t/terms" rel="noopener" target="_blank">YouTube
         Terms of Service</a>, and Google's own handling of your data is
         described in the
@@ -272,35 +251,24 @@
         Privacy Policy</a>.
       </p>
       <p>
-        <strong>Titles, channel names and playlist contents are held for no more
-        than 30 calendar days.</strong> This is not a promise to act on a
-        request: a job runs once a day and removes them on that schedule whether
-        or not anybody asks, whether or not you are still signed in, and whether
-        or not you ever open the app again. What remains afterwards is the
-        derived reading, which names nothing.
+        <strong>If you connected YouTube during the beta</strong>, titles,
+        channel names and playlist contents are held for no more than 30
+        calendar days. That is not a promise to act on a request: a job runs
+        once a day and removes them on that schedule whether or not anybody
+        asks, whether or not you are still signed in, and whether or not you
+        ever open the app again.
       </p>
       <p>
-        <strong>In Written</strong>, on the Memories page, there are two
-        separate controls. <em>Delete what was read</em> erases everything read
-        from YouTube and leaves the connection in place. <em>Disconnect
-        YouTube</em> does the same and also withdraws Written's access at
-        Google. Either way the deletion happens immediately, and no later than
-        7 days. Neither changes anything in your YouTube account — your
-        subscriptions, playlists and liked videos are untouched.
-      </p>
-      <p>
-        <strong>At Google</strong>, you can review or withdraw Written's access
-        at any time at
-        <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>.
-        Where access is withdrawn there, everything read from YouTube is deleted
-        within 30 days — and in practice the daily sweep above has already
-        removed it, because it deletes 30 days after the data arrived, which is
-        never later than 30 days after a withdrawal.
-      </p>
-      <p>
-        The two deadlines are different because YouTube sets them that way: 7
-        days when you tell us, 30 when you tell Google. We are not relying on
-        the longer one for the first case.
+        The Memories page still carries two controls for it. <em>Delete what was
+        read</em> erases everything read from YouTube; <em>Disconnect YouTube</em>
+        does that and also withdraws Written's access at Google. Either way the
+        deletion happens immediately, and no later than 7 days. You can equally
+        withdraw access at
+        <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>,
+        where the deadline is 30 days — already met by the daily sweep, which
+        deletes 30 days after the data arrived. Neither changes anything in your
+        YouTube account: your subscriptions, playlists and liked videos are
+        untouched.
       </p>
 
       <h2>Why we collect it</h2>
@@ -429,8 +397,9 @@
           </thead>
           <tbody>
             <tr>
-              <td>YouTube titles, channel names, playlist contents</td>
-              <td>30 calendar days, deleted by an automatic daily job.</td>
+              <td>YouTube data read during the beta</td>
+              <td>30 calendar days, deleted by an automatic daily job. No new
+                YouTube data is collected.</td>
             </tr>
             <tr>
               <td>Raw Health workouts and samples</td>
