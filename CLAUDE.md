@@ -2494,34 +2494,58 @@ number they control. Apple and Google cannot rescue it: they now refuse any
 identity that is not already linked, which is the whole point of the rule.
 Guideline 2.1 rejections for "we could not sign in" are routine and slow.
 
-**The answer is a pre-linked demo account**, which has the merit of exercising
-the real returning-user path rather than a bypass nobody else will ever take.
+**The answer is a test phone number, not a linked Google account.** A linked
+account was the plan until Google put two-factor authentication on effectively
+every address: a reviewer cannot pass a challenge on somebody else's account,
+and the failure is indistinguishable from the app being broken.
+
+**And Apple can never be a demo route, for any app.** `ASAuthorization` signs in
+whoever the *device* is signed into, so there is no credential to hand over —
+a reviewer would be offering their own Apple ID, linked to nothing.
+
+So it has to be the one method that creates accounts. Supabase maps a number to
+a fixed OTP (`SMS_TEST_OTP`, bounded by `SMS_TEST_OTP_VALID_UNTIL`) and sends no
+SMS, which sidesteps the geo restriction, the Twilio cost and 2FA at once — and
+exercises the real primary sign-up path rather than a bypass. Verification is
+the ordinary path, so `auth.users` gets the phone, `0033`'s trigger fires,
+`public.users.phone` is filled, and `resolve-signin` sees a real account.
+
+**One known problem, and it is specific to this project.** `supabase/auth#1252`
+reports that with **Twilio Verify** configured — which is what this project uses
+— verification is always routed to Twilio and the test OTP is ignored, failing
+"Token has expired or is invalid". The issue is closed; whether it was fixed or
+went stale was not established. **So the first step is a five-minute experiment,
+not a build:** add a test number, try it on a device, and see whether a session
+opens.
+
 In order, and the order matters:
 
-1. **The three server prerequisites must be live first**, or the demo account
-   cannot be signed into either: `0033` applied (without it no account has a
-   phone in `public.users`, so `resolve-signin` refuses *everybody*),
-   `resolve-signin` deployed with JWT verification on, and manual linking
-   enabled at the project.
-2. **Create the account by phone on a device**, with a number you control.
-   Complete onboarding far enough that the app is worth looking at — a name at
-   minimum, photographs preferably, since a card with no face is never
-   published and Explore will look emptier than it is.
-3. **Link Google from Settings → Connected accounts**, using an account you
-   control.
-4. **Add that Google account to the OAuth consent screen's test users**, at
-   `console.cloud.google.com`. **This is the step that will be forgotten.** The
-   consent screen is in Testing, which allowlists 100 users and gates *every*
-   scope on that client — including `openid email profile`. A reviewer signing
-   in with an account that is not on the list gets a 403 after a successful
-   Google login, which reads as the app being broken.
-5. **Give App Store Connect the Google credentials**, not the phone number, and
-   say in the review notes to tap **Sign in with Google** rather than Create
-   account.
+1. **The server prerequisites must be live first**, or nothing can be signed
+   into: `0033` applied — without it no account has a phone in `public.users`
+   and `resolve-signin` refuses *everybody* — and `resolve-signin` deployed with
+   JWT verification on. Manual linking is no longer on the critical path, since
+   nothing is being linked.
+2. **Add a test number** in Authentication → Providers → Phone. Something
+   obscure: while it is live, anyone who guesses the pair can open an account.
+   Set the expiry a fortnight out so it dies on its own if forgotten.
+3. **Try it on the device.** If the session opens, the bug is fixed.
+4. **Build the account with it.** A name and photographs at minimum — a card
+   with no face is never published, so Explore looks emptier than it is — and a
+   source or two so the plant is not bare soil.
+5. **Give App Store Connect the number and the code**, with a note to tap
+   *Create account*, enter the number, enter the code. The account exists, so
+   this signs them in.
+6. **Remove the test number after approval**, or let the expiry do it.
 
-**Use a Google account without two-factor authentication.** A reviewer cannot
-pass a 2FA challenge on somebody else's account, and that failure looks
-identical to the app not working.
+**If step 3 fails**, two ways on, neither free. Switching the SMS provider from
+Twilio Verify to plain Twilio Messaging makes test OTPs work — the bug is
+Verify-specific — but Verify's fraud protection goes and the HK/TW/US geo
+restriction has to be rebuilt on the Messaging side, which is a *separate*
+setting this file already warns is easy to confuse. Or Google with 2FA backup
+codes in the review notes, which works and is clumsy: each is consumed on use, a
+resubmission needs fresh ones, and the account still has to be on the OAuth
+consent screen's test-user allowlist or it gets a 403 *after* a successful
+login.
 
 **Rehearse it on a second device, because the reviewer's first launch is a path
 nothing has ever run.** They will sign in to an account whose data is entirely
