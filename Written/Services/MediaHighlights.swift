@@ -79,6 +79,10 @@ enum MediaHighlights {
         /// YouTube's numeric video category. Broader than the topics and used
         /// only when they are absent.
         let categoryID: String?
+        /// Creator-supplied `snippet.tags`. Returned by the API, so reading
+        /// them is reading — and they cover far more videos than YouTube's own
+        /// topic assignment does.
+        let creatorTags: [String]
     }
 
     /// A subscribed channel and what YouTube says it is about.
@@ -116,7 +120,8 @@ enum MediaHighlights {
                     artworkURL: artworkURL(of: record),
                     detail: record.detail,
                     topics: topics(of: record),
-                    categoryID: record.extraValue("category_id")
+                    categoryID: record.extraValue("category_id"),
+                    creatorTags: pipeSeparated(record.extraValue("tags"))
                 )
             )
             if videos.count == limit { break }
@@ -146,10 +151,12 @@ enum MediaHighlights {
     /// YouTube's `topicDetails`. Empty when YouTube said nothing — which is
     /// common, and means unplaced rather than uninteresting.
     private static func topics(of record: DistilledRecord) -> [String] {
-        record.extraValue("topics")?
-            .split(separator: "|")
-            .map(String.init)
-            .filter { !$0.isEmpty } ?? []
+        pipeSeparated(record.extraValue("topics"))
+    }
+
+    /// The `a|b|c` shape the distiller writes for both `topics` and `tags`.
+    private static func pipeSeparated(_ value: String?) -> [String] {
+        value?.split(separator: "|").map(String.init).filter { !$0.isEmpty } ?? []
     }
 
     /// Channels the user subscribes to and channels whose videos they liked,

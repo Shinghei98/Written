@@ -196,7 +196,9 @@ struct ExampleProfile: Equatable {
         // `musicLine(for:)` and Apple Music's own genres.
         for video in MediaHighlights.topLikedVideos(in: records, limit: likesConsidered) {
             guard let domain = Ontology.domain(
-                youTubeTopics: video.topics, categoryID: video.categoryID
+                youTubeTopics: video.topics,
+                creatorTags: video.creatorTags,
+                categoryID: video.categoryID
             ), domain != .music else { continue }
 
             credit(domain, channel: video.channel, weight: 1)

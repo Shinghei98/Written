@@ -165,13 +165,65 @@ enum Ontology {
     /// `nil` again means *unplaced*, and it is a more common answer here than
     /// with `classify` — YouTube leaves plenty of channels untagged. That is
     /// the trade: fewer lines, none of them guessed.
-    static func domain(youTubeTopics topics: [String], categoryID: String?) -> Domain? {
+    static func domain(
+        youTubeTopics topics: [String],
+        creatorTags: [String] = [],
+        categoryID: String?
+    ) -> Domain? {
         for topic in topics {
             if refusedTopics.contains(topic) { continue }
             if let domain = domainForTopic(topic) { return domain }
         }
+        for tag in creatorTags {
+            if let domain = domainForCreatorTag(tag) { return domain }
+        }
         guard let categoryID else { return nil }
         return domainForCategoryID(categoryID)
+    }
+
+    /// Creator-supplied `snippet.tags`, which the API returns and which are
+    /// therefore *read* rather than inferred — the same footing as
+    /// `topicCategories`, and worth having because YouTube's own topic
+    /// assignment is patchy while creators tag almost everything.
+    ///
+    /// **Matched whole, never as substrings, and that is the line.** A tag is
+    /// an explicit label, so recognising `"physics"` is translation. Matching
+    /// `"phys"` inside a title would be a guess wearing the same clothes, and
+    /// the guide's prohibition is on estimating a category — so the moment this
+    /// starts pattern-matching freeform text it becomes the thing Part C exists
+    /// to stop. Small controlled vocabulary, exact comparison, lowercased.
+    ///
+    /// Nothing here reaches a refused topic: no tag maps to religion, politics
+    /// or health, and none should be added that does.
+    private static func domainForCreatorTag(_ tag: String) -> Domain? {
+        switch tag.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "music", "song", "album", "concert", "live music":
+            return .music
+        case "comedy", "standup", "stand up", "stand-up", "sketch", "parody":
+            return .comedy
+        case "film", "movie", "movies", "cinema", "trailer", "short film", "anime":
+            return .film
+        case "gaming", "game", "games", "video game", "gameplay", "speedrun", "esports", "minecraft":
+            return .gaming
+        case "technology", "tech", "programming", "software", "coding", "hardware", "ai":
+            return .tech
+        case "science", "physics", "chemistry", "biology", "astronomy", "mathematics", "maths", "math", "engineering":
+            return .science
+        case "food", "cooking", "recipe", "recipes", "baking", "cuisine":
+            return .food
+        case "fitness", "workout", "gym", "training", "yoga", "running":
+            return .fitness
+        case "sports", "sport", "highlights", "football", "basketball", "soccer", "tennis":
+            return .spectatorSport
+        case "education", "tutorial", "how to", "howto", "explained", "documentary", "history":
+            return .learning
+        case "art", "design", "painting", "drawing", "illustration", "photography", "architecture":
+            return .art
+        case "travel", "vlog travel", "backpacking", "tourism":
+            return .travel
+        default:
+            return nil
+        }
     }
 
     /// YouTube's topic categories are Wikipedia article names, so they are
