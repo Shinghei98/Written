@@ -101,6 +101,21 @@ struct SignInView: View {
                 SwappingLabel(isChoosingProvider ? "Sign in with Phone Number" : "Create account")
             }
             .buttonStyle(PressShrinkButtonStyle())
+
+            // **Says the rule before the refusal does.** A phone number is the
+            // account: Apple and Google only open one that already exists and
+            // has been linked from Settings. Somebody tapping Apple here with
+            // no account gets turned away, and being told why beforehand is the
+            // difference between a rule and a dead end.
+            if isChoosingProvider {
+                Text("Apple and Google work once you've connected them in Settings. New accounts start with a phone number.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(SignInPalette.ink.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+                    .transition(providerTransition)
+            }
         }
         .padding(.horizontal, buttonInset)
     }

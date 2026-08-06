@@ -142,6 +142,15 @@ final class SupabaseAuth: NSObject, ObservableObject {
         /// about the token. Collapsing the two signed people out for being on a
         /// plane.
         case unreachable
+        /// Signed in with Apple or Google against an identity no account has
+        /// linked.
+        ///
+        /// **A phone number is the account here**, and Apple and Google are
+        /// only ways back into one. Somebody arriving this way has either never
+        /// signed up, or signed up by phone and not linked this identity from
+        /// Settings — and neither is something to fix by quietly making them a
+        /// second account, which is what Supabase does if nobody stops it.
+        case noLinkedAccount(provider: String)
 
         var errorDescription: String? {
             switch self {
@@ -149,6 +158,8 @@ final class SupabaseAuth: NSObject, ObservableObject {
             case .noIdentityToken: return "Apple didn't return an identity token."
             case .server(let message): return message
             case .unreachable: return "Couldn't reach the server."
+            case .noLinkedAccount(let provider):
+                return "No existing accounts found tied to this \(provider). Please try again, or create account first."
             }
         }
     }
@@ -373,7 +384,6 @@ final class SupabaseAuth: NSObject, ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.hasExploredKey)
         CommunicationStyleStore.clear()
         DatingPreferencesStore.clear()
-        clearSignInProvider()
     }
 
     /// Deletes the account and everything hanging off it.
@@ -553,35 +563,80 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     // MARK: - Which method opened this account
 
-    /// How somebody signs in. Recorded so the settings page can say which of
-    /// the three this account belongs to.
+    /// How somebody signs in.
     ///
-    /// **Not read from the session**, though it could be: Supabase carries
-    /// identities on the user object, and reading them would need a second
-    /// request on a screen that should draw immediately. This is one string
-    /// written once at sign-in, and the settings row is the only reader.
+    /// **Names a provider and stores nothing.** A `signInProvider` written to
+    /// `UserDefaults` briefly lived here, so the settings page could report
+    /// which method opened the account. `IdentityLinkService` reads the
+    /// identities from Supabase instead — the only answer that survives a link
+    /// made on another device — and a local mirror of a server truth is the
+    /// "copy of a copy" this codebase has already been bitten by once, in the
+    /// chat header. The enum stays because `requireLinkedAccount` names the
+    /// provider in its refusal.
     enum SignInProvider: String {
         case apple, google, phone
     }
 
-    /// Global rather than account-scoped, deliberately: it is written during
-    /// sign-in, and `AccountScope` still resolves to `local` at that moment
-    /// because the account id has not been stored yet. That ordering is the
-    /// same trap `googleSignIn` documents for refresh tokens.
-    private static let signInProviderKey = "written.signin.provider"
+    // MARK: - One person, one account
 
-    @Published private(set) var signInProvider: SignInProvider? =
-        UserDefaults.standard.string(forKey: SupabaseAuth.signInProviderKey)
-            .flatMap(SignInProvider.init(rawValue:))
+    /// Refuses the session just opened unless it belongs to a real account.
+    ///
+    /// **Called after an Apple or Google exchange and never after phone**, which
+    /// is the only way to create an account and so is always legitimate.
+    ///
+    /// The check has to happen after the exchange because Supabase's `id_token`
+    /// grant signs up and signs in with the same call — there is no way to ask
+    /// it for one without the other. So by the time this runs, an unlinked
+    /// identity has already been given an account; `resolve-signin` decides
+    /// whether that account was pre-existing or something it just made, and
+    /// deletes only the latter. That judgement is server-side because it needs
+    /// `auth.users.created_at` and a look inside the account, neither of which
+    /// this app can see.
+    ///
+    /// **A failure to reach the function does not sign anybody in.** The
+    /// alternative — letting it through when the check cannot run — turns a
+    /// network blip into the duplicate account this whole rule exists to
+    /// prevent, and the duplicate is permanent while the blip is not.
+    private func requireLinkedAccount(provider: SignInProvider) async throws {
+        guard let token = accessToken else {
+            throw AuthError.server("Signed in, but the session went missing.")
+        }
 
-    func recordSignIn(_ provider: SignInProvider) {
-        signInProvider = provider
-        UserDefaults.standard.set(provider.rawValue, forKey: Self.signInProviderKey)
-    }
+        var request = URLRequest(
+            url: AppConfig.supabaseURL.appendingPathComponent("functions/v1/resolve-signin")
+        )
+        request.httpMethod = "POST"
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-    private func clearSignInProvider() {
-        signInProvider = nil
-        UserDefaults.standard.removeObject(forKey: Self.signInProviderKey)
+        let existing: Bool
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status),
+                  let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                signOut()
+                throw AuthError.server("Couldn't confirm your account. Please try again.")
+            }
+            existing = body["existing"] as? Bool ?? false
+        } catch let error as AuthError {
+            throw error
+        } catch {
+            signOut()
+            throw AuthError.unreachable
+        }
+
+        guard existing else {
+            // The session is real but the account behind it is not one of ours
+            // to keep. Local state goes first, for the reason `HomeView`
+            // documents: `AccountScope` reads the stored user id, so clearing
+            // after `signOut()` would clear the wrong account's files.
+            signOut()
+            throw AuthError.noLinkedAccount(
+                provider: provider == .google ? "Gmail" : "Apple ID"
+            )
+        }
     }
 
     // MARK: - Google
@@ -609,7 +664,11 @@ final class SupabaseAuth: NSObject, ObservableObject {
             grantType: "id_token",
             body: ["provider": "google", "id_token": identity]
         )
-        recordSignIn(.google)
+        // **Before `recordSignIn` and before `loadProfile`.** Both write state
+        // about a session this may be about to throw away, and `loadProfile`
+        // additionally puts a name on screen for an account that is refused a
+        // moment later.
+        try await requireLinkedAccount(provider: .google)
         // Apple's path loads the profile through its delegate; this one has no
         // delegate, so without this `onboardingStep` is asked where the user is
         // before anything knows their name.
@@ -647,7 +706,6 @@ final class SupabaseAuth: NSObject, ObservableObject {
         )
         adopt(try JSONDecoder().decode(Session.self, from: data))
         // Apple's path loads the profile through its delegate; this one has no
-        recordSignIn(.phone)
         // delegate, so the name has to be fetched before anything asks whether
         // onboarding is done.
         await loadProfile()
@@ -728,7 +786,12 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
                     grantType: "id_token",
                     body: ["provider": "apple", "id_token": idToken, "nonce": nonce]
                 )
-                recordSignIn(.apple)
+                // **Before `upsertProfile`, and that ordering is load-bearing.**
+                // `upsertProfile` writes a `public.users` row, and a row with a
+                // name in it is exactly what `resolve-signin` reads as "this
+                // account is real". Writing first would make every refused
+                // sign-in look legitimate to the next one.
+                try await requireLinkedAccount(provider: .apple)
                 // Always, not only when a name came with it. Apple offers the
                 // name on the *first* sign-in and never again, but this row is
                 // what every foreign key in the schema points at — skip it on a
