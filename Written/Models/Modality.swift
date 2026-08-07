@@ -39,7 +39,40 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
     /// move the branches — and the plant is supposed to look exactly as it did.
     /// Reordering the *sequence* changes which badge stands for what; reordering
     /// the *cases* would change the drawing.
-    static let allCases: [Modality] = [.media, .lifestyle, .music, .plans]
+    static let allCases: [Modality] = [.plans, .music, .lifestyle, .media]
+
+    /// The modalities actually put in front of somebody, in order.
+    ///
+    /// **`allCases` is still every modality, and that is the point of having
+    /// two.** A branch that has been connected must keep resolving — its
+    /// records need an owner (`owning(source:)`), its metrics need a slot
+    /// (`TreeMetrics`), and the branch it already grew has to keep drawing.
+    /// What `offered` decides is narrower: what gets asked for next.
+    ///
+    /// Anything answering "what am I offered, and in what order?" reads this;
+    /// anything answering "what modalities exist?" reads `allCases`. Confusing
+    /// them is how a hidden modality either reappears as a prompt or takes a
+    /// connected user's branch away.
+    static let offered: [Modality] = allCases.filter(\.isOffered)
+
+    /// Whether this modality can be offered at all.
+    ///
+    /// **ARCHIVED-MEDIA.** Media is held back for the App Store build, and it
+    /// is the modality rather than a source this time — `grep -rn "ARCHIVED-"`
+    /// finds the rest. YouTube is already out of `sources` pending Google
+    /// verification, which leaves Apple Podcasts alone standing for a whole
+    /// branch; a "Media" prompt that can only ever mean podcasts claims more
+    /// than it delivers. Hidden rather than deleted, like everything else here:
+    /// one line brings it back with YouTube beside it.
+    ///
+    /// The fourth shoot is drawn either way — it was always drawn with a bud at
+    /// its tip and no app behind it. It simply carries no badge now.
+    var isOffered: Bool {
+        switch self {
+        case .media: return false
+        default: return true
+        }
+    }
 
     /// `DistilledRecord.source` values that feed this branch. Empty means the
     /// modality is declared for the shape of the tree but has no distiller yet.
@@ -96,13 +129,30 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
         // to attend arrives without them doing anything. See `CalendarDistiller`.
-        // **Apple Calendar first, and Google Calendar is usually hidden behind
-        // it.** A Google account added in iOS Settings already delivers its
-        // events through EventKit, so for most people the second row would
-        // collect the same dinner twice; `SourcePickerSheet` drops it where that
-        // is true. It is here for the people whose calendar the device cannot
-        // see at all.
-        case .plans: return ["apple_calendar", "google_calendar"]
+        // ARCHIVED-GOOGLE-CALENDAR — `"google_calendar"` removed for the App
+        // Store build, for exactly the reason YouTube is: the consent screen is
+        // in Testing, which allowlists 100 users, so a reviewer's Google account
+        // is not on it and a *successful* login is followed by a 403. That is
+        // worse than an absent row — it reads as the app being broken rather
+        // than as a source being unavailable.
+        //
+        // **Nothing has to be swept behind it**, unlike Spotify: nobody has ever
+        // connected this source, so there are no rows in Postgres owed to
+        // anyone. And `disconnectAll()` still calls `googleCalendarOAuth.revoke()`,
+        // which stays correct whether or not anybody can reach the source —
+        // a grant that cannot be made is one the revocation simply never finds.
+        //
+        // `GoogleCalendarDistiller`, `OAuthProvider.googleCalendar`,
+        // `AppConfig.googleCalendarScope` and the `google_calendar` case in
+        // `GrowProfileView` all stay compiled and correct. Back in one line the
+        // day verification lands.
+        //
+        // **Apple Calendar first, and Google Calendar sat behind it.** A Google
+        // account added in iOS Settings already delivers its events through
+        // EventKit, so for most people the second row would collect the same
+        // dinner twice. It was here for the people whose calendar the device
+        // cannot see at all.
+        case .plans: return ["apple_calendar"]
         case .lifestyle: return ["health"]
         }
     }

@@ -1174,7 +1174,7 @@ struct GrowProfileView: View {
     /// Read from the sequence rather than written as `.music`, which is what it
     /// used to be — the order is now `Modality.allCases`' business alone, and a
     /// name hardcoded here would quietly disagree with it.
-    private static var firstModality: Modality { Modality.allCases[0] }
+    private static var firstModality: Modality { Modality.offered[0] }
 
     /// The third and last shoot, added at `.bough`. Named rather than written
     /// as `2` at the one place it is used, because it is a fact about the
@@ -1196,7 +1196,10 @@ struct GrowProfileView: View {
     }
 
     private func shootModality(_ shoot: SeedlingArt.Shoot) -> Modality? {
-        let all = Modality.allCases
+        // The offered sequence, so a hidden modality's badge is not drawn on a
+        // shoot nobody can light. The shoot itself stays — it always had a bud
+        // at its tip and no app behind it.
+        let all = Modality.offered
         let index = shoot.id + 1
         return index < all.count ? all[index] : nil
     }

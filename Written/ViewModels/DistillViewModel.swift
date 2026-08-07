@@ -381,6 +381,49 @@ final class DistillViewModel: ObservableObject {
             // overwritten by the very snapshot it should have been checked
             // against. Idempotent, so the shell's own call costs nothing here.
             adoptStoredCommunicationStyle()
+            repairIdentityPush(snapshot)
+        }
+    }
+
+    /// Re-sends a birthday or gender the device holds and the server does not.
+    ///
+    /// **Both facts are written by a detached `Task` whose result nobody
+    /// reads**, and both write their local copy *first* — `BirthdayEntryView`
+    /// and `GenderEntryView` on the way through onboarding, `setBirthday` and
+    /// `setGender` from Memories. `needsBirthday` and `needsGender` are answered
+    /// from those local copies, so a push that failed is never retried and never
+    /// re-asked: the answer exists on one device and nowhere else, and the next
+    /// phone finds no age at all.
+    ///
+    /// That is the tenth instance of this codebase's recurring shape — a call
+    /// that can fail, a result nobody reads, and the symptom surfacing somewhere
+    /// else — and it is worth repairing rather than re-plumbing, because the
+    /// original trade is right: onboarding should not block on a round trip for
+    /// a value Postgres cannot refuse.
+    ///
+    /// The same idiom as `adoptStoredCommunicationStyle`, and for the same
+    /// reason: it runs on every launch, it is guarded on the server already
+    /// disagreeing, and a launch with nothing to do writes nothing.
+    ///
+    /// **Silent**, unlike the sheets themselves. A failure here is about a value
+    /// entered in some earlier session and explains nothing the user can act on
+    /// — the same reasoning `PendingPhotoStore`'s ordinary-launch retry follows.
+    /// It simply tries again next launch.
+    func repairIdentityPush(_ snapshot: RestoreService.Snapshot) {
+        // Only where the server has *no* exact date. A server that holds one has
+        // already overwritten the local copy on the way past (`applyProfile`),
+        // so the two cannot disagree in the other direction.
+        if let birthday = Identity.birthday, !snapshot.hasExactBirthday {
+            let year = Calendar.current.component(.year, from: birthday)
+            Task { await SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year) }
+        }
+
+        // `sex` nil rather than merely different: a column holding something is
+        // not this function's business, and overwriting one would make a repair
+        // into an opinion.
+        let genders = Identity.genders
+        if !genders.isEmpty, snapshot.identity.sex == nil {
+            Task { await SyncService.shared.pushUserObject(sex: Identity.columnValue(genders)) }
         }
     }
 
@@ -770,14 +813,21 @@ final class DistillViewModel: ObservableObject {
         Task {
             do {
                 let newRecords = try await CalendarDistiller().distill()
-                // A granted permission over an empty calendar returns the
-                // calendars and no events, which is a real answer but not a
-                // useful one — and it looks identical to a permission that was
-                // declined, the way an empty HealthKit read does.
-                guard newRecords.contains(where: { $0.dataType == "event" }) else {
-                    calendarStatus = .failed(message: CalendarDistiller.CalendarError.noData.localizedDescription)
-                    return
-                }
+                // **A granted permission over an empty calendar is connected.**
+                //
+                // This used to require at least one `event` row, on the reading
+                // that granted-and-empty is indistinguishable from declined —
+                // the way an empty HealthKit read genuinely is. For EventKit
+                // that reading was wrong: `requestFullAccessToEvents` returns
+                // false when access is refused and `distill` throws
+                // `.notAuthorized` on it, so reaching this line already means
+                // the permission was given. The two were never confusable here.
+                //
+                // The cost of the old guard fell on exactly the people least
+                // able to work it out: a quiet calendar, or a fresh phone,
+                // could not connect *anything*, because this is the one source
+                // needing no subscription and no external account. It ended the
+                // flow with "we found nothing" and no way forward.
                 replaceRecords(from: "apple_calendar", with: newRecords)
                 calendarStatus = .done(count: newRecords.count)
             } catch {
@@ -2028,7 +2078,7 @@ final class DistillViewModel: ObservableObject {
         var branches: [Modality: ModalityMetrics] = [:]
         var seeded: [DistilledRecord] = []
 
-        for (step, modality) in Modality.allCases.prefix(max(0, connected)).enumerated() {
+        for (step, modality) in Modality.offered.prefix(max(0, connected)).enumerated() {
             // A record per source, so the "Connected to …" bar has app marks to
             // show. Without them the preview walks the stages but never
             // exercises the thing the bar is for.

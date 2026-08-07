@@ -24,6 +24,18 @@ actor RestoreService {
         var identity = IdentitySummary()
         var treeSeed: UInt64?
         var lastCollectedAt: Date?
+
+        /// Whether the server holds a *typed* birthday rather than a year.
+        ///
+        /// **Not derivable from `identity.age`**, which is filled from either
+        /// `birth_date` or `birth_year`, so a Health-derived account and one
+        /// whose exact date never landed look identical through it. This is the
+        /// one thing `repairIdentityPush` has to be able to tell apart: the
+        /// exact date is written by two paths that both push in a detached
+        /// `Task` and neither of which re-asks, so a push that failed is
+        /// permanent and invisible unless something notices the column is empty
+        /// while the device still holds the answer.
+        var hasExactBirthday = false
     }
 
     /// The derived health figures, which are all that ever leaves the device.
@@ -216,6 +228,7 @@ actor RestoreService {
             // launch, and being asked at all on a device that has restored
             // before.
             Identity.save(birthday: birth)
+            snapshot.hasExactBirthday = true
         } else if let year = (row["birth_year"] as? NSNumber)?.intValue {
             // Accurate to within a year, which is the best this column can do:
             // without a month and day there is no telling whether the birthday

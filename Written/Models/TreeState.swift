@@ -36,7 +36,7 @@ struct TreeState: Equatable {
     ///
     /// **Read off `allCases`, never off `rawValue`.** Sorting by the raw value
     /// was the same thing right up until the unlock sequence was given
-    /// explicitly — `Modality.allCases` is `[.media, .lifestyle, .music,
+    /// explicitly — `Modality.allCases` is `[.plans, .music, .lifestyle,
     /// .plans]` while `music` is still case zero, because `TreeSkeleton` derives
     /// each branch's attachment height from the raw value and renumbering the
     /// cases would move the drawing. So connecting music sent it to the top of
@@ -58,7 +58,11 @@ struct TreeState: Equatable {
     /// one with no distiller behind it yet — its bar appears with the button
     /// disabled. `nil` only once they have all been offered.
     var nextModality: Modality? {
-        Modality.allCases.first { branches[$0] == nil }
+        // `offered`, not `allCases`: a hidden modality has no branch either, and
+        // reading every case here would offer it forever — the flow would stop
+        // one short of the end and keep asking for something that cannot be
+        // connected.
+        Modality.offered.first { branches[$0] == nil }
     }
 
     /// Average diversity across connected branches, for the trunk's own vigour.

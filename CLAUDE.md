@@ -1287,8 +1287,37 @@ sweep is complete.
 wearing one binary, and most of the layout rules below only make sense once that
 is clear.
 
-Onboarding runs sign in → name → communication style → photos → grow the plant →
-"People you will see", and ends the moment **Explore** is tapped there.
+Onboarding runs sign in → **birthday → name → gender → interest** → communication
+style → photos → grow the plant → "People you will see", and ends the moment
+**Explore** is tapped there. The three emphasised steps landed in `c1a47d8`
+(2026-08-06) and this line described the sequence without them for a day — which
+is the rot this file's own gap-list rule exists to prevent, and it mattered more
+than usual here because the first of them is the age gate.
+
+**The birthday is first, and the ordering is the argument.** Everything after
+it — a name, a gender, photographs — is data collected from somebody the app may
+have no business collecting from until that question is answered. `minimumAge`
+is 18, enforced in `DistillViewModel.setBirthday` and again in
+`BirthdayEntryView` because the onboarding page runs two screens ahead of any
+view model, and a third time in `HealthKitDistiller` for the date of birth Health
+reports. The Terms had said "you must be 18" since they were written and nothing
+checked it; Apple's June 2026 guidance is explicit that an app teens may reach
+must be age-appropriate in itself rather than leaning on platform parental
+controls, and reviewers test it by typing a birth date.
+
+**Every one of these steps writes its local copy first and pushes in a detached
+`Task` whose result nobody reads**, which is right — onboarding should not block
+on a round trip for a value Postgres cannot refuse — and it has one consequence
+worth stating plainly: `needsBirthday` and `needsGender` are answered from those
+*local* copies, so a push that failed is never retried and never re-asked. The
+answer then exists on one device and nowhere else, and the next phone finds no
+age at all. Measured 2026-08-07: **`birth_date` is null for every account in the
+database**, which is explained by all of them predating `c1a47d8` — but it also
+means the age gate has never been observed reaching Postgres.
+`DistillViewModel.repairIdentityPush` is the backstop, run from
+`restoreFromServer` on every launch and guarded on the server actually
+disagreeing, in the same shape as `adoptStoredCommunicationStyle`. It is a
+repair, not a fix: watch the column the first time somebody completes the step.
 
 **The communication step is two sliders, and three things about it are
 deliberate.** It asks flirt level and response time, because both are
