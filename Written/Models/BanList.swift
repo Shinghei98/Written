@@ -156,6 +156,14 @@ extension DistilledRecord {
     /// skips these.
     static let removalKey = "removed_by_user"
 
+    /// Whether this row is withheld — **by the user or by policy**, which the
+    /// name no longer distinguishes.
+    ///
+    /// It meant only the editing pass until `SensitiveEvents` began marking
+    /// medical and political calendar titles, which nobody struck off. The key
+    /// stays `removed_by_user` because it is in the schema and rows already
+    /// carry it; `removed_reason` is what tells the two apart, and the ontology
+    /// stage should read that rather than assume a person decided.
     var isRemovedByUser: Bool { extraValue(Self.removalKey) != nil }
 
     /// A copy carrying the removal note. `extra` is `key=value;…`, so this is

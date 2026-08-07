@@ -96,7 +96,7 @@ struct RootView: View {
     /// on the photo page would get the sign-in screen behind it — which is the
     /// flash this routing exists to remove.
     enum Route {
-        case signIn, name, communication, photos, home
+        case signIn, birthday, name, gender, interest, communication, photos, home
     }
 
     /// Seeded synchronously, so the first frame is already the right screen.
@@ -120,7 +120,10 @@ struct RootView: View {
     private static func initialRoute() -> Route {
 #if DEBUG
         switch DebugLaunch.forcedRoute {
+        case "birthday": return .birthday
         case "name": return .name
+        case "gender": return .gender
+        case "interest": return .interest
         case "communication": return .communication
         case "photos": return .photos
         case "home": return .home
@@ -129,7 +132,10 @@ struct RootView: View {
         }
 #endif
         switch SupabaseAuth.restoredStep {
+        case .birthday: return .birthday
         case .name: return .name
+        case .gender: return .gender
+        case .interest: return .interest
         case .communication: return .communication
         case .photos: return .photos
         // Both land on the shell. What differs is what the shell *shows* —
@@ -176,7 +182,10 @@ struct RootView: View {
 
     private static func route(for step: SupabaseAuth.OnboardingStep) -> Route {
         switch step {
+        case .birthday: return .birthday
         case .name: return .name
+        case .gender: return .gender
+        case .interest: return .interest
         case .communication: return .communication
         case .photos: return .photos
         case .exploring, .done: return .home
@@ -214,6 +223,26 @@ struct RootView: View {
 
             // Full screens in their own right. Both are reached two ways —
             // forwards from sign-up, and by resuming a session that stopped here.
+            case .birthday:
+                BirthdayEntryView { birthday, year in
+                    // Local first, then the column — the same shape the gender
+                    // page takes, and for the same reason: this is not a value
+                    // Postgres can refuse, and onboarding has no business
+                    // waiting on a round trip to move to its next question.
+                    //
+                    // `Identity.birthday` is what `needsBirthday` reads, so
+                    // writing it is what marks the step done; `birth_date` is
+                    // the record, and `RestoreService` hydrates the age back
+                    // out of it on the next launch.
+                    Identity.save(birthday: birthday)
+                    Task {
+                        await SyncService.shared.pushUserObject(
+                            birthDate: birthday, birthYear: year
+                        )
+                    }
+                    route = .name
+                }
+
             case .name:
                 NameEntryView { first, last in
                     Task {
@@ -221,8 +250,33 @@ struct RootView: View {
                         // worth a complaint, not a locked door — the account is
                         // real and the profile row already exists.
                         try? await SupabaseAuth.shared.saveName(first: first, last: last)
-                        route = .communication
+                        route = .gender
                     }
+                }
+
+            case .gender:
+                GenderEntryView(purpose: .identity, initial: Identity.genders) { genders in
+                    Identity.save(genders)
+                    // Straight to `users.sex`, so the dashboard's gender row and
+                    // a restore on a new device both see it. Local first: this
+                    // is not a value Postgres can refuse, and the next screen
+                    // should not wait on a round trip.
+                    Task { await SyncService.shared.pushUserObject(sex: Identity.columnValue(genders)) }
+                    route = .interest
+                }
+
+            case .interest:
+                GenderEntryView(
+                    purpose: .interest,
+                    initial: DatingPreferencesStore.saved?.genders ?? []
+                ) { genders in
+                    // The same store Settings edits, so the answer given here
+                    // *is* what Dating preferences shows afterwards — one value,
+                    // not a copy that can drift.
+                    var preferences = DatingPreferencesStore.saved ?? DatingPreferences()
+                    preferences.genders = genders
+                    DatingPreferencesStore.save(preferences)
+                    route = .communication
                 }
 
             case .communication:

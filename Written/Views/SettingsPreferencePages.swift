@@ -61,38 +61,44 @@ private struct PreferencePage<Content: View>: View {
 // MARK: - Gender
 
 struct GenderPreferenceView: View {
-    @Binding var selection: DatingPreferences.Gender
+    @Binding var selection: Set<DatingPreferences.Gender>
 
     var body: some View {
         PreferencePage(title: "Gender preference") {
             VStack(spacing: 0) {
                 ForEach(DatingPreferences.Gender.allCases) { option in
                     Button {
-                        selection = option
+                        // **Never empties.** Deselecting the last one would mean
+                        // "show me nobody", which nobody means — and it would
+                        // read as unanswered to `needsInterest` and reopen the
+                        // onboarding page for somebody who had finished it.
+                        if selection.contains(option) {
+                            if selection.count > 1 { selection.remove(option) }
+                        } else {
+                            selection.insert(option)
+                        }
                     } label: {
                         HStack {
                             Text(option.label)
                                 .font(.system(size: 16))
                                 .foregroundStyle(GardenPalette.ink)
                             Spacer()
-                            // A ring that fills rather than a checkmark that
-                            // appears: the unselected state has to be visible
-                            // for the row to read as choosable at all.
-                            ZStack {
-                                Circle()
-                                    .strokeBorder(
-                                        selection == option
-                                            ? GardenPalette.gold
-                                            : GardenPalette.muted.opacity(0.4),
-                                        lineWidth: 1.5
-                                    )
-                                    .frame(width: 22, height: 22)
-                                if selection == option {
+                            // The same drawn switch the onboarding page uses,
+                            // so the two screens answering one question do not
+                            // answer it in two shapes.
+                            Capsule()
+                                .fill(selection.contains(option)
+                                      ? GardenPalette.gold
+                                      : GardenPalette.muted.opacity(0.25))
+                                .frame(width: 44, height: 26)
+                                .overlay(alignment: selection.contains(option) ? .trailing : .leading) {
                                     Circle()
-                                        .fill(GardenPalette.gold)
-                                        .frame(width: 12, height: 12)
+                                        .fill(.white)
+                                        .frame(width: 22, height: 22)
+                                        .padding(2)
+                                        .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
                                 }
-                            }
+                                .animation(.easeOut(duration: 0.16), value: selection)
                         }
                         .padding(.vertical, 14)
                         .contentShape(Rectangle())

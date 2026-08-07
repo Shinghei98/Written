@@ -15,27 +15,40 @@ import Foundation
 /// by Postgres the way an age or a name can.
 struct DatingPreferences: Equatable {
 
-    /// Who to show. Not who the user is — `users.sex` is that, and the two are
-    /// deliberately different questions.
-    enum Gender: String, CaseIterable, Identifiable {
-        case men
-        case women
+    /// Who to show. Not who the user is — `Identity.gender` is that, and the two
+    /// are deliberately different questions.
+    ///
+    /// **A set rather than one choice, and `everyone` is gone with it.** People
+    /// are interested in more than one kind of person, and an enum with a
+    /// fourth "everyone" case could not say "men and nonbinary people" — it
+    /// forced a shrug. All three selected *is* everyone, and reads back that
+    /// way; see `label`.
+    enum Gender: String, CaseIterable, Identifiable, Codable {
+        case male
+        case female
         case nonbinary
-        case everyone
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
-            case .men: return "Men"
-            case .women: return "Women"
-            case .nonbinary: return "Nonbinary people"
-            case .everyone: return "Everyone"
+            case .male: return "Male"
+            case .female: return "Female"
+            case .nonbinary: return "Non-binary"
             }
         }
     }
 
-    var gender: Gender = .everyone
+    /// Empty means nobody has answered yet, which is different from wanting
+    /// nobody — the onboarding page will not let somebody continue on empty.
+    var genders: Set<Gender> = Set(Gender.allCases)
+
+    /// What the settings row shows to the right of "Gender preference".
+    var genderLabel: String {
+        if genders.isEmpty { return "Not set" }
+        if genders.count == Gender.allCases.count { return "Everyone" }
+        return Gender.allCases.filter(genders.contains).map(\.label).joined(separator: ", ")
+    }
 
     /// Miles. The bar runs 1 to 100 and the value is the whole answer — there
     /// is no "anywhere", because a dating app that quietly means the world is
@@ -70,8 +83,14 @@ enum DatingPreferencesStore {
     static var saved: DatingPreferences? {
         guard let raw = UserDefaults.standard.dictionary(forKey: key) else { return nil }
         var preferences = DatingPreferences()
-        if let gender = (raw["gender"] as? String).flatMap(DatingPreferences.Gender.init(rawValue:)) {
-            preferences.gender = gender
+        if let stored = raw["genders"] as? [String] {
+            preferences.genders = Set(stored.compactMap(DatingPreferences.Gender.init(rawValue:)))
+        } else if let legacy = raw["gender"] as? String {
+            // One value, from before this became a set. "everyone" was the old
+            // fourth case and has no member of its own any more.
+            preferences.genders = legacy == "everyone"
+                ? Set(DatingPreferences.Gender.allCases)
+                : Set([DatingPreferences.Gender(rawValue: legacy)].compactMap { $0 })
         }
         // Each field falls back to its default independently rather than the
         // whole dictionary being rejected: a build that adds a fifth preference
@@ -86,7 +105,7 @@ enum DatingPreferencesStore {
     static func save(_ preferences: DatingPreferences) {
         UserDefaults.standard.set(
             [
-                "gender": preferences.gender.rawValue,
+                "genders": preferences.genders.map(\.rawValue),
                 "radiusMiles": preferences.radiusMiles,
                 "minAge": preferences.minAge,
                 "maxAge": preferences.maxAge,

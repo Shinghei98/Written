@@ -194,11 +194,20 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     /// The three-way branch every route into the app funnels through.
     enum OnboardingStep: String {
-        case name, communication, photos, exploring, done
+        case birthday, name, gender, interest, communication, photos, exploring, done
     }
 
     var onboardingStep: OnboardingStep {
+        // **First, and that ordering is the point.** Everything after it — a
+        // name, a gender, photographs — is data collected from somebody the app
+        // may have no business collecting from until this question is answered.
+        if needsBirthday { return .birthday }
         if needsName { return .name }
+        // **Between the name and the sliders**, because both are about who the
+        // person is rather than how they behave, and the second of them decides
+        // what "People you will see" draws at the end of the sequence.
+        if needsGender { return .gender }
+        if needsInterest { return .interest }
         if needsCommunicationStyle { return .communication }
         if needsPhotos { return .photos }
         if !hasExplored { return .exploring }
@@ -219,6 +228,30 @@ final class SupabaseAuth: NSObject, ObservableObject {
     /// restore lands. Mild, and cheaper than a migration.
     var needsCommunicationStyle: Bool {
         userID != nil && CommunicationStyleStore.saved == nil
+    }
+
+    /// The age gate. Answered from the stored date rather than a flag, like the
+    /// two below — having a birthday *is* having been asked for one.
+    ///
+    /// **Local, and a reinstall asks again.** The date itself lives on
+    /// `public.users.birth_date`, but the launch route is decided synchronously
+    /// from the Keychain and `UserDefaults`, a round trip before the server can
+    /// answer. Asking a returning user their birthday once more is mild; drawing
+    /// the wrong first screen is the failure `Route` exists to prevent.
+    var needsBirthday: Bool { userID != nil && Identity.birthday == nil }
+
+    /// Answered from the answer, like the sliders above and for the same
+    /// reason: a set with something in it *is* having been asked, so the two
+    /// cannot disagree.
+    var needsGender: Bool { userID != nil && Identity.genders.isEmpty }
+
+    /// **Not `DatingPreferencesStore.saved == nil`.** That record exists the
+    /// moment anybody touches a slider in Settings, so testing for it would
+    /// declare the question answered by somebody who had never seen it. The
+    /// stored set being empty is the real signal — and `genders` defaults to
+    /// all three, so an empty set only ever means nobody chose.
+    var needsInterest: Bool {
+        userID != nil && (DatingPreferencesStore.saved?.genders.isEmpty ?? true)
     }
 
     /// Whether "Explore" has been tapped on the profile preview, which is where
@@ -285,8 +318,15 @@ final class SupabaseAuth: NSObject, ObservableObject {
         // live computation from disagreeing. They disagreeing is the failure
         // `Route` exists to prevent: the shell would build with no tab bar for
         // an established user, then correct itself a second later.
-        if cached == .exploring || cached == .done, CommunicationStyleStore.saved == nil {
-            return .communication
+        //
+        // Three of them now, asked in the order `onboardingStep` asks them —
+        // this list and that one are the same sequence written twice, and the
+        // day they disagree is the day the shell flickers again.
+        if cached == .exploring || cached == .done {
+            if Identity.birthday == nil { return .birthday }
+            if Identity.genders.isEmpty { return .gender }
+            if DatingPreferencesStore.saved?.genders.isEmpty ?? true { return .interest }
+            if CommunicationStyleStore.saved == nil { return .communication }
         }
         return cached
     }
@@ -384,6 +424,10 @@ final class SupabaseAuth: NSObject, ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.hasExploredKey)
         CommunicationStyleStore.clear()
         DatingPreferencesStore.clear()
+        // With the other two, and for the same reason: `needsGender` reads it,
+        // so an answer left behind would skip the question for the next person
+        // to sign in on this phone and file their gender as somebody else's.
+        Identity.clear()
     }
 
     /// Deletes the account and everything hanging off it.

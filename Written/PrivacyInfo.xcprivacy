@@ -42,7 +42,7 @@
 		     is why this is declared at all — a purely on-device match would
 		     not be collection. -->
 		<dict>
-			<key>NSPrivacyCollectedDataTypeCollected</key>
+			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeContacts</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<true/>

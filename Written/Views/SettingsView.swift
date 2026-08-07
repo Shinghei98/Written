@@ -86,7 +86,7 @@ struct SettingsView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Page.self) { page in
                 switch page {
-                case .gender:     GenderPreferenceView(selection: $preferences.gender)
+                case .gender:     GenderPreferenceView(selection: $preferences.genders)
                 case .radius:     MatchingRadiusView(miles: $preferences.radiusMiles)
                 case .ageRange:   AgeRangeView(minAge: $preferences.minAge, maxAge: $preferences.maxAge)
                 case .blockList:  BlockListView(viewModel: viewModel)
@@ -198,7 +198,7 @@ struct SettingsView: View {
             sectionLabel("DATING PREFERENCES")
 
             NavigationLink(value: Page.gender) {
-                row("Gender preference", value: preferences.gender.label)
+                row("Gender preference", value: preferences.genderLabel)
             }
 
             NavigationLink(value: Page.radius) {

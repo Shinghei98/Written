@@ -18,6 +18,11 @@ struct ProfilePreviewView: View {
     /// profile; this is the first move outward, into other people.
     var onExplore: () -> Void = {}
 
+    /// Whether the tab bar is on screen behind this. Passed rather than read,
+    /// the same way the dashboard takes it — the two are stacked, and they have
+    /// to reserve the same room at the foot or one of them ends underneath it.
+    var isOnboarding = false
+
     var body: some View {
         ZStack(alignment: .top) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -32,7 +37,11 @@ struct ProfilePreviewView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 96)
-                .padding(.bottom, 36)
+                // **Clear of the tab bar**, exactly as the dashboard behind it
+                // is — this sits under the same floating bar, and the caption
+                // was ending underneath it. In onboarding there is no bar yet,
+                // so the extra height would only be a gap.
+                .padding(.bottom, isOnboarding ? 36 : 36 + MainTabBar.overlayHeight)
             }
 
             topBar

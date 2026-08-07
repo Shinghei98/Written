@@ -205,6 +205,17 @@ actor RestoreService {
         if let birth = (row["birth_date"] as? String).flatMap(Self.parseDay) {
             snapshot.identity.age = Calendar.current
                 .dateComponents([.year], from: birth, to: Date()).year
+            // Mirrored locally on the way past, so the onboarding gate knows
+            // this account has already answered.
+            //
+            // **It narrows the window rather than closing it**, and that is
+            // worth being exact about: the route is decided synchronously on
+            // the first frame and this runs a network call later, so somebody
+            // signing in on a second device is still asked once before their
+            // answer arrives. What it does prevent is being asked *every*
+            // launch, and being asked at all on a device that has restored
+            // before.
+            Identity.save(birthday: birth)
         } else if let year = (row["birth_year"] as? NSNumber)?.intValue {
             // Accurate to within a year, which is the best this column can do:
             // without a month and day there is no telling whether the birthday

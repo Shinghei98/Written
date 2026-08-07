@@ -13,6 +13,9 @@ import SwiftUI
 struct ExampleProfileCard: View {
     let profile: ExampleProfile
 
+    /// Which photograph the carousel is on.
+    @State private var page = 0
+
     /// Instagram's portrait post. The asset is 399×501, which is this ratio, so
     /// the photo fills the frame with nothing cropped away.
     /// Shared with `CropView`, so what someone frames is the shape it is shown
@@ -46,7 +49,7 @@ struct ExampleProfileCard: View {
 
     private var headerRow: some View {
         HStack(spacing: 10) {
-            ProfilePhoto(side: 34)
+            ProfilePhoto(asset: profile.photoAssets.first, extension: profile.photoExtension, side: 34)
                 .clipShape(Circle())
                 .overlay {
                     Circle().strokeBorder(GardenPalette.gold.opacity(0.35), lineWidth: 1)
@@ -81,8 +84,44 @@ struct ExampleProfileCard: View {
     private var photo: some View {
         Color.clear
             .aspectRatio(Self.photoAspect, contentMode: .fit)
-            .overlay { ProfilePhoto(side: nil) }
+            .overlay {
+                // A carousel, as a post with several photographs is. `TabView`
+                // rather than a `ScrollView` of pages because it is the paging
+                // behaviour people already know, and its own dots are hidden so
+                // the ones below can sit on the parchment rather than on a face.
+                TabView(selection: $page) {
+                    ForEach(Array(profile.photoAssets.enumerated()), id: \.offset) { index, asset in
+                        ProfilePhoto(
+                            asset: asset,
+                            extension: profile.photoExtension,
+                            side: nil
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+            }
             .clipped()
+            .overlay(alignment: .bottom) { dots }
+    }
+
+    /// Drawn only when there is more than one, so a single-photograph set does
+    /// not carry a lone dot explaining nothing.
+    @ViewBuilder private var dots: some View {
+        if profile.photoAssets.count > 1 {
+            HStack(spacing: 6) {
+                ForEach(profile.photoAssets.indices, id: \.self) { index in
+                    Circle()
+                        .fill(.white.opacity(index == page ? 0.95 : 0.45))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .padding(.bottom, 10)
+            // The photographs behind them are of any brightness, so the dots
+            // carry their own shadow rather than trusting the picture.
+            .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            .allowsHitTesting(false)
+        }
     }
 
     /// Decorative. None of these do anything, so they are hidden from
@@ -144,19 +183,28 @@ struct ExampleProfileCard: View {
 /// `side` is `nil` for the post, which fills whatever frame it is given, and a
 /// number for the avatar.
 private struct ProfilePhoto: View {
+    let asset: String?
+    let `extension`: String
     let side: CGFloat?
 
-    private static let image: UIImage? = {
-        guard let url = Bundle.main.url(
-            forResource: ExampleProfile.photoAsset,
-            withExtension: ExampleProfile.photoExtension
-        ) else { return nil }
-        return UIImage(contentsOfFile: url.path)
-    }()
+    /// Decoded once per file rather than once per view. It was a single
+    /// `static let` for the one photograph there used to be; a carousel and an
+    /// avatar draw the same file two and three times, and re-reading a PNG off
+    /// disk on every scroll tick is exactly the work a card should not do.
+    private static var cache: [String: UIImage] = [:]
+
+    private var image: UIImage? {
+        guard let asset else { return nil }
+        if let cached = Self.cache[asset] { return cached }
+        guard let url = Bundle.main.url(forResource: asset, withExtension: `extension`),
+              let loaded = UIImage(contentsOfFile: url.path) else { return nil }
+        Self.cache[asset] = loaded
+        return loaded
+    }
 
     var body: some View {
         Group {
-            if let image = Self.image {
+            if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

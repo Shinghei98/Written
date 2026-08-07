@@ -81,7 +81,8 @@ struct DashboardTab: View {
                             withAnimation(Self.returning) { lift = 0 }
                             isShowingProfiles = false
                         },
-                        onExplore: onExplore
+                        onExplore: onExplore,
+                        isOnboarding: isOnboarding
                     )
                     // **Hidden until the dashboard actually starts to move.**
                     //

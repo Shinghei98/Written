@@ -207,27 +207,27 @@ struct FreeTextSheet: View {
 
 // MARK: - Birthday
 
-struct BirthdaySheet: View {
-    let onSave: (Int, Int, Int) -> Bool
-    let onCancel: () -> Void
+/// The three date boxes — month, day, year — with the digit filtering, the
+/// hand-off between boxes and the error border.
+///
+/// **Its own view because two screens ask this question**: the dashboard sheet,
+/// and the onboarding page that gates the app at eighteen. Copying the fields
+/// would leave two definitions of how a birthday is typed, and the copy that
+/// stopped advancing the keyboard would be the one nobody noticed.
+struct BirthdayFields: View {
+    @Binding var month: String
+    @Binding var day: String
+    @Binding var year: String
+    /// Drawn red. Owned by the caller, because what counts as a rejection
+    /// differs: the sheet rejects an impossible date, and the page also rejects
+    /// somebody under eighteen.
+    var showsError: Bool
 
-    @State private var month = ""
-    @State private var day = ""
-    @State private var year = ""
-    /// Set by a failed Confirm, not by opening: three red boxes for not having
-    /// typed yet is scolding someone for nothing. It clears as soon as the
-    /// entry becomes valid.
-    @State private var rejected = false
-
-    /// Which box the keyboard is in, so a full one can hand over to the next.
-    private enum Field { case month, day, year }
-    @FocusState private var focused: Field?
-
-    private static let errorRed = Color(red: 0.72, green: 0.20, blue: 0.16)
+    static let errorRed = Color(red: 0.72, green: 0.20, blue: 0.16)
 
     /// `nil` for empty or impossible — 31 February included, which
     /// `DateComponents` builds happily unless asked to validate.
-    private var entered: DateComponents? {
+    static func entered(month: String, day: String, year: String) -> DateComponents? {
         guard let month = Int(month), let day = Int(day), let year = Int(year) else { return nil }
         var components = DateComponents()
         components.month = month
@@ -236,35 +236,15 @@ struct BirthdaySheet: View {
         return components.isValidDate(in: Calendar.current) ? components : nil
     }
 
-    private var showsError: Bool { rejected && entered == nil }
+    /// Which box the keyboard is in, so a full one can hand over to the next.
+    private enum Field { case month, day, year }
+    @FocusState private var focused: Field?
 
     var body: some View {
-        BiographicsSheet(
-            title: "When's your birthday?",
-            onConfirm: confirm,
-            onCancel: onCancel
-        ) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    field("Month", text: $month, width: 74, field: .month, digits: 2)
-                    field("Day", text: $day, width: 62, field: .day, digits: 2)
-                    field("Year", text: $year, width: 82, field: .year, digits: 4)
-                }
-
-                if showsError {
-                    Text("Enter a valid date of birth")
-                        .font(BrandFont.body(13))
-                        .foregroundStyle(Self.errorRed)
-                }
-            }
-        }
-    }
-
-    private func confirm() {
-        guard let entered, let month = entered.month, let day = entered.day, let year = entered.year,
-              onSave(month, day, year) else {
-            withAnimation(.easeOut(duration: 0.15)) { rejected = true }
-            return
+        HStack(spacing: 8) {
+            field("Month", text: $month, width: 74, field: .month, digits: 2)
+            field("Day", text: $day, width: 62, field: .day, digits: 2)
+            field("Year", text: $year, width: 82, field: .year, digits: 4)
         }
     }
 
@@ -293,7 +273,7 @@ struct BirthdaySheet: View {
                 case .month: focused = .day
                 case .day: focused = .year
                 // Nothing after the year, so the keyboard goes rather than
-                // sitting over the Confirm the user is now reaching for.
+                // sitting over the button the user is now reaching for.
                 case .year: focused = nil
                 }
             }
@@ -317,6 +297,51 @@ struct BirthdaySheet: View {
                         lineWidth: showsError ? 1.5 : 1
                     )
             }
+    }
+}
+
+struct BirthdaySheet: View {
+    let onSave: (Int, Int, Int) -> Bool
+    let onCancel: () -> Void
+
+    @State private var month = ""
+    @State private var day = ""
+    @State private var year = ""
+    /// Set by a failed Confirm, not by opening: three red boxes for not having
+    /// typed yet is scolding someone for nothing. It clears as soon as the
+    /// entry becomes valid.
+    @State private var rejected = false
+
+    private var entered: DateComponents? {
+        BirthdayFields.entered(month: month, day: day, year: year)
+    }
+
+    private var showsError: Bool { rejected && entered == nil }
+
+    var body: some View {
+        BiographicsSheet(
+            title: "What's your birthday?",
+            onConfirm: confirm,
+            onCancel: onCancel
+        ) {
+            VStack(spacing: 8) {
+                BirthdayFields(month: $month, day: $day, year: $year, showsError: showsError)
+
+                if showsError {
+                    Text("Enter a valid date of birth")
+                        .font(BrandFont.body(13))
+                        .foregroundStyle(BirthdayFields.errorRed)
+                }
+            }
+        }
+    }
+
+    private func confirm() {
+        guard let entered, let month = entered.month, let day = entered.day, let year = entered.year,
+              onSave(month, day, year) else {
+            withAnimation(.easeOut(duration: 0.15)) { rejected = true }
+            return
+        }
     }
 }
 

@@ -9,14 +9,48 @@ import Foundation
 /// `interestLine`.
 struct ExampleProfile: Equatable {
 
-    /// The photo, as a bundle filename. Swapping the face is this one line plus
-    /// dropping a file into `Written/Resources/Assets/` — it is a loose bundle
-    /// resource, not an asset-catalog imageset, so `Image("name")` will not
-    /// find it and `ExampleProfileCard` loads it by URL instead.
-    static let photoAsset = "kris_wu"
-    static let photoExtension = "jpeg"
+    /// One example person: a handle and the photographs of them.
+    ///
+    /// Bundle filenames rather than asset-catalog names — these are loose
+    /// resources under `Written/Resources/Assets/`, so `Image("name")` will not
+    /// find them and `ExampleProfileCard` loads them by URL instead.
+    struct PhotoSet: Equatable {
+        let handle: String
+        /// Two, shown as a carousel. Instagram posts carry several and one
+        /// photograph of a stranger reads as a stock image; a second reads as
+        /// somebody's account.
+        let assets: [String]
+        let fileExtension: String
+    }
+
+    static let femmeSet = PhotoSet(
+        handle: "ella_w",
+        assets: ["example_femme_1", "example_femme_2"],
+        fileExtension: "png"
+    )
+
+    static let mascSet = PhotoSet(
+        handle: "noah_r",
+        assets: ["example_masc_1", "example_masc_2"],
+        fileExtension: "png"
+    )
+
+    /// Which set to show, from what the user answered on "Who are you
+    /// interested in?".
+    ///
+    /// **Masculine only when that is the whole answer.** Somebody interested in
+    /// men *and* women is shown the feminine set rather than a second
+    /// arbitrating rule, and somebody who has answered nothing gets it too —
+    /// the screen has to draw a person either way, and defaulting to the branch
+    /// that also covers "no answer yet" is one rule instead of three.
+    static func photos(for interests: Set<DatingPreferences.Gender>) -> PhotoSet {
+        interests == [.male] ? mascSet : femmeSet
+    }
 
     let handle: String
+    /// The photographs, in the order the carousel shows them.
+    let photoAssets: [String]
+    let photoExtension: String
     /// `nil` when the user's own age is unknown. The card drops the field
     /// rather than inventing a number — a made-up age on a screen that is
     /// otherwise all real data would undermine the point of it.
@@ -47,11 +81,15 @@ struct ExampleProfile: Equatable {
     static func make(
         identity: IdentitySummary,
         records: [DistilledRecord],
+        interests: Set<DatingPreferences.Gender>,
         fetchedHook: String? = nil
     ) -> ExampleProfile {
         let song = MusicHighlights.topSong(in: records)
+        let set = photos(for: interests)
         return ExampleProfile(
-            handle: photoAsset,
+            handle: set.handle,
+            photoAssets: set.assets,
+            photoExtension: set.fileExtension,
             age: age(for: identity),
             place: identity.place,
             musicLine: musicLine(for: song, fetchedHook: fetchedHook),

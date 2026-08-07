@@ -81,9 +81,10 @@ final class DistillViewModel: ObservableObject {
     /// records together, so it is recomputed alongside everything else rather
     /// than being built in the view — a `body` that ranks songs would rebuild
     /// the ranking on every scroll tick.
-    @Published private(set) var exampleProfile = ExampleProfile(
-        handle: ExampleProfile.photoAsset, age: nil, place: nil,
-        musicLine: nil, interestLine: nil, song: nil
+    @Published private(set) var exampleProfile = ExampleProfile.make(
+        identity: IdentitySummary(),
+        records: [],
+        interests: DatingPreferencesStore.saved?.genders ?? []
     )
 
     /// The chorus `LyricsService` found for the current top song, once it has.
@@ -1279,6 +1280,13 @@ final class DistillViewModel: ObservableObject {
         //
         // Exact, because they typed it — this is the one path that knows the day
         // as well as the year, and `birth_date` wins over `birth_year` on read.
+        // Mirrored locally as well, and *before* the push: `needsBirthday` reads
+        // it to decide whether the onboarding gate has been answered, and this
+        // is the only other door into the same fact. Somebody who set a birthday
+        // here and was asked for one again at the next launch would rightly read
+        // that as the app having lost it.
+        Identity.save(birthday: birthday)
+
         Task {
             guard await accepted(
                 SyncService.shared.pushUserObject(birthDate: birthday, birthYear: year)
@@ -1298,6 +1306,17 @@ final class DistillViewModel: ObservableObject {
     func setGender(_ label: String) {
         Task {
             guard await accepted(SyncService.shared.pushUserObject(sex: label)) else { return }
+            // Keep the onboarding answer in step where the two vocabularies
+            // meet. This sheet offers twelve options and the onboarding page
+            // three, so "Genderqueer" has no set to be written into — and
+            // `Identity` is only ever read to decide whether the question has
+            // been asked, which it plainly has by then. Leaving it alone there
+            // is right; leaving it *stale* when it could be right is not.
+            if let mapped = DatingPreferences.Gender.allCases.first(
+                where: { $0.label.caseInsensitiveCompare(label) == .orderedSame }
+            ) {
+                Identity.save([mapped])
+            }
             let record = DistilledRecord(
                 source: "user", dataType: "gender", itemID: "gender",
                 name: label, creator: "", detail: "", extra: "entered_by_user=1", collectedAt: Date()
@@ -1663,7 +1682,15 @@ final class DistillViewModel: ObservableObject {
     func syncDatingPreferences(_ preferences: DatingPreferences) {
         let now = Date()
         let rows = [
-            ("gender_preference", preferences.gender.rawValue),
+            // Declaration order rather than set order, so a row that has not
+            // changed does not look changed to `append_source_records` — which
+            // compares against the newest version and would otherwise write a
+            // new one every launch for somebody who picked two.
+            ("gender_preference",
+             DatingPreferences.Gender.allCases
+                .filter(preferences.genders.contains)
+                .map(\.rawValue)
+                .joined(separator: "|")),
             ("matching_radius_miles", String(preferences.radiusMiles)),
             ("age_range", "\(preferences.minAge)-\(preferences.maxAge)"),
             ("paused", preferences.isPaused ? "1" : "0"),
@@ -1800,7 +1827,20 @@ final class DistillViewModel: ObservableObject {
     /// Marks a record removed if it belongs to something banned. Rows are kept
     /// and annotated rather than deleted — see `DistilledRecord.markedRemoved`.
     private func applyingBans(_ record: DistilledRecord) -> DistilledRecord {
-        guard !bans.isEmpty, !record.isRemovedByUser else { return record }
+        // Already withheld, by whoever. Nothing here can change that.
+        guard !record.isRemovedByUser else { return record }
+
+        // **Before the empty-ban-list guard, and that ordering is the whole
+        // point.** Withholding a medical or political title is not conditional
+        // on the user having struck anything off — and almost nobody has. Put
+        // below the guard, this filter would have done nothing for the great
+        // majority of people while reading as though it worked.
+        if record.dataType == "event",
+           let kind = SensitiveEvents.kind(of: record.name) {
+            return record.markedRemoved(reason: kind.rawValue)
+        }
+
+        guard !bans.isEmpty else { return record }
 
         if Modality.music.recordSources.contains(record.source) {
             // Every artist credited on the track, so a banned artist's
@@ -1914,7 +1954,9 @@ final class DistillViewModel: ObservableObject {
         // After `identity`, which it reads for the age offset and the district.
         let previousSong = exampleProfile.song
         exampleProfile = ExampleProfile.make(
-            identity: identity, records: records, fetchedHook: fetchedHook
+            identity: identity, records: records,
+            interests: DatingPreferencesStore.saved?.genders ?? [],
+            fetchedHook: fetchedHook
         )
         if exampleProfile.song != previousSong { resolveHook() }
         lastCollectedAt = records.map(\.collectedAt).max()
@@ -1941,7 +1983,9 @@ final class DistillViewModel: ObservableObject {
 
             fetchedHook = hook
             exampleProfile = ExampleProfile.make(
-                identity: identity, records: records, fetchedHook: hook
+                identity: identity, records: records,
+                interests: DatingPreferencesStore.saved?.genders ?? [],
+                fetchedHook: hook
             )
         }
     }
