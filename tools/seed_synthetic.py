@@ -47,6 +47,23 @@ SYNTHETIC_DOMAIN = "synthetic.written.invalid"
 
 PEOPLE = ["Mina", "Joon", "Elise", "Tobias", "Priya", "Marcus"]
 
+# School and bio, per person, in that order — the two fields `match_profile()`
+# returns and the only ones on the dynamic profile that are not also on the
+# discovery card. Without them a synthetic account's page has an empty gated
+# half, which looks exactly like the function refusing the caller.
+#
+# Bios are written at or under `DistillViewModel.maximumBioLength` (30) because
+# the sheet caps at the keyboard rather than on save; a seeded row longer than
+# somebody could actually type would be a fixture the app cannot reproduce.
+BIOGRAPHICS = [
+    ("Washington University in St. Louis", "Always chasing good light"),
+    ("Saint Louis University",             "Second breakfast fan"),
+    ("Webster University",                 "I will beat you at Catan"),
+    ("University of Missouri–St. Louis",   "Fixing a bike, badly"),
+    ("Maryville University",               "Here for the dog park"),
+    ("Fontbonne University",               "Ask me about bread"),
+]
+
 # Walkable from Central West End, which is the point — a discovery feed full of
 # people three states away would say nothing about whether the feed works.
 DISTRICTS = [
@@ -246,6 +263,28 @@ def video_records(rng: random.Random, mix, now):
     return rows
 
 
+def user_records(index: int, now):
+    """The school and the bio, in the shape `setUserFact` writes them.
+
+    Source `user`, the data type doubling as the item id, the value in `name`,
+    and `entered_by_user=1` in `extra` — matched field for field against
+    DistillViewModel, because `0037` selects the latest row per data type for
+    exactly `education` and `bio` and anything shaped differently is invisible
+    to it. These are also what `IdentitySummary` reads for the dashboard, so a
+    seeded account's own Memories tab reads the same as its match profile.
+    """
+    school, bio = BIOGRAPHICS[index]
+    return [
+        {
+            "source": "user", "data_type": data_type, "item_id": data_type,
+            "name": value, "creator": "", "detail": "",
+            "extra": {"entered_by_user": "1"},
+            "collected_at": now,
+        }
+        for data_type, value in (("education", school), ("bio", bio))
+    ]
+
+
 def calendar_records(index: int, now):
     rows = []
     for title, organizer in CALENDAR_PLAN[index]:
@@ -328,7 +367,8 @@ def main() -> None:
 
         rows = (music_records(rng, music_mix, now)
                 + video_records(rng, video_mix, now)
-                + calendar_records(index, now))
+                + calendar_records(index, now)
+                + user_records(index, now))
         request("POST", "/rest/v1/distilled_records", key,
                 [dict(r, user_id=uid) for r in rows],
                 {"Prefer": "resolution=merge-duplicates"})
