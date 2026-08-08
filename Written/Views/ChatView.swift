@@ -222,7 +222,7 @@ struct ChatView: View {
             case "report":
                 pendingReport = model.conversations.first
                 isReporting = pendingReport != nil
-            case "thread", "typing":
+            case "thread", "typing", "icebreaker":
                 openThread = model.conversations.first
                 isShowingThread = openThread != nil
             default: break
@@ -944,13 +944,21 @@ extension ChatModel {
     /// written in yet is the common case on this screen, and it is the row most
     /// likely to look broken.
     static let sampleConversations: [ChatService.Conversation] = [
+        // The thread nobody has written in yet, which is where an icebreaker
+        // is actually read — so this is the sample that carries one. `0036`
+        // fills these from the two people's records; here they are literals,
+        // because `-chat sample` runs with no session and no database.
         ChatService.Conversation(
             id: "sample-1",
             partnerID: "sample-Ines",
             partnerName: "Inés",
             partnerPhotoSeed: PortraitSeed.stable(for: "Inés"),
             lastMessage: nil,
-            lastMessageAt: nil
+            lastMessageAt: nil,
+            icebreaker: .init(
+                theme: "J-Pop", kind: "music_genre",
+                mine: "Ado", theirs: "Fujii Kaze", partnerPronoun: "her"
+            )
         ),
         ChatService.Conversation(
             id: "sample-2",

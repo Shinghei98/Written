@@ -246,7 +246,9 @@ enum DebugLaunch {
     static var showsSampleChat: Bool {
         // `-memo` implies it: the voice sheet is inside a thread, and a thread
         // needs a conversation to be inside.
-        memoState != nil || ["sample", "admirers", "thread", "typing", "swiped", "report"].contains(chatTarget ?? "")
+        memoState != nil
+            || ["sample", "admirers", "thread", "typing", "swiped", "report", "icebreaker"]
+                .contains(chatTarget ?? "")
     }
 
     /// Long enough for the list underneath to have drawn, so a screenshot taken
@@ -276,6 +278,21 @@ enum DebugLaunch {
     /// means the same thing on an SE and a Pro Max.
     static var revealFraction: Double? {
         UserDefaults.standard.string(forKey: "reveal").flatMap(Double.init)
+    }
+
+    /// `-birthday confirm` / `-birthday error` → open the birthday page in one of
+    /// the two states that need a tap to reach.
+    ///
+    /// Same reasoning as `-reveal`: `simctl` can send no taps, so the confirm
+    /// card and the red-bordered refusal are otherwise only checkable on a device
+    /// with a finger on it — and they are the two states most likely to be
+    /// wrong, being the ones drawn over a keyboard.
+    ///
+    /// `confirm` seeds a date, which is the point: the card reads it back, so a
+    /// fixed one makes "You're 27, born December 19, 1998" reproducible rather
+    /// than a number that changes with the machine's clock.
+    static var birthdayState: String? {
+        UserDefaults.standard.string(forKey: "birthday")
     }
 
     /// `-memo review` / `-memo empty` / `-memo holding` → open a chat thread with

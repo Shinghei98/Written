@@ -74,6 +74,19 @@ final class DistillViewModel: ObservableObject {
     /// banner in one place beats a second that can disagree with it.
     @Published var saveError: String?
 
+    /// Why the last distillation did not reach Postgres, or nil if it did.
+    ///
+    /// **Deliberately not `saveError`.** That one is drawn by `AppShell` over
+    /// every tab, and this must not interrupt the garden: the records are on
+    /// the device, the plant has already grown, and a banner over it would
+    /// report a working distillation as a failure. What was wrong was never
+    /// that this went undrawn — it is that it went *unrecorded*, so a table
+    /// emptier than expected had nothing to say for itself.
+    ///
+    /// A `nil` here means the last run landed. It is set on every run rather
+    /// than only on failure, so a success clears the previous run's reason.
+    @Published private(set) var syncFailure: String?
+
     /// Guards the one action here that must not be started twice.
     @Published private(set) var isDisconnectingAll = false
 
@@ -424,6 +437,35 @@ final class DistillViewModel: ObservableObject {
         let genders = Identity.genders
         if !genders.isEmpty, snapshot.identity.sex == nil {
             Task { await SyncService.shared.pushUserObject(sex: Identity.columnValue(genders)) }
+        }
+
+        // The three `0034` added, on the same terms. They need repairing more
+        // than the two above, not less: the onboarding pages that first write
+        // them run *before* `AppShell` exists, so they save to their local store
+        // with no view model to push from and nothing else to notice.
+        if let interested = DatingPreferencesStore.saved?.genders,
+           !interested.isEmpty, !snapshot.hasInterest {
+            let values = DatingPreferences.Gender.allCases
+                .filter(interested.contains)
+                .map(\.rawValue)
+            Task { await SyncService.shared.pushUserObject(interestedIn: values) }
+        }
+
+        if let style = CommunicationStyleStore.saved, !snapshot.hasCommunicationStyle {
+            Task {
+                await SyncService.shared.pushUserObject(
+                    flirtLevel: style.flirt.rawValue,
+                    responseTime: style.response.rawValue
+                )
+            }
+        }
+
+        // **Forward only, like the adoption side.** A device that has explored
+        // and a server that says otherwise means a push was lost; the reverse
+        // is not a disagreement this can see, because the local flag is what
+        // let the app get here at all.
+        if SupabaseAuth.shared.hasExplored, !snapshot.hasExplored {
+            Task { await SyncService.shared.pushUserObject(hasExplored: true) }
         }
     }
 
@@ -783,22 +825,37 @@ final class DistillViewModel: ObservableObject {
         )
     }
 
-    /// Age and sex up to the user object, where they are the only copy.
+    /// The birth year up to the user object, where it is the only copy.
     ///
     /// Health rows are never uploaded, so without this a restored account would
     /// know a person's music and not their age. `birth_year` rather than a date:
     /// `HealthKitDistiller` deliberately keeps only the year, and uploading more
     /// precision than the app itself holds would be inventing it.
+    ///
+    /// **It used to send `sex` as well, and that was a live bug.** `users.sex`
+    /// is written by two things in the same vocabulary meaning different
+    /// things: the gender step, through `Identity.columnValue`, records the
+    /// gender somebody *chose*, and this recorded what the Health app says
+    /// their biological sex is. Last write wins, and Health re-distills every
+    /// time it is connected — so HealthKit would eventually overwrite a chosen
+    /// gender, silently and repeatedly. Somebody who selected Female and later
+    /// connected Apple Health could find the column flipped, which corrupted
+    /// the dashboard's gender row and, once the icebreaker started reading it,
+    /// would have misgendered them to a match every time the thread opened.
+    ///
+    /// So **`users.sex` now means the gender they chose and nothing else.** The
+    /// `biological_sex` record is still distilled and still in
+    /// `distilled_records` for anything that genuinely wants biological sex,
+    /// which is a different question and should have to ask for it by name.
     private func pushDemographics(from records: [DistilledRecord]) {
         let birthYear = records
             .first { $0.dataType == "age" }?
             .extraValue("birth_year")
             .flatMap(Int.init)
-        let sex = records.first { $0.dataType == "biological_sex" }?.name
 
-        guard birthYear != nil || sex != nil else { return }
+        guard let birthYear else { return }
         Task.detached(priority: .utility) {
-            await SyncService.shared.pushUserObject(birthYear: birthYear, sex: sex)
+            await SyncService.shared.pushUserObject(birthYear: birthYear)
         }
     }
 
@@ -949,9 +1006,15 @@ final class DistillViewModel: ObservableObject {
 
         let currentBans = bans
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
+            // **The first failure, not the last.** These run back to back and
+            // each used to write the same `lastError`, so a later success wiped
+            // the reason an earlier call had recorded — and the record push is
+            // the first one, which is to say the one whose failure costs the
+            // whole distillation.
+            var failure: String?
             if source == "health" {
-                await SyncService.shared.pushHealthSignals(
+                failure = await SyncService.shared.pushHealthSignals(
                     chronotype: chronotype,
                     sports: sports,
                     hourlyActivity: hourly,
@@ -960,9 +1023,10 @@ final class DistillViewModel: ObservableObject {
                 // Health writes no records, so nothing else records that it was
                 // connected — `replace_source_records` is what does it for every
                 // other source, and Health never reaches it.
-                await SyncService.shared.pushConnection(source: "health", recordCount: 0)
+                let connection = await SyncService.shared.pushConnection(source: "health", recordCount: 0)
+                if failure == nil { failure = connection }
             } else {
-                await SyncService.shared.push(source: source, records: records)
+                failure = await SyncService.shared.push(source: source, records: records)
             }
             // The ban list rides along, not only when it changes.
             //
@@ -972,7 +1036,11 @@ final class DistillViewModel: ObservableObject {
             // into each record's `extra`, but the *list* is what re-applies them
             // to a future distill, so without it a reinstall resurrects
             // everything the user rejected.
-            await SyncService.shared.pushBans(currentBans)
+            let bansFailure = await SyncService.shared.pushBans(currentBans)
+            if failure == nil { failure = bansFailure }
+
+            let outcome = failure
+            await MainActor.run { self?.syncFailure = outcome }
         }
 
         publishDiscoveryCard()
@@ -1406,6 +1474,22 @@ final class DistillViewModel: ObservableObject {
             $0.source == "user" && !["flirt_level", "response_time"].contains($0.dataType)
         }
         replaceRecords(from: "user", with: untouched + [flirt, response])
+
+        // **The bands also go to their own columns**, which is duplication with
+        // a reason: these two decide whether the sliders get asked again, and
+        // `loadProfile` has to read that back in the one request that settles
+        // the launch route. A `user` record cannot answer in time — it arrives
+        // with `RestoreService.hydrate()`, which needs `AppShell`, which needs
+        // the route. See `0034`.
+        //
+        // The record stays the richer copy: it carries the slider position,
+        // which the column deliberately does not.
+        Task {
+            await SyncService.shared.pushUserObject(
+                flirtLevel: style.flirt.rawValue,
+                responseTime: style.response.rawValue
+            )
+        }
     }
 
     /// Copies what onboarding collected into the record system, once.
@@ -1757,6 +1841,15 @@ final class DistillViewModel: ObservableObject {
         let replaced = Set(rows.map(\.dataType))
         let kept = records.filter { $0.source == "user" && !replaced.contains($0.dataType) }
         replaceRecords(from: "user", with: kept + rows)
+
+        // The gender preference goes to its column too, for the reason spelled
+        // out on `setCommunicationStyle`: it is one of the six answers the
+        // launch route branches on, and a record arrives after the route.
+        // Declaration order again, so an unchanged set does not look changed.
+        let interested = DatingPreferences.Gender.allCases
+            .filter(preferences.genders.contains)
+            .map(\.rawValue)
+        Task { await SyncService.shared.pushUserObject(interestedIn: interested) }
 
         if preferences.isPaused {
             withdrawDiscoveryCard()

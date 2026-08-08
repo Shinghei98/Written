@@ -272,9 +272,16 @@ final class SupabaseAuth: NSObject, ObservableObject {
 
     /// The end of onboarding. From here the tab bar appears and the garden gives
     /// up its arrow.
+    ///
+    /// **Local first, then the column, and the push is not awaited.** Tapping
+    /// Explore must not wait on a round trip, and the local flag is what the
+    /// route reads on this device. If the push fails the cost is one repeated
+    /// walk through the garden on the *next* device — the failure this replaces
+    /// was that walk being certain rather than possible.
     func markExplored() {
         hasExplored = true
         cacheOnboardingStep()
+        Task { await SyncService.shared.pushUserObject(hasExplored: true) }
     }
 
     private static let onboardingStepKey = "supabase_onboarding_step"
@@ -972,6 +979,26 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
 
     /// Reads the stored profile back, so a returning user isn't asked their name
     /// again on a device Apple has already stopped volunteering it to.
+    ///
+    /// **This is the whole of how a new phone skips onboarding**, and it read
+    /// two of the six facts for months. `onboardingStep` branches on the
+    /// birthday, the name, the gender, the interest set, the sliders and the
+    /// photo page; only the last two were ever asked of the server, so a
+    /// reinstall was walked through the other four again. Worse, `exploring`
+    /// maps to `Route.home`, so `RestoreService.hydrate()` — which only runs
+    /// once `AppShell` mounts — landed *while the onboarding arrow was still
+    /// drawn*, and the garden reached full growth on the page offering to grow
+    /// it. The data could not unlock the route that would load the data.
+    ///
+    /// `0034` gave the three homeless answers columns so they can be read in
+    /// this one request. It cannot be a `distilled_records` query: those arrive
+    /// with hydration, which is after the route.
+    ///
+    /// **Adopted only where the device has no answer of its own.** Somebody may
+    /// have changed something on this phone a moment ago and be offline; the
+    /// server's copy is older, not newer, and overwriting with it would undo
+    /// their edit. The local store wins where it is non-empty, which also makes
+    /// this idempotent — it runs on every launch.
     private func loadProfile() async {
         // The raw token here, deliberately, unlike the two writes above.
         // `restoreSession` calls this the moment it has exchanged one, so the
@@ -985,7 +1012,11 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
         )
         components?.queryItems = [
             URLQueryItem(name: "id", value: "eq.\(userID)"),
-            URLQueryItem(name: "select", value: "first_name,photos_added_at")
+            URLQueryItem(
+                name: "select",
+                value: "first_name,photos_added_at,birth_date,sex,"
+                     + "has_explored,interested_in,flirt_level,response_time"
+            )
         ]
         guard let url = components?.url else { return }
 
@@ -1000,8 +1031,75 @@ extension SupabaseAuth: ASAuthorizationControllerDelegate {
 
         if let name = row["first_name"] as? String, !name.isEmpty { firstName = name }
         hasSeenPhotoStep = row["photos_added_at"] is String
+        adopt(row)
         cacheOnboardingStep()
     }
+
+    /// Copies the server's onboarding answers into the local stores the launch
+    /// route reads, where the device has none of its own.
+    ///
+    /// Every branch is `guard local is empty`, so this can only ever fill a gap
+    /// — see the note on `loadProfile` for why that direction and not the other.
+    private func adopt(_ row: [String: Any]) {
+        if Identity.birthday == nil,
+           let day = row["birth_date"] as? String,
+           let date = Self.day.date(from: day) {
+            Identity.save(birthday: date)
+        }
+
+        // `sex` is written by `Identity.columnValue` as labels joined by `|`
+        // — "Male|Non-binary" — not raw values, so it is read back the same
+        // way. Matching on `rawValue` here would silently adopt nothing and
+        // send a returning user back to the gender page with no clue why.
+        if Identity.genders.isEmpty, let sex = row["sex"] as? String, !sex.isEmpty {
+            let labels = Set(sex.components(separatedBy: "|"))
+            let genders = DatingPreferences.Gender.allCases.filter { labels.contains($0.label) }
+            if !genders.isEmpty { Identity.save(Set(genders)) }
+        }
+
+        if DatingPreferencesStore.saved?.genders.isEmpty ?? true,
+           let stored = row["interested_in"] as? [String] {
+            let genders = Set(stored.compactMap(DatingPreferences.Gender.init(rawValue:)))
+            if !genders.isEmpty {
+                var preferences = DatingPreferencesStore.saved ?? DatingPreferences()
+                preferences.genders = genders
+                DatingPreferencesStore.save(preferences)
+            }
+        }
+
+        // The positions are not stored on the column and do not need to be:
+        // `CommunicationStyleStore` falls back to the band's midpoint for
+        // exactly this case, which it already calls "one rebuilt from the
+        // server". The band is the answer; the position only restores a slider.
+        if CommunicationStyleStore.saved == nil,
+           let flirt = (row["flirt_level"] as? String).flatMap(FlirtLevel.init(rawValue:)),
+           let response = (row["response_time"] as? String).flatMap(ResponseTime.init(rawValue:)) {
+            CommunicationStyleStore.save(
+                CommunicationStyle(
+                    flirt: flirt,
+                    response: response,
+                    flirtPosition: flirt.fraction,
+                    responsePosition: response.fraction
+                )
+            )
+        }
+
+        // **Only ever forward.** A `false` from the server cannot un-explore
+        // somebody: they may have finished onboarding on this device seconds
+        // ago, with the push still in flight or failed.
+        if !hasExplored, row["has_explored"] as? Bool == true { hasExplored = true }
+    }
+
+    /// `birth_date` is a `date` column, so it reads back as `yyyy-MM-dd` rather
+    /// than an ISO-8601 datetime. Matches `SyncService.day`, which writes it.
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     /// Marks the photo step done, whether they added any or skipped.
     ///

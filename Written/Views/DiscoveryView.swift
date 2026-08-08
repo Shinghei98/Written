@@ -175,6 +175,8 @@ struct DiscoveryView: View {
                                 isMessaged: model.hasMessaged(profile.personID),
                                 onLike: { model.like(profile.personID) },
                                 onMessage: { pendingInvite = profile },
+                                isBookmarked: model.hasBookmarked(profile.personID),
+                                onBookmark: { model.toggleBookmark(profile.personID) },
                                 onMore: { pendingActions = profile }
                             )
                         case .shared(let post, _):
@@ -295,6 +297,15 @@ final class DiscoveryModel: ObservableObject {
     /// coloured differs.
     @Published private(set) var messaged: Set<String> = []
 
+    /// Who this account has saved for later.
+    ///
+    /// Read from the server on load, like `liked`, and for the same reason: the
+    /// card fills its bookmark from this, so a relaunch that forgot would draw
+    /// every saved profile as unsaved. **Unlike `liked` it is not a filter** —
+    /// bookmarking somebody does not take them out of the feed, because saving
+    /// a profile is not answering it.
+    @Published private(set) var bookmarked: Set<String> = []
+
     /// Who this account has blocked, by person id, lowercased.
     ///
     /// Kept beside `liked` and filtered in the same three places, because the
@@ -308,6 +319,51 @@ final class DiscoveryModel: ObservableObject {
 
     func hasLiked(_ personID: String) -> Bool { liked.contains(personID) }
     func hasMessaged(_ personID: String) -> Bool { messaged.contains(personID) }
+    func hasBookmarked(_ personID: String) -> Bool { bookmarked.contains(personID) }
+
+    /// Saves or unsaves, optimistically, and puts it back if the write is
+    /// refused.
+    ///
+    /// **Reversible, unlike a like**, which is the whole difference between the
+    /// two: an invitation has been received by somebody by the time you regret
+    /// it, and a bookmark has been received by nobody. So this toggles, and
+    /// `0035` allows the delete.
+    ///
+    /// A refusal is put on `failure` rather than swallowed. The heart can afford
+    /// to fail quietly because the person is still in the feed to try again;
+    /// somebody who saves a profile, leaves Explore and finds their bookmarks
+    /// page empty has lost the profile as well as the bookmark.
+    func toggleBookmark(_ personID: String) {
+        let wasSaved = bookmarked.contains(personID)
+        if wasSaved { bookmarked.remove(personID) } else { bookmarked.insert(personID) }
+
+        Task { @MainActor in
+            let ok = wasSaved
+                ? await BookmarkService.shared.remove(personID)
+                : await BookmarkService.shared.add(personID)
+            guard !ok else { return }
+
+            // The same `23503` case the feed already handles for likes: they
+            // deleted their account between the feed being built and the tap.
+            // Off the screen the same way, and *not* through `remove(_:)`,
+            // which also writes them to the remove list — blocking somebody for
+            // having deleted their account would outlive the account itself.
+            if await BookmarkService.shared.lastFailureWasMissingPerson {
+                bookmarked.remove(personID)
+                banned.insert(personID)
+                items.removeAll(where: isBannedProfile)
+                failure = "That profile is no longer available."
+                await clearFailureShortly()
+                return
+            }
+
+            if wasSaved { bookmarked.insert(personID) } else { bookmarked.remove(personID) }
+            failure = Reachability.shared.isOnline
+                ? await BookmarkService.shared.lastError ?? "That bookmark didn't save."
+                : "You're offline — that bookmark didn't save."
+            await clearFailureShortly()
+        }
+    }
 
     /// Like-only, and idempotent — there is no unlike. The row's primary key is
     /// the pair, so a second tap rewrites what is already there, and nothing in
@@ -408,10 +464,22 @@ final class DiscoveryModel: ObservableObject {
         async let peopleTask = DiscoveryService.shared.people()
 //        async let postsTask = SharedPostService.shared.posts()
         async let likedTask = LikeService.shared.invitations()
+        // Concurrent with the other two rather than after them, for the reason
+        // given above: the card draws a filled bookmark on first paint, and a
+        // serial fetch would show every saved profile unsaved and then correct
+        // itself under the reader's thumb.
+        async let bookmarkedTask = BookmarkService.shared.bookmarkedIDs()
         let people = await peopleTask
         let invitations = await likedTask
         liked = invitations.liked
         messaged = invitations.withNote
+        // **`nil` means the request failed and is not the same as none.**
+        // Assigning `[]` on a dropped request would draw every saved profile as
+        // unsaved, and the next tap would then try to *add* a bookmark that
+        // already exists — harmless, since the insert is idempotent, but the
+        // icon would be lying in the meantime. Leaving the set alone keeps
+        // whatever the last good answer was.
+        if let saved = await bookmarkedTask { bookmarked = saved }
 
         guard !people.isEmpty else {
             failure = await DiscoveryService.shared.lastError
@@ -555,6 +623,11 @@ struct DiscoveryCard: View {
     var onLike: () -> Void = {}
     /// Like this person with something written, rather than with a heart alone.
     var onMessage: () -> Void = {}
+
+    /// Saved for later, privately. Independent of `isLiked` — see the note on
+    /// the bookmark button in `actionRow`.
+    var isBookmarked = false
+    var onBookmark: () -> Void = {}
 
     /// Raise the two-row sheet for this person.
     ///
@@ -711,14 +784,17 @@ struct DiscoveryCard: View {
         }
     }
 
-    /// The heart is the only one of these that does anything.
+    /// Three controls, all live, and the row no longer has any furniture in it.
     ///
-    /// The other three stayed decorative when it went live, and that is a choice
-    /// rather than an omission: they are furniture borrowed from the post format
-    /// so a stranger's card reads as somebody's words. Wiring one of them up
-    /// without somewhere for it to go would be worse than leaving it inert.
-    /// They keep `allowsHitTesting(false)` and stay out of VoiceOver; the heart
-    /// has neither.
+    /// It began as four borrowed glyphs so a stranger's card would read as
+    /// somebody's words, with only the heart doing anything. The envelope went
+    /// live, then the bookmark; the paper plane was **deleted** rather than
+    /// wired up, because there is no URL scheme and no profile page for a
+    /// shared link to open, and every alternative meant another person's
+    /// photograph leaving the app. An inert glyph that looks pressable is worse
+    /// than an absent one — the same reasoning that took the fictional phone
+    /// number out of `ReportSheet`.
+    ///
     /// A plain like fills the heart; a note fills the envelope. **Only one of
     /// the two is ever red**, and it is whichever was actually used — the point
     /// of colouring anything here is to say what you did, and filling both
@@ -787,15 +863,35 @@ struct DiscoveryCard: View {
                                 ? "Already invited \(profile.name)"
                                 : "Send \(profile.name) a message with your like")
 
-            Group {
-                Image(systemName: "paperplane")
-                Spacer(minLength: 0)
-                Image(systemName: "bookmark")
+            Spacer(minLength: 0)
+
+            // **The last of the decorative glyphs to become real.** A paper
+            // plane sat here too and was removed rather than wired up: with no
+            // URL scheme and no profile page on the site there was nothing for
+            // a shared link to open, and the alternatives all meant another
+            // person's photograph leaving the app.
+            //
+            // Unlike the heart and the envelope this one is **not** disabled by
+            // `isLiked`. Those two are one invitation, spent once; saving
+            // somebody for later is a note to yourself and stays available
+            // whatever you have already sent them.
+            Button(action: onBookmark) {
+                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 19, weight: .regular))
+                    // Red rather than the ink used by everything else in this
+                    // row, because it is the one state here that is *kept*
+                    // rather than sent — and it is the same red the filled heart
+                    // uses, since both mean "this one is yours".
+                    .foregroundStyle(isBookmarked ? GardenPalette.heart : GardenPalette.ink.opacity(0.75))
+                    .scaleEffect(isBookmarked ? 1.08 : 1)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.55), value: isBookmarked)
+                    .frame(width: 30, height: 30, alignment: .trailing)
+                    .contentShape(Rectangle())
             }
-            .font(.system(size: 19, weight: .regular))
-            .foregroundStyle(GardenPalette.ink.opacity(0.75))
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            .buttonStyle(.plain)
+            .accessibilityLabel(isBookmarked
+                                ? "Remove \(profile.name) from bookmarks"
+                                : "Bookmark \(profile.name)")
         }
         .padding(.horizontal, 14)
         .padding(.top, 6)

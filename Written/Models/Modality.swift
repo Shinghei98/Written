@@ -57,22 +57,26 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
 
     /// Whether this modality can be offered at all.
     ///
-    /// **ARCHIVED-MEDIA.** Media is held back for the App Store build, and it
-    /// is the modality rather than a source this time — `grep -rn "ARCHIVED-"`
-    /// finds the rest. YouTube is already out of `sources` pending Google
-    /// verification, which leaves Apple Podcasts alone standing for a whole
-    /// branch; a "Media" prompt that can only ever mean podcasts claims more
-    /// than it delivers. Hidden rather than deleted, like everything else here:
-    /// one line brings it back with YouTube beside it.
+    /// **Everything is offered, and the hook is kept for the shape of the
+    /// problem rather than for a current user.** Archiving normally happens in
+    /// `sources` below — take a source out and it is never drawn, never
+    /// connected, never distilled. That is the wrong lever when *every* source
+    /// in a modality is gone, because the branch survives as a prompt for
+    /// something with nothing behind it, and this is where that is answered.
     ///
-    /// The fourth shoot is drawn either way — it was always drawn with a bud at
-    /// its tip and no app behind it. It simply carries no badge now.
-    var isOffered: Bool {
-        switch self {
-        case .media: return false
-        default: return true
-        }
-    }
+    /// Media was archived here for build 25 and un-archived on 2026-08-07. The
+    /// argument for hiding it was that YouTube's removal left Apple Podcasts
+    /// alone standing for a whole branch; the argument against, which won, is
+    /// that Podcasts is a live source and a branch with one source is still a
+    /// branch. **Note what it costs**: the unresolved question on Podcasts is
+    /// whether Apple auto-downloads episodes of followed shows, and if it does
+    /// not, this branch is empty for nearly everybody who taps it.
+    ///
+    /// A hidden modality's shoot is drawn either way — it always had a bud at
+    /// its tip and no app behind it — so hiding one takes the badge and leaves
+    /// the stem, which reads as the drawing breaking rather than as growth
+    /// being withheld.
+    var isOffered: Bool { true }
 
     /// `DistilledRecord.source` values that feed this branch. Empty means the
     /// modality is declared for the shape of the tree but has no distiller yet.

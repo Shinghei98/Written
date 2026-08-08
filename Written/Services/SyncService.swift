@@ -22,9 +22,19 @@ actor SyncService {
 
     static let shared = SyncService()
 
-    /// Never blocks the UI and never surfaces an error into it. A distillation
-    /// that reached the device has already done its job; a failed upload is
-    /// something to retry, not something to interrupt the garden with.
+    /// The reason the *last* call failed, for the callers that ask right after
+    /// making one — `accepted(_:)` on the biographics path is the only one.
+    ///
+    /// **It is not a record of what went wrong on the record path, and reading
+    /// it as one is a mistake.** Every function here writes this field, and the
+    /// four the record path calls run back to back in one detached task: a
+    /// failed `push` followed by a successful `pushBans` clears the very reason
+    /// the distillation is missing. Whether it survived at all depended on
+    /// whether that person happened to have struck anything off.
+    ///
+    /// Anything that needs to know why an upload failed takes the returned
+    /// `String?` instead, which belongs to that call and cannot be overwritten
+    /// by the next one. Same shape as `deleteSource`.
     private(set) var lastError: String?
 
     // MARK: - Records
@@ -42,9 +52,21 @@ actor SyncService {
     /// device once the server became the source of truth.
     private static let localOnlySources: Set<String> = ["health"]
 
-    func push(source: String, records: [DistilledRecord]) async {
-        guard !Self.localOnlySources.contains(source) else { return }
-        guard let token = await SupabaseAuth.shared.validAccessToken() else { return }
+    /// Returns nil when the rows landed, and why not when they didn't.
+    ///
+    /// **A refused source is not a failure**, so Health answers nil: there is
+    /// nothing to report about rows that were never meant to travel.
+    @discardableResult
+    func push(source: String, records: [DistilledRecord]) async -> String? {
+        guard !Self.localOnlySources.contains(source) else { return nil }
+        // This used to be a bare `else { return }`, which is the whole of why a
+        // lost distillation had nothing to say for itself: the one failure that
+        // takes every row with it left no trace at all.
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = await SupabaseAuth.shared.lastTokenFailure?.message
+                ?? "your session couldn't be refreshed."
+            return lastError
+        }
 
         let payload = records.map(Self.row(for:))
         do {
@@ -54,8 +76,10 @@ actor SyncService {
                 body: ["p_source": source, "p_records": payload]
             )
             lastError = nil
+            return nil
         } catch {
             lastError = error.localizedDescription
+            return lastError
         }
     }
 
@@ -125,7 +149,15 @@ actor SyncService {
         birthYear: Int? = nil,
         sex: String? = nil,
         place: String? = nil,
-        treeSeed: UInt64? = nil
+        treeSeed: UInt64? = nil,
+        // The four `0034` added. They are columns rather than `user` records
+        // for one reason: `loadProfile` has to read them back in the single
+        // request that decides the launch route, and a record cannot answer
+        // until `RestoreService.hydrate()` runs — which is after the route.
+        hasExplored: Bool? = nil,
+        interestedIn: [String]? = nil,
+        flirtLevel: String? = nil,
+        responseTime: String? = nil
     ) async -> Bool {
         // Both early returns record *why*, because `lastError` is now read and
         // shown. Returning false without setting it made a session that could
@@ -156,6 +188,10 @@ actor SyncService {
         if let sex { row["sex"] = sex }
         if let place { row["place"] = place }
         if let treeSeed { row["tree_seed"] = Int64(bitPattern: treeSeed) }
+        if let hasExplored { row["has_explored"] = hasExplored }
+        if let interestedIn { row["interested_in"] = interestedIn }
+        if let flirtLevel { row["flirt_level"] = flirtLevel }
+        if let responseTime { row["response_time"] = responseTime }
         // Nothing but the id: no caller does this, but a stale `lastError` from
         // a previous push would be reported as this one's reason.
         guard row.count > 1 else {
@@ -180,9 +216,16 @@ actor SyncService {
 
     /// `birth_date` is a `date`, not a timestamp — an ISO-8601 datetime is
     /// rejected by the column.
+    ///
+    /// **`en_US_POSIX` as well as the calendar**, and both are load-bearing on a
+    /// fixed format. The calendar stops a Buddhist or Persian device writing the
+    /// wrong year; the locale stops one set to Arabic or Devanagari numerals
+    /// writing digits Postgres will not parse. `SupabaseAuth.day` reads this
+    /// column back and the two must agree.
     private static let day: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
@@ -197,10 +240,17 @@ actor SyncService {
     /// writes, so only Health needs it explicitly — and Health needs it most,
     /// because it is about to have no records at all. Without this its branch
     /// would read as never connected the moment its raw rows stop being kept.
-    func pushConnection(source: String, recordCount: Int) async {
-        guard let token = await SupabaseAuth.shared.validAccessToken(),
-              let userID = await SupabaseAuth.shared.userID
-        else { return }
+    @discardableResult
+    func pushConnection(source: String, recordCount: Int) async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = await SupabaseAuth.shared.lastTokenFailure?.message
+                ?? "your session couldn't be refreshed."
+            return lastError
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "you're not signed in."
+            return lastError
+        }
 
         do {
             _ = try await post(
@@ -215,22 +265,31 @@ actor SyncService {
                 prefer: "resolution=merge-duplicates,return=minimal"
             )
             lastError = nil
+            return nil
         } catch {
             lastError = error.localizedDescription
+            return lastError
         }
     }
 
     // MARK: - Health, derived only
 
+    @discardableResult
     func pushHealthSignals(
         chronotype: LifestyleHighlights.Chronotype?,
         sports: [LifestyleHighlights.Sport],
         hourlyActivity: [Double],
         averageDailySteps: Int?
-    ) async {
-        guard let token = await SupabaseAuth.shared.validAccessToken(),
-              let userID = await SupabaseAuth.shared.userID
-        else { return }
+    ) async -> String? {
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = await SupabaseAuth.shared.lastTokenFailure?.message
+                ?? "your session couldn't be refreshed."
+            return lastError
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "you're not signed in."
+            return lastError
+        }
 
         var signals: [String: Any] = ["user_id": userID, "updated_at": ISO8601DateFormatter().string(from: Date())]
         if let chronotype {
@@ -268,19 +327,32 @@ actor SyncService {
                 )
             }
             lastError = nil
+            return nil
         } catch {
             lastError = error.localizedDescription
+            return lastError
         }
     }
 
 
     // MARK: - Bans
 
-    func pushBans(_ bans: BanList) async {
-        guard let token = await SupabaseAuth.shared.validAccessToken(),
-              let userID = await SupabaseAuth.shared.userID,
-              !bans.isEmpty
-        else { return }
+    /// **An empty list is not a failure and must not clear `lastError`.** It is
+    /// the ordinary case, and this runs immediately after `push` on the same
+    /// task — treating "nothing to send" as a success is how a lost
+    /// distillation's reason used to disappear for anyone with a ban.
+    @discardableResult
+    func pushBans(_ bans: BanList) async -> String? {
+        guard !bans.isEmpty else { return nil }
+        guard let token = await SupabaseAuth.shared.validAccessToken() else {
+            lastError = await SupabaseAuth.shared.lastTokenFailure?.message
+                ?? "your session couldn't be refreshed."
+            return lastError
+        }
+        guard let userID = await SupabaseAuth.shared.userID else {
+            lastError = "you're not signed in."
+            return lastError
+        }
 
         do {
             _ = try await post(
@@ -297,8 +369,10 @@ actor SyncService {
                 prefer: "resolution=merge-duplicates,return=minimal"
             )
             lastError = nil
+            return nil
         } catch {
             lastError = error.localizedDescription
+            return lastError
         }
     }
 

@@ -36,6 +36,17 @@ actor RestoreService {
         /// permanent and invisible unless something notices the column is empty
         /// while the device still holds the answer.
         var hasExactBirthday = false
+
+        /// The `0034` columns, as *presence* rather than value.
+        ///
+        /// `repairIdentityPush` is the only reader and the only question it asks
+        /// is whether the server is empty while the device holds an answer — the
+        /// same guard `hasExactBirthday` exists for. What the column says when it
+        /// does hold something is `loadProfile`'s business, and it has already
+        /// adopted it by the time this is read.
+        var hasExplored = false
+        var hasInterest = false
+        var hasCommunicationStyle = false
     }
 
     /// The derived health figures, which are all that ever leaves the device.
@@ -199,7 +210,11 @@ actor RestoreService {
         try await get(
             path: "rest/v1/users",
             token: token,
-            query: [URLQueryItem(name: "select", value: "birth_date,birth_year,sex,place,tree_seed")]
+            query: [URLQueryItem(
+                name: "select",
+                value: "birth_date,birth_year,sex,place,tree_seed,"
+                     + "has_explored,interested_in,flirt_level,response_time"
+            )]
         ).first
     }
 
@@ -220,13 +235,12 @@ actor RestoreService {
             // Mirrored locally on the way past, so the onboarding gate knows
             // this account has already answered.
             //
-            // **It narrows the window rather than closing it**, and that is
-            // worth being exact about: the route is decided synchronously on
-            // the first frame and this runs a network call later, so somebody
-            // signing in on a second device is still asked once before their
-            // answer arrives. What it does prevent is being asked *every*
-            // launch, and being asked at all on a device that has restored
-            // before.
+            // **It narrows the window and no longer has to close it.** This
+            // runs after `AppShell` mounts, which is far too late to decide a
+            // route; what closes the window is `SupabaseAuth.loadProfile`,
+            // which reads the same column inside `restoreSession` — before
+            // `RootView` recomputes the route. This is the second of the two
+            // and costs nothing when the first has already run.
             Identity.save(birthday: birth)
             snapshot.hasExactBirthday = true
         } else if let year = (row["birth_year"] as? NSNumber)?.intValue {
@@ -239,6 +253,14 @@ actor RestoreService {
         }
         snapshot.identity.sex = row["sex"] as? String
         snapshot.identity.place = row["place"] as? String
+
+        // Presence only — see the note on these fields. `interested_in` counts
+        // as absent when it is an empty array as well as when it is null, since
+        // `needsInterest` reads an empty set as nobody having answered.
+        snapshot.hasExplored = row["has_explored"] as? Bool == true
+        snapshot.hasInterest = !((row["interested_in"] as? [String]) ?? []).isEmpty
+        snapshot.hasCommunicationStyle =
+            row["flirt_level"] is String && row["response_time"] is String
         if let seed = row["tree_seed"] as? NSNumber {
             snapshot.treeSeed = seed.uint64Value
         }

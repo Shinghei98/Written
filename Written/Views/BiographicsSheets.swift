@@ -223,7 +223,28 @@ struct BirthdayFields: View {
     /// somebody under eighteen.
     var showsError: Bool
 
-    static let errorRed = Color(red: 0.72, green: 0.20, blue: 0.16)
+    /// Measured off the reference at `(240, 72, 72)` rather than borrowed from
+    /// the palette. It is brighter than anything else in this app on purpose:
+    /// three boxes outlined in a muted brick read as a decorative state, and
+    /// this one has to read as *stop*.
+    static let errorRed = Color(red: 0.941, green: 0.282, blue: 0.282)
+
+    /// The near-white the boxes are filled with, a shade above parchment.
+    ///
+    /// The two are eight levels apart — `(249,249,247)` on `(241,241,237)` —
+    /// which is what gives the fields their edge without a hard border. Worth
+    /// knowing if you ever try to measure them from a screenshot: a fill
+    /// threshold finds the soft shadow as well and reports a box a third wider
+    /// than it is.
+    static let fieldFill = Color(red: 0.976, green: 0.976, blue: 0.969)
+
+    /// 119 × 56 with 9-point gaps on a 440-point screen, so three of them plus
+    /// their gaps come to 375 and sit inside 32-point margins. Reproduced as
+    /// equal shares of the row rather than fixed widths, so the proportion
+    /// holds on a 375-point phone instead of the boxes crowding.
+    static let fieldHeight: CGFloat = 56
+    static let fieldSpacing: CGFloat = 9
+    static let fieldRadius: CGFloat = 16
 
     /// `nil` for empty or impossible — 31 February included, which
     /// `DateComponents` builds happily unless asked to validate.
@@ -241,17 +262,16 @@ struct BirthdayFields: View {
     @FocusState private var focused: Field?
 
     var body: some View {
-        HStack(spacing: 8) {
-            field("Month", text: $month, width: 74, field: .month, digits: 2)
-            field("Day", text: $day, width: 62, field: .day, digits: 2)
-            field("Year", text: $year, width: 82, field: .year, digits: 4)
+        HStack(spacing: Self.fieldSpacing) {
+            field("Month", text: $month, field: .month, digits: 2)
+            field("Day", text: $day, field: .day, digits: 2)
+            field("Year", text: $year, field: .year, digits: 4)
         }
     }
 
     private func field(
         _ placeholder: String,
         text: Binding<String>,
-        width: CGFloat,
         field: Field,
         digits: Int
     ) -> some View {
@@ -288,12 +308,18 @@ struct BirthdayFields: View {
                         .allowsHitTesting(false)
                 }
             }
-            .frame(width: width, height: 44)
-            .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+            // Equal shares rather than three measured widths — see `fieldHeight`.
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.fieldHeight)
+            .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: Self.fieldRadius))
+            // **The shadow is what separates the box from the parchment**, not
+            // the border, which is nearly invisible until the error state turns
+            // it red. Drawn under the stroke so the stroke stays crisp.
+            .shadow(color: GardenPalette.ink.opacity(0.05), radius: 3, y: 1)
             .overlay {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: Self.fieldRadius)
                     .strokeBorder(
-                        showsError ? Self.errorRed : GardenPalette.ink.opacity(0.10),
+                        showsError ? Self.errorRed : GardenPalette.ink.opacity(0.06),
                         lineWidth: showsError ? 1.5 : 1
                     )
             }

@@ -287,6 +287,18 @@ struct ConversationView: View {
                 // hand-rolled overlay would have to reimplement badly, by
                 // tracking scroll offsets against message frames.
                 LazyVStack(spacing: 5, pinnedViews: [.sectionHeaders]) {
+                    // **Above everything, including the invitation note**, and
+                    // scrolling with the thread rather than pinned. It belongs
+                    // to the beginning of the conversation the way an opener
+                    // does — pinning it would keep suggesting a first line to
+                    // two people four hundred messages in.
+                    //
+                    // Before the paging sentinel, so it is never what triggers
+                    // a fetch of older history.
+                    if let icebreaker = conversation.icebreaker {
+                        IcebreakerCard(icebreaker: icebreaker)
+                    }
+
                     // Reaching the oldest message on screen asks for the page
                     // before it. Safe here for the reason `DiscoveryView`'s
                     // `onAppear` paging is: a `LazyVStack` builds only what is
@@ -1056,7 +1068,15 @@ struct ConversationView: View {
         // and, more to the point, with both sides present. A real thread on this
         // developer's account has one participant in it.
         if DebugLaunch.showsSampleChat {
-            messages = Self.sampleMessages(mine: myID ?? Self.sampleMe)
+            // `-chat icebreaker` opens the thread with nothing in it, which is
+            // not an edge case — it is the icebreaker's actual habitat. A match
+            // is accepted and neither person has said anything yet; that is the
+            // one moment the tip is for, and the nine-day sample script pushes
+            // it several screens above the fold where `simctl`, which can send
+            // no scroll, cannot follow.
+            messages = DebugLaunch.chatTarget == "icebreaker"
+                ? []
+                : Self.sampleMessages(mine: myID ?? Self.sampleMe)
             return
         }
 #endif

@@ -49,6 +49,7 @@ struct DashboardView: View {
     var isVisible = true
 
     @State private var isShowingSettings = false
+    @State private var isShowingBookmarks = false
 
     /// How far the content has scrolled, negative as it rises. Drives the
     /// header's collapse.
@@ -270,6 +271,15 @@ struct DashboardView: View {
                 onSignOut: onSignOut
             )
         }
+        // A cover rather than a tab, matching Settings. Bookmarks is somewhere
+        // you go and come back from, not a fifth place to be — and the tab bar
+        // has no room for it without demoting something that is.
+        .fullScreenCover(isPresented: $isShowingBookmarks) {
+            BookmarksView(
+                viewModel: viewModel,
+                onClose: { isShowingBookmarks = false }
+            )
+        }
 #if DEBUG
         .onAppear {
             // `-settings 1`, and once only: `firesOnce` is what stops the page
@@ -425,6 +435,52 @@ struct DashboardView: View {
         )
     }
 
+    /// Bookmarks and Settings, overlaid on the title's trailing edge.
+    ///
+    /// **Its own property rather than inline in the overlay**, and that is not
+    /// only tidiness: two buttons inside an `if` inside an `.overlay` on a
+    /// modified `Text`, in a view this size, is where the type checker stops
+    /// being able to infer the body in reasonable time. Extracting it gives the
+    /// compiler a named return type to work against.
+    ///
+    /// Hidden during onboarding, with sign-out and delete: a settings page
+    /// there is a fifth exit from a sequence whose whole point is that it has
+    /// one. Bookmarks is hidden for that reason and a second — nothing is saved
+    /// yet, so it could only ever be an empty room.
+    ///
+    /// **Does not fade with the collapse.** It used to, on the reasoning that it
+    /// would otherwise sit over the summary line — but the header is pinned and
+    /// the content scrolls under it, so these hold their place at every collapse
+    /// value and nothing is behind them. What fading actually did was take the
+    /// only route to Settings away from anybody who had scrolled, which is most
+    /// people by the time they want it.
+    @ViewBuilder
+    private var headerControls: some View {
+        if !isOnboarding {
+            HStack(spacing: 0) {
+                // **Inboard of the cog, and the order is not arbitrary.**
+                // Settings is the last thing on every bar in every app; anything
+                // added beside it goes inboard, or the one control people find
+                // by muscle memory moves.
+                Button { isShowingBookmarks = true } label: {
+                    Image(systemName: "bookmark")
+                        .font(.system(size: 18))
+                        .foregroundStyle(GardenPalette.muted)
+                        .frame(width: 40, height: 44)
+                }
+                .accessibilityLabel("Bookmarks")
+
+                Button { isShowingSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 19))
+                        .foregroundStyle(GardenPalette.muted)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
+    }
+
     /// Title, then the apps this profile was distilled from, then when.
     ///
     /// The title holds its size and place at any scroll position — as
@@ -432,39 +488,19 @@ struct DashboardView: View {
     /// collapses: the big icon row and the date fold into one small line. The
     /// header shrinks but never leaves, so there is always something naming the
     /// screen.
+    ///
+    /// `headerControls` is an *overlay* on the title rather than a row beside
+    /// it. "Memories" is centred and has to stay centred — putting the two in an
+    /// `HStack` moves the title left by half the controls' width, which is
+    /// visible against the collapsed header's own centring and would need a
+    /// matching spacer on the other side to undo.
     private var header: some View {
         VStack(spacing: 14) {
-            // The cog is an *overlay* on the title rather than a row beside it.
-            // "Memories" is centred and has to stay centred — putting the two in
-            // an `HStack` moves the title left by half the cog, which is
-            // visible against the collapsed header's own centring and would
-            // need a matching spacer on the other side to undo.
             Text("Memories")
                 .font(BrandFont.title(44))
                 .foregroundStyle(GardenPalette.ink)
                 .frame(maxWidth: .infinity)
-                .overlay(alignment: .trailing) {
-                    // Hidden during onboarding, with sign-out and delete: a
-                    // settings page there is a fifth exit from a sequence whose
-                    // whole point is that it has one.
-                    if !isOnboarding {
-                        Button { isShowingSettings = true } label: {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 19))
-                                .foregroundStyle(GardenPalette.muted)
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Settings")
-                        // **Does not fade with the collapse.** It used to, on
-                        // the reasoning that it would otherwise sit over the
-                        // summary line — but the header is pinned and the
-                        // content scrolls under it, so the cog holds its place
-                        // at every collapse value and nothing is behind it.
-                        // What fading actually did was take the only route to
-                        // Settings away from anybody who had scrolled, which is
-                        // most people by the time they want it.
-                    }
-                }
+                .overlay(alignment: .trailing) { headerControls }
 
             // Cross-faded rather than re-laid-out: interpolating one stack's
             // spacing and icon size fights the layout system every frame, and

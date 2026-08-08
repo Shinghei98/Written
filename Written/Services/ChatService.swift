@@ -51,6 +51,42 @@ actor ChatService {
             if let partnerPhotoPath { return .stored(partnerPhotoPath) }
             return .generated(partnerPhotoSeed)
         }
+
+        /// What the two of them have in common, oriented for whoever is
+        /// reading. Nil when `0036` found no overlap.
+        ///
+        /// **`ChatStore` is not versioned for this, deliberately.** A thread
+        /// cached before this field existed decodes with nil, which reads as
+        /// "no icebreaker" — and unlike `read_at`, whose absence meant *unread*
+        /// and put a phantom band at the top of a thread that survived every
+        /// relaunch, this one is self-correcting: the card is missing for the
+        /// moment before the fetch lands and then appears. Bumping the cache
+        /// prefix would throw away everybody's threads to save a second.
+        var icebreaker: Icebreaker?
+    }
+
+    /// The icebreaker, already turned the right way round for this reader.
+    ///
+    /// **`0036` stores it by side — `subject_a`, `subject_b` — and this carries
+    /// it by role.** The flip happens once, in `conversation(from:me:)`, which
+    /// is the only place that already knows which of the two the reader is.
+    /// Anything downstream taking `subject_a` and working out for itself
+    /// whether that is "mine" would be a second copy of that decision, and the
+    /// day the two disagreed somebody would be told to ask their match about
+    /// their own favourite band.
+    struct Icebreaker: Equatable, Codable {
+        /// The shared thing, in their own words: `J-Pop`, `tennis`, `Ado`.
+        let theme: String
+        /// `music_genre` | `sport` | `artist`. Chooses the verb — see
+        /// `IcebreakerCard`, which is where the language lives.
+        let kind: String
+        /// The reader's own specific thing.
+        let mine: String
+        /// The partner's.
+        let theirs: String
+        /// `him` | `her` | `them`, for the partner. Never the reader's own:
+        /// nothing in the sentence refers to the reader in the third person.
+        let partnerPronoun: String
     }
 
     struct Message: Identifiable, Equatable, Codable {
@@ -121,7 +157,8 @@ actor ChatService {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "or": "(user_a.eq.\(me),user_b.eq.\(me))",
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
-                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind,"
+                    + Self.icebreakerColumns,
                 // Newest conversation first, and a thread nobody has written in
                 // yet sits at the top rather than falling off the end — it is the
                 // one waiting for a first line.
@@ -211,7 +248,44 @@ actor ChatService {
                 ?? PortraitSeed.stable(for: partnerID),
             lastMessage: row["last_message"] as? String,
             lastMessageAt: (row["last_message_at"] as? String).flatMap(PostgREST.date),
-            lastMessageKind: row["last_message_kind"] as? String
+            lastMessageKind: row["last_message_kind"] as? String,
+            icebreaker: icebreaker(from: row, iAmA: iAmA)
+        )
+    }
+
+    /// **Named once, because three selects read them.** The chat list, the
+    /// fetch-by-id a notification tap uses, and the open-or-create path all
+    /// build a `Conversation`, and a column missing from one of the three is an
+    /// icebreaker that appears from the list and vanishes from a tapped
+    /// notification — which is the exact shape of the bug that made a
+    /// notification-opened thread draw a generated portrait and the frozen name.
+    private static let icebreakerColumns =
+        "theme,theme_kind,subject_a,subject_b,pronoun_a,pronoun_b"
+
+    /// Turns `0036`'s by-side columns into the reader's own point of view.
+    ///
+    /// All-or-nothing on purpose: a theme with one subject missing would draw
+    /// "You can talk about , or ask them about Ado", so a partial row is
+    /// treated as no icebreaker. That is a real case rather than a defensive
+    /// one — the genre branch picks each side's top creator independently, and
+    /// somebody whose library has the genre but no artist name yields nothing.
+    private static func icebreaker(from row: [String: Any], iAmA: Bool) -> Icebreaker? {
+        guard let theme = (row["theme"] as? String)?.nonEmpty,
+              let kind = (row["theme_kind"] as? String)?.nonEmpty,
+              let subjectA = (row["subject_a"] as? String)?.nonEmpty,
+              let subjectB = (row["subject_b"] as? String)?.nonEmpty
+        else { return nil }
+
+        let partnerPronoun = (iAmA ? row["pronoun_b"] : row["pronoun_a"]) as? String
+        return Icebreaker(
+            theme: theme,
+            kind: kind,
+            mine: iAmA ? subjectA : subjectB,
+            theirs: iAmA ? subjectB : subjectA,
+            // **They/them on anything unrecognised**, including null and a
+            // value written before `users.sex` meant chosen gender. Guessing
+            // from a name is never the fallback.
+            partnerPronoun: partnerPronoun?.nonEmpty ?? "them"
         )
     }
 
@@ -400,7 +474,8 @@ actor ChatService {
             let rows = try await PostgREST.rows("rest/v1/conversations", query: [
                 "id": "eq.\(id)",
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
-                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind,"
+                    + Self.icebreakerColumns,
             ])
             return await Self.resolved(rows.first, me: me)
         } catch {
@@ -429,7 +504,8 @@ actor ChatService {
                 "user_a": "eq.\(pair[0])",
                 "user_b": "eq.\(pair[1])",
                 "select": "id,user_a,user_b,user_a_name,user_b_name,"
-                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind",
+                    + "user_a_photo_seed,user_b_photo_seed,last_message,last_message_at,last_message_kind,"
+                    + Self.icebreakerColumns,
             ])
             return await Self.resolved(rows.first, me: me)
         } catch {
@@ -515,5 +591,17 @@ actor ChatService {
             lastError = error.localizedDescription
             return false
         }
+    }
+}
+
+private extension String {
+    /// The string, or nil when it is blank.
+    ///
+    /// PostgREST hands back `""` and `null` for two different things that mean
+    /// the same here — a column nobody filled in — and every icebreaker field
+    /// has to be present for the sentence to be worth drawing.
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
