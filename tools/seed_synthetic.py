@@ -33,9 +33,11 @@ import argparse
 import json
 import os
 import random
+import struct
 import sys
 import urllib.error
 import urllib.request
+import zlib
 from datetime import datetime, timedelta, timezone
 
 PROJECT_REF = "fwnezkbesjoazlpaflbq"
@@ -172,6 +174,31 @@ def request(method: str, path: str, key: str, body=None, headers=None):
         sys.exit(f"{method} {path} failed: {error.code}\n{error.read().decode()}")
 
 
+def upload(path: str, key: str, data: bytes, content_type: str) -> None:
+    """Put raw bytes in Storage, which `request` cannot do — it speaks JSON only.
+
+    `x-upsert` is belt and braces rather than load-bearing: every seed mints new
+    user ids, so the paths are new too and a plain create would not collide.
+    It costs nothing and means an interrupted run can be repeated.
+
+    **Storage does not cascade**, which is the thing to remember here. Deleting
+    an auth user takes every row that references it, in every table, and leaves
+    the objects in the bucket untouched — they are not rows. `wipe` deletes them
+    by hand for that reason; without it each reseed would abandon another
+    thirty-six files under ids nothing points at any more.
+    """
+    req = urllib.request.Request(f"{BASE}{path}", data=data, method="POST")
+    req.add_header("apikey", key)
+    req.add_header("Authorization", f"Bearer {key}")
+    req.add_header("Content-Type", content_type)
+    req.add_header("x-upsert", "true")
+    try:
+        with urllib.request.urlopen(req) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        sys.exit(f"POST {path} failed: {error.code}\n{error.read().decode()}")
+
+
 # --------------------------------------------------------------------- mixing
 
 def three_way_split(rng: random.Random, pool: list[str]) -> list[tuple[str, float]]:
@@ -263,6 +290,105 @@ def video_records(rng: random.Random, mix, now):
     return rows
 
 
+# ------------------------------------------------------------------- photos
+
+# Portrait, at the ratio the grid draws. Small on purpose: these compress to a
+# couple of kilobytes each and there are six per person, so the whole seed adds
+# well under a megabyte to a bucket whose ceiling is 15 MB per object.
+PHOTO_WIDTH, PHOTO_HEIGHT = 600, 800
+
+
+def gradient_png(top: tuple[int, int, int], bottom: tuple[int, int, int]) -> bytes:
+    """A vertical two-tone gradient, written with nothing but the standard library.
+
+    **Deliberately not a face.** Generated portraits were removed from this app
+    once already — `photo_seeds` drove them and made every real account look
+    photographed when none of them were — so these read as placeholders at a
+    glance and cannot be mistaken for a person. What they have to prove is that
+    the pipeline works end to end: an object in a private bucket, a `photos`
+    row pointing at it, a path on the discovery card, and a signed URL the app
+    can actually fetch. A coloured rectangle proves all four.
+
+    PNG rather than JPEG so this needs no Pillow — a stdlib-only tool is one
+    fewer thing to install before somebody can reseed. `0015` allows
+    image/jpeg, image/png and image/heic, so PNG is a first-class choice here
+    rather than a workaround.
+
+    The gradient runs vertically, so every scanline is one colour repeated and
+    the whole image is built a row at a time instead of a pixel at a time —
+    600x800 is 480,000 pixels and per-pixel Python would make seeding six
+    accounts noticeably slow for no visible gain.
+    """
+    raw = bytearray()
+    for y in range(PHOTO_HEIGHT):
+        t = y / (PHOTO_HEIGHT - 1)
+        colour = bytes(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
+        raw.append(0)                       # filter type 0 (none) for this row
+        raw += colour * PHOTO_WIDTH
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return (struct.pack(">I", len(data)) + body
+                + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", PHOTO_WIDTH, PHOTO_HEIGHT,
+                                         8, 2, 0, 0, 0))    # 8-bit truecolour
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def photo_palette(index: int, position: int) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Six distinguishable tiles per person, and a different set per person.
+
+    The six have to differ from each other or the feed's rotation — two
+    photographs per appearance, drawn without replacement — looks broken rather
+    than varied. Hue walks by a large step per slot so neighbours never land
+    close together.
+    """
+    hue = (index * 61 + position * 47) % 360
+
+    def rgb(h: int, value: float) -> tuple[int, int, int]:
+        # Small HSV-to-RGB at fixed saturation; enough for a placeholder and it
+        # keeps this file free of colorsys imports for one call site.
+        c = value * 0.55
+        x = c * (1 - abs((h / 60.0) % 2 - 1))
+        m = value - c
+        r, g, b = [(c, x, 0), (x, c, 0), (0, c, x),
+                   (0, x, c), (x, 0, c), (c, 0, x)][int(h / 60) % 6]
+        return (round((r + m) * 255), round((g + m) * 255), round((b + m) * 255))
+
+    return rgb(hue, 0.85), rgb((hue + 24) % 360, 0.45)
+
+
+def upload_photos(key: str, uid: str, index: int) -> list[str]:
+    """Six objects in the bucket, six `photos` rows, and the paths for the card.
+
+    All three, because each is read by something different and any one of them
+    missing is silent. The object alone is invisible: `PhotoService.paths()`
+    lists `public.photos`, not the bucket. The row alone points at nothing and
+    draws a broken picture. And `discovery_cards.photo_paths` is what both the
+    feed and `MatchProfileService` read, so a card without it shows a person
+    with no face however well the other two landed.
+
+    Paths follow `<user_id>/<position>.<ext>`, which is not cosmetic: `0015`'s
+    insert policy checks `auth.uid()::text = (storage.foldername(name))[1]`, so
+    the first path component *is* the authorisation.
+    """
+    paths = []
+    for position in range(6):
+        path = f"{uid}/{position}.png"
+        top, bottom = photo_palette(index, position)
+        upload(f"/storage/v1/object/profile-photos/{path}",
+               key, gradient_png(top, bottom), "image/png")
+        request("POST", "/rest/v1/photos", key, {
+            "user_id": uid, "position": position,
+            "object_path": path, "kind": "photo",
+        }, {"Prefer": "resolution=merge-duplicates"})
+        paths.append(path)
+    return paths
+
+
 def user_records(index: int, now):
     """The school and the bio, in the shape `setUserFact` writes them.
 
@@ -318,14 +444,48 @@ def interests(music_mix, video_mix) -> list[dict]:
 
 # ----------------------------------------------------------------------- main
 
+def discard_photos(key: str, uid: str) -> None:
+    """Remove one account's six objects, tolerating their absence.
+
+    **The one place in this file where an HTTP error is not fatal**, and the
+    exception is argued rather than convenient: `request` calls `sys.exit` on
+    any error because a refused write during seeding leaves a half-built
+    account that looks real, and stopping is the honest response. Here the
+    opposite holds — accounts seeded before photographs existed have nothing at
+    these paths, and refusing to wipe them because a file is already gone would
+    make `--wipe` fail exactly when it is most needed. A missing object is the
+    desired end state arriving early.
+    """
+    body = json.dumps({
+        "prefixes": [f"{uid}/{position}.png" for position in range(6)],
+    }).encode()
+    req = urllib.request.Request(f"{BASE}/storage/v1/object/profile-photos",
+                                 data=body, method="DELETE")
+    req.add_header("apikey", key)
+    req.add_header("Authorization", f"Bearer {key}")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        print(f"  (photographs for {uid[:8]}… not removed: {error.code})")
+
+
 def wipe(key: str) -> None:
     users = request("GET", "/auth/v1/admin/users?per_page=200", key) or {}
     removed = 0
     for user in users.get("users", []):
         if user.get("email", "").endswith(SYNTHETIC_DOMAIN):
+            # **Storage first, while the id still means something.** Deleting the
+            # auth user cascades through every table that references it and
+            # leaves the bucket alone — objects are not rows. Do it afterwards
+            # and the paths are still derivable, but nothing in the database
+            # remembers which ids were ours, so a later cleanup would have
+            # nothing to go on.
+            discard_photos(key, user["id"])
             request("DELETE", f"/auth/v1/admin/users/{user['id']}", key)
             removed += 1
-    print(f"removed {removed} synthetic account(s)")
+    print(f"removed {removed} synthetic account(s), photographs included")
 
 
 def main() -> None:
@@ -402,9 +562,12 @@ def main() -> None:
                 "minutes": rng.randint(120, 4200),
             }, {"Prefer": "resolution=merge-duplicates"})
 
+        photo_paths = upload_photos(key, uid, index)
+
         request("POST", "/rest/v1/discovery_cards", key, {
             "user_id": uid, "display_name": name, "age": age,
             "district": district,
+            "photo_paths": photo_paths,
             "photo_seeds": [rng.randint(1, 10**6) for _ in range(6)],
             "interests": interests(music_mix, video_mix),
             "domains": domains(music_mix, sessions),
