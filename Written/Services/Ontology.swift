@@ -229,20 +229,18 @@ enum Ontology {
     /// So the denominator is the music counted here, and a person who listens to
     /// nothing gets an empty row rather than a padded one.
     ///
-    /// **Classical names the composer**, matching `0038`'s rule in the
-    /// icebreaker trigger so the two never disagree about what to call the same
-    /// listening. That rule lives twice — once in SQL because the trigger reads
-    /// both people's rows server-side, once here because the card is written on
-    /// the device — and the pair has to be changed together. The fallback is the
-    /// performer, which is what Apple Music supplies for most classical rows:
-    /// measured on one real library, 42 of 481 classical rows carried a
-    /// composer at all.
+    /// **The subject is read, not decided.** `AppleMusicDistiller` stamps
+    /// `subject=` on every song row — the composer for classical, the performer
+    /// otherwise — and this and `seed_icebreaker` both read it. That is the
+    /// whole reason the rule is not implemented here: the profile and the
+    /// icebreaker have to call the same listening by the same name, and two
+    /// implementations of one rule drift.
     static func subjects(records: [DistilledRecord], limit: Int = 3) -> [SubjectWeight] {
         var counts: [String: Int] = [:]
 
         for record in records where record.source == "apple_music" {
             guard record.dataType == "song" else { continue }
-            let subject = musicSubject(for: record)
+            let subject = storedSubject(for: record)
             guard !subject.isEmpty else { continue }
             counts[subject, default: 0] += 1
         }
@@ -267,18 +265,41 @@ enum Ontology {
 
     /// The composer for classical, the performer for everything else.
     ///
-    /// `ilike '%classical%'` in `0038`, `contains("classical")` here — both take
-    /// Classical Crossover and Classical Era, and neither takes `Klassik` or
-    /// 古典音樂, because Apple Music localises genre names to the storefront.
-    /// Incomplete by construction, and the failure is naming the performer,
-    /// which is what happened before either existed.
-    private static func musicSubject(for record: DistilledRecord) -> String {
-        let genres = (record.extraValue("genres") ?? "").lowercased()
-        if genres.contains("classical"),
-           let composer = record.extraValue("composer")?
-               .trimmingCharacters(in: .whitespacesAndNewlines),
-           !composer.isEmpty {
-            return composer
+    /// **The only implementation of that rule in the project**, called by
+    /// `AppleMusicDistiller` when it stamps `subject=` into a row's `extra`.
+    /// Nothing downstream repeats it: `subjects` below and `seed_icebreaker` in
+    /// SQL both read the stamp and fall back to `creator`. Two implementations
+    /// would drift, and the day they drifted the profile would say Bach while
+    /// the thread said English Baroque Soloists about the same listening.
+    ///
+    /// The match is `contains("classical")`, which takes Classical Crossover
+    /// and Classical Era and does not take `Klassik`, `Clásica` or 古典音樂,
+    /// because Apple Music localises genre names to the storefront. Incomplete
+    /// by construction, and the failure is naming the performer — which is what
+    /// happened before any of this existed.
+    ///
+    /// Worth knowing how thin the composer data is: on one real library, 42 of
+    /// 481 classical rows carried a `composerName` at all. The rule fires
+    /// correctly and is outvoted by the rows that have nothing to fire on.
+    static func musicSubject(genres: [String], composer: String?, performer: String) -> String {
+        let isClassical = genres.contains { $0.lowercased().contains("classical") }
+        let trimmedComposer = composer?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if isClassical, !trimmedComposer.isEmpty {
+            return trimmedComposer
+        }
+        return performer.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The stamp, or the performer for rows written before it existed.
+    ///
+    /// **Not the rule again.** A row distilled before `subject=` was stamped
+    /// falls back to `creator`, which is what those rows resolve to in SQL as
+    /// well — the two stay in step even while a library is half re-distilled.
+    /// One re-distill re-stamps the lot.
+    private static func storedSubject(for record: DistilledRecord) -> String {
+        if let stamped = record.extraValue("subject")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !stamped.isEmpty {
+            return stamped
         }
         return record.creator.trimmingCharacters(in: .whitespacesAndNewlines)
     }

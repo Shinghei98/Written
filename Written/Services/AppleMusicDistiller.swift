@@ -331,6 +331,36 @@ struct AppleMusicDistiller {
             if let hasLyrics = attributes["hasLyrics"] as? Bool {
                 extras.append("has_lyrics=\(hasLyrics ? 1 : 0)")
             }
+
+            // **What this row is *about*, decided once, here.**
+            //
+            // For almost all music that is the performer. For classical it is
+            // the composer, because Apple Music's artist for a Bach partita is
+            // whoever played it — the reason `composerName` is kept two blocks
+            // above.
+            //
+            // It is stamped rather than worked out downstream because there are
+            // two downstreams and they must agree: `Ontology.subjects` writes
+            // the three figures on a dynamic profile, and `seed_icebreaker`
+            // picks the name in the opening sentence, one in Swift and one in
+            // SQL. Implemented twice they drift, and the day they drift the
+            // page says Bach while the thread says English Baroque Soloists
+            // about the same listening. Both now read this field and fall back
+            // to `creator`, so the rule exists once.
+            //
+            // Same shape as `cal_type` and `booked=1`: a derived flag stamped
+            // by the distiller, and self-healing for the same reason — a
+            // re-stamped row differs from its stored version, and
+            // `append_source_records` treats a difference as a change, so one
+            // re-distill re-labels a whole library.
+            let subject = Ontology.musicSubject(
+                genres: attributes["genreNames"] as? [String] ?? [],
+                composer: attributes["composerName"] as? String,
+                performer: creator
+            )
+            if !subject.isEmpty {
+                extras.append("subject=\(subject)")
+            }
         }
 
         return DistilledRecord(

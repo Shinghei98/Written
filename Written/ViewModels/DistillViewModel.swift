@@ -1129,8 +1129,8 @@ final class DistillViewModel: ObservableObject {
         // rather than domains.** "Music, 83%" is a shape anybody could infer
         // from the artist names beside it; "Bach, 22%" is the thing the page
         // exists to show. Computed from the raw records rather than from
-        // `musicArtists` because the classical rule needs each row's `genres`
-        // and `composer`, and the summary carries neither.
+        // `musicArtists` because a row's subject is the `subject=` its distiller
+        // stamped on it, and the summary carries only a name and a count.
         //
         // `mix` is still computed and still published: the caption fallback on
         // that page is `Domain.sharedLine`, which needs domains, and nothing

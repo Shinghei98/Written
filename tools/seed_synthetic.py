@@ -66,6 +66,26 @@ BIOGRAPHICS = [
     ("Fontbonne University",               "Ask me about bread"),
 ]
 
+# Chosen per person rather than rolled, and one of them is not either.
+#
+# `seed_icebreaker` maps anything that is not `male` or `female` to *them*, so a
+# random draw produced "ask them about Hilary Hahn" for Priya — correct about
+# the data and arbitrary in the data, which reads as a bug to anyone who knows
+# the name.
+#
+# **This is a fixture being deliberate, not the app guessing.** Written infers
+# nothing about gender from a name and must not start: the icebreaker takes the
+# pronoun from `public.users.sex`, which is the gender somebody *chose*, and the
+# whole reason that column is not written by anything else is that HealthKit's
+# biological sex was silently overwriting it. Fixing the fixture is not a licence
+# to infer; it is the difference between test data that means something and test
+# data that means nothing.
+#
+# `other` is kept on one account on purpose. *Them* is the branch every unmapped
+# and null value falls to, it is the one most likely to be wrong on screen, and
+# a pool where everybody is `male` or `female` would never exercise it.
+GENDERS = ["female", "male", "female", "male", "female", "other"]
+
 # Walkable from Central West End, which is the point — a discovery feed full of
 # people three states away would say nothing about whether the feed works.
 DISTRICTS = [
@@ -547,7 +567,7 @@ def main() -> None:
         request("POST", "/rest/v1/users", key, {
             "id": uid, "first_name": name,
             "birth_year": datetime.now().year - age,
-            "sex": rng.choice(["female", "male", "other"]),
+            "sex": GENDERS[index],
             "place": district,
             "tree_seed": rng.getrandbits(62),
         }, {"Prefer": "resolution=merge-duplicates"})

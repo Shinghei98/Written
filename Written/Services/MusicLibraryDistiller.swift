@@ -76,6 +76,19 @@ struct MusicLibraryDistiller {
             if let played = item.lastPlayedDate { extra.append("last_played=\(Self.day.string(from: played))") }
             if let released = item.releaseDate { extra.append("released=\(Self.day.string(from: released))") }
             if item.playbackDuration > 0 { extra.append("duration_s=\(Int(item.playbackDuration))") }
+            // The same stamp `AppleMusicDistiller` writes, through the same
+            // rule: composer for classical, performer otherwise. Nothing reads
+            // these rows yet — `Ontology.subjects` counts `apple_music` only,
+            // and the icebreaker splits `genres` where this writes `genre` —
+            // but labelling at the point of collection is the whole reason the
+            // rule moved here, and a row that arrives unlabelled would need a
+            // re-distill to fix rather than a query.
+            let subject = Ontology.musicSubject(
+                genres: item.genre.map { [$0] } ?? [],
+                composer: item.composer,
+                performer: item.artist ?? ""
+            )
+            if !subject.isEmpty { extra.append("subject=\(subject)") }
             extra.append("added=\(Self.day.string(from: item.dateAdded))")
             // Whether the audio is on the phone or only in iCloud. Kept because
             // it separates "in their library" from "downloaded to carry around",
