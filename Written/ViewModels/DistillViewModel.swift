@@ -1125,6 +1125,19 @@ final class DistillViewModel: ObservableObject {
             sports: sports
         )
 
+        // **The three figures the dynamic profile draws, and they are subjects
+        // rather than domains.** "Music, 83%" is a shape anybody could infer
+        // from the artist names beside it; "Bach, 22%" is the thing the page
+        // exists to show. Computed from the raw records rather than from
+        // `musicArtists` because the classical rule needs each row's `genres`
+        // and `composer`, and the summary carries neither.
+        //
+        // `mix` is still computed and still published: the caption fallback on
+        // that page is `Domain.sharedLine`, which needs domains, and nothing
+        // about naming subjects removes the need to say two people share Music
+        // when they share no particular artist.
+        let topSubjects = Ontology.subjects(records: records)
+
         Task.detached(priority: .utility) { [weak self] in
             // Read from the server rather than from anything local: the photos
             // may have been uploaded on a different device, or in a session
@@ -1144,7 +1157,8 @@ final class DistillViewModel: ObservableObject {
                 district: district,
                 interests: interests,
                 photoPaths: photoPaths,
-                domains: mix.map { ($0.domain.rawValue, $0.share) }
+                domains: mix.map { ($0.domain.rawValue, $0.share) },
+                topSubjects: topSubjects.map { ($0.subject, $0.share) }
             )
             let published = await DiscoveryCardService.shared.publish(card)
 

@@ -36,8 +36,13 @@ actor MatchProfileService {
         let district: String?
         let bio: String?
         let photoPaths: [String]
-        /// Ranked, already trimmed to the three the page draws.
+        /// Ranked. Read by the caption fallback rather than drawn — see
+        /// `topSubjects` for what the three figures actually show.
         let domains: [Ontology.Weight]
+        /// The three named things the page draws where posts / followers /
+        /// following sit. Fewer than three when somebody has fewer; padding it
+        /// out would invent breadth.
+        let topSubjects: [Ontology.SubjectWeight]
         /// One per photograph, positionally. `nil` where there was nothing true
         /// to say — see `captions(theirs:viewer:count:)`.
         let captions: [String?]
@@ -60,7 +65,7 @@ actor MatchProfileService {
             // the screen somebody is already staring at.
             async let cardRows = PostgREST.rows("rest/v1/discovery_cards", query: [
                 "user_id": "eq.\(personID)",
-                "select": "user_id,display_name,age,district,photo_paths,interests,domains",
+                "select": "user_id,display_name,age,district,photo_paths,interests,domains,top_subjects",
             ])
             async let gatedRows = PostgREST.insert(
                 "rest/v1/rpc/match_profile",
@@ -98,6 +103,22 @@ actor MatchProfileService {
                     )
                 }
 
+            // The three figures the page draws. Ranked and already capped by
+            // the device that wrote them, so this trusts the order rather than
+            // re-sorting: `Ontology.subjects` breaks ties on the name so the
+            // same library always produces the same row, and re-sorting here on
+            // share alone would undo that.
+            let theirTopSubjects: [Ontology.SubjectWeight] =
+                (card["top_subjects"] as? [[String: Any]] ?? [])
+                .compactMap { row in
+                    guard let subject = (row["subject"] as? String)?.nonEmptyValue
+                    else { return nil }
+                    return Ontology.SubjectWeight(
+                        subject: subject,
+                        share: (row["share"] as? NSNumber)?.doubleValue ?? 0
+                    )
+                }
+
             let paths = card["photo_paths"] as? [String] ?? []
             lastError = nil
             return Profile(
@@ -108,8 +129,11 @@ actor MatchProfileService {
                 district: (card["district"] as? String)?.nonEmptyValue,
                 bio: (gated["bio"] as? String)?.nonEmptyValue,
                 photoPaths: paths,
+                // Kept whole and no longer drawn as the triple: the caption
+                // fallback below is `Domain.sharedLine`, which needs them.
+                domains: theirDomains,
                 // Three, matching the reference's posts / followers / following.
-                domains: Array(theirDomains.prefix(3)),
+                topSubjects: theirTopSubjects,
                 captions: Self.captions(
                     theirSubjects: theirSubjects,
                     theirDomains: theirDomains,
@@ -194,6 +218,15 @@ extension MatchProfileService.Profile {
             .init(domain: .music, share: 0.46),
             .init(domain: .playedSport, share: 0.31),
             .init(domain: .travel, share: 0.14),
+        ],
+        // One short name, one long one and one in between, because the long
+        // ones are what break this row — a classical performer's credit runs to
+        // sixty characters in a column a third of the screen wide.
+        topSubjects: [
+            .init(subject: "Ado", share: 0.22),
+            .init(subject: "Johann Sebastian Bach", share: 0.14),
+            .init(subject: "English Baroque Soloists, Monteverdi Choir & John Eliot Gardiner",
+                  share: 0.11),
         ],
         captions: [
             "You both like Ado.",

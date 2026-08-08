@@ -276,6 +276,33 @@ def domains(music_mix, sport_sessions: int) -> list[dict]:
     return [{"domain": d, "share": round(n / total, 4)} for d, n in ranked]
 
 
+def top_subjects(music_mix, limit: int = 3) -> list[dict]:
+    """The three named things the dynamic profile draws, ranked.
+
+    Mirrors `Ontology.subjects`: Apple Music only, one count per song row,
+    shares over the music counted, ties broken on the name so the same account
+    always produces the same row. `music_records` writes one row per artist with
+    a play count in proportion to the mix, so the play count is the weight here
+    for the same reason `domains` uses it — a headcount would make every
+    synthetic person's three figures identical.
+
+    No classical exception, because the seeded rows carry no `composer`: Apple
+    Music supplies one for a minority of real classical tracks (42 of 481 on the
+    library this was measured against) and inventing one here would make the
+    seeded data better than anything a real account can produce.
+    """
+    counts: dict[str, int] = {}
+    for genre, share in music_mix:
+        for artist in ARTISTS[genre]:
+            counts[artist] = counts.get(artist, 0) + max(1, round(40 * share))
+
+    total = sum(counts.values())
+    if not total:
+        return []
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1] / total, kv[0]))
+    return [{"subject": s, "share": round(n / total, 4)} for s, n in ranked[:limit]]
+
+
 def video_records(rng: random.Random, mix, now):
     rows = []
     for category, share in mix:
@@ -571,6 +598,7 @@ def main() -> None:
             "photo_seeds": [rng.randint(1, 10**6) for _ in range(6)],
             "interests": interests(music_mix, video_mix),
             "domains": domains(music_mix, sessions),
+            "top_subjects": top_subjects(music_mix),
         }, {"Prefer": "resolution=merge-duplicates"})
 
         main_genre = music_mix[0][0]

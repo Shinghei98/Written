@@ -1435,23 +1435,10 @@ struct MessageBubble: View {
     /// leaves a clear margin on the far side at every length.
     private static let maxWidthFraction: CGFloat = 0.78
 
-    /// Blank space appended to the message so the clock has somewhere to sit.
-    ///
-    /// **This is why the time is not laid out beside the text.** An `HStack`
-    /// puts the clock in its own *column*, which shortens every line of a long
-    /// message by its width — the reference only gives up room on the **last**
-    /// line. Padding the string and overlaying the clock into the gap reserves
-    /// space exactly where it is needed, and lets it fall to a line of its own
-    /// when the last line is already full.
-    ///
-    /// Figure spaces (U+2007), not ordinary ones: they are the width of a digit
-    /// and, unlike a normal space, are not collapsed or trimmed at a line break.
-    ///
-    /// Seven of them, sized for the **widest** clock rather than a typical one —
-    /// `12:34 PM` is a good deal wider than `9:16 PM`, and the gutter is fixed
-    /// while the string is not. Six fitted the single-digit hours in the sample
-    /// thread and would have started clipping after noon.
-    private static let timeGutter = String(repeating: "\u{2007}", count: 7)
+    /// The gap between the last word and the clock. One figure space (U+2007),
+    /// which is the width of a digit — see `reserved` for why the clock's own
+    /// width is not spaces at all.
+    private static let timeGap = "\u{2007}"
 
     /// Tightened from 20 with the padding. Once a bubble hugs a two-word
     /// message, a 20pt corner on a ~34pt-tall box is most of its height and the
@@ -1525,6 +1512,36 @@ struct MessageBubble: View {
         return "\(who) said: \(message.body)"
     }
 
+    /// The body, then an invisible copy of the clock to hold its place.
+    ///
+    /// **This is why the time is not laid out beside the text.** An `HStack`
+    /// puts the clock in its own *column*, which shortens every line of a long
+    /// message by its width — the reference only gives up room on the **last**
+    /// line. Reserving space inside the string and overlaying the clock into it
+    /// puts the gap exactly where it is needed, and lets the time fall to a line
+    /// of its own when the last line is already full.
+    ///
+    /// **The reservation is the clock itself, rendered clear, and it has to be.**
+    /// It used to be seven figure spaces, which failed on a real message: a
+    /// trailing run of whitespace is trimmed when a line is measured, so once
+    /// body-plus-gutter passed `maxWidthFraction` the spaces were what wrapped,
+    /// the line was trimmed back to the body alone, and the `bottomTrailing`
+    /// overlay landed on the last word. "Your Bach playlist is unreasonably
+    /// good" with `1:00 PM` printed across "good". Digits and letters cannot be
+    /// trimmed that way, so the space survives wherever the line breaks.
+    ///
+    /// It is also exact rather than tuned. Seven spaces were sized for the
+    /// widest clock — `12:34 PM` against `9:16 PM` — and six had already been
+    /// found to clip after noon. Reserving *this message's own* timestamp needs
+    /// no such guess, and the 11pt run matches the overlay's font so the two
+    /// measure the same.
+    private var reserved: Text {
+        Text(message.body + Self.timeGap)
+            + Text(RelativeTime.clock(message.sentAt))
+                .font(.system(size: 11))
+                .foregroundColor(.clear)
+    }
+
     private var bubble: some View {
         Group {
             // **The bubble hugs its text, and the time rides the last line.**
@@ -1538,7 +1555,7 @@ struct MessageBubble: View {
             // `HStack(alignment: .bottom)` gives both: the row is only as wide
             // as it needs to be, so a short message makes a short bubble, and a
             // long one wraps with the time settling at the end of the last line.
-            Text(message.body + Self.timeGutter)
+            reserved
                 .font(.system(size: 15))
                 .foregroundStyle(textColour)
                 // Wrap, but never stretch — without this the text would rather

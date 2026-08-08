@@ -128,21 +128,31 @@ struct MatchProfileView: View {
                     .tracking(1.5)
                     .textCase(.uppercase)
 
-                // **Three columns where posts / followers / following sit.**
-                // Fewer than three when somebody has connected one source, and
-                // that is the honest shape — padding it out with 0% domains
-                // would invent breadth.
+                // **Three columns where posts / followers / following sit, and
+                // they name things rather than categories.** "Music 83%" is a
+                // shape anybody could infer from the artist names beside it;
+                // "Bach 22%" is what this page exists to show, and unlike a
+                // follower count there is nothing to inflate.
+                //
+                // Fewer than three when somebody has fewer, which is the honest
+                // shape — padding it out would invent breadth.
                 HStack(alignment: .top, spacing: 0) {
-                    ForEach(profile?.domains ?? [], id: \.domain) { weight in
+                    ForEach(profile?.topSubjects ?? [], id: \.subject) { weight in
                         VStack(spacing: 2) {
                             Text("\(weight.percent)%")
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(GardenPalette.ink)
-                            Text(weight.domain.label)
+                            // A performer's name runs long — "English Baroque
+                            // Soloists, Monteverdi Choir & John Eliot Gardiner"
+                            // is 62 characters against a column a third of the
+                            // width — so two lines and a floor on the scale,
+                            // rather than one line truncated to nothing.
+                            Text(weight.subject)
                                 .font(.system(size: 12))
                                 .foregroundStyle(GardenPalette.muted)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.7)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -194,9 +204,26 @@ struct MatchProfileView: View {
         ) {
             ForEach(Array((profile?.photoPaths ?? []).enumerated()), id: \.offset) { index, path in
                 Button { openPhoto = index } label: {
-                    ProfilePhotoView(ref: .stored(path), initial: profile?.name ?? "")
-                        .aspectRatio(1, contentMode: .fill)
-                        .frame(maxWidth: .infinity)
+                    // **The square comes from the column, never from the
+                    // photograph.** `Color.clear` accepts whatever width the
+                    // grid proposes and `.fit` turns it into width x width, so
+                    // all six cells are identical whatever the images are.
+                    //
+                    // Asking the photograph for the ratio is what broke it:
+                    // `ProfilePhotoView` is already `.resizable().scaledToFill()`
+                    // and so accepts any proposal, and a second
+                    // `.aspectRatio(1, contentMode: .fill)` on top of that
+                    // resolves against a `LazyVGrid` row whose height is
+                    // unconstrained. `.fill` has no stable answer there — the
+                    // three columns came out 256, 309 and 355 points wide, and
+                    // the content escaped its row and painted over the bio
+                    // above. The images were all 600x800; none of it came from
+                    // the files.
+                    Color.clear
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay {
+                            ProfilePhotoView(ref: .stored(path), initial: profile?.name ?? "")
+                        }
                         .clipped()
                         .contentShape(Rectangle())
                 }

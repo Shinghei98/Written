@@ -53,6 +53,17 @@ actor DiscoveryCardService {
         /// the school and the bio, which do, go through `match_profile()`
         /// instead and never touch this table.
         var domains: [(domain: String, share: Double)] = []
+        /// The three named things the dynamic profile draws, ranked — Bach 22%,
+        /// Mahler 14%. Computed by `Ontology.subjects`.
+        ///
+        /// **These are subjects, so the publishing test applies to them**, and
+        /// they pass it the same way `interests` does: Apple Music artists and
+        /// composers only. Nothing from YouTube, whose channel names are
+        /// Authorized Data; nothing from the calendar, whose titles are the
+        /// least publishable thing this app holds; and nothing from podcasts or
+        /// Health, which are undecided rather than forbidden. See
+        /// `Ontology.subjects` for the reasoning per source.
+        var topSubjects: [(subject: String, share: Double)] = []
     }
 
     /// Writes the row, creating it the first time and updating it after.
@@ -102,6 +113,9 @@ actor DiscoveryCardService {
             },
             "domains": card.domains.map {
                 ["domain": $0.domain, "share": $0.share]
+            },
+            "top_subjects": card.topSubjects.map {
+                ["subject": $0.subject, "share": $0.share]
             },
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]

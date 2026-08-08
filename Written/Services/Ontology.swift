@@ -188,6 +188,101 @@ enum Ontology {
         var percent: Int { Int((share * 100).rounded()) }
     }
 
+    /// One named thing and the share of somebody's listening that fell to it.
+    ///
+    /// **A subject, not a domain.** `Weight` says "Music, 83%", which is a shape
+    /// rather than a fact — anybody can see from the artist names beside it that
+    /// this person listens to music. This says "Bach, 22%", which is the thing
+    /// the page is actually for: three figures where posts / followers /
+    /// following sit, and unlike a follower count there is nothing to inflate.
+    struct SubjectWeight: Equatable, Hashable {
+        let subject: String
+        /// 0…1 of the music counted, not of everything distilled. See `subjects`.
+        let share: Double
+
+        var percent: Int { Int((share * 100).rounded()) }
+    }
+
+    /// The three named things somebody listens to most, ranked.
+    ///
+    /// **Music only, and that is a publishing decision rather than a technical
+    /// one.** These are written to `discovery_cards`, the one table in this
+    /// schema every signed-in user may read, so each entry has to pass the
+    /// two-part test: something a sentence can be about, *and* something the
+    /// source's terms allow a stranger to see. Apple Music artists clear both
+    /// and are already published as `interests`. The others do not, each for its
+    /// own reason:
+    ///
+    /// * **YouTube** is excluded by construction — it takes no parameter here,
+    ///   because a channel name is Authorized Data under III.E.3.b and deriving
+    ///   a label from one is III.E.4.h.
+    /// * **Calendar** titles are the strongest signal this app collects and the
+    ///   least publishable — "Outpatient" is a subject a sentence can be about
+    ///   and has no business on a card strangers read.
+    /// * **Podcast shows** are merely undecided. `publishDiscoveryCard` already
+    ///   records that publishing a new category of subject about somebody is its
+    ///   own decision; this is not the place to take it quietly.
+    /// * **Sports** come from Health, and `health_sports` is derived data that
+    ///   has never appeared on a card. The icebreaker names a shared sport to
+    ///   somebody already matched, which is a narrower audience than this.
+    ///
+    /// So the denominator is the music counted here, and a person who listens to
+    /// nothing gets an empty row rather than a padded one.
+    ///
+    /// **Classical names the composer**, matching `0038`'s rule in the
+    /// icebreaker trigger so the two never disagree about what to call the same
+    /// listening. That rule lives twice — once in SQL because the trigger reads
+    /// both people's rows server-side, once here because the card is written on
+    /// the device — and the pair has to be changed together. The fallback is the
+    /// performer, which is what Apple Music supplies for most classical rows:
+    /// measured on one real library, 42 of 481 classical rows carried a
+    /// composer at all.
+    static func subjects(records: [DistilledRecord], limit: Int = 3) -> [SubjectWeight] {
+        var counts: [String: Int] = [:]
+
+        for record in records where record.source == "apple_music" {
+            guard record.dataType == "song" else { continue }
+            let subject = musicSubject(for: record)
+            guard !subject.isEmpty else { continue }
+            counts[subject, default: 0] += 1
+        }
+
+        let total: Int = counts.values.reduce(0, +)
+        guard total > 0 else { return [] }
+
+        // Written as statements rather than one chain: the fluent version was
+        // long enough that the type checker gave up on it outright.
+        var weights: [SubjectWeight] = []
+        for (subject, count) in counts {
+            weights.append(SubjectWeight(subject: subject, share: Double(count) / Double(total)))
+        }
+        // Ties break on the name so the same library always produces the same
+        // three figures in the same order — a profile that reshuffled between
+        // two viewings would read as unstable.
+        weights.sort { a, b in
+            a.share == b.share ? a.subject < b.subject : a.share > b.share
+        }
+        return Array(weights.prefix(limit))
+    }
+
+    /// The composer for classical, the performer for everything else.
+    ///
+    /// `ilike '%classical%'` in `0038`, `contains("classical")` here — both take
+    /// Classical Crossover and Classical Era, and neither takes `Klassik` or
+    /// 古典音樂, because Apple Music localises genre names to the storefront.
+    /// Incomplete by construction, and the failure is naming the performer,
+    /// which is what happened before either existed.
+    private static func musicSubject(for record: DistilledRecord) -> String {
+        let genres = (record.extraValue("genres") ?? "").lowercased()
+        if genres.contains("classical"),
+           let composer = record.extraValue("composer")?
+               .trimmingCharacters(in: .whitespacesAndNewlines),
+           !composer.isEmpty {
+            return composer
+        }
+        return record.creator.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// What somebody is into, ranked, from every source that may be classified.
     ///
     /// **This is the ontology stage being switched on**, and until now it was
