@@ -95,6 +95,10 @@ CHANNELS = {
 # The ontology domain each bucket maps to, so `interests` speaks the same
 # language as Written/Services/Ontology.swift rather than a parallel vocabulary.
 MUSIC_DOMAIN = "music"
+# Sport *played*, from `health_sports` — never returned by `classify`, because a
+# term list matched against a title cannot tell watching a sport from playing
+# one. Matches `Ontology.Domain.playedSport`.
+SPORT_DOMAIN = "playedSport"
 VIDEO_DOMAINS = {
     "Pets": "science", "Sports": "spectatorSport", "Movies": "film",
     "TV shows": "film", "Stand-up comedy": "comedy", "Self-help": "learning",
@@ -186,6 +190,46 @@ def music_records(rng: random.Random, mix, now):
                 "collected_at": now,
             })
     return rows
+
+
+def domains(music_mix, sport_sessions: int) -> list[dict]:
+    """The ontology mix the dynamic profile draws its three figures from.
+
+    Mirrors `Ontology.mix` in Written/Services/Ontology.swift: count per domain,
+    share over *placed* items, sorted by share and then by the domain's raw
+    value so the same account always produces the same three bars in the same
+    order. Two deliberate departures, both because this is a seeder and not a
+    phone:
+
+    * **Music is weighted by plays, not by song count.** `Ontology.mix` counts
+      songs, but `music_records` writes one row per artist rather than a real
+      library, so a headcount would put every synthetic person at ~90% sport
+      against a sessions figure that runs to 90. The play counts it already
+      computes in proportion to the mix are the honest analogue.
+    * **Calendar events are not placed, and YouTube never is.** Placing an event
+      needs `Ontology.classify`, and a second copy of that term table in Python
+      is exactly the parallel vocabulary the domain constants above exist to
+      avoid. YouTube is absent by construction — `Ontology.mix` takes no such
+      parameter, since applying a term list to a channel name is the inference
+      III.E.4.h prohibits.
+
+    So the shares here are music against played sport. That is thinner than a
+    real distillation and it is honest about being thin: the alternative is
+    inventing breadth on a page whose whole subject is what somebody's attention
+    is actually made of.
+    """
+    counts: dict[str, int] = {}
+    for genre, share in music_mix:
+        for _ in ARTISTS[genre]:
+            counts[MUSIC_DOMAIN] = counts.get(MUSIC_DOMAIN, 0) + max(1, round(40 * share))
+    if sport_sessions:
+        counts[SPORT_DOMAIN] = sport_sessions
+
+    total = sum(counts.values())
+    if not total:
+        return []
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1] / total, kv[0]))
+    return [{"domain": d, "share": round(n / total, 4)} for d, n in ranked]
 
 
 def video_records(rng: random.Random, mix, now):
@@ -307,10 +351,14 @@ def main() -> None:
         }, {"Prefer": "resolution=merge-duplicates"})
 
         sport = rng.choice(SPORTS)
+        # Held in a variable rather than inlined, because the same number is the
+        # `playedSport` weight on the card below — the row and the share have to
+        # agree or the profile contradicts the dashboard.
+        sessions = rng.randint(4, 90) if sport else 0
         if sport:
             request("POST", "/rest/v1/health_sports", key, {
                 "user_id": uid, "sport": sport,
-                "sessions": rng.randint(4, 90),
+                "sessions": sessions,
                 "minutes": rng.randint(120, 4200),
             }, {"Prefer": "resolution=merge-duplicates"})
 
@@ -319,6 +367,7 @@ def main() -> None:
             "district": district,
             "photo_seeds": [rng.randint(1, 10**6) for _ in range(6)],
             "interests": interests(music_mix, video_mix),
+            "domains": domains(music_mix, sessions),
         }, {"Prefer": "resolution=merge-duplicates"})
 
         main_genre = music_mix[0][0]

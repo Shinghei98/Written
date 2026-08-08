@@ -695,6 +695,21 @@ struct DashboardView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+
+                identityDivider
+
+                // Last of the rows, because it is the only one somebody writes
+                // rather than answers — and the only one that goes nowhere
+                // except a match's dynamic profile.
+                Button { withAnimation(.easeOut(duration: 0.18)) { editor = .bio } } label: {
+                    identityRow(
+                        icon: "quote.bubble.fill",
+                        text: identity.bio ?? "Add your bio",
+                        isPlaceholder: identity.bio == nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.top, 6)
         }
@@ -840,6 +855,19 @@ struct DashboardView: View {
                 current: viewModel.identity.occupation,
                 onSave: { occupation in
                     viewModel.setOccupation(occupation)
+                    closeEditor()
+                },
+                onCancel: closeEditor
+            )
+        case .bio:
+            FreeTextSheet(
+                title: "Attach a short bio for your matches",
+                subtitle: "Limited to 30 letters.",
+                placeholder: "Bio",
+                current: viewModel.identity.bio,
+                characterLimit: DistillViewModel.maximumBioLength,
+                onSave: { bio in
+                    viewModel.setBio(bio)
                     closeEditor()
                 },
                 onCancel: closeEditor

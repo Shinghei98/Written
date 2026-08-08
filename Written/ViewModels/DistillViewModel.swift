@@ -1108,6 +1108,23 @@ final class DistillViewModel: ObservableObject {
         // category of subject about somebody is its own decision, not a
         // consolation prize for this one.
 
+        // **The mix is domains, and that is a different decision from the
+        // subjects above.** A subject names a thing ("Ado"); a domain names a
+        // shape ("Music"), which reveals strictly less than the artist list
+        // already beside it — so the paragraph above does not extend to it, and
+        // podcasts and calendar events *are* counted here even though their
+        // subjects are not published.
+        //
+        // YouTube is absent by construction rather than by filter:
+        // `Ontology.mix` takes no YouTube parameter, because applying a term
+        // list to a channel name is the inference III.E.4.h prohibits.
+        let mix = Ontology.mix(
+            musicArtists: musicArtists,
+            podcastShows: podcastShows,
+            events: events,
+            sports: sports
+        )
+
         Task.detached(priority: .utility) { [weak self] in
             // Read from the server rather than from anything local: the photos
             // may have been uploaded on a different device, or in a session
@@ -1126,7 +1143,8 @@ final class DistillViewModel: ObservableObject {
                 age: age,
                 district: district,
                 interests: interests,
-                photoPaths: photoPaths
+                photoPaths: photoPaths,
+                domains: mix.map { ($0.domain.rawValue, $0.share) }
             )
             let published = await DiscoveryCardService.shared.publish(card)
 
@@ -1515,6 +1533,43 @@ final class DistillViewModel: ObservableObject {
 
     /// What they do now — "Student" included, which is why the sheet says so.
     func setOccupation(_ text: String) { setUserFact("occupation", text) }
+
+    /// The one line somebody writes about themselves, shown on their dynamic
+    /// profile to people they have matched with.
+    ///
+    /// **Capped at 30 characters here as well as at the keyboard.** The sheet
+    /// stops the 31st keystroke, which is where a limit belongs; this is the
+    /// backstop for a value arriving any other way — a paste that outruns the
+    /// binding, or a later caller. Truncated rather than refused, because a
+    /// refusal at this depth cannot explain itself to anybody.
+    static let maximumBioLength = 30
+
+    func setBio(_ text: String) {
+        setUserFact("bio", String(text.prefix(Self.maximumBioLength)))
+    }
+
+    /// This account's own side of a comparison, for `MatchProfileService`.
+    ///
+    /// **Computed here rather than read there**, because that actor
+    /// deliberately touches no app state — the same rule `DiscoveryCardService`
+    /// follows, so there is one place to look when asking what leaves the
+    /// device. Nothing in it is sent anywhere: it is matched against the other
+    /// person's card locally and the result is a sentence.
+    ///
+    /// Lowercased at the boundary so no caller has to remember to.
+    func viewerForMatching() -> MatchProfileService.Viewer {
+        MatchProfileService.Viewer(
+            subjects: Set(musicArtists.map { $0.name.lowercased() }),
+            domains: Set(
+                Ontology.mix(
+                    musicArtists: musicArtists,
+                    podcastShows: podcastShows,
+                    events: events,
+                    sports: sports
+                ).map { $0.domain.rawValue.lowercased() }
+            )
+        )
+    }
 
     /// The shared half of the two rows above.
     ///

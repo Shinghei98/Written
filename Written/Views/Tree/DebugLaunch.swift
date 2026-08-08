@@ -247,7 +247,7 @@ enum DebugLaunch {
         // `-memo` implies it: the voice sheet is inside a thread, and a thread
         // needs a conversation to be inside.
         memoState != nil
-            || ["sample", "admirers", "thread", "typing", "swiped", "report", "icebreaker"]
+            || ["sample", "admirers", "thread", "typing", "swiped", "report", "icebreaker", "profile"]
                 .contains(chatTarget ?? "")
     }
 

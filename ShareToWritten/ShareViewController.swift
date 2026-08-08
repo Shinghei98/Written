@@ -5,6 +5,16 @@ import UniformTypeIdentifiers
 
 /// Share a YouTube link into Written from anywhere on the phone.
 ///
+/// **ARCHIVED-SHARE-EXTENSION — this target is un-embedded and nothing of it
+/// ships.** It still builds, still signs and still carries the build number in
+/// lockstep; it is simply not copied into the app, so a shipped Written offers
+/// no row in the system share sheet. The marker lives here as well as in
+/// `project.pbxproj` because Xcode rewrites that file and strips its comments —
+/// it did between builds 26 and 27, and `grep -rn "ARCHIVED-"` silently lost
+/// this entry for a build as a result. Restoring the extension is re-adding the
+/// `ShareToWritten.appex` build file to the app target's Embed Foundation
+/// Extensions phase.
+///
 /// Built on the template's `SLComposeServiceViewController`, which already is
 /// the sheet this needs: a text view for the message, Post and Cancel, and the
 /// system's own presentation. Hosting SwiftUI here would be more code to arrive

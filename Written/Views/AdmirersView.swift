@@ -8,6 +8,11 @@ import SwiftUI
 /// answered should not hide the answers.
 struct AdmirersView: View {
     @ObservedObject var model: ChatModel
+    /// Only for the dynamic profile, which needs this account's own subjects
+    /// and domains to work out what the two of them share.
+    @ObservedObject var viewModel: DistillViewModel
+    /// Whose profile is open, if any.
+    @State private var profileTarget: LikeService.Admirer?
     /// Called when accepting has produced a thread, so the caller can push it.
     /// This view does not own the navigation stack it is in.
     var onOpened: (ChatService.Conversation) -> Void = { _ in }
@@ -28,7 +33,8 @@ struct AdmirersView: View {
                                 admirer: admirer,
                                 isAnswering: model.answering == admirer.id,
                                 onChat: { answer(admirer, accept: true) },
-                                onDecline: { answer(admirer, accept: false) }
+                                onDecline: { answer(admirer, accept: false) },
+                                onOpenProfile: { profileTarget = admirer }
                             )
                         }
                     }
@@ -40,6 +46,15 @@ struct AdmirersView: View {
             header.background(GardenPalette.parchment)
         }
         .preferredColorScheme(.light)
+        .fullScreenCover(item: $profileTarget) { admirer in
+            MatchProfileView(
+                personID: admirer.id,
+                fallbackName: admirer.name,
+                fallbackPhoto: admirer.photoRef,
+                viewModel: viewModel,
+                onClose: { profileTarget = nil }
+            )
+        }
     }
 
     private static let headerHeight: CGFloat = 60
@@ -102,14 +117,27 @@ struct AdmirerRow: View {
     var isAnswering = false
     var onChat: () -> Void = {}
     var onDecline: () -> Void = {}
+    /// One of the two doors to the dynamic profile — see `MatchProfileView`.
+    var onOpenProfile: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 12) {
             // Their real photograph where there is one, as chat and the feed
             // now draw. `PortraitView` only ever gives the generated stand-in.
-            ProfilePhotoView(ref: admirer.photoRef, initial: admirer.name)
-                .frame(width: 54, height: 54)
-                .clipShape(Circle())
+            //
+            // **The face is the way in.** Tapping a person's photograph to see
+            // more of them is the gesture every social app has already taught,
+            // so it needs no affordance of its own — and putting a "View
+            // profile" button here would compete with Accept and Decline, which
+            // are what this row is for.
+            Button(action: onOpenProfile) {
+                ProfilePhotoView(ref: admirer.photoRef, initial: admirer.name)
+                    .frame(width: 54, height: 54)
+                    .clipShape(Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("See \(admirer.name)'s profile")
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(admirer.name) likes you!")

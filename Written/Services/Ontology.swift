@@ -40,6 +40,52 @@ enum Ontology {
         /// from a different place: Health's recorded workouts, not anything
         /// they watched. Never returned by `classify`.
         case playedSport
+
+        /// The name a person reads, over the percentage on a dynamic profile.
+        ///
+        /// `rawValue` is `spectatorSport`, which is a programmer's word.
+        var label: String {
+            switch self {
+            case .music: return "Music"
+            case .comedy: return "Comedy"
+            case .film: return "Film"
+            case .gaming: return "Gaming"
+            case .tech: return "Tech"
+            case .science: return "Science"
+            case .food: return "Food"
+            case .fitness: return "Fitness"
+            case .spectatorSport: return "Watching sport"
+            case .learning: return "Learning"
+            case .art: return "Art"
+            case .travel: return "Travel"
+            case .playedSport: return "Sport"
+            }
+        }
+
+        /// What to say when two people share this domain but nothing specific
+        /// inside it — the fallback caption on a dynamic profile's photographs
+        /// once the shared *subjects* have run out.
+        ///
+        /// Deliberately about a habit rather than a taste. "You both spend
+        /// Saturdays outdoors" is true of two people who play different sports;
+        /// "you both like sport" reads as a category somebody typed.
+        var sharedLine: String {
+            switch self {
+            case .music: return "You both have this on in the background."
+            case .comedy: return "You both need something that makes you laugh."
+            case .film: return "You both sit through the credits."
+            case .gaming: return "You both lose evenings this way."
+            case .tech: return "You both read about this for fun."
+            case .science: return "You both go looking for how things work."
+            case .food: return "You both take the cooking seriously."
+            case .fitness: return "You both keep at it."
+            case .spectatorSport: return "You both clear the afternoon for a match."
+            case .learning: return "You both keep picking things up."
+            case .art: return "You both go and look at things."
+            case .travel: return "You both plan the next one early."
+            case .playedSport: return "You both spend Saturdays outdoors."
+            }
+        }
     }
 
     // MARK: - Classifying something watched
@@ -128,6 +174,95 @@ enum Ontology {
             if list.contains(where: haystack.contains) { return domain }
         }
         return nil
+    }
+
+    // MARK: - The mix
+
+    /// One domain and the share of somebody's placed items that fell into it.
+    struct Weight: Equatable, Hashable {
+        let domain: Domain
+        /// 0…1 of everything that *could* be placed. See `mix` for why that is
+        /// the denominator and not the count of items overall.
+        let share: Double
+
+        var percent: Int { Int((share * 100).rounded()) }
+    }
+
+    /// What somebody is into, ranked, from every source that may be classified.
+    ///
+    /// **This is the ontology stage being switched on**, and until now it was
+    /// not. Exactly one place in the app ever attached a `Domain` to real data —
+    /// the music line in `publishDiscoveryCard` — so the enum had thirteen cases
+    /// and one of them was used. `classify` had no callers at all.
+    ///
+    /// **YouTube is not a parameter and must never become one.** Applying a term
+    /// list to a title or a channel name is *"infer or estimate the content
+    /// category/type of a video or channel"*, which III.E.4.h prohibits outright.
+    /// The source is archived, so this is a door being locked before anybody
+    /// tries it rather than a live concern —
+    /// `domain(youTubeTopics:creatorTags:categoryID:)` stays the only legal
+    /// route, and it reads YouTube's own labels instead of guessing.
+    ///
+    /// **The denominator is placed items, not all items.** Somebody with 300
+    /// songs and 4 podcasts is not "98% music" in any sense worth printing — the
+    /// question is what their attention is made of, and an item `classify` could
+    /// not place is not evidence for anything. Unplaced items are dropped rather
+    /// than counted against the total.
+    ///
+    /// Shares therefore sum to 1 across *all* domains, so the top three usually
+    /// will not — which is honest. Normalising the three to 100 would imply the
+    /// rest do not exist.
+    static func mix(
+        musicArtists: [MusicHighlights.Artist],
+        podcastShows: [ListeningHighlights.Show],
+        events: [ListeningHighlights.Event],
+        sports: [LifestyleHighlights.Sport]
+    ) -> [Weight] {
+        var counts: [Domain: Int] = [:]
+
+        // Weighted by songs rather than one per artist: somebody with forty
+        // tracks by one person and one track each by five others is more
+        // musical than the headcount suggests.
+        for artist in musicArtists {
+            counts[.music, default: 0] += max(artist.songs, 1)
+        }
+
+        // **Sports bypass `classify` entirely**, and that is by construction
+        // rather than convenience — it skips `.playedSport` on every pass,
+        // because a term list matched against a title cannot tell watching a
+        // sport from playing one. A `health_sports` row is a workout somebody
+        // actually did, so it is the one place that distinction is already
+        // settled.
+        for sport in sports {
+            counts[.playedSport, default: 0] += max(sport.sessions, 1)
+        }
+
+        for show in podcastShows {
+            guard let domain = classify(title: show.name, channel: show.publisher, detail: "") else { continue }
+            counts[domain, default: 0] += max(show.episodes, 1)
+        }
+
+        // The organizer, not the calendar name: "Gym" as a calendar tells you
+        // less than "Eventbrite" as an organizer, and the calendar's name is
+        // whatever somebody called it.
+        for event in events {
+            guard let domain = classify(title: event.name, channel: event.organizer, detail: "") else { continue }
+            counts[domain, default: 0] += 1
+        }
+
+        let total = counts.values.reduce(0, +)
+        guard total > 0 else { return [] }
+
+        return counts
+            .map { Weight(domain: $0.key, share: Double($0.value) / Double(total)) }
+            // Ties break on the domain's name so the same library always
+            // produces the same three bars in the same order — a profile that
+            // reshuffled between two viewings would read as unstable.
+            .sorted { a, b in
+                a.share == b.share
+                    ? a.domain.rawValue < b.domain.rawValue
+                    : a.share > b.share
+            }
     }
 
     // MARK: - Reading YouTube's own labels

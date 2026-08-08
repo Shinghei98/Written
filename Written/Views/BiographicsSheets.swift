@@ -10,6 +10,7 @@ enum BiographicsEditor: Identifiable {
     case place
     case education
     case occupation
+    case bio
 
     var id: Self { self }
 }
@@ -158,6 +159,15 @@ struct FreeTextSheet: View {
     let current: String?
     /// Schools run to several lines; a job title does not.
     var allowsMultipleLines = false
+    /// Stops the keystroke rather than refusing the save.
+    ///
+    /// **A sheet that accepts forty characters and then rejects them is a dead
+    /// end that cannot explain itself** — the same failure the biographics rows
+    /// had when a refused write left the row on "Add your age" with nothing
+    /// said. A limit the field simply will not exceed needs no message.
+    /// The remaining count is drawn once somebody is close, so the stop is not
+    /// a surprise either.
+    var characterLimit: Int?
     let onSave: (String) -> Void
     let onCancel: () -> Void
 
@@ -197,6 +207,24 @@ struct FreeTextSheet: View {
                     RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
                 }
+                // Truncates rather than refuses, so a paste keeps its first
+                // thirty characters instead of being dropped whole.
+                .onChange(of: text) { value in
+                    guard let characterLimit, value.count > characterLimit else { return }
+                    text = String(value.prefix(characterLimit))
+                }
+
+            // **Only near the limit.** A counter from the first keystroke turns
+            // a sentence into a form, and the number is only useful to somebody
+            // about to run out of room.
+            if let characterLimit, text.count >= characterLimit - 10 {
+                Text("\(characterLimit - text.count) left")
+                    .font(.system(size: 12))
+                    .foregroundStyle(text.count >= characterLimit
+                                     ? BirthdayFields.errorRed
+                                     : GardenPalette.muted)
+                    .padding(.top, 6)
+            }
         }
         .onAppear {
             text = current ?? ""

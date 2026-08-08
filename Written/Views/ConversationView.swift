@@ -17,12 +17,19 @@ import SwiftUI
 /// compose bar whose trailing controls change with what you have typed.
 struct ConversationView: View {
     let conversation: ChatService.Conversation
+    /// Only for the dynamic profile, which needs this account's own subjects
+    /// and domains to work out what the two of them have in common.
+    @ObservedObject var viewModel: DistillViewModel
+    /// Whether the partner's dynamic profile is open. The banner's avatar is
+    /// the second of its two doors — see `MatchProfileView`.
+    @State private var isShowingProfile = false
 
     /// The cache is read here rather than in `.task`, and that is the difference
     /// between a thread that opens and one that appears. A `.task` runs after the
     /// first frame, so seeding there would still draw one empty screen.
-    init(conversation: ChatService.Conversation) {
+    init(conversation: ChatService.Conversation, viewModel: DistillViewModel) {
         self.conversation = conversation
+        self.viewModel = viewModel
         _messages = State(initialValue: ChatStore.messages(in: conversation.id))
     }
 
@@ -183,6 +190,25 @@ struct ConversationView: View {
             }
         }
         .preferredColorScheme(.light)
+#if DEBUG
+        // `-chat profile`. The banner's avatar is a tap and `simctl` can send
+        // none, so the page is otherwise only reachable on a device with two
+        // real accounts on it.
+        .onAppear {
+            if DebugLaunch.chatTarget == "profile", DebugLaunch.firesOnce("profile") {
+                isShowingProfile = true
+            }
+        }
+#endif
+        .fullScreenCover(isPresented: $isShowingProfile) {
+            MatchProfileView(
+                personID: conversation.partnerID,
+                fallbackName: conversation.partnerName,
+                fallbackPhoto: conversation.photoRef,
+                viewModel: viewModel,
+                onClose: { isShowingProfile = false }
+            )
+        }
         .task {
             // **`currentUserID()`, not the raw property.** `userID` is a cache
             // filled in by the token exchange, so on a cold launch — which is
@@ -621,9 +647,20 @@ struct ConversationView: View {
 
             // Their real photograph where there is one — see
             // `ChatService.Conversation.photoRef`.
-            ProfilePhotoView(ref: conversation.photoRef, initial: conversation.partnerName)
-                .frame(width: 38, height: 38)
-                .clipShape(Circle())
+            //
+            // **The second door to the dynamic profile.** Tapping the face at
+            // the top of a thread to see who you are talking to is the gesture
+            // every messaging app has taught; the name beside it stays inert,
+            // because a tappable name in a header competes with the back arrow
+            // for the same corner of the thumb.
+            Button { isShowingProfile = true } label: {
+                ProfilePhotoView(ref: conversation.photoRef, initial: conversation.partnerName)
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("See \(conversation.partnerName)'s profile")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(conversation.partnerName)

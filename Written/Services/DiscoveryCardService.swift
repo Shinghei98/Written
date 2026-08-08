@@ -44,6 +44,15 @@ actor DiscoveryCardService {
         /// Object paths in `profile-photos`, in the order the person arranged
         /// them. **Empty means this person is not shown at all** — see `publish`.
         let photoPaths: [String]
+        /// The ontology mix, ranked — what the dynamic profile's three bars
+        /// draw. Computed by `Ontology.mix`, which is Swift, which is why this
+        /// travels on the card rather than being worked out in SQL.
+        ///
+        /// **A domain, never a subject.** "Music" says less about somebody than
+        /// the artist names already in `interests`, so this widens nothing;
+        /// the school and the bio, which do, go through `match_profile()`
+        /// instead and never touch this table.
+        var domains: [(domain: String, share: Double)] = []
     }
 
     /// Writes the row, creating it the first time and updating it after.
@@ -90,6 +99,9 @@ actor DiscoveryCardService {
             "photo_paths": card.photoPaths,
             "interests": card.interests.map {
                 ["domain": $0.domain, "subject": $0.subject, "source": $0.source]
+            },
+            "domains": card.domains.map {
+                ["domain": $0.domain, "share": $0.share]
             },
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]

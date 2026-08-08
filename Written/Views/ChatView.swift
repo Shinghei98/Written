@@ -122,6 +122,7 @@ struct ChatView: View {
             .navigationDestination(isPresented: $isShowingAdmirers) {
                 AdmirersView(
                     model: model,
+                    viewModel: viewModel,
                     onOpened: { conversation in
                         // Back out of the admirers list first, then push the
                         // thread. Pushing from underneath a page being popped
@@ -136,7 +137,7 @@ struct ChatView: View {
             }
             .navigationDestination(isPresented: $isShowingThread) {
                 if let openThread {
-                    ConversationView(conversation: openThread)
+                    ConversationView(conversation: openThread, viewModel: viewModel)
                         .navigationBarHidden(true)
                 }
             }
@@ -222,7 +223,7 @@ struct ChatView: View {
             case "report":
                 pendingReport = model.conversations.first
                 isReporting = pendingReport != nil
-            case "thread", "typing", "icebreaker":
+            case "thread", "typing", "icebreaker", "profile":
                 openThread = model.conversations.first
                 isShowingThread = openThread != nil
             default: break

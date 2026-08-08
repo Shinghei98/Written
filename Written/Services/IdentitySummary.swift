@@ -17,6 +17,11 @@ struct IdentitySummary: Equatable {
     /// separator the user never agreed to.
     var education: String?
     var occupation: String?
+    /// One short line the user wrote for their matches, capped at
+    /// `DistillViewModel.maximumBioLength`. Shown on the dynamic profile and
+    /// nowhere else — it is deliberately not on the discovery card, so a
+    /// stranger scrolling Explore never sees it.
+    var bio: String?
 
     /// The two onboarding sliders. Stored as their internal band names, so a
     /// record round-trips through Postgres as text like everything else here.
@@ -53,6 +58,7 @@ struct IdentitySummary: Equatable {
             // entered-wins machinery above — only the user can know them.
             case ("user", "education"): summary.education = record.name
             case ("user", "occupation"): summary.occupation = record.name
+            case ("user", "bio"): summary.bio = record.name
             // Unknown text means a band this build doesn't have — a record
             // written by a later version, or a hand-edited row. Left `nil`
             // rather than guessed at, so the card simply doesn't draw.
