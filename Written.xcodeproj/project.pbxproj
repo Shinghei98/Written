@@ -7,16 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-/* ARCHIVED-SHARE-EXTENSION — the `ShareToWritten.appex in Embed Foundation
-   Extensions` PBXBuildFile was removed from here and from the copy phase below.
-   The *target* is untouched: it still builds, still signs, still carries the
-   build number. It simply is not copied into the app, so nothing ships.
-   Restoring it is re-adding this line and the one in the copy phase, or
-   dragging the product back into the app target's Embed phase in Xcode.
-
-   Xcode rewrites this file and strips these comments — it did between builds 26
-   and 27 — so the same marker is repeated in ShareViewController.swift, which
-   nothing rewrites. Check both before believing `grep -rn "ARCHIVED-"`. */
 		9EA95CBE302335E9003102BF /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9EA95CB7302335E9003102BF /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -51,7 +41,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				/* ARCHIVED-SHARE-EXTENSION — see the note in PBXBuildFile above. */
 				9EA95CBE302335E9003102BF /* NotificationService.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";

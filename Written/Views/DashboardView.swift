@@ -289,6 +289,11 @@ struct DashboardView: View {
             }
         }
 #endif
+        // The coach marks, over the whole page. Started on appearing rather
+        // than on a tab change, because during onboarding this page is reached
+        // by the pull-up and there is no tab to change.
+        .tutorial(tutorialStep) { advanceTutorial() }
+        .onAppear { startTutorialIfNeeded() }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
         // was a `.task` on this view, and `AppShell` mounts every tab at launch
@@ -349,6 +354,61 @@ struct DashboardView: View {
     }
 
     // MARK: - Editing one entry
+
+    // MARK: - The tutorial
+
+    /// The card on screen over the dashboard, or nil.
+    @State private var tutorialStep: Tutorial.Step?
+
+    /// Start the dashboard's three cards the first time somebody arrives here
+    /// during onboarding with something to look at.
+    ///
+    /// **Guarded on there being artists**, because every one of the three points
+    /// at the music card: "review what we found" over an empty card would be
+    /// pointing at the sentence that says nothing was found.
+    private func startTutorialIfNeeded() {
+        guard isOnboarding,
+              !Tutorial.Progress.hasSeen(.reviewMusic),
+              !artists.isEmpty,
+              tutorialStep == nil
+        else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewMusic }
+    }
+
+    /// Move to the next card, or finish.
+    ///
+    /// **Unlike the garden's, these three run straight through.** There is
+    /// nothing for the person to do between them — all three are about the same
+    /// card, and reading is the whole action — so a tap advances rather than
+    /// dismissing and waiting for a state change that would never come.
+    private func advanceTutorial() {
+        guard let step = tutorialStep else { return }
+        Tutorial.Progress.complete(step)
+
+        let next: Tutorial.Step? = {
+            switch step {
+            case .reviewMusic:  return .removeEntry
+            case .removeEntry:  return .addMissing
+            default:            return nil
+            }
+        }()
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            tutorialStep = next
+            // **The wobble is the instruction.** "Long press on entry to
+            // remove" describes a gesture whose whole feedback is the entry
+            // starting to jiggle with a cross on it, so the step shows that
+            // state rather than describing it — the same reason `-birthday
+            // confirm` seeds a state and not a screen.
+            editingEntry = next == .removeEntry ? tutorialWobbleKey : nil
+        }
+    }
+
+    /// The entry the remove step points at: the second overall, which is the
+    /// first of the runners-up.
+    private var tutorialWobbleKey: String? {
+        artists.dropFirst().first.map { key(artist: $0) }
+    }
 
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
@@ -975,6 +1035,10 @@ struct DashboardView: View {
                 card { artistsBlock }
             }
         }
+        // The whole section, both shapes of it — "review what we found" is
+        // about the found things, not about one card of them, and with genres
+        // present that is two cards.
+        .tutorialTarget(.musicCard)
     }
 
     /// The card's own horizontal padding, named because one thing now has to
@@ -1094,6 +1158,12 @@ struct DashboardView: View {
                             remove { viewModel.banArtist(artist.name) }
                         }
                         .editableOnLongPress($editingEntry, key: key(artist: artist))
+                        // The second entry overall — index 0 of the runners-up,
+                        // the headliner being the first. Pointed at rather than
+                        // the headliner because removing the top artist is the
+                        // one removal somebody is least likely to want, and a
+                        // tutorial should not rehearse on it.
+                        .tutorialTarget(index == 0 ? .secondEntry : nil)
                 }
                 ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
                     Divider().overlay(GardenPalette.ink.opacity(0.06))
@@ -1103,6 +1173,7 @@ struct DashboardView: View {
 
             Divider().overlay(GardenPalette.ink.opacity(0.08))
             addYourOwn(kind: "artist")
+                .tutorialTarget(.addPlaceholder)
         } else {
             Text("Connect Apple Music and your most-played artists appear here.")
                 .font(.system(size: 14))

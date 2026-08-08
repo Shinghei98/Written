@@ -268,6 +268,64 @@ struct GrowProfileView: View {
     private static let promptsDrawn: CGFloat =
         promptsReserve - MainTabBar.overlayHeight + promptsOverdraw
 
+    // MARK: - The tutorial
+
+    /// The card on screen, or nil for a page with no instruction over it.
+    ///
+    /// Held rather than computed, because the sequence is a *history* — which
+    /// card somebody is on depends on what they have already dismissed, not on
+    /// what the tree currently looks like.
+    @State private var tutorialStep: Tutorial.Step?
+
+    /// Show the opening card the first time somebody lands on the garden with
+    /// nothing connected.
+    ///
+    /// **Three conditions, and each one removes a way to annoy somebody.**
+    /// `isOnboarding` keeps it out of regular use entirely. `hasSeen` keeps it
+    /// from starting again for a person who left the page and came back. And an
+    /// empty `connectedModalities` keeps it away from anybody who already has a
+    /// source — a returning account mid-onboarding does not need to be told how
+    /// to make a first connection it has already made.
+    private func startTutorialIfNeeded() {
+        guard isOnboarding,
+              !Tutorial.Progress.hasSeen(.firstConnection),
+              viewModel.treeState.connectedModalities.isEmpty,
+              tutorialStep == nil
+        else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .firstConnection }
+    }
+
+    /// The card that follows a connection, chosen by how many there are.
+    ///
+    /// One is the first distillation having landed and the tree having grown,
+    /// which is where "tap the icon or the button to update" belongs. Two is
+    /// where the sequence ends, on the reason to keep going.
+    private func offerTutorialAfterConnecting(count: Int) {
+        guard isOnboarding, tutorialStep == nil else { return }
+        let next: Tutorial.Step? = {
+            switch count {
+            case 1: return .updateConnection
+            case 2...: return .moreConnections
+            default: return nil
+            }
+        }()
+        guard let next, !Tutorial.Progress.hasSeen(next) else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = next }
+    }
+
+    /// Dismiss the card in front of somebody.
+    ///
+    /// **It only ever dismisses.** The garden's three cards are each summoned by
+    /// something the person did, so advancing from one straight into the next
+    /// would put a card about updating a connection in front of somebody who
+    /// has not made one. Tapping means "I have read this"; the app decides when
+    /// there is something else to say.
+    private func advanceTutorial() {
+        guard let step = tutorialStep else { return }
+        Tutorial.Progress.complete(step)
+        withAnimation(.easeInOut(duration: 0.22)) { tutorialStep = nil }
+    }
+
     /// Whether the page can be pulled up at all: only during onboarding, and
     /// only once something has been connected — the dashboard is the way into
     /// what a distillation produced, so there has to be one.
@@ -334,6 +392,18 @@ struct GrowProfileView: View {
                 // so in regular use this does nothing at all.
                 .simultaneousGesture(revealDrag)
             }
+        // **The coach marks, over everything this page draws.** Hosted here
+        // rather than inside `prompts` so the dim covers the plant and the
+        // header too — the point of the step is that one thing is lit and the
+        // rest of the screen is not.
+        .tutorial(tutorialStep) { advanceTutorial() }
+        .onAppear { startTutorialIfNeeded() }
+        // The second and third cards are summoned by what the person did, not
+        // by a timer: a card that says "tap the icon to update your connection"
+        // before there is an icon is pointing at nothing.
+        .onChange(of: viewModel.treeState.connectedModalities.count) { count in
+            offerTutorialAfterConnecting(count: count)
+        }
         .preferredColorScheme(.light)
         // Coming back from Settings or Health with a permission just granted.
         // The status is read synchronously while building the card and nothing
@@ -731,6 +801,13 @@ struct GrowProfileView: View {
                             onTap: { connect(modality) }
                         )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                        // Only the first, because the step says "the icon" and
+                        // means the one somebody just made — lighting all of
+                        // them would point at a row rather than at a thing.
+                        .tutorialTarget(
+                            modality == viewModel.treeState.connectedModalities.first
+                                ? .connectedIcon : .none
+                        )
                     }
 
                     // The branch that just failed takes the card back, ahead of
@@ -741,6 +818,7 @@ struct GrowProfileView: View {
                         promptCard(for: prompt)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .id(prompt)
+                            .tutorialTarget(.promptCard)
                     }
 
                     // Something to scroll *to*. Anchoring on the last real row
