@@ -1,7 +1,6 @@
 # Written — project guide
 
-Written is an iPhone dating platform. Two coined terms carry the product, and
-they mean specific things here:
+Written is an iPhone dating platform. Two coined terms carry the product:
 
 - **Distillation** — extracting a user's digital footprint from the apps on
   their phone, identifying keywords via ontologies, and plotting
@@ -16,12 +15,10 @@ they mean specific things here:
 ## The prime design constraint: minimum friction
 
 Data extraction must feel like a **one-button experience** per app. OAuth is the
-preferred mechanism. In-app browser login with automated download is the
-fallback, to be discussed per app — never a default. When adding a source, the
-question "how many taps and does the user type a password?" outranks how much
-data the integration could theoretically reach.
-
-The current sources honor this as follows:
+preferred mechanism; in-app browser login with automated download is the
+fallback, to be discussed per app and never a default. When adding a source,
+"how many taps and does the user type a password?" outranks how much data the
+integration could theoretically reach.
 
 | Source | Auth | Friction |
 |---|---|---|
@@ -38,56 +35,34 @@ OAuth ones are measured against rather than an accident of what was easy.
 ## The extraction rule: if it can be distilled, distil it
 
 **Take whatever is technically possible, whether or not it looks useful at first
-glance.** The ontology and embedding stages decide what matters, and they can
-only decide it about data that was kept. A field dropped at the parse cannot be
-recovered without re-distilling everybody, which is not something that can be
-done quietly — so the default is to keep, and the exception needs an argument.
+glance.** The ontology and embedding stages decide what matters, and only about
+data that was kept; a field dropped at the parse cannot be recovered without
+re-distilling everybody. It has cost something twice: `AppleMusicDistiller`
+fetched `composerName`, `albumName`, `releaseDate` and duration and discarded
+them at one line, making classical listening invisible — the "artist" of a Bach
+partita is whoever performed it; and YouTube's `categoryId` sat inside a snippet
+already being decoded.
 
-This has already cost something twice. `AppleMusicDistiller` fetched
-`composerName`, `albumName`, `releaseDate` and duration on every request and
-discarded all of them at one line; classical listening was invisible as a result,
-since the "artist" of a Bach partita is whoever performed it. YouTube's
-`categoryId` sat inside a snippet that was already being decoded.
+Three things this rule does **not** license:
 
-Three things this rule does **not** license, because they are different
-questions:
+- **Asking for more permissions.** Health's sheet lists only the types actually
+  read. "Technically possible" means with the consent already given.
+- **Widening the list of what leaves the device.** That list is kept short and
+  complete on purpose, and `PrivacyInfo.xcprivacy` has to keep agreeing with it.
+- **Working out what a source already states.** *Keeping* a field and
+  *inferring* one are different acts under different rules, and for YouTube the
+  second is prohibited outright — "infer or estimate the content category/type of
+  a video or channel". Add `part=topicDetails` to reach one more field; do not
+  compute a label the source would have given you for the asking. See III.E.4.h.
 
-- **It is not a licence to ask for more permissions.** Health's sheet lists only
-  the types actually read, and widening it for something speculative is the one
-  thing that rule exists to stop. "Technically possible" means with the consent
-  already given.
-- **It is not a licence to widen the list of what leaves the device.** That list
-  is kept short and complete on purpose, and `PrivacyInfo.xcprivacy` has to keep
-  agreeing with it.
-- **It is not a licence to work out what a source already states.** *Keeping* a
-  field and *inferring* one are different acts under different rules, and for
-  YouTube the second is prohibited outright — "infer or estimate the content
-  category/type of a video or channel". This rule was in force while
-  `Ontology.classify` was reading channel names, and it does not excuse it. Take
-  every field; add `part=topicDetails` to reach one more; do not compute a
-  label the source would have given you for the asking. See III.E.4.h above.
-
-Within one already-granted permission, though, take everything: extra fields on a
+Within one already-granted permission, take everything: extra fields on a
 response already fetched, extra `part=` on a request already being made, a second
 query against a library already open.
 
 **And an absence is not a refusal.** Distil what is reachable and explain what
-is missing — never stop because one route came back empty.
-
-**But do not assume the other route saves you.** Measured on one device, Sync
-Library on and then off: `MPMediaQuery.songs()` went **320 to 0**, cloud items
-304 to 0, while podcasts held at 2 throughout — that last number is the control
-proving the library was still readable, so the zero is an absence rather than a
-refusal. Not even the sixteen non-cloud rows survived; they were Apple Music
-tracks downloaded for offline play, which read as local and are not.
-
-So **a person without an Apple Music subscription gets no music from this app at
-all** — not from MusicKit, whose library endpoints read the same cloud library,
-and not from the device library that was added to cover for it. `CLAUDE.md` calls
-Apple Music the source the product depends on, and for anybody who only streams,
-that dependency is total. `MusicLibraryDistiller` still earns its keep for people
-who *own* music — iTunes purchases, a synced collection — which is real but
-uncommon.
+is missing — never stop because one route came back empty. **But do not assume
+the other route saves you**: the device library is not a fallback for Apple
+Music, measured below.
 
 ## Supported apps and what each yields
 
@@ -98,9 +73,8 @@ build, one is impossible, and one is unresolved.
 
 - **YouTube** (`YouTubeDistiller`) — **ARCHIVED.** Subscriptions, liked videos,
   playlists and playlist contents. Watch history is **not** reachable: the API
-  does not expose it, and Takeout/Data Portability is EU-only, so don't plan
-  around it for US users. Everything about why it is held back, and what has to
-  be true before it returns, is in the YouTube section below.
+  does not expose it, and Takeout/Data Portability is EU-only. Why it is held
+  back is in the YouTube section below.
 
 - **Apple Music** (`AppleMusicDistiller`) — library songs/albums/artists/music
   videos, playlists + contents, recently added, recently played, heavy rotation,
@@ -109,38 +83,35 @@ build, one is impossible, and one is unresolved.
   **The source the product depends on — and a person without an Apple Music
   subscription gets no music from this app at all.** Not from MusicKit, whose
   library endpoints read the same cloud library, and not from the device library
-  that was added to cover for it. Measured on one device with Sync Library
-  toggled off: `MPMediaQuery.songs()` went **320 to 0**, cloud items 304 to 0,
-  while podcasts held at 2 throughout — that last number is the control proving
-  the library was still readable, so the zero is an absence rather than a
-  refusal. Not even the sixteen non-cloud rows survived; they were Apple Music
-  tracks downloaded for offline play, which read as local and are not.
-  `MusicLibraryDistiller` still earns its keep for people who *own* music —
-  iTunes purchases, a synced collection — which is real and uncommon.
+  added to cover for it. Measured on one device with Sync Library toggled off:
+  `MPMediaQuery.songs()` went **320 to 0**, cloud items 304 to 0, while podcasts
+  held at 2 throughout — that last number is the control proving the library was
+  still readable, so the zero is an absence rather than a refusal. Not even the
+  sixteen non-cloud rows survived; they were Apple Music tracks downloaded for
+  offline play, which read as local and are not. `MusicLibraryDistiller` still
+  earns its keep for people who *own* music — iTunes purchases, a synced
+  collection — which is real and uncommon.
 
-- **Spotify** — **ARCHIVED, and removal was a condition of shipping rather than
-  a tidy-up.** Its Developer Terms forbid storing Spotify Content in a
-  third-party database, so once Postgres became the source of truth it was the
-  one source that could never be restored to a new device — while its rows were
-  synced like everyone else's, which is the part the terms do not allow. It also
-  cannot leave development mode: five test users, the developer must hold
-  Premium, and extended quota needs 250,000 monthly active users, closed to
-  individuals since May 2025. It was restored for the beta purely to gather
-  listening data from five testers; neither objection ever went away.
+- **Spotify** — **ARCHIVED, and removal was a condition of shipping.** Its
+  Developer Terms forbid storing Spotify Content in a third-party database, so
+  once Postgres became the source of truth it was the one source that could never
+  be restored to a new device — while its rows were synced like everyone else's,
+  which the terms do not allow. It also cannot leave development mode: five test
+  users, the developer must hold Premium, and extended quota needs 250,000
+  monthly active users, closed to individuals since May 2025.
   `purgeArchivedSources` exists because rows already existed.
 
 - **Apple Podcasts** (`PodcastDistiller`) — `MPMediaQuery.podcasts()`, one
   `MPMediaLibrary` permission, no login, same framework and same
   `NSAppleMusicUsageDescription` as Apple Music. **It is the whole of the Media
-  branch while YouTube is archived**, which was the argument for hiding that
-  modality in build 25 and was reversed on 2026-08-07: a branch with one source
-  is still a branch. See `Modality.isOffered`.
+  branch while YouTube is archived** — a branch with one source is still a
+  branch. See `Modality.isOffered`.
 
   **It returns downloaded episodes and nothing else**, evidenced rather than
   assumed: 304 cloud items sat in the same library while cloud podcasts held at
   zero, and following a show does not enumerate its back catalogue — *Crime
-  Junkie* appeared with one item against hundreds published. Fields Apple fills
-  in, measured on two real episodes:
+  Junkie* appeared with one item against hundreds published. Measured on two real
+  episodes:
 
   - **Populated:** `podcastTitle`, `title`, `artist`/`albumArtist` (the
     publisher), `releaseDate`, `dateAdded`, `playbackDuration`, `bookmarkTime`,
@@ -153,67 +124,52 @@ build, one is impossible, and one is unresolved.
   it is real (50.8s of 4191.8s). A category would have to come from the iTunes
   Search API by show name.
 
-  **Whether the source is worth having is unresolved, and it turns on one
-  question: does Apple Podcasts auto-download episodes of followed shows?** If
-  it does, the library is a rolling window over what somebody follows and costs
-  them nothing. If not, it reflects only deliberate downloads, which almost
-  nobody does, and the source is empty for nearly every user. Both episodes on
-  the test device were downloaded by hand, so there is no evidence either way.
-  **This now ships unanswered**, which is the standing risk on this branch: an
-  empty source that looks connected is worse than no source, and Media is the
-  one modality whose emptiness cannot be blamed on a permission. Settle it by
-  following a show on a device, downloading nothing, and looking again.
+**Whether the source is worth having is unresolved, and it turns on one
+  question: does Apple Podcasts auto-download episodes of followed shows?** If it
+  does, the library is a rolling window over what somebody follows; if not, it
+  reflects only deliberate downloads, which almost nobody does. Both test
+  episodes were downloaded by hand, so there is no evidence either way. **This
+  ships unanswered**, and an empty source that looks connected is worse than no
+  source. Settle it by following a show on a device, downloading nothing, and
+  looking again.
 
-  Everything else was ruled out and should not come back: MusicKit has no
-  podcast types; iCloud sync uses Apple's private container; Now Playing
-  metadata for another app is private API; `DeviceActivity` seals its answer
-  inside an extension and needs Family Controls; the privacy.apple.com export
-  holds full subscriptions and history but arrives as an emailed ZIP days later,
-  which is the one-button rule broken at every step; and
-  `JournalingSuggestions` vends one user-picked item at a time above this app's
-  deployment target. What remains is the share extension resolving a
-  `podcasts.apple.com` link through the iTunes Search API, or Spotify's
-  `/me/shows`, which inherits Spotify's problems.
-
-  `MPMediaQuery.audiobooks()` is **untested, not unavailable**, and points
-  somewhere modern audiobooks never reach — Books has no user-library API and
-  its files are DRM-protected M4B that never leave its container, so what that
-  query can see is the iTunes-era leftover. Audiobooks were built alongside
-  podcasts and removed for exactly that reason; they were added without
-  consulting `written_api.xlsx`, which is the check that exists to prevent it.
+Ruled out and not to come back: MusicKit has no podcast types; iCloud sync uses
+  Apple's private container; Now Playing metadata for another app is private API;
+  `DeviceActivity` needs Family Controls; the privacy.apple.com export arrives as
+  an emailed ZIP days later; `JournalingSuggestions` vends one user-picked item
+  at a time above this app's deployment target. What remains is the share
+  extension resolving a `podcasts.apple.com` link through the iTunes Search API,
+  or Spotify's `/me/shows`. `MPMediaQuery.audiobooks()` is **untested, not
+  unavailable**, and reaches only the iTunes-era leftover — Books has no
+  user-library API and its DRM-protected M4B never leaves its container.
 
 - **Apple Calendar** (`CalendarDistiller`) — **the first source not in
   `written_api.xlsx`.** A calendar collects two things nothing else reaches:
   bookings that ticketing sites write in by themselves (Eventbrite,
-  Ticketmaster, Dice), which is a far stronger claim than a followed artist
-  because it cost money and a Saturday; and what people type for themselves,
-  which is behaviour rather than inference. `url` and `organizer` are kept
-  precisely because they are what tells a booked event from a typed one — see
-  `booked=1` in `extra`.
+  Ticketmaster, Dice), a far stronger claim than a followed artist because it
+  cost money and a Saturday; and what people type for themselves, which is
+  behaviour rather than inference. `url` and `organizer` are kept because they
+  are what tells a booked event from a typed one — see `booked=1` in `extra`.
 
   **Events are stored whole and synced**, unlike HealthKit, because the titles
-  *are* the signal. That is a deliberate trade that puts other people's names and
-  locations in the database, and `PrivacyInfo.xcprivacy` says so.
-
-  **Windows are five years either side** (`AppConfig.calendarLookbackDays` /
-  `calendarLookaheadDays`, capped by `maxCalendarEvents`) — both directions,
-  because a ticket bought today for November only exists ahead of now. A flight
-  to Los Angeles disproved the old 365/180: trips are exactly what sit outside a
-  year, and they are what this source exists to catch. Repeating entries were
-  the argument for a short window and are solved separately — the fetch keeps one
-  occurrence per identifier and marks it `recurring=1`.
+  *are* the signal — a deliberate trade that puts other people's names and
+  locations in the database, and `PrivacyInfo.xcprivacy` says so. **Windows are
+  five years either side** (`AppConfig.calendarLookbackDays` /
+  `calendarLookaheadDays`, capped by `maxCalendarEvents`), both directions,
+  because a ticket bought today for November only exists ahead of now — a flight
+  to Los Angeles disproved the old 365/180. Repeating entries were the argument
+  for a short window and are solved separately: the fetch keeps one occurrence
+  per identifier and marks it `recurring=1`.
 
   Three traps, each paid for:
 
   - **`predicateForEvents` silently returns nothing across more than four
-    years**, so the fetch is chunked by year. At five years either side that is
-    the only reason anything comes back at all: one ten-year predicate returns
-    an empty list and no error, indistinguishable from a person with no plans.
-  - **The chunks are walked outward from today**, not oldest-first. The cap was a
-    harmless backstop over eighteen months and became a chooser over ten years —
-    a decade of standing meetings fills it somewhere in 2021 and the walk stops
-    before reaching anything ahead of now, losing the booked trip the widening
-    was for. Walked outward, a cap costs the furthest year in either direction.
+    years**, so the fetch is chunked by year. One ten-year predicate returns an
+    empty list and no error, indistinguishable from a person with no plans.
+  - **The chunks are walked outward from today**, not oldest-first. A decade of
+    standing meetings fills the cap somewhere in 2021 and the walk stops before
+    reaching anything ahead of now, losing the booked trip the widening was for.
+    Walked outward, a cap costs the furthest year in either direction.
   - **On iOS 17+ the old `requestAccess(to:)` grants *write-only***, which reads
     nothing and looks exactly like an empty calendar.
     `requestFullAccessToEvents` is required, and the legacy
@@ -227,81 +183,68 @@ build, one is impossible, and one is unresolved.
     *name* last, because holidays arriving through a Google or Exchange account
     are `caldav` — an ordinary type, from a server, indistinguishable by type
     from a real diary. The name list matches English plus 节假日 / 節假日 and
-    **will always be incomplete**, which is why it runs after the type has
-    settled everything it can.
+    **will always be incomplete**, which is why it runs after the type.
   - `PublicHolidays` catches what Google copies into somebody's *primary*
-    calendar as ordinary events, which no calendar-level test can see and no
-    structural test can either: of 77 surviving events on a real device, 49 were
-    public holidays and all 49 were all-day, unrecurring, unorganised and
-    unbooked — character for character what "Outpatient" and "1st email" look
-    like. Matched **by token, not by whole name**, because Google writes one day
-    a dozen ways. Incomplete by construction, since a rule broad enough to
-    swallow a real event costs more than showing somebody Karneval.
+    calendar as ordinary events, which no calendar-level or structural test can
+    see: of 77 surviving events on a real device, 49 were public holidays and all
+    49 were all-day, unrecurring, unorganised and unbooked — character for
+    character what "Outpatient" and "1st email" look like. Matched **by token,
+    not by whole name**, because Google writes one day a dozen ways, and
+    incomplete by construction, since a rule broad enough to swallow a real event
+    costs more than showing somebody Karneval.
   - Titles carrying `birthday` or `meeting` are **not drawn**, in either script —
     a *reading* decision, not a filter on what is kept. Every such row is still
-    collected, synced and sent to the ontology stage, because a fortnightly Zoom
-    is a real fact about a week; it is simply not what a person recognises their
-    own year by.
+    collected, synced and sent to the ontology stage.
 
-  **A row with no `cal_type` is not drawn.** Counted rather than argued on a real
-  device: 95 calendar rows, every one untyped, of which 51 were `US Holidays`,
-  37 `香港节假日`, one `Birthdays` and six were real. It costs nothing permanent —
-  the distiller stamps `cal_type` now, a re-stamped row differs from its stored
-  version, and `append_source_records` treats a difference as a change, so **one
-  re-distill returns every event the person still has, typed.**
+  **A row with no `cal_type` is not drawn.** Counted on a real device: 95
+  calendar rows, every one untyped, of which 51 were `US Holidays`, 37
+  `香港节假日`, one `Birthdays` and six were real. It costs nothing permanent —
+  the distiller stamps `cal_type` now, and `append_source_records` treats a
+  re-stamped row as a change, so **one re-distill returns every event the person
+  still has, typed.**
 
-  **The card lists the events themselves**, one row per distinct title, **ranked
+**The card lists the events themselves**, one row per distinct title, **ranked
   by what made the entry rather than by when it happens** — date order is why a
   flight to Los Angeles could not be found on a card listing it, sitting 59th of
-  77 behind five years of dentist appointments. Distinct titles because a
-  calendar is mostly repetition. `ListeningHighlights.shape` is kept and drawn by
-  nothing: booked-against-typed, evenings, weekends and the busiest day are real
-  derived readings the ontology stage will want. Known softness in the ranking's
-  middle tier: a meeting the user organised themselves is an invitation too, and
-  outranks a flight; recognising that needs their own name, which these records
-  do not carry.
+  77 behind five years of dentist appointments. `ListeningHighlights.shape` is
+  kept and drawn by nothing: booked-against-typed, evenings, weekends and the
+  busiest day are derived readings the ontology stage will want.
 
 - **Google Calendar** (`GoogleCalendarDistiller`) — **ARCHIVED**, for the reason
   YouTube is: the consent screen is in Testing, so a reviewer's account gets a
-  403 *after* a successful login, which reads as the app being broken rather
-  than as a source being unavailable. Nothing had to be swept behind it — nobody
-  has ever connected it.
+  403 *after* a successful login. Nobody has ever connected it.
 
-  When it returns, its condition is the whole design: **offered only where the
+When it returns, its condition is the whole design: **offered only where the
   phone has no Google account.** One added in iOS Settings delivers its events
   through EventKit as `caldav`, so `CalendarDistiller` already has them, and
   collecting them again would put every dinner in the database twice under a
   different `item_id` and `source` — which `append_source_records` dedupes
   *within* a source and would not catch. `hasGoogleAccountOnDevice()` tests the
-  `EKSource`, not calendar names, which are whatever somebody called them, and
-  both `SourceAvailability` and `DistillViewModel` guard it, because a hidden
-  row is a drawing and not a rule. Two narrow scopes rather than
-  `calendar.readonly`, since verification asks per scope why a narrower one will
-  not do — and the condition above is the honest answer. Nothing downstream
-  knows it exists: same `extra` keys, same card, same ontology stage. Birthdays
-  go by Google's own `eventType`, which beats the Apple path's title matching.
+  `EKSource`, not calendar names, and both `SourceAvailability` and
+  `DistillViewModel` guard it, because a hidden row is a drawing and not a rule.
+  Two narrow scopes rather than `calendar.readonly`. Nothing downstream knows it
+  exists: same `extra` keys, same card, same ontology stage. Birthdays go by
+  Google's own `eventType`, which beats the Apple path's title matching.
 
 - **Google Health is not possible on iOS, and this is settled rather than
   deferred.** The Fit REST API stopped accepting new signups on 2024-05-01 and
   is supported only to the end of 2026; Health Connect is Android-only with no
-  cloud API; and Google's own migration guidance sends iOS developers to Apple
-  HealthKit. There is no API to apply for. Worth knowing `fitness.*` was a
-  **restricted** scope, so even when it existed it would have dragged this
-  project into a CASA third-party security assessment.
+  cloud API; Google's own migration guidance sends iOS developers to Apple
+  HealthKit. Worth knowing `fitness.*` was a **restricted** scope, so even when
+  it existed it would have dragged this project into a CASA assessment.
 
 - **Apple Health** (`HealthKitDistiller`) — one record per workout (sport,
   duration, energy, distance, recording app) and one per day (exercise minutes,
   active calories, steps). Two windows, not one:
   `AppConfig.healthWorkoutLookbackDays` and `healthActivityLookbackDays`, both a
-  year. They are kept apart because the asymmetry is real — workouts are sparse,
-  quantity samples dense — so the activity window is the dial to turn first if a
+  year, kept apart because the asymmetry is real — workouts are sparse, quantity
+  samples dense — so the activity window is the dial to turn first if a
   distillation is ever genuinely slow. Note it was turned once already, wrongly:
-  the hang was the *authorization request* never returning, with no query having
-  run at all.
+  the hang was the *authorization request* never returning, with no query run.
 
   **Only the types actually read are requested.** HealthKit authorizes per type,
   so asking for vitals we have no use for widens the sheet for nothing — and
-  equally, *reading* a type never requested is what makes it answer
+  *reading* a type never requested is what makes it answer
   `errorAuthorizationNotDetermined`, which is how distance was queried for
   months without ever being returned. **A declined read looks exactly like no
   data**, since HealthKit never says which reads were refused, so an empty
@@ -310,284 +253,167 @@ build, one is impossible, and one is unresolved.
 ### HealthKit's permission sheet, which is not HealthKit's
 
 It asks SpringBoard to launch `com.apple.HealthPrivacyService` and hosts a
-remote view from it. If anything else owns the screen, or that process is still
-cold-starting, it cannot present — and it does not report a refusal or wait, it
-gives up. Five rules, each paid for:
+remote view from it, so if anything else owns the screen or that process is cold
+it gives up rather than reporting a refusal. Five rules, each paid for:
 
-- **Never raise another permission alert near this one.** The alert that was
-  stealing the screen was a location fix fired from `DashboardView.task`, and
-  `AppShell` mounts all five tabs, so it ran at launch from a screen the user had
-  never opened. Any permission asked for on `.task`/`.onAppear` must be gated on
-  that tab's `isVisible`.
-- **One retry is not optional, it is how the sheet gets drawn at all.** HealthKit
-  allows its host about ten seconds to launch and a cold start can take all of
-  it, so the first attempt loses on its own; the second finds the process warm.
-  A refusal never arrives as an error here — a denied read is reported as success
-  with no data — so an error from `requestAuthorization` is always
-  infrastructural and always worth one more go.
-- **`stageTimedOut` is the only terminal error.** `stage` wraps *every*
-  underlying error as `stageFailed`, so a retry guard reading "don't retry
-  `stageFailed`" refuses the one error it exists for. That shipped, and the
-  retry never ran once.
-- **`authorizeTimeout` is 180s; `stageTimeout` stays 20.** The authorization
-  callback does not fire until the user *answers the sheet*, so a query ceiling
-  was a limit on how long somebody was allowed to think — and the app asks them
-  to think, since every category opens off and Allow stays disabled until one is
-  switched on. It compounded: `stageTimedOut` is the error the retry refuses, so
-  a slow read was terminal and the grant being given at that moment was thrown
-  away. Measured on an erased simulator, the sheet sat unanswered for 35 seconds.
+- **No other permission alert near this one** — anything asked for on
+  `.task`/`.onAppear` is gated on that tab's `isVisible`, since `AppShell` mounts
+  every tab.
+- **One retry is not optional**: a cold start can use all of the ten seconds
+  HealthKit allows its host. An error from `requestAuthorization` is always
+  infrastructural, since a denied read is reported as success with no data.
+- **`stageTimedOut` is the only terminal error.** `stage` wraps every underlying
+  error as `stageFailed`, so a retry guard refusing `stageFailed` refuses the one
+  error it exists for.
+- **`authorizeTimeout` is 180s; `stageTimeout` stays 20** — the callback does not
+  fire until the user *answers the sheet*.
 - **Ask nothing of HealthKit while a sheet of ours is dismissing.**
-  `waitUntilActive` cannot see that — `applicationState` stays `.active`
-  throughout a sheet dismissal. `SourcePickerSheet.row` records the choice and
-  `.sheet(item:onDismiss:)` starts it, which is the transition's own completion
-  callback and needs no guessed delay. Right for every source: YouTube's
-  `ASWebAuthenticationSession` and the MusicKit and EventKit alerts all race the
-  same dismissal.
+  `waitUntilActive` cannot see it (`applicationState` stays `.active`), so
+  `.sheet(item:onDismiss:)` starts the work instead of a guessed delay — right
+  for `ASWebAuthenticationSession` and the MusicKit and EventKit alerts too.
 
-Two more things about that sheet. **Its Allow button is disabled until a
-category is switched on** — every toggle opens off, "Turn On All" is a link
-rather than a default, and a user who reads the list and taps Allow gets
-nothing, taps again, gets nothing, and reports the app as frozen. Nothing can be
-drawn over the sheet once it is up and no message afterwards reaches somebody who
-never got past it, so the only place to say so is *before*: a second line on the
-Health row alone, counted by `detentHeight`. And **`SourcePickerSheet.privacyNotice`
-sits under the rows rather than inside one** — *"Read once, never in the
-background"*, with the privacy policy linked — because Google's verification
-requires in-product privacy notices to be prominently displayed and the only one
-this app had was on the sign-in screen. A row's note is for a dead end; the
-sheet's notice is for everybody, and keeping them apart is what stops
-`note(forSource:)` growing back into a per-source description.
+**Its Allow button is disabled until a category is switched on**, which reads as
+a frozen app, so the Health row alone carries a second line warning of it
+(`detentHeight` counts it) and `SourcePickerSheet.privacyNotice` sits under the
+rows rather than inside one. **It only happens to people who have never been
+asked, so testing Health on your own phone proves nothing** — reset with
+`xcrun simctl erase`, or Settings → General → Transfer or Reset → Reset Location
+& Privacy.
 
-**It only happens to people who have never been asked**, which is why it survived
-so long: on any device that has answered once, the call returns instantly with
-nothing to present. **Testing Health on your own phone proves nothing about a new
-user's phone.** Resetting is `xcrun simctl erase` on the simulator — deleting the
-app does not do it, Health keeps the app listed with its toggles and a reinstall
-inherits them, and `simctl privacy` has no `health` service — or, on a device,
-Settings → General → Transfer or Reset → Reset Location & Privacy, which is
-device-wide.
-
-**A failure has to be drawn against the branch that was attempted.**
-`GrowProfileView`'s prompt card asked `nextModality` what went wrong, which is
-right only while the two agree; connect a source out of sequence and the error
-is recorded against one modality while the card interrogates another, gets nil,
-and draws "Ready to grow?" as though nothing had been tried. That is what the
-whole first-run report reduced to — reported as "it just keeps loading and never
-ended".
-
-**A `withThrowingTaskGroup` cannot impose a timeout on a call that never
-returns.** A task group awaits every child before returning, `cancelAll()` only
+Three lessons from the same hunt, none of them about the sheet. **A failure has
+to be drawn against the branch that was attempted** — `GrowProfileView`'s prompt
+card asked `nextModality`, so a source connected out of sequence drew "Ready to
+grow?" over a real error. **A `withThrowingTaskGroup` cannot impose a timeout on
+a call that never returns**: the group awaits every child, `cancelAll()` only
 sets a flag, and a task suspended in `withCheckedThrowingContinuation` never
-observes it — so the group waited forever on the one case the timeout existed
-for. Surviving a continuation nobody will resume means declining to wait for it,
-which requires an unstructured task that is deliberately abandoned.
-
-**A Release build may say what failed.** `BuildKind.isBeta` — a TestFlight build
-carries a *sandbox* receipt where an App Store build carries `receipt` — so Debug
-and TestFlight print the diagnostic and a shipped build does not. Two rounds of
-diagnosis produced two different answers from the same tester screenshot because
-`stageFailed` and `stageTimedOut` rendered identically with the separating detail
-behind `#if DEBUG`, and TestFlight is Release. The detail is the whole run rather
-than its last line, and long-pressing copies it, because a wrapped line of stage
-names is exactly what gets cropped out of a screenshot.
+observes it, so surviving a continuation nobody will resume needs an
+unstructured task that is deliberately abandoned. And **a Release build may say
+what failed** — `BuildKind.isBeta` (a TestFlight build carries a *sandbox*
+receipt, an App Store build carries `receipt`) prints the diagnostic in Debug and
+TestFlight only, because `stageFailed` and `stageTimedOut` rendered identically
+with the detail behind `#if DEBUG`. The detail is the whole run rather than its
+last line, and long-pressing copies it.
 
 ### Where each source can be tested
 
-**YouTube works in the simulator** (it authenticates against a web account in a
-browser sheet). **Apple Music requires a physical iPhone** signed into Apple
-Music, plus a paid developer team and MusicKit enabled on the App ID — MusicKit
-mints its developer token from the signing identity, so ad-hoc-signed simulator
-builds fail with "Failed to request developer token". **Calendar works in the
-simulator**; **HealthKit's sheet and API do too**, but its database starts empty,
-so add samples in the simulator's Health app or every distill comes back empty.
+**YouTube works in the simulator.** **Apple Music requires a physical iPhone**
+signed into Apple Music, plus a paid developer team and MusicKit enabled on the
+App ID — MusicKit mints its developer token from the signing identity, so
+ad-hoc-signed simulator builds fail with "Failed to request developer token".
+**Calendar works in the simulator**; **HealthKit's sheet and API do too**, but
+its database starts empty, so add samples in the simulator's Health app or every
+distill comes back empty.
 
 On device HealthKit needs the entitlement to survive packaging, and it silently
 may not: with no `DEVELOPMENT_TEAM` set Xcode strips it (the built `.xcent` is
 empty), and **`CODE_SIGNING_ALLOWED=NO` does the same to a simulator build**.
 HealthKit reports the result as `Missing com.apple.developer.healthkit
-entitlement` in `log show` and as an ordinary authorization failure on screen, so
-it looks like a bug in the app. `xcodebuild test` signs correctly; building with
-that flag and hand-installing from DerivedData does not. Two verification runs
-were spent on that.
+entitlement` in `log show` and as an ordinary authorization failure on screen.
+`xcodebuild test` signs correctly; building with that flag and hand-installing
+from DerivedData does not.
 
 ## YouTube: the policy position, for when it comes back
 
 **YouTube is archived** and none of this binds while it is. It is kept because
-re-entering costs more than reading it, and because one clause below governs
-every source.
-
-**Read the clauses, never a summary of them.** Two confident readings were
-produced from summarised fetches in one session and both were wrong, each
-corrected only because somebody pushed back. Everything here is anchored to
-quoted text.
+re-entering costs more than reading it, and because one clause governs every
+source. **Read the clauses, never a summary of them** — two confident readings
+from summarised fetches were both wrong.
 
 **III.E.3.b — Authorized Data goes to nobody but its owner**, and *this one is
 not about YouTube*. *"Must not display or allow access to Authorized Data to
 anyone other than the authorizing user."* `publishDiscoveryCard` was appending
-every ranked YouTube channel to `discovery_cards`, the one table in this schema
-every signed-in user may read — so a subscription list was being shown to
-strangers. **The two-part test for anything added to that card is now "is it
+every ranked YouTube channel to `discovery_cards`, the one table every signed-in
+user may read. **The two-part test for anything added to that card is "is it
 something a sentence can be about" *and* "do the source's terms allow a stranger
-to see it".** Nothing in the schema or the type system asks the second, which is
-why it is written down. Apple Music is untouched: no such term covers it.
+to see it".** Nothing in the schema asks the second. Apple Music is untouched.
 
 **III.E.4.h — the derived-data prohibition, and the reason `Ontology.classify`
-has no callers.** *"Must not… access or use API Data to create new or derived
-data or metrics."* The compliance guide's don't-list is scoped to **channels and
-videos**, and includes *"infer or estimate the content category/type of a video
-or channel"* — which was `Ontology.classify(title:channel:detail:)` exactly.
-
-The remedy is in the heading above that list: ***"Only offer metrics that are
-available via YouTube's API services."*** The category *is* available, so it is
-read rather than guessed. `Ontology.domain(youTubeTopics:creatorTags:categoryID:)`
-maps YouTube's own vocabulary onto ours, most specific first — topics beat
-creator tags beat the numeric category, because category 28 is "Science &
-Technology" and cannot tell those apart while a channel tagged `Technology` can:
+is not called on YouTube data.** *"Must not… access or use API Data to create new
+or derived data or metrics"*, whose don't-list is scoped to channels and videos
+and includes *"infer or estimate the content category/type of a video or
+channel"*. The remedy is its heading: ***"Only offer metrics that are available
+via YouTube's API services"*** — so the category is read rather than guessed.
+`Ontology.domain(youTubeTopics:creatorTags:categoryID:)` maps YouTube's own
+vocabulary onto ours, most specific first, since category 28 is "Science &
+Technology" while a channel tagged `Technology` is not:
 
 - `topicDetails.topicCategories`, reduced to the last path component. Liked
   videos carry these; **subscriptions do not**, since `subscriptions.list` has no
   `topicDetails` part, so `channelTopics` makes a second `channels.list` call.
 - `snippet.tags`, **matched whole and lowercased against a small controlled
-  vocabulary, never as substrings.** A tag is an explicit label, so recognising
-  `physics` is translation; matching `phys` inside a title is a guess wearing the
-  same clothes, which is the thing this whole change exists to stop.
+  vocabulary, never as substrings.** Recognising `physics` is translation;
+  matching `phys` inside a title is a guess wearing the same clothes.
 - `snippet.categoryId`, the numeric fallback.
 
 **`refusedTopics` drops Religion, Politics, Health, Military and Society whatever
 YouTube says**, and categories 25 and 29 are absent from the id table for the
-same reason. These are not domains we lack a sentence for — they are inferences
-we decline to make, and a content tag is exactly how a protected characteristic
-arrives without anybody deciding to collect it. Subscribe to a diocese and a
-naive mapping writes down your religion.
-
-**`classify` is kept and has no callers.** The term table is a real asset and the
-restriction is YouTube's alone — Apple Music, Podcasts and Calendar carry no such
-term. **Check the source before calling it.** The music line never went through
-it; that is `musicLine(for:)` and Apple Music's own genres.
-
-**The cost is real and unmeasured.** YouTube leaves plenty of channels untagged,
-so fewer items are placed. **Measure the compliant baseline on its own and do not
-run the old classifier alongside to compare.**
+same reason: a content tag is how a protected characteristic arrives without
+anybody deciding to collect it. **Check the source before calling `classify`** —
+the restriction is YouTube's alone, and the music line goes through
+`musicLine(for:)` and Apple Music's own genres. What the compliant reading costs
+in coverage is unmeasured; measure it on its own rather than running the old
+classifier alongside.
 
 **Retention: 30 days, and `0016`'s daily `pg_cron` sweep is still running.**
 III.E.4 permits storing beyond 30 calendar days only Analytics data, Reporting
-data and *statistics*; titles, channel names and playlist contents are capped and
-must then be deleted or refreshed — the same objection that removed Spotify,
-arriving for a source the product cannot drop. The resolution is derive, then
-delete the raw. Three stores hold YouTube strings: `distilled_records`,
+data and *statistics*; titles, channel names and playlist contents must then be
+deleted or refreshed. Three stores hold YouTube strings: `distilled_records`,
 `discovery_cards.interests` (swept by `0032` and no longer written), and
 `shared_posts`, deliberately *not* swept because that video id came from a public
-URL somebody pasted rather than an authorised API call — genuinely grey, and
-wanting a written judgement rather than a delete written on a guess.
+URL somebody pasted rather than an authorised API call. **`0016`'s premise — that
+derived output may persist indefinitely — may be wrong, so settle it before
+anything derived is persisted.**
 
-**`0016`'s premise may be wrong**, and it decides whether this file describes a
-retention model or a hole in one: it assumes derived output may persist
-indefinitely because it names nothing, while the derived-metrics amendment's
-headline benefit being 36-month storage *for accepted clients* implies derived
-data is otherwise inside the ordinary 30-day cap. **Settle this before anything
-derived is persisted.**
-
-**The sweep satisfies the revocation deadline for free, and provably.** Revoked
-at Google, everything read must be gone within 30 days; the sweep deletes 30 days
-after *collection*, and a revocation is never earlier than the collection it
-revokes. Revoked in-app it is **7 days**, and a deletion *request* is 7 — that is
-the case the sweep cannot cover, because the clock can start on day zero.
-
-**Both routes are built**, on the dashboard and only for people who have
-connected YouTube: *Delete what was read* keeps the grant, *Disconnect YouTube*
-revokes it. `deleteYouTube(revoking:)` takes the server first and the local copy
-only if the server agreed, because a device that cleared itself on a failed
+**Revocation.** Revoked at Google, everything read must be gone within 30 days —
+which the sweep satisfies for free, since it deletes 30 days after *collection*.
+Revoked in-app it is **7 days**, and a deletion *request* is 7; that is the case
+the sweep cannot cover. One control is built, on the dashboard and only for
+people who have connected YouTube: a **Disconnect all** that revokes.
+`DistillViewModel.deleteYouTube(revoking:)` takes the server first and the local
+copy only if the server agreed, because a device that cleared itself on a failed
 request would show an erased source while the rows sat in Postgres.
 **`disconnect()` is not revocation** — it deletes our copy of the token while the
 grant carries on existing in the user's Google account. `revoke()` POSTs the
 *refresh* token (an access token would revoke only itself) and treats **400 as
-success**, which means Google has already forgotten it. Its local half runs
-regardless, since the token needed to retry is exactly what is being thrown away.
+success**, which means Google has already forgotten it; its local half runs
+regardless, since the token needed to retry is what is being thrown away.
 
-**The way out is an amendment, and it is the one Google built for this.**
-`developers.google.com/youtube/terms/derived-metrics-policy` lists **Content
-Categorization and Tagging**: developers may *"use analysis to assign descriptive
-sub-genres or tags to videos and channels"* provided they are *"additive and
-distinct from YouTube's video categories"*. That is Written's ontology stage,
-described by Google — and the shape it licenses is **YouTube's category with our
-tag beneath it**, so reading YouTube's label is the substrate rather than the
-alternative. Four things about applying:
+**Bringing it back needs three things, and each is weeks rather than days.**
+Extended quota — a worst-case distill is ~185 units against a 10,000/day
+default, and requesting it is what triggers an audit. OAuth verification — the
+consent screen is in Testing, which allowlists 100 users and expires every
+refresh token after 7 days, and publishing needs a Search Console **Domain**
+property, a scope justification and a demo video. And, for the ontology stage,
+Google's **Content Categorization and Tagging** amendment
+(`developers.google.com/youtube/terms/derived-metrics-policy`), which licenses
+*"descriptive sub-genres or tags"* that are *"additive and distinct from
+YouTube's video categories"* — applied for on the same form, prospectively, so do
+not apply while running the unlicensed version of the thing being applied for.
+`youtube.readonly` is *sensitive*, not *restricted*, so no CASA assessment is
+needed. Whatever happens, the YouTube contribution must be **separable and
+reversible** — or the 7-day deletion cannot be honoured without recomputing every
+profile — and **must not become load-bearing**, since a refusal would arrive
+after the pipeline is built. **The day the ontology layer is enabled for YouTube,
+`web/en-us/privacy/` moves in the same commit**: it describes the conservative
+reading, which is a compliance statement rather than a description.
 
-- **The bet is the analytics use case.** Acceptance is via the support form,
-  Section 5 → *Analytics & Reporting*, and Google requires the service to
-  "reflect an analytics use case on YouTube". Written is a dating app. The
-  coherent case is that the API-facing component genuinely analyses videos and
-  channels and what happens downstream does not change what that component is.
-  **That is a case, not a fit**, and everything else depends on it.
-- **Sequence, and it is easy to get backwards.** Approval is prospective and the
-  audit examines the *current* state, so do not apply while running the
-  unlicensed version of the thing being applied for.
-- **The amendment's text is not public**, so applying is partly agreeing to terms
-  sight unseen.
-- **Storage cuts against `0016`** — see above.
+**Two things ruled out.** Takeout: the legal point is sound — API Data is data
+provided *through the API services* — but a ZIP emailed days later is the
+one-button rule broken at every step. And there is **no general prohibition on
+merging YouTube data with other sources**; the sentence usually quoted is a
+compliance-guide bullet carrying its own labelling condition, while the actual
+clauses are narrower (III.E.2.a aggregation **across channels**, III.E.2.b
+insight into **YouTube's own** business, III.C.5 **search-result** mixing).
 
-**There is no general prohibition on merging YouTube data with other sources**,
-which is worth stating because two third-party reports claimed there was and so
-did a first pass here. The sentence they leaned on is a compliance-guide bullet
-carrying its own condition — *"you must make the difference clear to the user"* —
-a labelling requirement. The actual clauses are narrower: III.E.2.a is
-aggregation **across channels**, III.E.2.b is insight into **YouTube's own**
-business, III.C.5 is **search-result** mixing.
-
-**Written will be audited, unlike most apps**, because audits are triggered by
-*quota requests*. A worst-case distill is ~185 units against a 10,000/day default
-— about 54 distills a day across all users — so extended quota is needed to launch
-at all, and the same form carries the derived-metrics request. `youtube.readonly`
-is *sensitive*, not *restricted*, so no CASA assessment is needed; that is worth
-weeks.
-
-**Takeout is ruled out and should not come back.** The legal point is sound — API
-Data is defined as data provided *through the API services*, so a user-exported
-file is outside III.E.4 — but the export is a manual request arriving days later
-as a ZIP somebody must upload, which is the one-button rule broken at every step.
-This file already refused the identical shape for Apple's Data & Privacy export.
-
-**The plan of record: submit only once hubs exist**, built from *other*
-modalities and a predefined vocabulary, with YouTube cross-comparing and
-validating them. That defeats a but-for objection to the hubs themselves, but
-**the validation contributes a weight and that weight is derived data**, so it
-does not escape III.E.4.h — which is why the amendment is the route rather than a
-cleverer description. Two constraints follow whatever happens: the YouTube
-contribution must be **separable and reversible**, or the 7-day deletion on
-revocation cannot be honoured without recomputing every profile; and **YouTube
-must not become load-bearing**, since a refusal would arrive after the pipeline
-is built.
-
-**The site describes the conservative reading**, matching what the app does:
-YouTube's own classifications are used, nothing is worked out from a title or
-channel name, and some of what somebody watches stays unplaced. It deliberately
-does **not** describe letting users hand-pick interests after an import — that
-flow does not exist. **The day the ontology layer is enabled for YouTube, the
-site moves in the same commit**, which is now a compliance statement rather than
-a description. Design the layer assuming approval — one pipeline, not two — but
-gate the YouTube path on a server-side entitlement so enabling it elsewhere
-cannot switch it on here by accident.
-
-**Google's consent screen is in Testing**, which allowlists 100 users *and*
-expires every refresh token after exactly 7 days. Zero-tap re-distillation is a
-property of a *published* app; a re-grant looks like the normal flow, which is
-why nobody reported it. Publishing needs OAuth app verification: a consent
-screen, a domain owned and verified in Search Console as a **Domain property** by
-a **Project Owner** of the Cloud project, a scope justification, and a
-YouTube-hosted demo video showing the real grant, the app name and the client id.
-Mechanical, but weeks. **A free host subdomain cannot stand in** — nothing can add
-a DNS record to `pages.dev`.
-
-**The DNS trap on `written-stl.com`**, which is the one piece of the site's setup
-worth keeping: `www` is a **proxied** `A` record to `192.0.2.1` (TEST-NET-1,
-routes nowhere) answered by a dynamic Redirect Rule, and the placeholder is the
-point — the request terminates at Cloudflare and the address is never contacted.
-Grey-cloud it and the browser gets `192.0.2.1` and hangs, which is worse than no
-record. **Not a CNAME to the apex**: the apex is a Worker custom domain, and a
+**The DNS trap on `written-stl.com`:** `www` is a **proxied** `A` record to
+`192.0.2.1` (TEST-NET-1, routes nowhere) answered by a dynamic Redirect Rule, and
+the placeholder is the point — the request terminates at Cloudflare and the
+address is never contacted. Grey-cloud it and the browser gets `192.0.2.1` and
+hangs. **Not a CNAME to the apex**: the apex is a Worker custom domain, and a
 proxied CNAME onto one returns Cloudflare Error 1000. The rule is dynamic
 (`concat("https://written-stl.com", http.request.uri.path)`) rather than a static
-redirect to the homepage, because Google's reviewer follows deep links and
-`www…/en-us/privacy/` landing on the front page is a mismatch.
+redirect to the homepage, because Google's reviewer follows deep links. A free
+host subdomain cannot stand in — nothing can add a DNS record to `pages.dev`.
 
 ## Output pipeline
 
@@ -600,26 +426,23 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
 - Every source normalizes into the **same** `DistilledRecord` schema, so the
   downstream ontology/embedding work consumes one shape regardless of platform:
   `source, data_type, item_id, name, creator, detail, extra, collected_at`.
-- `extra` is a `key=value;key=value` string for platform-specific context
-  (genres, play counts, dates, ranks). Put platform quirks there rather than
-  widening the schema.
+  `extra` is a `key=value;key=value` string for platform-specific context — put
+  platform quirks there rather than widening the schema.
 - `DistillViewModel` holds records in memory and replaces per-source on
   re-distill (`replaceRecords(from:with:)`) — distilling YouTube twice must not
   duplicate rows.
-- **Data no longer stays on-device.** It did until the Supabase backend went in;
-  the rule now is that everything leaving the device is on this list, and the
-  value of the list is that it stays short and complete.
+- **Data no longer stays on-device.** Everything leaving the device is on this
+  list, and the value of the list is that it stays short and complete.
   - **Postgres, keyed to the account** — the distillation itself, via
     `SyncService`, plus the profile, the ban list and derived health signals.
-    **Raw HealthKit rows are never uploaded**, and that is now enforced twice:
-    the device derives its signals and *discards* the raw workouts and activity
-    samples without writing them to disk, and `SyncService.localOnlySources`
-    refuses the source outright. Only the chronotype, sport levels, hourly
-    profile and step average travel. Row-level security is the whole
-    authorisation layer — see the migrations.
+    **Raw HealthKit rows are never uploaded**, enforced twice: the device derives
+    its signals and *discards* the raw workouts and activity samples without
+    writing them to disk, and `SyncService.localOnlySources` refuses the source
+    outright. Only the chronotype, sport levels, hourly profile and step average
+    travel. Row-level security is the whole authorisation layer.
   - **Lyrics providers** — `LyricsService` sends the top song's artist and title
     to lrclib.net, then music.163.com if LRCLIB has no answer. One artist and one
-    title, no user id, no library, and cached so a song is asked once.
+    title, no user id, no library, cached so a song is asked once.
 - **The server is the source of truth; the device keeps a cache.** `RecordStore`
   was the only copy for a while, which is why sync pushing without ever reading
   back left a reinstall starting empty. `RestoreService.hydrate()` is the read
@@ -628,128 +451,93 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   device *replaces* a source's rows in memory so a re-distill doesn't duplicate
   what the dashboard shows; the server *appends*. `append_source_records` stamps
   every row of a run with one `distilled_at`, and a `before insert` trigger drops
-  any row identical to the newest version of itself — so re-distilling YouTube
-  five minutes later writes the one newly-liked video and nothing else. Two
-  things make that work and both are easy to break: the comparison is against the
-  **latest** version, not any historical one (or a value that changed and changed
-  back is silently lost), and it **excludes `collected_at` / `distilled_at` /
-  `updated_at`**, which differ on every pass and would make every row look
-  changed.
+  any row identical to the newest version of itself. Two things make that work
+  and both are easy to break: the comparison is against the **latest** version,
+  not any historical one (or a value that changed and changed back is silently
+  lost), and it **excludes `collected_at` / `distilled_at` / `updated_at`**,
+  which differ on every pass and would make every row look changed.
 
-  **Three exceptions, and none of them is a change of mind.** Account deletion,
-  the YouTube 30-day sweep (`0016`), and `SyncService.deleteSource(_:)` behind
-  the two YouTube controls. All three are obligations rather than features: an
-  annotation is not a deletion, and "we kept it, marked as removed" is the
-  answer that fails an audit. **`markedRemoved` is still right for striking a
-  row off** — that keeps "collected then struck off" distinct from "never
-  collected", which the ontology stage needs — but it is a *reading* decision
-  and cannot stand in for a deletion somebody is owed.
-
-  `deleteSource` needs **no edge function**: `0001`'s policies are `for all
-  using (auth.uid() = user_id)`, which covers delete, so a session can only ever
-  reach its own rows. Note the trap in building that request — PostgREST wants a
-  query string, and `URL.appendingPathComponent` escapes the `?`, turning
-  `distilled_records?source=eq.youtube` into a request for a table of that name.
-  It 404s, which is the lucky failure; the unlucky one is a DELETE that arrives
+  **Three exceptions, and none is a change of mind:** account deletion, the
+  YouTube 30-day sweep (`0016`), and `SyncService.deleteSource(_:)` behind the
+  YouTube control. All three are obligations — "we kept it, marked as removed" is
+  the answer that fails an audit. **`markedRemoved` is still right for striking a
+  row off**, keeping "collected then struck off" distinct from "never collected",
+  but it cannot stand in for a deletion somebody is owed. `deleteSource` needs
+  **no edge function**: `0001`'s policies are `for all using (auth.uid() =
+  user_id)`, which covers delete. Note the trap in building that request —
+  PostgREST wants a query string, and `URL.appendingPathComponent` escapes the
+  `?`, turning `distilled_records?source=eq.youtube` into a request for a table
+  of that name. It 404s, which is the lucky failure; the unlucky one is a DELETE
   with no filter at all. `URLComponents`, always.
+
 - **Read through the `summary_*` views, never the tables.** They return the
   latest row per item across all runs — a union, deliberately **not** a sum: a
   HealthKit run reports sessions over a 365-day lookback and Apple Music reports
   cumulative play counts, so adding two runs would roughly double every figure.
   The views are `security_invoker = on`; without it a view runs as its owner and
-  bypasses RLS, which is the whole authorisation layer.
-- **Signing out erases the device**, and nothing is retained afterwards —
-  `signOutLocalState()` clears the cache, the ban list, the tree seed and the
-  OAuth tokens. A connection still outlives the session, but through Postgres
-  rather than the phone: signing back in restores the garden as it was. This
-  reverses an earlier decision that kept everything on sign-out, which was only
-  ever safe because `AccountScope` keys each store by account. That keying stays
-  as a second line of defence.
-- **Local state must be cleared before the session is dropped.** `AccountScope`
-  reads the stored user id to know which files and Keychain items belong to the
-  account; after `SupabaseAuth.signOut()` it resolves to `local` and would clear
-  the wrong ones. `HomeView` is the only place wired for this, and
-  `GrowProfileView` deliberately has no `onSignOut` so there is no second route
-  that could skip it.
+  bypasses RLS.
+- **Signing out erases the device** — `signOutLocalState()` clears the cache, the
+  ban list, the tree seed and the OAuth tokens. A connection outlives the session
+  through Postgres rather than the phone, and `AccountScope` keys each store by
+  account as a second line of defence. **Local state must be cleared before the
+  session is dropped**: `AccountScope` reads the stored user id to know which
+  files and Keychain items belong to the account, and after
+  `SupabaseAuth.signOut()` it resolves to `local` and would clear the wrong ones.
+  `HomeView` is the only place wired for this, and `GrowProfileView` deliberately
+  has no `onSignOut` so there is no second route that could skip it.
 - `PrivacyInfo.xcprivacy` must agree with that list. It declared *nothing
-  collected* for a while after the backend landed, which is exactly the kind of
-  claim that ages into a rejection.
-- **A connection is a snapshot, not a subscription.** Nothing polls, nothing runs
-  in the background: a distillation happens the moment someone taps Connect and
-  `collectedAt` stamps every row. "Connected" in the UI therefore means *has been
-  connected* — a durable fact — which is why `RecordStore` persists it rather
-  than the app rediscovering it each launch.
+  collected* for a while after the backend landed, which is the kind of claim
+  that ages into a rejection.
+- **A connection is a snapshot, not a subscription.** Nothing polls: a
+  distillation happens the moment someone taps Connect and `collectedAt` stamps
+  every row, so "connected" means *has been connected* — which is why
+  `RecordStore` persists it.
 - **And a connection is not the same fact as a row.** Connectedness was inferred
   from record *volume* — `TreeMetrics.metrics` answers `nil` for a modality with
   no rows — so a YouTube account with no likes and no subscriptions was
-  indistinguishable from an untouched one. Everything reads `branches`:
-  `nextModality` kept offering the same modality, no `ConnectedBar` appeared, the
-  badge ring stayed empty and the plant stayed at stage zero, with **no error
-  anywhere, because the distillation had succeeded.** Reported as the flow never
-  moving on.
-
-  `ConnectionStore` is the local half of `source_connections`, which the server
-  has always recorded correctly — `append_source_records` upserts the row even
-  from an empty array. `replaceRecords` is the hook, being the one point every
-  source's rows pass through, and usefully the one Calendar returns *before*
-  reaching on an empty result: Calendar and Health keep failing loudly on
-  nothing, which is right, because for those two an empty answer and a refused
-  permission are the same answer. For YouTube they are not.
-
-  It matters most for **Podcasts**, where zero is the *normal* result — that
-  source only ever sees downloaded episodes.
+  indistinguishable from an untouched one: `nextModality` kept offering the same
+  modality, no `ConnectedBar` appeared, the badge ring stayed empty and the plant
+  stayed at stage zero, with **no error anywhere, because the distillation had
+  succeeded.** Everything reads `branches` now. `ConnectionStore` is the local
+  half of `source_connections`, which the server has always recorded correctly —
+  `append_source_records` upserts the row even from an empty array — and
+  `replaceRecords` is the hook, the one point every source's rows pass through.
+  It matters most for **Podcasts**, where zero is the *normal* result; Calendar
+  and Health keep failing loudly on nothing, because for those two an empty
+  answer and a refused permission are the same answer.
 - Exports are git-ignored (`written-distillation-*.csv`) — they are personal
   data and must never enter history.
 
 ## Signing in: three routes, but only one of them creates an account
 
-Apple, Google and phone. That sentence was false until 2026-08-04 and the way it
-was false is the most expensive bug this project has had.
+**All three routes open a session; only phone creates an account.**
+`supabase/functions/resolve-signin` refuses any Apple or Google session whose
+`public.users` row has no phone, and deletes the orphan Supabase just made — the
+`id_token` grant signs up and signs in with the same call, so "there is no
+account for this identity" is only knowable *after* one has been made. Apple and
+Google are therefore *sign-in for an existing, linked account*, and `SignInView`
+says so on screen before the refusal can happen.
 
-**Read this before anything else in this section.** All three routes open a
-session; **only phone creates an account.** `supabase/functions/resolve-signin`
-refuses any Apple or Google session whose `public.users` row has no phone, and
-deletes the orphan Supabase just made — the `id_token` grant signs up and signs
-in with the same call, so "there is no account for this identity" is only
-knowable *after* one has been made. Apple and Google are therefore *sign-in for
-an existing, linked account*, and `SignInView` says so on screen before the
-refusal can happen.
+Two consequences reach beyond the sign-in screen. **An App Store or TestFlight
+reviewer cannot create an account by any route they control** — see the
+demo-account section below. And **`AuthError.noLinkedAccount` is the correct
+behaviour**, not a bug to be fixed the next time somebody reports that Sign in
+with Apple "doesn't work".
 
-Two consequences that reach well beyond the sign-in screen. **An App Store or
-TestFlight reviewer cannot create an account by any route they control** — see
-the demo-account section below, which is the whole reason a test phone number
-exists. And **`AuthError.noLinkedAccount` is the correct behaviour**, not a bug
-to be fixed the next time somebody reports that Sign in with Apple "doesn't
-work".
-
-**Three of the four buttons authenticated nobody.** "Create account" — the
-largest button on the launch screen — and "Sign in with Phone Number" both
-pushed `PhoneNumberView`, whose completion set `route = .photos` with no call to
-anything; "Sign in with Google" set `route = .home` outright. The phone screens
-were finished and had never been wired up, because Twilio was rejected on cost,
-and nobody ever stopped them being reachable.
-
-What that did to a tester who took the obvious button: **no session**, so the
-photo page correctly answered "You're not signed in"; **no `route(for:)`**, so
-the name and communication style steps were skipped; **no `auth.users` row**, so
-nothing they did could be saved and nobody could find them in Explore. The
-account was gone by the next launch, because `initialRoute()` reads the Keychain
-and nothing had been written to it.
-
-**It cost a day of looking in the wrong place** — the discovery publisher, the
-feed, the photo pipeline — all of which produced four genuine fixes that were
-none of them the reason. The lesson is cheaper than the search was: **a button
-that does nothing is worse than an absent one**, and "the account doesn't exist"
-is a hypothesis worth eliminating before any of the machinery downstream of it.
+**A button that does nothing is worse than an absent one.** Three of the four
+launch-screen buttons once authenticated nobody: no session, no `route(for:)`,
+no `auth.users` row, and the account was gone by the next launch because
+`initialRoute()` reads the Keychain. It cost a day spent in the discovery
+publisher, the feed and the photo pipeline — **"the account doesn't exist" is a
+hypothesis worth eliminating before any of the machinery downstream of it.**
 
 - **Apple** — native `ASAuthorization`, identity token traded for a session.
-  Free, instant, and the only one that ever worked.
 - **Google** — the *same* PKCE machinery that connects YouTube, asked a
   different question. `OAuthProvider.googleSignIn` requests `openid email
-  profile` and the `id_token` goes to Supabase's `grant_type=id_token`, exactly
-  as Apple's does. No SDK, no client secret — a native client has none — and the
-  dashboard side is this app's client ID in **Authorized Client IDs**, because
-  Supabase validates the token's `aud` against that list.
+  profile` and the `id_token` goes to Supabase's `grant_type=id_token`. No SDK,
+  no client secret — a native client has none — and the dashboard side is this
+  app's client ID in **Authorized Client IDs**, because Supabase validates the
+  token's `aud` against that list.
 
   Two refusals in it are deliberate. It does **not** persist Google's refresh
   token: the one that matters is Supabase's, and saving Google's would file it
@@ -760,26 +548,24 @@ is a hypothesis worth eliminating before any of the machinery downstream of it.
   previous user's grant signs the wrong person in.
 - **Phone** — Supabase's **Twilio Verify** provider. `sendOTP` / `verifyOTP`,
   sharing session adoption with the other two through `adopt(_:)`, which was
-  lifted out of `exchange` precisely because phone arrives from `auth/v1/verify`
-  rather than `auth/v1/token` and needs the identical five steps. Two copies
-  would be two places to forget the `UserDefaults` write that `AccountScope`
-  reads.
+  lifted out of `exchange` because phone arrives from `auth/v1/verify` rather
+  than `auth/v1/token` and needs the identical five steps. Two copies would be
+  two places to forget the `UserDefaults` write that `AccountScope` reads.
 
 **Route from the step, never from a constant.** `onSignedIn` calls
 `route(for: onboardingStep)`. Hardcoding `.photos` is what skipped the
-communication style page for every phone user.
-
-**E.164 is built once** (`PhoneNumberView.e164`) and used for both calls.
-Supabase verifies a code against the number it *sent* to, so a space in one
-string and not the other fails a correct code against a number never messaged.
+communication style page for every phone user. **E.164 is built once**
+(`PhoneNumberView.e164`) and used for both calls: Supabase verifies a code
+against the number it *sent* to, so a space in one string and not the other fails
+a correct code against a number never messaged.
 
 ### What phone costs, and why it is not charged for
 
 ~$0.058 a verification in the US, **~$0.12 in Hong Kong** — a flat $0.05 Verify
-fee plus the SMS channel fee, which is roughly eight times higher in HK because
-it is a small market terminating internationally. It cannot be passed to users
-on iOS anyway: in-app charges for digital services must go through IAP, whose
-price points start around $0.29. Every competing dating app absorbs this.
+fee plus the SMS channel fee, roughly eight times higher in HK because it is a
+small market terminating internationally. It cannot be passed to users on iOS
+anyway: in-app charges for digital services must go through IAP, whose price
+points start around $0.29.
 
 **The exposure is fraud, not traffic.** SMS pumping — driving OTPs to premium
 numbers for a share of the termination fee — can burn hundreds overnight. Four
@@ -787,25 +573,20 @@ controls, in order of how much they buy:
 
 - **Twilio Verify geo permissions, Hong Kong / Taiwan / US only.** Console →
   Verify → Settings → Geo permissions. **This is separate from Messaging geo
-  permissions**, which look identical and do nothing for Verify traffic —
-  setting those and assuming you are covered is the trap.
+  permissions**, which look identical and do nothing for Verify traffic.
 - SMS Fraud Guard on.
 - Supabase SMS rate limit at **10/hour**, project-wide: a ~$29/day worst case.
-  Note it is *not* per-user, so five testers in an hour is half the budget spent
+  It is *not* per-user, so five testers in an hour is half the budget spent
   legitimately.
 - **CAPTCHA deliberately not enabled.** On native iOS it means a WebView-hosted
   challenge and a token threaded into `sendOTP` — real work and real friction
   against an exposure the three above already bound. **Revisit the day that rate
-  limit is raised for real volume**, when the ceiling stops protecting anything.
+  limit is raised for real volume.**
 
 Twilio also gates sending behind **Trust Hub KYC**: an unapproved primary
 compliance profile answers "Primary compliance profile is not approved" and no
 SMS leaves. An Individual profile is enough for Verify and reviews in up to 48
 hours; only toll-free needs a Business one.
-
-**Two sign-in methods mean one person can hold two accounts.** Identity linking
-is unbuilt and was consciously deferred for the beta — for a dating app that is
-a duplicate in the pool, so it wants deciding before launch.
 
 ## Launch routing: the first frame must already be the right screen
 
@@ -816,11 +597,9 @@ disagree. Two rules, each paid for once:
 - **Decide synchronously.** Anything the first frame depends on has to be
   answerable without a network call. `SupabaseAuth.hasStoredSession` reads the
   Keychain and `restoredStep` reads `UserDefaults`; both are instant. Deciding
-  from the Supabase token refresh instead meant the sign-in screen was drawn for
-  two to four seconds and then replaced — a flash of the wrong screen on every
-  launch for someone already signed in. `restoreSession` still runs and the
-  server still has the last word; it just corrects a route rather than choosing
-  the first one.
+  from the Supabase token refresh meant the sign-in screen was drawn for two to
+  four seconds and then replaced. `restoreSession` still runs and the server
+  still has the last word; it corrects a route rather than choosing the first.
 - **Onboarding steps are routes, not covers.** A `fullScreenCover` has to draw
   something underneath it, and the something was `SignInView` — so resuming on
   the photo page reintroduced the very flash the point above removed. Anything
@@ -828,59 +607,46 @@ disagree. Two rules, each paid for once:
   in the `switch`.
 
 `restoredStep` mirrors two facts that live on the server (the name, and whether
-the photo page has been shown), which is what lets a force-quit resume on the
-page it happened on. Anything that moves them — `upsertProfile`, `loadProfile`,
+the photo page has been shown), which lets a force-quit resume on the page it
+happened on. Anything that moves them — `upsertProfile`, `loadProfile`,
 `markPhotoStepSeen` — must call `cacheOnboardingStep()`, and `signOut` must clear
 it along with `firstName` and `hasSeenPhotoStep`, or the next account inherits
 the last one's answers and is never asked its name.
 
 **`loadProfile` is the correction, and it is the whole of how a new phone skips
 onboarding.** It runs inside `restoreSession`, before `RootView` recomputes the
-route, and it is also called on each fresh sign-in path — so it fires on exactly
-the launches that need it, `firstName` being in-memory only and therefore nil on
-every cold launch. It reads all six facts `onboardingStep` branches on and
-`adopt(_:)` fills any local store the device is missing, **one direction only**:
-the local answer wins where it exists, because somebody may have changed
-something on this phone a moment ago and be offline, and the server's copy would
-then be older rather than newer.
+route, and on each fresh sign-in path — `firstName` is in-memory only and
+therefore nil on every cold launch. It reads all six facts `onboardingStep`
+branches on and `adopt(_:)` fills any local store the device is missing, **one
+direction only**: the local answer wins where it exists, because somebody may
+have changed something on this phone a moment ago and be offline.
 
 Three of those six had no column until `0034` — the interest set, the two
 sliders, and `hasExplored` — and a `distilled_records` row cannot stand in for
 one here, because records arrive with `RestoreService.hydrate()`, which needs
 `AppShell`, which needs the route. **The data could not unlock the route that
-would load the data**, which is why a reinstall re-ran onboarding while the
-garden grew to full size behind the arrow offering to grow it. Anything added to
-`onboardingStep` from now on needs a column and a line in that select, or it
-reintroduces the same hole.
+would load the data.** Anything added to `onboardingStep` from now on needs a
+column and a line in that select, or it reintroduces the same hole.
 
 `-route birthday|name|gender|interest|communication|photos|home|signIn` opens
-straight onto a screen (DEBUG only). The onboarding pages otherwise need a real
-account, which the simulator cannot provide, so this is the only way to check
-them without a device.
-
-**`-birthday confirm|error`** goes one further and seeds a *state* rather than a
-screen, for the same reason `-reveal` does: both the confirmation card and the
-red-bordered refusal need a tap to reach, `simctl` can send none, and they are
-the two states most likely to be wrong because they are drawn over a keyboard.
-`confirm` seeds a fixed date so the card reads back the same sentence every run
-instead of an age that moves with the machine's clock.
+straight onto a screen (DEBUG only) — the onboarding pages otherwise need a real
+account, which the simulator cannot provide. **`-birthday confirm|error`** seeds
+a *state* rather than a screen, for the same reason `-reveal` does: both the
+confirmation card and the red-bordered refusal need a tap to reach and `simctl`
+can send none. `confirm` seeds a fixed date so the card reads back the same
+sentence every run.
 
 ## Encoding: every generated file must support every language
 
 **Any file this project writes must be UTF-8 with a BOM (`\u{FEFF}`), not just
 UTF-8.** Users' libraries are full of Korean, Japanese, Chinese, Cyrillic, and
-emoji; a distillation is worthless if the titles arrive as mojibake.
-
-The subtlety that already bit us once: plain UTF-8 is *correct* but Excel
-doesn't assume it — without the BOM it falls back to a legacy Western encoding
-and non-Latin text renders unreadable. Numbers and pandas are fine either way,
+emoji. Plain UTF-8 is *correct* but Excel doesn't assume it — without the BOM it
+falls back to a legacy Western encoding and non-Latin text renders unreadable,
 so the bug only appears for the person opening the file in Excel. `CSVExporter`
-prepends the BOM for this reason; keep it, and apply the same rule to any new
-export format (JSON, TSV, reports). For pandas, read with `encoding='utf-8-sig'`.
-
-Related: CSV escaping is RFC 4180 (quote fields containing comma/quote/newline,
-double embedded quotes). Titles genuinely contain commas and quotes — don't
-hand-roll a simpler join.
+prepends the BOM; apply the same rule to any new export format. For pandas, read
+with `encoding='utf-8-sig'`. CSV escaping is RFC 4180 (quote fields containing
+comma/quote/newline, double embedded quotes) — titles genuinely contain commas
+and quotes, so don't hand-roll a simpler join.
 
 ## Setup that lives outside the code
 
@@ -889,9 +655,10 @@ client IDs are not secrets (they ship in the binary; PKCE is what secures the
 flow). No client secret belongs in this app.
 
 Portal-side setup — Google Cloud (YouTube Data API v3 + iOS OAuth client + test
-users on the consent screen), Apple Developer (MusicKit on the App ID) — is documented step-by-step in `README.md`. Both
-Google gates unverified apps to an explicit tester allowlist; a 403
-after a successful login almost always means the signed-in account isn't on it.
+users on the consent screen), Apple Developer (MusicKit on the App ID) — is
+documented step-by-step in `README.md`. Google gates unverified apps to an
+explicit tester allowlist; a 403 after a successful login almost always means
+the signed-in account isn't on it.
 
 ## Conventions
 
@@ -900,84 +667,77 @@ after a successful login almost always means the signed-in account isn't on it.
   up automatically, no pbxproj surgery.
 - New OAuth sources: add an `OAuthProvider` case rather than writing another
   auth service; `OAuthPKCEService` is provider-parameterized. Google *sign-in*
-  is a second case on the same client rather than a second service — see
-  `googleSignIn`, and note `persistsRefreshToken: false` on it.
+  is a second case on the same client — see `googleSignIn`, and note
+  `persistsRefreshToken: false` on it.
 - **`web/` is the website, and it is not part of the app target.** A static
   page, no build step, deployed as a Cloudflare Worker serving `./web` as
   assets — `wrangler.jsonc` at the repo root, and `web/README.md` for the
-  deployment, the review flags and the two headless-Chrome traps that cost a
-  measurement each.
+  deployment, the review flags and the two headless-Chrome traps.
+
   **Every file in that directory is published**, and the two config files being
   exceptions is what makes it easy to believe otherwise: Workers consumes
   `_headers` and `_redirects` itself so both answer 404, which reads as "notes
   are not served". They are. `README.md` was live at
-  `https://written-stl.com/README.md` for a day — the Google scope
-  justifications and the paragraph recording that the beta syncs Spotify while
-  the privacy policy deliberately omits it, on the domain whose policy Google is
-  being asked to trust. `web/.assetsignore` excludes it; **anything added there
-  that is notes rather than site goes in that file in the same commit.**
+  `https://written-stl.com/README.md` for a day, carrying the Google scope
+  justifications. `web/.assetsignore` excludes it; **anything added there that is
+  notes rather than site goes in that file in the same commit.**
+
   **A Cloudflare dashboard toggle can add a third-party script to this site
-  without touching the repo**, and one did. Web Analytics was set to *Enable,
-  excluding visitor data in the EU*, so every non-EU page load carried a
-  `static.cloudflareinsights.com` beacon while `web/en-us/cookies/` told
-  reviewers nothing is fetched from anywhere else. The CSP in `_headers` refused
-  it — which is precisely what that file says the `connect-src` line is for — so
-  the promise held, the analytics recorded nothing, and none of it surfaced.
-  Disabled 2026-08-05 via Web Analytics → Manage site → **Disable**; measured
-  afterwards, every `src` on every page is same-origin, so the claim is now true
-  at the network rather than only enforced at the browser. The check:
+  without touching the repo**, and one did: Web Analytics put a
+  `static.cloudflareinsights.com` beacon on every non-EU page load while
+  `web/en-us/cookies/` told reviewers nothing is fetched from anywhere else. The
+  CSP's `connect-src` in `_headers` refused it, so the promise held. Disabled
+  2026-08-05 via Web Analytics → Manage site → **Disable**, and every `src` on
+  every page is now same-origin. The check:
 
       curl -s -H 'Accept: text/html' https://written-stl.com/en-us/ \
           | grep -c cloudflareinsights          # 0
 
   **The header is load-bearing — injection keys off `Accept: text/html`, not the
-  User-Agent.** A version keyed on the User-Agent answers 0 unconditionally, was
-  briefly committed here, and would have confirmed the analytics were off while
-  the beacon was on all five pages. Run any such check while the thing is still
-  switched on before trusting its zero.
+  User-Agent.** A version keyed on the User-Agent answers 0 unconditionally and
+  would have confirmed the analytics were off while the beacon was on all five
+  pages. Run any such check while the thing is still switched on before trusting
+  its zero.
 - Pagination is capped by `AppConfig.maxPagesPerEndpoint` /
   `maxPlaylistsExpanded` / `maxSongsRated` so a distill finishes in seconds. A
   per-item fetch that can't be capped is a red flag — Apple Music's ratings pass
   was exactly that, one round trip per hundred library songs with no ceiling.
-- **Independent fetches within a distiller run concurrently.** Apple Music has
-  nine top-level endpoints to YouTube's four, and awaiting them one after another
-  was the whole reason it felt slower to connect — not richer data, just a longer
-  chain of round trips. `AppleMusicDistiller.distill` is the shape to copy: one
-  `async let` per independent endpoint, then the passes that depend on their
-  results through `inParallel`, which keeps five requests in flight rather than
-  all of them (unbounded fan-out trades a slow distill for a rate-limited one).
+- **Independent fetches within a distiller run concurrently.**
+  `AppleMusicDistiller.distill` is the shape to copy: one `async let` per
+  independent endpoint, then the passes that depend on their results through
+  `inParallel`, which keeps five requests in flight rather than all of them
+  (unbounded fan-out trades a slow distill for a rate-limited one).
 - **`Array.sort` is not stable in Swift.** Sorting messages on `sentAt` alone
   left rows with equal timestamps in a different order on every four-second
   poll, and the unread band — anchored to one message id — appeared to wander
-  between them. Ties break on `id` now. Equal timestamps are rarer in life than
-  in testing, since `now()` is the *transaction* time in Postgres and a batch
-  inserted in one statement shares it exactly, but two messages arriving in the
-  same microsecond is not a coin worth flipping on every poll.
+  between them. Ties break on `id` now. `now()` is the *transaction* time in
+  Postgres, so a batch inserted in one statement shares it exactly.
 - **Version a cache file when its model gains a field whose absence means
   something.** `ChatStore` writes `Message` as JSON; `read_at` was added and
-  every row written before decoded with `readAt = nil`, which is
-  indistinguishable from genuinely unread — so an ancient message put a phantom
-  unread band at the top of a thread and kept it there through every relaunch.
-  The prefix is `written-chat-v2-` for that reason. **An optional that decodes to
-  nil is a value, not a gap**, and every reader downstream will treat it as one.
+  every row written before decoded with `readAt = nil`, indistinguishable from
+  genuinely unread — so an ancient message put a phantom unread band at the top
+  of a thread and kept it there through every relaunch. The prefix is
+  `written-chat-v2-` for that reason. **An optional that decodes to nil is a
+  value, not a gap.**
 - Per-source failures are surfaced in that source's card (`SourceStatus.failed`)
   and never abort the other sources.
 - **A call that can fail, a result nobody reads, and the symptom surfacing
-  somewhere else.** This codebase's recurring defect, eleven instances so far:
-  `SyncService.lastError`, `PhotoService.lastError`,
-  `DiscoveryCardService.lastError`, `record`'s discarded return, `paths()`
-  answering `[]` for *could not ask*, `devices()`, `senderPhotoURL`,
-  `ChatService.conversations()` and `LikeService.admirers()` (which overwrote
-  the cache with their empty answers), and `SyncService.push`'s silent token
-  guard. **The fix is the type, never another boolean** — return `nil` for
-  *could not ask* so the caller is `if let`. A `Bool` in one file guarding an
-  early return in another is a convention, not a guard.
+  somewhere else.** This codebase's recurring defect, eleven instances so far and
+  several written *after* this entry existed — `SyncService.lastError`,
+  `PhotoService.lastError`, `DiscoveryCardService.lastError`, `record`'s
+  discarded return, `paths()` answering `[]` for *could not ask*, `devices()`,
+  `senderPhotoURL`, `ChatService.conversations()` and `LikeService.admirers()`
+  (which overwrote the cache with their empty answers), and `SyncService.push`'s
+  silent token guard. **The fix is the type, never another boolean** — return
+  `nil` for *could not ask* so the caller is `if let`. A `Bool` in one file
+  guarding an early return in another is a convention, not a guard.
 - **A shared `lastError` is not a record of what failed.** Whoever writes it
   last wins, so a later success erases an earlier failure — a failed record
   `push` followed by a successful `pushBans` used to leave a lost distillation
-  with nothing to say for itself, and whether the reason survived depended on
-  whether that person happened to have struck anything off. Anything that needs
-  a reason takes the returned `String?`, which belongs to its own call.
+  with nothing to say for itself. Anything that needs a reason takes the
+  returned `String?`, which belongs to its own call. And **every `return false`
+  on a push path sets `lastError` first**, or a dead session reports itself as a
+  network problem.
 - **Never guard a request on the stored `accessToken`.** It is a cache: a token
   lasts an hour and a cold launch has none until `restoreSession()` has been
   round the network, so somebody can be legitimately signed in with the property
@@ -988,370 +748,268 @@ after a successful login almost always means the signed-in account isn't on it.
   `LikeService` drew an empty Chat tab on every cold launch. `loadProfile` is
   the one deliberate exception, since `restoreSession` calls it having just
   exchanged a token and the accessor would re-enter.
-- **Every `return false` on a push path sets `lastError` first**, or a dead
-  session reports itself as a network problem and sends the user to check their
-  signal.
 - **`public.users.sex` means the gender somebody *chose*, and nothing else.**
   It was written by two things in the same vocabulary meaning different things:
   the gender step, through `Identity.columnValue`, and `pushDemographics`,
   carrying HealthKit's *biological sex*. Last write wins and Health re-distills
   every time it is connected, so HealthKit would eventually overwrite a chosen
   gender — silently, repeatedly, and worst for exactly the people it matters
-  most to. It corrupted the dashboard's gender row, and once the icebreaker
-  started reading the column it would have misgendered somebody to a match
-  every time the thread opened. `pushDemographics` now sends only `birth_year`;
-  the `biological_sex` record is still distilled and still in
-  `distilled_records` for anything that genuinely wants biological sex, which
-  is a different question and should have to ask by name. **Two columns that
-  accept the same words are one column with two meanings** — and the one that
-  writes last wins an argument nobody knew was happening.
+  most to. `pushDemographics` now sends only `birth_year`; the `biological_sex`
+  record is still in `distilled_records` for anything that genuinely wants it,
+  which is a different question and should have to ask by name. **Two columns
+  that accept the same words are one column with two meanings.**
 - **A published contact channel is a claim; test it like one, with a round trip
   rather than a lookup.** `hello@written-stl.com` was named on all five site
   pages and in `SettingsView` while the domain had no MX record at all, so every
   data-rights request bounced. Records resolving is not delivery working — the
-  same lesson as the analytics-beacon check. `ReportSheet` had already caught
-  the identical mistake once, with a phone number that rang nowhere.
+  same lesson as the analytics-beacon check, and `ReportSheet` had already caught
+  the identical mistake with a phone number that rang nowhere.
 
 ## Iterating on the garden illustration
 
 **Five illustrated stages, one per connected modality plus bare soil.**
 `TreeSkeleton.make` maps 0-4 to sprout/shoot/branch/bough/canopy; beyond that the
-generated tree takes over. Four briefly shared the bough, before there was art
-for it — worth knowing because falling through to generated geometry at 4 is what
-that avoided, and it reads as the drawing breaking rather than as growth.
+generated tree takes over. Falling through to generated geometry at 4 reads as
+the drawing breaking rather than as growth, which is why stage 4 has art.
 
-**The badges' bob is driven by a clock, not by `repeatForever`.** It used to be
-`withAnimation(.easeInOut.repeatForever())` started in `onAppear`, and **any
-other explicit transaction touching the badge replaced it** — permanently, since
-nothing restarted it. Its own arrival is one: `hasBadgeArrived` and
-`hasShootBadgeArrived` flip inside `withAnimation(.spring(…))`, so a badge
-stopped floating a moment after it appeared, and the filling progress ring did
-the same. What survived looked arbitrary — whichever badge had most recently
-escaped a transaction was the one still moving, which is how it was reported
-("only the new icons float"). `ModalityBadge` now offsets by a sine of
-`TimelineView`'s date: a pure function of time, with no animation to interrupt.
-
-Two things about it. The schedule is **paused when the garden is not the visible
-tab** (`isVisible`, as `ChatView` and `DashboardTab` already take one) — every tab
-stays mounted, so an unpaused clock would redraw four badges at display rate
-behind Explore for the life of the app.
-
-And **every badge reads the same clock with no phase offset, so they rise and
-fall together.** Staggering them was tried and rejected. The argument for it was
-that the old per-badge `onAppear` repeats were never synchronised, so syncing
-them was a change in character — but what a stagger actually looks like is four
-things drifting independently, which reads as the badges being loose. In step
-they read as one plant breathing, which is the thing they hang off.
+**The badges' bob is driven by a clock, not by `repeatForever`.** A
+`withAnimation(.easeInOut.repeatForever())` started in `onAppear` is replaced
+permanently by **any** other explicit transaction touching the badge — including
+its own arrival, since `hasBadgeArrived` and `hasShootBadgeArrived` flip inside
+`withAnimation(.spring(…))`. Reported as "only the new icons float".
+`ModalityBadge` offsets by a sine of `TimelineView`'s date instead: a pure
+function of time. The schedule is **paused when the garden is not the visible
+tab** (`isVisible`, as `ChatView` and `DashboardTab` already take one), since
+every tab stays mounted. **Every badge reads the same clock with no phase
+offset**, so they read as one plant breathing rather than four things drifting.
 
 **Badge positions must be read off `leafLift`, never off `displayedSkeleton`.**
 `SeedlingArt.shoots(by:)` does not only filter by stage — past 3 it *blends*
-every shoot toward its canopy shape, so one shoot id has different reach and
-turn at bough and at canopy. The badge `ForEach` read the discrete
-`stage.extended`, so that blend landed the instant `displayedSkeleton` was
-assigned — which happens outside any transaction, leaving `.position` nothing to
-interpolate. Bough-to-canopy therefore looked like the badges vanishing and
-coming back somewhere else. `leafLift` holds the same number and is set inside
-`withAnimation(extensionAnimation)`, and it is what `shootExtent` already used:
-the list and the positions were reading the plant at two different moments.
+every shoot toward its canopy shape, so one shoot id has different reach and turn
+at bough and at canopy. The badge `ForEach` read the discrete `stage.extended`,
+so that blend landed the instant `displayedSkeleton` was assigned — outside any
+transaction, leaving `.position` nothing to interpolate, so bough-to-canopy
+looked like the badges vanishing and reappearing elsewhere. `leafLift` holds the
+same number, is set inside `withAnimation(extensionAnimation)`, and is what
+`shootExtent` already used.
 
 **The first shoot's badge is dropped further than the others** (`firstShootDrop`,
-+0.031). Every other badge is spaced from its neighbour by the pitch between two
-shoots, which the drawing sets; shoot 0's neighbour is the *cotyledon* badge,
-which hangs off the leaves rather than off a shoot and so is spaced by nothing.
-At stage 1 the two sat 7.5pt apart on 48pt badges and read as one object; they
-are 14.7pt apart now, with the other stages' closest pairs at 19.0, 29.1 and
-46.3pt. Dropping *every* shoot instead would have left the crowding exactly as
-it was, since they would all have moved together.
-
-Measuring these is easier than it looks: a badge's translucent disc is
-`(236,231,223)` against `(243,239,233)` parchment, which finds filled and
-unfilled badges alike — the gold ring only exists once a modality is connected,
-so looking for gold finds half of them.
++0.031): every other badge is spaced from its neighbour by the pitch between two
+shoots, while shoot 0's neighbour is the *cotyledon* badge, which hangs off the
+leaves and is spaced by nothing. At stage 1 the two sat 7.5pt apart on 48pt
+badges; they are 14.7pt apart now, with the other stages' closest pairs at 19.0,
+29.1 and 46.3pt. Measuring these is easier than it looks: a badge's translucent
+disc is `(236,231,223)` against `(243,239,233)` parchment, which finds filled and
+unfilled badges alike — the gold ring only exists once a modality is connected.
 
 Two things about the fourth badge. It sits *above* its shoot rather than beside
 it (`shootBadge`), and it needs **full** outward travel: tucking it toward the
-stem, which seems right with no neighbouring badge to clear, puts it on the
-cotyledon blade — the cotyledons reach further out at that height than the shoot
-does. And shoots alternate sides going up (0.34 left, 0.52 right, 0.70 left, 0.80
-right), so a new one belongs on the side the last one wasn't.
+stem puts it on the cotyledon blade, which reaches further out at that height
+than the shoot does. Shoots alternate sides going up (0.34 left, 0.52 right,
+0.70 left, 0.80 right), so a new one belongs on the side the last one wasn't.
+`StageSheet` derives its row count rather than hardcoding 2×2 — fixed at four
+panels, a fifth stage would have been dropped silently.
 
-`StageSheet` derives its row count rather than hardcoding 2×2. It was fixed at
-four panels, so a fifth stage would have been dropped silently — the one failure
-this harness cannot afford, since its whole job is showing what a change did.
-
-The plant on "Grow your profile" (`Views/Tree/`) is hand-measured vector art with
-four stages, and refining it is the one task here where the *loop* costs more
-than the change. These rules exist because each was paid for once already.
+The plant on "Grow your profile" (`Views/Tree/`) is hand-measured vector art
+where the *loop* costs more than the change:
 
 - **Drive stages from the launch line, never by patching the source.**
   `xcrun simctl launch <device> com.written.datingapp -route home -stage 3` seeds
   the screen as though three modalities were connected; `-stages all` renders
   every illustrated stage on one screen. **`-route home` is required unless the
-  simulator holds a session** — `-stage` only takes effect inside `HomeView`, and
-  without it the app opens on sign-in and the flag does nothing. One build serves
-  all of them. Editing
-  `TreeSkeleton.make` to force a stage costs two builds per look and leaves the
-  tree dirty. See `Views/Tree/DebugLaunch.swift`.
-- **One build per batch of changes**, not per constant. Adjust every number you
-  believe is wrong, then look once.
-- **One cropped, downscaled screenshot per iteration.** A full-resolution
-  screenshot is ~1.5k tokens and answers no question a crop doesn't.
-- **Measure, don't eyeball.** When the question is a length, an angle or a
-  ratio, a script over the reference PNG costs ~50 tokens and gives a number;
-  reading the image gives an impression. The watering can was rebuilt three
-  times because it started from a mental archetype instead of a measurement.
+  simulator holds a session** — `-stage` only takes effect inside `HomeView`. One
+  build serves all of them; editing `TreeSkeleton.make` to force a stage costs
+  two builds per look and leaves the tree dirty. See
+  `Views/Tree/DebugLaunch.swift`.
+- **One build per batch of changes**, not per constant. **One cropped,
+  downscaled screenshot per iteration** — a full-resolution screenshot is ~1.5k
+  tokens and answers no question a crop doesn't.
+- **Measure, don't eyeball.** A script over the reference PNG costs ~50 tokens
+  and gives a number; reading the image gives an impression. The watering can was
+  rebuilt three times because it started from a mental archetype.
 - **Reference measurements are already recorded** in the comments beside the
-  constants they set (`SeedlingArt.swift`, `WateringCanOverlay.swift`). Don't
-  re-derive them.
+  constants they set (`SeedlingArt.swift`, `WateringCanOverlay.swift`).
 - **Shared geometry affects every stage.** `leafTilt`, `leafletTilt`,
-  `LeafSpine` and the blade profile are used by all four. After changing one,
-  check the stages the change wasn't aimed at — a sign error in `leafletTilt`
-  silently distorted stages 2 and 3 while fixing stage 4. `-stages all` is
-  exactly this check.
+  `LeafSpine` and the blade profile are used by all four — a sign error in
+  `leafletTilt` silently distorted stages 2 and 3 while fixing stage 4.
+  `-stages all` is exactly this check.
 - Rapid screenshot bursts and headless boots crash `backboardd` in the
-  simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`, then
-  reopen — one more reason to take fewer screenshots.
+  simulator. Recovery is `killall Simulator && xcrun simctl shutdown all`.
 
 ## The layout audit: what proves nothing overlaps
 
     ./tools/run_layout_audit.sh          # 5 iPhone widths x 2 text sizes
     python3 tools/layout_audit.py out/layout/*/
 
-`WrittenUITests` dumps the accessibility frames of every reachable screen;
-`tools/layout_audit.py` does the geometry. A screenshot proves a screen looked
-right *where somebody looked*, which is how the badge bug survived: the plant's
-four badges overlapped each other and buried the seedling on an iPhone SE while
-a 17 Pro looked perfect. That was found by measuring, and this generalises it.
+`WrittenUITests` dumps the accessibility frames of every reachable screen and
+`tools/layout_audit.py` does the geometry, because a screenshot only proves a
+screen looked right where somebody looked: the plant's four badges overlapped
+and buried the seedling on an iPhone SE while a 17 Pro looked perfect. Four
+things it is easy to get wrong:
 
-Five things about it, each of which cost a run to learn:
-
-- **A UI test runner's `print` never reaches `xcodebuild`.** A clean 14-screen
-  run reports `** TEST EXECUTE SUCCEEDED **` and not one marker. The dumps come
-  out of the result bundle — `xcresulttool export attachments` — and the driver
-  script does that for you. Both channels are still written; only one works.
-- **`-solo 1` is required, and it is not a convenience.** `AppShell` mounts all
-  five tabs and hides four with `opacity(0)`, `allowsHitTesting(false)` and
-  `accessibilityHidden(true)`. **XCUITest honours none of the three.** Without
-  the flag every dump contains Explore's empty state and Wish's note stacked on
-  whatever you asked for: 543 overlaps, none of them real.
+- **`-solo 1` is required, and it is not a convenience.** `AppShell` mounts every
+  tab and hides the rest with `opacity(0)`, `allowsHitTesting(false)` and
+  `accessibilityHidden(true)`, and **XCUITest honours none of the three** — 543
+  overlaps, none of them real.
 - **Never `descendants(matching: .any)`.** It kills the accessibility server —
   `(ipc/mig) server died` after 167 seconds. Ask per element type instead.
-- **The system keyboard is Apple's layout.** Its keys overlap each other by
-  design, so anything inside `app.keyboards` is dropped. What is *kept* is the
-  useful half: one of our own controls intersecting the keyboard frame is
-  reported as `under-keyboard`, which is a real hazard on a 667pt screen.
-- **The allowlist is judgement, not bookkeeping.** This app overlaps on purpose
-  — the tab bar draws over content, pinned headers have content sliding under
-  them — so `tools/layout_allowlist.json` records those once, by widget identity
-  rather than by coordinate. Regenerating it with `--update-allowlist` and not
-  reading the diff is how the next real overlap gets buried.
+- **The dumps come out of the result bundle**, via `xcresulttool export
+  attachments`, which the driver script does for you; a UI test runner's `print`
+  never reaches `xcodebuild`.
+- **`tools/layout_allowlist.json` is judgement, not bookkeeping.** This app
+  overlaps on purpose, so regenerating with `--update-allowlist` and not reading
+  the diff is how the next real overlap gets buried. Keyboard keys are dropped
+  (Apple's layout overlaps itself) but one of our controls intersecting the
+  keyboard frame is reported as `under-keyboard`.
 
-Two axes, and the second is where the bodies are. Widths from 375 to 440 catch
-geometry; the accessibility text size catches the fact that **this app mixes two
-font systems** — `BrandFont` uses `.custom(…, relativeTo:)` and scales, the 165
-`.system(size:)` calls do not. Ten files use both.
-
+Widths from 375 to 440 catch geometry; the accessibility text size catches the
+fact that **this app mixes two font systems** — `BrandFont` uses
+`.custom(…, relativeTo:)` and scales, the 165 `.system(size:)` calls do not.
 Discovery is **not** covered: it has no sample-data path and needs a real
-signed-in session, unlike Chat's `-chat sample`. Say so rather than implying the
-sweep is complete.
+signed-in session, unlike Chat's `-chat sample`.
 
 ## The two halves of the app
 
 **Onboarding is a line; regular use is a tab bar.** They are different products
-wearing one binary, and most of the layout rules below only make sense once that
-is clear.
-
-Onboarding runs sign in → **birthday → name → gender → interest** → communication
-style → photos → grow the plant → "People you will see", and ends the moment
-**Explore** is tapped there. The three emphasised steps landed in `c1a47d8`
-(2026-08-06) and this line described the sequence without them for a day — which
-is the rot this file's own gap-list rule exists to prevent, and it mattered more
-than usual here because the first of them is the age gate.
+wearing one binary. Onboarding runs sign in → birthday → name → gender →
+interest → communication style → photos → grow the plant → "People you will
+see", and ends the moment **Explore** is tapped there.
 
 **The birthday is first, and the ordering is the argument.** Everything after
 it — a name, a gender, photographs — is data collected from somebody the app may
 have no business collecting from until that question is answered. `minimumAge`
-is 18, enforced in `DistillViewModel.setBirthday` and again in
-`BirthdayEntryView` because the onboarding page runs two screens ahead of any
-view model, and a third time in `HealthKitDistiller` for the date of birth Health
-reports. The Terms had said "you must be 18" since they were written and nothing
-checked it; Apple's June 2026 guidance is explicit that an app teens may reach
-must be age-appropriate in itself rather than leaning on platform parental
-controls, and reviewers test it by typing a birth date.
+is 18, enforced in `DistillViewModel.setBirthday`, again in `BirthdayEntryView`
+because the onboarding page runs two screens ahead of any view model, and a third
+time in `HealthKitDistiller` for the date of birth Health reports. Apple's June
+2026 guidance is explicit that an app teens may reach must be age-appropriate in
+itself rather than leaning on platform parental controls, and reviewers test it
+by typing a birth date.
 
 **Continue on the birthday page does not leave it — it raises a card that reads
 the date back in words.** `BirthdayConfirmCard`: "You're 27", "Born December 19,
-1998", a sentence about why accuracy matters, and Edit against Confirm. This is
-the one answer in onboarding that cannot be corrected later without a support
-request, and the digits somebody types are its least readable form — four glyphs
-in three boxes are hard to check, a sentence is not.
-
-Three things about it, each load-bearing:
+1998", Edit against Confirm. This is the one answer in onboarding that cannot be
+corrected later without a support request, and four glyphs in three boxes are its
+least readable form. Three things about it:
 
 - **It is an overlay, not a `.sheet`.** A sheet takes the keyboard down with it
   and gives it back on Edit, so the page would jump twice for a correction the
-  user has not made yet. This rises in front of the keyboard and leaves it
-  alone.
+  user has not made yet.
 - **The three refusals never reach it.** An impossible date, a date 130 years
-  back, and being under 18 all stop at the field and turn the boxes red. There
-  is nothing to confirm about a rejected answer, and drawing "You're 4" over a
-  card asking whether that is right would read the refusal back as an
-  acceptance.
+  back, and being under 18 all stop at the field and turn the boxes red; drawing
+  "You're 4" over a card asking whether that is right would read a refusal back
+  as an acceptance.
 - **`confirming: Date?` *is* the presentation state.** Non-nil means the card is
   up and names the date it is asking about, so the two cannot disagree — a
   separate `isShowing` flag beside a stored date can, and the failure mode is
   confirming a date the user has since edited.
 
-**The fields and the option rows are measured, not eyeballed** — three 119×56
-boxes with 9-point gaps inside 32-point margins on a 440-point screen,
-reproduced as equal shares so the proportion survives a 375-point phone.
-`BirthdayFields.errorRed` is `(240,72,72)`, brighter than anything else in the
-app on purpose: a muted brick outline reads as decoration where this has to read
-as stop. **A fill threshold cannot measure these from a screenshot** — the boxes
-sit eight levels above parchment with a soft shadow, and thresholding finds the
-shadow and reports a box a third too wide. Measure off the *error* state, whose
-red borders are unambiguous.
+**The fields are measured, not eyeballed** — three 119×56 boxes with 9-point gaps
+inside 32-point margins on a 440-point screen, reproduced as equal shares so the
+proportion survives a 375-point phone. `BirthdayFields.errorRed` is
+`(240,72,72)`, brighter than anything else in the app on purpose. **A fill
+threshold cannot measure these from a screenshot** — the boxes sit eight levels
+above parchment with a soft shadow, and thresholding finds the shadow and reports
+a box a third too wide. Measure off the *error* state.
 
 **Gender is one answer and who you date is several, and the control says so.**
 `GenderEntryView.Purpose.isSingleChoice` drives both the arity and the shape —
-radios for one, checkboxes for many — because that shape is the only thing on
-the page telling somebody whether a second tap will replace their first. The
-single-choice rows *replace* rather than toggle: a radio that can be tapped off
-leaves the page with no answer and a Continue that refuses, which is a dead end
-built out of a control that looks like it is working.
-
-The two pages also **name the same three cases differently**, and both namings
-are right: "Male" is what you are, "Men" is who you would date. **"Everyone" is
-a fourth row and not a fourth case** — `DatingPreferences.Gender` still has
-three, and that row ticks all of them and reads as ticked when they all are.
-Adding an `everyone` case would reintroduce exactly what its removal fixed: an
-enum that cannot say "men and non-binary people".
+radios for one, checkboxes for many — because that shape is the only thing
+telling somebody whether a second tap will replace their first. The single-choice
+rows *replace* rather than toggle: a radio that can be tapped off leaves the page
+with no answer and a Continue that refuses. The two pages **name the same three
+cases differently** and both namings are right: "Male" is what you are, "Men" is
+who you would date. **"Everyone" is a fourth row and not a fourth case** —
+`DatingPreferences.Gender` still has three and that row ticks all of them; an
+`everyone` case could not say "men and non-binary people".
 
 **Every one of these steps writes its local copy first and pushes in a detached
-`Task` whose result nobody reads**, which is right — onboarding should not block
-on a round trip for a value Postgres cannot refuse — and it has one consequence
-worth stating plainly: `needsBirthday` and `needsGender` are answered from those
-*local* copies, so a push that failed is never retried and never re-asked. The
-answer then exists on one device and nowhere else, and the next phone finds no
-age at all. Measured 2026-08-07: **`birth_date` is null for every account in the
-database**, which is explained by all of them predating `c1a47d8` — but it also
-means the age gate has never been observed reaching Postgres.
-`DistillViewModel.repairIdentityPush` is the backstop, run from
-`restoreFromServer` on every launch and guarded on the server actually
-disagreeing, in the same shape as `adoptStoredCommunicationStyle`. It is a
-repair, not a fix: watch the column the first time somebody completes the step.
+`Task` whose result nobody reads** — right, since onboarding should not block on
+a round trip for a value Postgres cannot refuse, but `needsBirthday` and
+`needsGender` are answered from those *local* copies, so a push that failed is
+never retried and never re-asked. `DistillViewModel.repairIdentityPush` is the
+backstop, run from `restoreFromServer` on every launch and guarded on the server
+actually disagreeing, in the same shape as `adoptStoredCommunicationStyle`.
 
-**The communication step is two sliders, and three things about it are
-deliberate.** It asks flirt level and response time, because both are
-*boundaries* and a boundary set after the fact has already failed at its job —
-which is also why it comes before anything can message anyone. Each bar is
-continuous under the finger and one of **four bands** to everything else
-(`StyleBand.count`): nobody can honestly place themselves at 0.62 of a flirt, and
-a number that precise invites a matcher to believe it. The exact position is kept
-beside the band purely so the slider can be put back, which is a drawing concern
-rather than a fact about the person.
-
-Flirt level carries **two vocabularies** and both are needed. The stored
-`rawValue` is flat — `Low` … `Extremely High` — and the dashboard shows
-`Platonic` / `Mild` / `Flirty` / `Freaky`. "Freaky" is a good thing to read about
-yourself on your own profile and a poor thing to sort a database by. Response
-time is stored as its tempo, and the sentence under it on the card is what
-actually sets the expectation.
+**The communication step is two sliders.** It asks flirt level and response time,
+because both are *boundaries* and a boundary set after the fact has already
+failed at its job — which is why it comes before anything can message anyone.
+Each bar is continuous under the finger and one of **four bands**
+(`StyleBand.count`) to everything else: nobody can honestly place themselves at
+0.62 of a flirt, and a number that precise invites a matcher to believe it. The
+exact position is kept beside the band purely so the slider can be put back.
+Flirt level carries **two vocabularies** and both are needed: the stored
+`rawValue` is flat — `Low` … `Extremely High` — while the dashboard shows
+`Platonic` / `Mild` / `Flirty` / `Freaky`, which is a good thing to read about
+yourself and a poor thing to sort a database by. Response time is stored as its
+tempo, and the sentence under it on the card sets the expectation.
 
 **The flirt dial's geometry is fixed by one constraint, not chosen.** The
 captions sit on **thirds of the card** and the arc's two legs stand directly
-above them, which is what sets the opening angle:
+above them, which sets the opening angle:
 `halfOpening = asin((0.5 - 1/3) / (diameter/2))`. So the gap is not a free
 choice, and — the counter-intuitive part — **shrinking the dial widens it**,
-because smaller legs still have to reach the same two points.
-
-Note this is *not* what the reference does: its legs are at ±29% of the card
-width against captions at ±17%, so its arc oversails them. Aligning the two was
-asked for.
-
-`diameterRatio` is 60%, arrived at from both sides — 54% read as a token sitting
-in a card rather than as the card's subject, and the reference's own 74% was
-overbearing on a card that is half a phone wide and has to share its row. The
-centre word is plain `.system(size: 14, weight: .semibold)`, matching
+because smaller legs still have to reach the same two points. `diameterRatio` is
+60%, and the centre word is plain `.system(size: 14, weight: .semibold)` matching
 `chronotype.label` beside it; scaled off the radius it grew with the dial and
-read as a headline rather than as the same kind of reading.
-
-Two things about the layout, each of which cost a pass:
-
-- **`FlirtGauge` owns its captions**, unlike every other card here. "The legs
-  stand above the words" is one geometric statement, and splitting it across two
-  views is how they drift apart. It is also the one thing that cancels the
-  card's padding (`DashboardView.cardInset`), because thirds of *the card* is
-  not thirds of the card's content — 6pt apart, and visible.
-- **They are a stack row, not `position`ed below the arc.** Placed by absolute
-  offset they landed past the bottom of the gauge's own frame, so they hung into
-  the card's padding and had no gap beneath them at all. Laid out as a row they
-  take their own height and the card's padding does its job.
-
-Measure it, don't look — but **on a screenshot showing the whole card**.
-`-scroll communication` pins the section under the pinned header, which hides the
-dial's upper half; measuring the diameter there reported 52% for a dial that was
-actually 76%. `-scroll photos` puts the card's top in view.
+read as a headline. **`FlirtGauge` owns its captions**, unlike every other card
+here — "the legs stand above the words" is one geometric statement — and it is
+the one thing that cancels the card's padding (`DashboardView.cardInset`),
+because thirds of *the card* is not thirds of the card's content. They are a
+stack row, not `position`ed below the arc, which hung them into the padding with
+no gap beneath. Measure it, don't look — but **on a screenshot showing the whole
+card**: `-scroll communication` pins the section under the pinned header and
+hides the dial's upper half, reporting 52% for a dial that was actually 76%.
+`-scroll photos` puts the card's top in view.
 
 Two traps, both paid for while building it:
 
 - **Adding a step re-opens onboarding for everyone who finished it.** The cached
   `restoredStep` said `done`, and it was — for the steps that existed when it was
-  written. Left alone, an established user's shell would build with no tab bar
-  and correct itself a second later, which is exactly the disagreement `Route`
-  exists to prevent. `restoredStep` therefore answers `.communication` when the
-  cache says `done`/`exploring` and no style is stored, matching what
-  `onboardingStep` computes live. On finishing, the next route is **asked for**
-  rather than hardcoded to `.photos` — someone who onboarded before this page
-  existed has already seen those.
+  written. `restoredStep` therefore answers `.communication` when the cache says
+  `done`/`exploring` and no style is stored, matching what `onboardingStep`
+  computes live. On finishing, the next route is **asked for** rather than
+  hardcoded to `.photos`.
 - **The answers are collected before a view model exists**, two screens ahead of
-  `AppShell`. They go to `CommunicationStyleStore` (UserDefaults, account-scoped),
-  which is *also* what `needsCommunicationStyle` reads — so having an answer and
-  having been asked cannot disagree, unlike `hasSeenPhotoStep`, which needs its
-  own flag because that page finishes whether or not anything was picked.
-  `adoptStoredCommunicationStyle` copies them into `user` records, after
-  hydration rather than before, and is idempotent because it also runs on every
-  launch as the repair for a sync that never landed. Through all of it the tab
-bar is absent: a bar would offer four exits from a sequence whose whole point is
-that it has one. The garden therefore keeps an arrow at its foot and a pull-up
-gesture, because with no bar it has to carry the way onward itself.
+  `AppShell`. They go to `CommunicationStyleStore` (UserDefaults,
+  account-scoped), which is *also* what `needsCommunicationStyle` reads — so
+  having an answer and having been asked cannot disagree, unlike
+  `hasSeenPhotoStep`, which needs its own flag because that page finishes whether
+  or not anything was picked. `adoptStoredCommunicationStyle` copies them into
+  `user` records, after hydration rather than before, and is idempotent because
+  it also runs on every launch as the repair for a sync that never landed.
+
+Through all of onboarding the tab bar is absent: a bar would offer four exits
+from a sequence whose whole point is that it has one. The garden therefore keeps
+an arrow at its foot and a pull-up gesture.
 
 **That pull-up is a reveal, and two things make it one.** `AppShell.page` hides
 every unselected tab with `opacity(tab == which ? 1 : 0)`, which is right for a
-bar — you are on exactly one tab — and wrong for a drag, because during it *two*
-pages are on screen while `tab` still names the one being pulled away. Keying on
-the selected tab alone made the whole gesture reveal bare parchment: the
-dashboard did not appear until the drag committed and flipped the tab, which is
-after the reveal is over. `isDrawn` is the fix, and it is the same shape of bug
-as `DashboardTab` hiding the profile preview until its slide began — *a layer
-needed during a transition, gated on a flag that only moves at the end of it.*
-The second is **z-order**: the dashboard must be built before the garden, or
-being visible simply means covering the page the finger is lifting.
+bar and wrong for a drag, because during it *two* pages are on screen while `tab`
+still names the one being pulled away — so the gesture revealed bare parchment
+until the drag committed. `isDrawn` is the fix, the same shape of bug as
+`DashboardTab` hiding the profile preview until its slide began: *a layer needed
+during a transition, gated on a flag that only moves at the end of it.* The
+second is **z-order**: the dashboard must be built before the garden. Hit testing
+stays on `tab == which` even while both are drawn, so a finger travelling up the
+screen cannot press a row it is only sliding past; and `gardenLift` returns to
+**zero at rest**, since parking the garden off-screen would make every future
+route out of the dashboard responsible for resetting it. `-reveal 0.5` holds the
+frame, because `simctl` can send no drag.
 
-Two smaller things fell out of it. Hit testing stays on `tab == which` even
-while both are drawn, so a finger travelling up the screen cannot press a row it
-is only sliding past. And `gardenLift` returns to **zero at rest** — parking the
-garden off-screen after a commit is one fewer moving part here and a trap
-everywhere else, since every future route out of the dashboard would have to
-remember to reset it, and the one that forgot would show an empty garden tab.
-`-reveal 0.5` holds the frame, because `simctl` can send no drag.
-
-Regular use is the reverse. The bar exists, so the garden gives up the arrow and
-the pull-up — a second route to a place a tab already reaches is chrome. The
-dashboard likewise drops its "Garden" button, and gains sign-out and delete,
-which are hidden during onboarding: offering to destroy an account beneath the
-button that carries on making one is an invitation to end the thing by accident.
-
-`SupabaseAuth.OnboardingStep.exploring` marks the boundary and slots into the
-machinery that already decides the first frame synchronously, so a force-quit
-mid-garden resumes correctly. `AppShell` owns the flag and every screen reads
-it, so the bar arriving and the arrow leaving cannot disagree.
+Regular use is the reverse: the bar exists, so the garden gives up the arrow and
+the pull-up and the dashboard drops its "Garden" button, gaining sign-out and
+delete — both hidden during onboarding, since offering to destroy an account
+beneath the button that carries on making one is an invitation to end the thing
+by accident. `SupabaseAuth.OnboardingStep.exploring` marks the boundary and slots
+into the machinery that decides the first frame synchronously, so a force-quit
+mid-garden resumes correctly; `AppShell` owns the flag and every screen reads it.
 
 ## The tab bar, and why it must never inset
 
-Five tabs: Explore, Wish, Chat, the garden, and Memories (the dashboard). Wish
-and Chat are unbuilt and say so rather than rendering blank; they exist in the
-enum from the first build so the bar's geometry never shifts under them.
+Four tabs: Explore, Chat, the garden, and Memories (the dashboard). Wish — the
+bottle — is `ARCHIVED-WISH`: `MainTab.wish` and `BottleIcon` stay commented in
+place so restoring it is uncommenting rather than redrawing. Nothing persists a
+`MainTab`, so its raw values may shift when it returns.
 
 **It overlays. It never takes layout height.** `promptsReserve` is what the
 garden is measured against, so anything consuming height at the bottom of the
@@ -1361,22 +1019,21 @@ under it, and `MainTabBar.overlayHeight` is derived from the bar's own height
 plus its inset rather than guessed alongside it, because a guess was 22 points
 wrong and cost the connected rows that space for nothing.
 
-Two of its icons are drawn rather than named. SF Symbols has no
-message-in-a-bottle and no potted plant on iOS 16, and `sailboat` and `tree`
-were each standing in for something they were not.
+The garden's icon is drawn rather than named: SF Symbols has no potted plant on
+iOS 16, and `tree` was standing in for something it was not.
 
 ## Discovery: the only two tables one user may read about another
 
 Every policy in `0001` is `auth.uid() = user_id`, which made a feed of other
 people impossible rather than merely unbuilt. Two tables open that up and no
 more should without the same argument — and note `bookmarks` (`0035`) is *not*
-a third: it names another user in a column, but only the owner may read the row,
-so it opens nothing.
+a third: it names another user in a column, but only the owner may read the row.
 
 - **`discovery_cards`** (`0007`) — a name, an age, a district, six photo seeds
   and derived `{domain, subject}` pairs. Deliberately **not** a view over
   `distilled_records`: enough for `Ontology.line(for:subject:)` to write a line,
-  and nothing that could reconstruct a distillation.
+  and nothing that could reconstruct a distillation. **Subjects only** — artist
+  and channel names, things a sentence can be *about*.
 - **`shared_posts`** (`0008`) — a video id and a sentence somebody chose to
   publish. `sharer_name` is denormalised for the same reason `display_name` is:
   `public.users` is `auth.uid() = id` and opening it for a byline is not a trade
@@ -1392,73 +1049,48 @@ this schema where a mistake is silent.
 
 Six synthetic accounts populate it, seeded by `tools/seed_synthetic.py` with
 full datasets rather than bare cards. It needs the `service_role` key, which is
-why it is a script you run and not something the app can do.
-
-**And for a long time they were the *only* people in it.** `DiscoveryService`
-reads `discovery_cards`, the seeder writes six, and **nothing in the app ever
-wrote one** — so every real signup was invisible, reported as "I could not find
-the new test accounts in the discovery page". Not a bug in the feed: `0007` has
+why it is a script you run and not something the app can do. **And for a long
+time they were the *only* people in it**: `DiscoveryService` reads
+`discovery_cards`, the seeder writes six, and **nothing in the app ever wrote
+one**, so every real signup was invisible. Not a bug in the feed — `0007` has
 carried `own row` insert and update policies from the start and only the caller
 was missing. `DiscoveryCardService.publish` is it, called from
 `DistillViewModel.sync` so a card rides the same moment as everything else that
-leaves the device — a card is worth publishing once there is a distillation
-behind it.
-
-**Subjects only**, per that migration's own header: artist and channel names,
-things a sentence can be *about*. Nothing that could rebuild a distillation. This
-is the one table every signed-in user can read, and it stays worth that by
-staying thin.
-
-**The feed also never excluded the viewer.** Harmless while the only cards were
-synthetic — no real account had one to be shown its own — and immediately wrong
-once everybody publishes. Filtered in the query with `user_id=neq.…` so it never
-crosses the wire, rather than after it: `DiscoveryModel` already filters likes in
-three places that have to agree, and a fourth thing to remember is a fourth thing
-to forget.
+leaves the device. **The feed also never excluded the viewer**, now filtered in
+the query with `user_id=neq.…` so it never crosses the wire: `DiscoveryModel`
+already filters likes in three places that have to agree.
 
 ### Bookmarks
 
 **A private note to yourself, and the privacy is the design.** `0035` is one
 table with one policy — `for all using (auth.uid() = user_id)` — so the person
 bookmarked cannot read the row, is never notified, and no trigger fires. A like
-is addressed to somebody; a bookmark is addressed to nobody.
-
-Three things follow from that and none is an oversight:
+is addressed to somebody; a bookmark is addressed to nobody. Three things follow:
 
 - **It is a real delete.** "Nothing in Postgres is ever deleted" describes the
   distillation record, not a list somebody curates, so un-bookmarking removes
   the row rather than annotating it. `0035` grants delete for that reason.
 - **Bookmarking does not remove anybody from the feed**, unlike a like. Saving a
   profile is not answering it, so `bookmarked` is a set the card draws from and
-  never a filter — and the bookmark stays live on a card you have already liked,
-  because the heart and envelope are one invitation spent once while this is
-  not.
+  never a filter — and it stays live on a card you have already liked, because
+  the heart and envelope are one invitation spent once while this is not.
 - **`bookmarkedIDs()` answers `nil` for *could not ask*.** Assigning `[]` on a
-  dropped request would draw every saved profile as unsaved, which is the same
-  defect that emptied the chat list offline. `load` leaves the set alone unless
-  it got a real answer.
+  dropped request would draw every saved profile as unsaved. `load` leaves the
+  set alone unless it got a real answer.
 
 `BookmarksView` draws `DiscoveryCard` verbatim through a real `DiscoveryFeed`,
 so the photograph and line selection are Explore's code rather than a second
 copy. **One round, though** — `nextItems(visible.count)` and stop. The rotation
-exists because discovery is endless; a saved list is finite and somebody
-scrolling it is looking for a particular person, so repeating them would make a
-list of four read as a list of forty.
+exists because discovery is endless; a saved list is finite, so repeating it
+would make a list of four read as a list of forty.
 
 It is reached from a bookmark icon **inboard of the cog** on the Memories
-header, as a `fullScreenCover` like Settings — somewhere you go and come back
-from rather than a fifth place to be. Inboard because Settings is the last thing
-on every bar in every app, and anything added outboard of it moves the one
-control people find without looking. Hidden during onboarding, with sign-out and
-delete, and for a second reason: nothing is saved yet, so it could only be an
-empty room.
-
-**The paper plane that used to sit in that row is deleted, not disabled.** There
-is no URL scheme and no profile page on the site, so a shared link would open
-nothing; a rendered card would put another person's photograph into iMessage
-with no way to unsend; and a real deep link would make profiles addressable by
-strangers. An inert glyph that looks pressable is worse than an absent one —
-the rule `ReportSheet` already records about the phone number that rang nowhere.
+header, as a `fullScreenCover` like Settings — inboard because Settings is the
+last thing on every bar in every app, and anything outboard of it moves the one
+control people find without looking. Hidden during onboarding. The paper plane
+that used to sit there is deleted rather than disabled: there is no URL scheme
+and no profile page, so a share would open nothing, and an inert glyph that looks
+pressable is worse than an absent one.
 
 ### The feed's rotation
 
@@ -1467,37 +1099,31 @@ different lines each time — two of each, both drawn without replacement, on
 independent cycles.
 
 **The round order is fixed, and that is not laziness.** Requiring five profiles
-between one person and their next means, for a person at position `p` in one
-round and `q` in the next, that `q >= p` — for everyone simultaneously, across a
-permutation. Only the identity does that. Measured over three thousand
-reshuffles the worst gap was 1, not 5, including with a "don't start a round
-with whoever ended the last" guard that looked sufficient. A repeated
-permutation gives exactly `n - 1` every time, which is the most any ordering can
-offer.
+between one person and their next means `q >= p` for everyone simultaneously
+across a permutation, which only the identity satisfies; a repeated permutation
+gives exactly `n - 1` every time, the most any ordering can offer.
 
 **A like removes that person from the feed, but not on the tap — on the next
-scroll.** Removing their cards the instant you double-tap was tried and is
-wrong: it takes the post out from under the reader's thumb and hides the one
-piece of feedback the gesture has, a heart they never see fill. `like` therefore
-touches nothing but `liked`, which also keeps its failure path honest — nothing
-was removed, so an offline like that reverts has nothing to put back.
+scroll.** Removing their cards the instant you double-tap takes the post out from
+under the reader's thumb and hides the one piece of feedback the gesture has, a
+heart they never see fill. `like` therefore touches nothing but `liked`, which
+also keeps its failure path honest — nothing was removed, so an offline like that
+reverts has nothing to put back.
 
 `DiscoveryFeed` is not where the removal happens either. Its `people` is `let`,
 so rebuilding the rotation to drop someone would reshuffle everybody mid-scroll.
 `DiscoveryModel` filters the *output* instead, in three places that have to
 agree: `load` builds the feed from the unliked, `extend` purges liked people from
 `items`, and `extend` also drops them from each newly generated batch — miss that
-last one and they return the moment the list grows.
-
-Three things it is easy to get wrong. The purge sits **above** `extend`'s
-near-the-end guard, because a row appearing is the only scroll signal this view
-has and "they go on the next scroll" needs all of them, not just the last three.
-It removes only indices **strictly after** the one that appeared: taking out an
-item above the viewport shifts everything below it upward and moves what is being
-read. And the top-up loop is **bounded** — asking until six survive spins forever
-once everything left has been liked, which is reachable with six synthetic
-accounts. An all-liked feed is not a failure either: `load` must leave `failure`
-nil there so the empty state shows rather than a network complaint.
+last one and they return the moment the list grows. Three things it is easy to
+get wrong. The purge sits **above** `extend`'s near-the-end guard, because a row
+appearing is the only scroll signal this view has. It removes only indices
+**strictly after** the one that appeared: taking out an item above the viewport
+shifts everything below it upward and moves what is being read. And the top-up
+loop is **bounded** — asking until six survive spins forever once everything left
+has been liked, reachable with six synthetic accounts. An all-liked feed is not a
+failure either: `load` must leave `failure` nil there so the empty state shows
+rather than a network complaint.
 
 Shared videos are interleaved every fourth item rather than mixed into that
 machinery, since the separation rule is about people and a video is not one.
@@ -1508,47 +1134,40 @@ behaviour and hung the app outright.
 ## Embedding YouTube, which took six attempts
 
 **The player will not run in a document with no origin, and an app-built page
-has none.** Four ways of claiming one all failed, and each failure is worth
-knowing so nobody tries them again:
+has none.** Four ways of claiming one all failed:
 
     loadHTMLString with a base URL          -> error 152
     the same, plus an `origin` player var   -> 152 again
     loading youtube.com/embed top-level     -> 153, the referrer complaint
     a page served from a Supabase function  -> black, no error at all
 
-A base URL resolves relative links and is not an origin. A player parameter is a
-claim. And **Supabase cannot host the page**: both edge functions and Storage
-rewrite HTML to `content-type: text/plain` with
-`content-security-policy: default-src 'none'; sandbox`, an anti-phishing measure
-for the whole project, so the script never ran.
-
+A base URL resolves relative links and is not an origin, and a player parameter
+is a claim. **Supabase cannot host the page** either: edge functions and Storage
+both rewrite HTML to `content-type: text/plain` with
+`content-security-policy: default-src 'none'; sandbox`, so the script never ran.
 What works is `loadSimulatedRequest`, which gives the HTML the security origin of
-a URL you name — and naming a **third-party** one. The page had been claiming to
-*be* youtube.com, which nothing on the real web does, and which the player has
-every reason to refuse. It claims the project's Supabase host now.
+a URL you name — and naming a **third-party** one, since the page had been
+claiming to *be* youtube.com. It claims the project's Supabase host now.
+None of that was deduced: five fixes were reasoned from a single error number
+and all five were wrong, while the page's own console said `api: loaded`,
+`player: ready`, `error: 152`. `EmbedWebView` still forwards `console`,
+`window.onerror` and player errors through `onLog` — nothing draws them, and the
+next blank player will want them back.
 
-None of that was deduced. Five fixes were reasoned from a single error number
-and all five were wrong; the page's own console said `api: loaded`,
-`player: ready`, `error: 152` and pointed straight at the cause. `EmbedWebView`
-still forwards `console`, `window.onerror` and player errors through `onLog` —
-nothing draws them, and the next blank player will want them back.
-
-Playback follows the card nearest the middle of the screen, muted, one at a
-time. Muted is load-bearing: WebKit blocks unmuted autoplay outright, so an
-unmuted player would simply never start. Sound is a preference of the *reader*,
-so unmuting one video unmutes the feed — and resets on launch, because opening
-an app to unexpected sound is worse than tapping once to ask for it.
+Playback follows the card nearest the middle of the screen, muted, one at a time.
+Muted is load-bearing: WebKit blocks unmuted autoplay outright. Sound is a
+preference of the *reader*, so unmuting one video unmutes the feed — and resets
+on launch.
 
 ## The share extension
 
-`ShareToWritten` is the second of three targets — the first this project had.
-(`NotificationService` is the third; see the notifications section, and note it
-deliberately carries *neither* the App Group nor the keychain group, because its
-image URL arrives pre-signed and it needs no session at all.) It needs
-three things on **both** targets: the App Group, a shared keychain group so the
-extension can read the session and post as that user, and matching bundle ids.
-Verify entitlements in the *signed* binary, not the `.entitlements` file; Xcode
-has silently dropped one here before.
+`ShareToWritten` is the second of three targets. (`NotificationService` is the
+third, and deliberately carries *neither* the App Group nor the keychain group,
+because its image URL arrives pre-signed and it needs no session at all.)
+`ShareToWritten` needs three things on **both** targets: the App Group, a shared
+keychain group so the extension can read the session and post as that user, and
+matching bundle ids. Verify entitlements in the *signed* binary, not the
+`.entitlements` file; Xcode has silently dropped one here before.
 
 It is **deliberately self-contained**, repeating the host, the anon key, the
 keychain read and the link parsing rather than sharing files. Synchronized
@@ -1560,19 +1179,15 @@ Three things the template gets wrong for this use. Its activation rule is
 contacts it cannot use. Its compose sheet pre-fills the text view with the
 shared item, which published the URL as the caption. And **`INFOPLIST_KEY_*`
 build settings beat the `Info.plist` file**, so the display name has to change in
-`project.pbxproj` or the share sheet says "ShareToWritten".
-
-Where the row appears in that sheet is iOS's business — ranked by use, no API.
+`project.pbxproj` or the share sheet says "ShareToWritten". Where the row appears
+in that sheet is iOS's business — ranked by use, no API.
 
 ## Likes and chat, and the upsert that column grants forbid
 
-Proven end to end on a real device on 2026-08-01, against real rows rather than
-fixtures: a synthetic account likes you, the admirer appears, accepting creates
-the conversation, a message reaches it, a reply arrives on the four-second poll,
-and declining marks the row. `0009` is fully applied — the column grant and the
-`touch_conversation` trigger both confirmed by behaviour, which is the only way
-to see them: an anonymous caller is refused either way, so probing from outside
-cannot tell a missing grant from a working one.
+Proven end to end on a real device on 2026-08-01, against real rows: a like, an
+accept, a message, a reply on the four-second poll, a decline. `0009` is fully
+applied — the column grant and the `touch_conversation` trigger both confirmed by
+behaviour, which is the only way to see them.
 
 **`resolution=merge-duplicates` cannot be used on `likes`, `conversations` or
 `messages`.** It compiles to `on conflict do update`, and Postgres checks
@@ -1581,18 +1196,15 @@ it demands `update` on every column being inserted, whether or not the row
 exists. `0009` revokes update on all three tables and grants back only the
 narrow columns each side may answer with (`status, responded_at`; `read_at`),
 precisely so a recipient cannot rewrite `liker_id` and forge a like. The
-privilege wins, and the failure is **42501 on every attempt**.
-
-That shipped: `LikeService.like` used it, so every double-tapped like in the feed
-was silently refused — silently because the heart fills optimistically and
-`lastError` is recorded and never shown. `ignore-duplicates` is the fix, giving
-the same idempotence through `on conflict do nothing`, which needs no update
-privilege. `ChatService.open` had already documented the identical trap for
-`conversations` and the lesson did not travel one file across.
-
-`SyncService` and `SupabaseAuth` still use `merge-duplicates` and are fine:
-`0009` is the only migration that revokes update, so every other table leaves
-`authenticated` its default privilege.
+privilege wins, and the failure is **42501 on every attempt**. That shipped:
+`LikeService.like` used it, so every double-tapped like in the feed was silently
+refused — silently because the heart fills optimistically and `lastError` is
+recorded and never shown. `ignore-duplicates` is the fix, giving the same
+idempotence through `on conflict do nothing`. `ChatService.open` had already
+documented the identical trap for `conversations` and the lesson did not travel
+one file across. `SyncService` and `SupabaseAuth` still use `merge-duplicates`
+and are fine: `0009` is the only migration that revokes update, so every other
+table leaves `authenticated` its default privilege.
 
 **There is a second precondition, and it is not a privilege — it is a policy.**
 `on conflict do update` has to be able to *see* the row it might update, so a
@@ -1601,52 +1213,43 @@ including when it is empty and no conflict is possible. `device_tokens` was
 given insert, update and delete policies and deliberately no select policy —
 one fewer place a token can leak — and every registration answered `403 … new
 row violates row-level security policy … 42501`, which reads as a wrong
-`user_id` and was nothing of the sort. The id was right and the insert policy
-was right; the missing policy was for an operation the app never performs.
-`0021` adds it. So the rule is: **`merge-duplicates` needs update privilege *and*
-a select policy**, and every other table here happened to have both.
+`user_id` and was nothing of the sort. `0021` adds it. So the rule is:
+**`merge-duplicates` needs update privilege *and* a select policy.**
 
 **A name in a chat was a copy of a copy.** `likes.liker_name` is denormalised
-when a like is sent, `ChatService.open` copies *that* onto the conversation, and
-nothing ever corrected either — so a profile read "Chan Tai Man" in Explore and
-"Marco" in the chat header, and anything wrong at that instant was wrong forever.
+when a like is sent and `ChatService.open` copied *that* onto the conversation,
+so a profile read "Chan Tai Man" in Explore and "Marco" in the chat header.
 Names now come from `discovery_cards.display_name` through
-`ChatService.cards(for:)`, alongside the photograph, for the reason that table
-was already being read for faces: it is the one place a signed-in user may read
-about another, and a copy elsewhere is a second thing to keep in step. The stored
-columns remain as the fallback, because `0009`'s insert policy needs them at
-creation when no card may exist yet. `0031` refreshed the rows already written.
+`ChatService.cards(for:)`, alongside the photograph: it is the one place a
+signed-in user may read about another, and a copy elsewhere is a second thing to
+keep in step. The stored columns remain as the fallback, because `0009`'s insert
+policy needs them at creation when no card may exist yet; `0031` refreshed the
+rows already written. **The same gap existed on the two single-conversation
+fetches**, so a thread opened from a notification tap drew the generated portrait
+and the frozen name while the same thread opened from the list drew the real
+ones.
 
-**The same gap existed on the two single-conversation fetches**, which resolved
-no card at all — so a thread opened from a notification tap drew the generated
-portrait and the frozen name while the identical thread opened from the list drew
-the real ones.
-
-**One invitation per person, and it is either a heart or a note.** The card used
-to fill the heart whichever route was taken and leave the envelope live, so the
-two controls disagreed about whether anything had happened and a second
-invitation could be sent to somebody who had already had one. Whichever was used
-is now red and filled and the other fades; both go inert. This reverses a note
-that stood here — that a message was deliberately *not* blocked by having already
-liked — which was true and not worth a card that contradicts itself.
+**One invitation per person, and it is either a heart or a note.** Whichever was
+used is red and filled and the other fades; both go inert. The card used to fill
+the heart whichever route was taken and leave the envelope live, so a second
+invitation could be sent to somebody who had already had one.
 
 **`23503` means the person deleted their account.** Every foreign key in this
 schema leads back to `public.users`, and deleting an account cascades from
 `auth.users` through it. A discovery card outlives the account because
 `DiscoveryFeed` is built once and scrolled rather than re-fetched, so liking
 somebody who has just left failed with `violates foreign key constraint
-"likes_liked_id_fkey"` on screen — accurate, unreadable and frightening.
-`PostgREST.Failure` carries the error code now rather than folding it into the
-message, and the feed removes them and says "That profile is no longer
-available."
+"likes_liked_id_fkey"` on screen. `PostgREST.Failure` carries the error code now
+rather than folding it into the message, and the feed removes them and says
+"That profile is no longer available."
 
 **Two accounts are needed to test any of this**, because RLS makes each half of
 a conversation invisible to the other. `tools/chat_e2e.py` plays the second
 person over REST — `users`, `like`, `reply`, `state` — and the six synthetic
-accounts are real `auth.users` rows, so one of them can be it. A simulator
-cannot be the first person; Sign in with Apple needs a device. **Read the
-database after every step rather than trusting the screen**: the first accept in
-that run appeared to open a conversation while writing nothing at all.
+accounts are real `auth.users` rows. A simulator cannot be the first person;
+Sign in with Apple needs a device. **Read the database after every step rather
+than trusting the screen**: the first accept in that run appeared to open a
+conversation while writing nothing at all.
 
 ## Notifications: a like, a match, a message
 
@@ -1654,48 +1257,37 @@ Three events, sent from the database rather than from a phone — in all three t
 person to be told is by definition not the person making the request, and their
 session is the only thing that could reach their own devices under RLS. The path
 is `likes`/`messages` trigger → `pg_net` → `functions/push` → APNs. **Proven end
-to end on a device on 2026-08-05**: a row inserted into `public.likes` produced
-the banner, through a real ES256 signature and a real sandbox token.
+to end on a device on 2026-08-05**, a row inserted into `public.likes` producing
+the banner through a real ES256 signature and a real sandbox token.
 
 **`pg_net` is fire-and-forget and that is the point.** `net.http_post` queues and
-returns, so a slow or dead APNs cannot make a like fail. The cost is that a
-failure is invisible from the app. Right trade here: not being notified is a
-disappointment, not being able to like somebody is a broken app.
-
-**But it is not invisible from SQL, and believing it was cost an hour.**
-`pg_net` records every response in **`net._http_response`**, readable from the
-SQL editor:
+returns, so a slow or dead APNs cannot make a like fail. **But it is not
+invisible from SQL, and believing it was cost an hour** — `pg_net` records every
+response in **`net._http_response`**:
 
     select (content::jsonb ->> 'face') as face, status_code, created
       from net._http_response order by created desc limit 3;
 
-The function's own log lines went unfindable for a known `execution_id` — the
-viewer would not show them at any severity — and the fix was to stop logging the
-diagnosis and *return* it, where `pg_net` writes it down. **Anything the function
-needs to say should travel in the response body**, not only to `console`: the
-body needs no log viewer, no curl, and no copy of `PUSH_SECRET`. That
-`net._http_response` exists was written into `0020`'s own header comment and
-still took an hour to reach for.
+The function's own log lines went unfindable for a known `execution_id`, and the
+fix was to stop logging the diagnosis and *return* it. **Anything the function
+needs to say should travel in the response body**, not only to `console`.
 
 **The URL and the shared secret live in `private.push_config`**, a table in a
 schema nothing is granted on, filled in by hand. Not a GUC (invisible to the
 migration) and not a literal (a secret in git). The function is deployed with
 **JWT verification off**, which is mandatory rather than lax: the triggers carry
 no Authorization header at all, and the toggle demands a JWT signed by the
-*legacy* secret, which this project disabled in the July rotation — so with it on
-nothing could satisfy it, including the app. `PUSH_SECRET` and the
-`x-push-secret` header are the auth instead.
+*legacy* secret, which this project disabled in the July rotation.
+`PUSH_SECRET` and the `x-push-secret` header are the auth instead.
 
 **Five things about Apple's side, each of which cost a round:**
 
 - **A successful install proves nothing about push.** Xcode's automatic signing
   issues an `iOS Team Provisioning Profile`, and those carry
   `aps-environment: development` **whether or not the App ID has the capability
-  enabled** — so the app signs, installs, and APNs even hands over a token,
-  because iOS issues one whenever the entitlement is present. What actually
-  checks is Apple's **Push Notifications Console**, and a *distribution* profile,
-  which is derived strictly from the App ID. A TestFlight build would have had
-  no push in it and looked like a code fault.
+  enabled**, so the app signs, installs, and APNs even hands over a token. What
+  actually checks is Apple's **Push Notifications Console**, and a *distribution*
+  profile, derived strictly from the App ID.
 - **It is a `.p8` key, not a certificate, and the two are not interchangeable
   here.** `functions/push` signs an ES256 JWT from a PKCS#8 key; a `.p12` has
   nowhere to go in that code, and Deno's `fetch` cannot do client-certificate
@@ -1703,51 +1295,35 @@ nothing could satisfy it, including the app. `PUSH_SECRET` and the
   capability is correct.
 - **An APNs key must be created as "Sandbox & Production", and the page lets you
   create one that is not.** A single-environment key answers **`403
-  BadEnvironmentKeyInToken`** against the other host — so a key made
-  Sandbox-only delivers every Xcode build's notification and refuses every
-  TestFlight one. That shipped: testers received nothing while development
-  worked perfectly, and it read as *lateness* rather than failure, because the
-  sandbox notification still arrived on its own unhurried schedule. Two things
-  found it, and neither was the phone: `results` in the function's response
-  carrying APNs' own reason, and a send to somebody with **two** devices, where
-  `["ok", "403 …"]` in one array made the asymmetry impossible to miss.
-  **`sent: 2` with `["ok","ok"]` is the only proof that both environments
-  work** — a production *token* existing proves the entitlement survived
-  distribution signing and nothing more.
+  BadEnvironmentKeyInToken`** against the other host — so a Sandbox-only key
+  delivers every Xcode build's notification and refuses every TestFlight one.
+  That shipped, and it read as *lateness* rather than failure. Two things found
+  it, neither the phone: `results` in the function's response carrying APNs' own
+  reason, and a send to somebody with **two** devices, where `["ok", "403 …"]`
+  made the asymmetry impossible to miss. **`sent: 2` with `["ok","ok"]` is the
+  only proof that both environments work.**
 - **The token's environment is not bookkeeping.** APNs has two hosts with two
   separate namespaces: a development build's token answers `BadDeviceToken` at
   `api.push.apple.com`, and a TestFlight token fails the same way at the sandbox
   host. Both kinds exist here at once, so `device_tokens.environment` records
   which. `#if DEBUG` decides it.
-- **Where permission is asked has been wrong twice, and both are worth keeping.**
-  iOS allows the question **once, ever** — a refusal is undoable only in
-  Settings, which nobody visits — so the moment decides whether notifications
-  work for that person at all.
-
-  It was first asked **on the first admirer**, which put the question one event
-  *after* the like that would have used it: nobody's first notification could
-  ever arrive, and a tester reported being asked only when their first message
-  came in. It was then asked bare **on arriving at Explore**, which spent the
-  single attempt cold and landed a system alert on the discovery feed at the
-  moment somebody had tapped to see it.
+- **Where permission is asked has been wrong twice.** iOS allows the question
+  **once, ever** — a refusal is undoable only in Settings — so the moment decides
+  whether notifications work for that person at all. Asked **on the first
+  admirer**, it came one event *after* the like that would have used it; asked
+  bare **on arriving at Explore**, it spent the single attempt cold on the page
+  somebody had just tapped to see.
 
   It now shows **`NotificationPrimer`** — the app's own sheet, naming what
   arrives rather than asking to be allowed — and only somebody who taps *Turn
-  on* is passed to iOS. A "not now" spends nothing, because iOS was never asked,
-  and is offered again in three days. Fired from `AppShell.onChange(of: tab)` on
-  reaching Explore or Chat, 900ms after the transition so it does not cover the
-  page it interrupts, and deliberately nowhere near Health — this project lost a
-  week to two prompts colliding, because HealthKit hosts a remote view and cannot
-  present over anything else.
-
-  **And a refusal is now said out loud.** `ChatView` draws one line for anybody
-  in `.denied`, with a route to Settings. Left unsaid it was the same silent
-  failure as everything else here: `device_tokens` stays empty, every
-  notification reports `{"sent":0,"note":"no devices"}` — a *success* — and the
-  person hears about no like and no match and is never told why.
-
-  `-push ask` exists because setting any of this up otherwise requires arranging
-  to be liked.
+  on* is passed to iOS. A "not now" spends nothing and is offered again in three
+  days. Fired from `AppShell.onChange(of: tab)` on reaching Explore or Chat,
+  900ms after the transition, and deliberately nowhere near Health, which cannot
+  present over anything else. **A refusal is said out loud**: `ChatView` draws
+  one line for anybody in `.denied`, with a route to Settings — left unsaid,
+  `device_tokens` stays empty and every notification reports
+  `{"sent":0,"note":"no devices"}`, a *success*. `-push ask` exists because
+  setting this up otherwise requires arranging to be liked.
 - **`SUPABASE_` is a reserved prefix** and a secret using it cannot be created.
   The function reads the platform-injected `SUPABASE_SERVICE_ROLE_KEY`, which on
   a project migrated to the new key system carries the `sb_secret_…` value
@@ -1765,19 +1341,6 @@ and Postgres refuses it with `42725`, *from inside a trigger on `likes`*, where
 the like fails rather than the notification. `0026` cleared the pair up and
 `0027` drops before creating. **Changing a function's parameters means `drop
 function` naming the old signature in full.**
-
-**The recurring defect appeared three more times here**, in code written after
-the lesson was already in this file — twice in the same file on the same night,
-the second time three functions below the first fix. `devices()` returned `[]`
-for a request it could not make, which the caller reports as
-`{"sent":0,"note":"no devices"}` — a *success*. An unset `PUSH_SECRET` and a
-wrong one were one condition and one 401, wanting opposite fixes. And
-`senderPhotoURL` returned null from a refused query, an empty result, a refused
-signature and a thrown exception identically, so `face=no` could not distinguish
-"this person has no photograph" from "storage would not sign". That makes
-**seven** instances of *a call that can fail, a result nobody reads, and the
-symptom surfacing somewhere else.* (Nine by the end of the same week — see the
-offline chat list below, where it finally destroyed data rather than hiding it.)
 
 ### The banner is a person, not an app
 
@@ -1797,40 +1360,95 @@ does nothing on its own**:
   `content.updating(from: intent)`
 
 **That Info.plist key needs a real file, because `INFOPLIST_KEY_` ignores names
-it does not know.** The app declares everything else through `INFOPLIST_KEY_*`
-build settings and has no plist of its own, so `INFOPLIST_KEY_NSUserActivityTypes`
-was the obvious move — and Xcode wrote nothing at all. No error, no warning, a
-built plist without the key. `Written-Info.plist` exists for that one key, at the
-repo root beside `Written.entitlements` rather than under `Written/`, because
-that folder is a synchronized group and a plist swept into Copy Bundle Resources
-ships twice. **Read the built `Info.plist`, never the setting.**
+it does not know.** `INFOPLIST_KEY_NSUserActivityTypes` was the obvious move and
+Xcode wrote nothing at all — no error, no warning, a built plist without the key.
+`Written-Info.plist` exists for that one key, at the repo root beside
+`Written.entitlements` rather than under `Written/`, because that folder is a
+synchronized group and a plist swept into Copy Bundle Resources ships twice.
+**Read the built `Info.plist`, never the setting.**
 
 **`updating(from:)` renames the title to the sender's display name**, which is
-why `0027` passes `sender_name` and `subtitle` separately. The title is a
-headline — "Marco likes you" — and using it as a display name announces somebody
-called "Marco likes you". The headline moves to `subtitle`, which
-`updating(from:)` leaves alone.
+why `0027` passes `sender_name` and `subtitle` separately. Using the title as a
+display name announces somebody called "Marco likes you"; the headline moves to
+`subtitle`, which `updating(from:)` leaves alone.
 
 **The photograph is signed server-side.** `functions/push` looks up
 `public.photos`, signs a one-hour URL against the private `profile-photos`
-bucket, and puts it in the payload; the extension only downloads. An extension
-that authenticated for itself would need the session out of the shared keychain
-and a refresh, inside a process with a thirty-second life, for a picture. An
-hour because a notification can wait on a locked phone, and bounded by the fact
-that the link reveals one photograph any signed-in user could already see.
-
-**Everything in the extension falls back to the plain banner** — a missing
-photograph, an expired URL, a rejected intent. A notification that arrives
-looking ordinary is enormously better than one that does not arrive.
+bucket, and puts it in the payload; the extension only downloads, because
+authenticating for itself would mean the shared keychain and a refresh inside a
+process with a thirty-second life, for a picture. An hour because a notification
+can wait on a locked phone. **Everything in the extension falls back to the plain
+banner** — a missing photograph, an expired URL, a rejected intent — because a
+notification that arrives looking ordinary is enormously better than one that
+does not arrive.
 
 Two smaller ones: `INPersonHandle` is `.unknown` rather than an email or phone,
 because claiming either invites iOS to match against Contacts and put somebody's
 saved contact photo on a stranger's profile; and `INInteraction.direction` must
 be set to `.incoming`, since the default is outgoing and would teach Siri that
-*you* messaged everyone who has ever messaged you.
+*you* messaged everyone who has ever messaged you. **The small app icon badged on
+the avatar is iOS's** — every communication notification carries it and there is
+no API to remove it.
 
-**The small app icon badged on the avatar is iOS's, not ours.** Every
-communication notification carries it and there is no API to remove it.
+### The dynamic profile
+
+The official way one match presents themselves to another — distinct from the
+dynamic *bio* (a line on a discovery card) and the *icebreaker* (a tip in a
+thread). Laid out like an Instagram account, with three figures where posts /
+followers / following sit: a follower count is a claim about how many people
+know you, while these are what somebody's attention is made of, and there is
+nothing to inflate.
+
+**Reachable from exactly two places** — the avatar on an invitation
+(`AdmirerRow`) and the avatar on a chatroom banner (`ConversationView`) — and
+**the rule is in Postgres, not in which buttons exist**. `match_profile()`
+(`0037`) is `security definer` and returns rows only to somebody holding a like
+*from* this person or a conversation *with* them. A page reachable from two
+buttons is a drawing; a function that returns nothing is a rule.
+
+**The split is by how identifying a field is.** Name, age, district, photographs
+and the ontology mix are on `discovery_cards`, which every signed-in account may
+read. **The school and the bio are not, and must not be** — those come back only
+through the gated function. Anything added to this page has to be sorted into
+one of those two piles before it is drawn. **`match_profile` returns zero rows
+for a refusal *and* for a match who filled in neither field, deliberately** —
+distinguishing them would tell a caller whether an account exists.
+
+**Switching the ontology stage on was the prerequisite, not a detail.** Exactly
+one line in the app ever attached a `Domain` to real data and `Ontology.classify`
+had **zero callers**: thirteen cases, one used. `Ontology.mix` is the wiring —
+music by song count, `health_sports` straight to `playedSport`, podcasts and
+calendar events through `classify`. Four things about it:
+
+- **YouTube is not a parameter and must never become one.** Applying a term list
+  to a channel name is *"infer or estimate the content category/type of a video
+  or channel"*, which III.E.4.h prohibits. The absence is structural rather than
+  a filter somebody has to remember.
+- **Sports bypass `classify` by construction** — it skips `.playedSport` on
+  every pass, because a term list matched against a title cannot tell watching a
+  sport from playing one. A `health_sports` row already settles that.
+- **The denominator is placed items, not all items.** Somebody with 300 songs
+  and 4 podcasts is not "98% music" in any sense worth printing.
+- **The three shares usually will not sum to 100**, which is honest.
+  Normalising them would imply the other domains do not exist.
+
+**`classify` matches substrings**, so "art" inside "Bartholomew" places a
+podcast under `.art`. Tolerable for a percentage and not for a caption — which
+is why captions only ever name *subjects*, which are never classified. Coverage
+against a real library is unmeasured.
+
+**Photo captions degrade subject → domain → nothing.** Two real libraries share
+one or two specific things and almost never six, so captioning all six with
+subjects would mean inventing four. The fallback is `Domain.sharedLine`, which
+is still true and about both people; when that runs out the photograph carries
+no caption, because a commonality that does not exist is the one thing this
+feature must not manufacture. Each line is used once.
+
+The bio is a `user` record like education and occupation, so it owns no column
+and applies locally at once. **Capped at 30 characters at the keyboard**, not on
+save: a sheet that accepts forty and then refuses is a dead end that cannot
+explain itself. `-chat profile` opens the page with a sample whose captions
+deliberately run out.
 
 ### The icebreaker
 
@@ -1845,33 +1463,27 @@ one sentence at the top of the thread:
 sentence differs per reader** — and the version shown to one of them must never
 be shown to the other. That rules out a `messages` row twice: `sender_id` is
 `not null`, so a system message has no sender, and one row is read by both
-participants. It is drawn instead, which is also what makes it dynamic
-prompting rather than a fixed greeting.
-
-**The flip happens once**, in `ChatService.conversation(from:me:)`, which is the
-only place that already knows which side the reader is. Anything downstream
-deciding for itself whether `subject_a` is "mine" would be a second copy of that
-decision, and the day the two disagreed somebody would be told to ask their
-match about their own favourite band.
+participants. It is drawn instead, which is also what makes it dynamic prompting
+rather than a fixed greeting. **The flip happens once**, in
+`ChatService.conversation(from:me:)`, the only place that already knows which
+side the reader is; anything downstream deciding for itself whether `subject_a`
+is "mine" is a second copy of that decision, and the day they disagreed somebody
+would be told to ask their match about their own favourite band.
 
 **Ingredients in SQL, language in Swift.** The trigger does set intersection and
 knows no English; `IcebreakerCard` picks the verb, which varies by kind — "both
 listen to J-Pop" against "both play tennis". Same reasoning that keeps
-`Ontology.line(for:subject:)` in Swift: a schema is a poor place for prose, and
-copy that needs a migration to change will not get changed.
+`Ontology.line(for:subject:)` in Swift: copy that needs a migration to change
+will not get changed.
 
 **Drawn as `DayDivider`'s pill, prefixed `Tips:`** — the same card fill,
 hairline, shadow and muted 12pt, in a rounded rectangle rather than a capsule
-only because it runs to several lines. Borrowing that look is the argument, not
-a shortcut: a day pill is the one thing already in a thread that is *about* the
-conversation rather than part of it — nobody reads "Yesterday" as something the
-other person said — so matching it puts the tip in that category without needing
-a label to explain it. **It must never read as a bubble.**
-
+only because it runs to several lines. A day pill is the one thing already in a
+thread that is *about* the conversation rather than part of it, so matching it
+puts the tip in that category without a label. **It must never read as a bubble.**
 `-chat icebreaker` opens the sample thread with **no messages**, which is the
-tip's actual habitat: a match just accepted, nobody has spoken. The ordinary
-`-chat thread` sample runs nine days deep and pushes the pill several screens
-above the fold, where `simctl` — which can send no scroll — cannot follow it.
+tip's habitat; `-chat thread` runs nine days deep and pushes the pill above the
+fold, where `simctl` — which can send no scroll — cannot follow it.
 
 Four things about the trigger:
 
@@ -1892,18 +1504,16 @@ Four things about the trigger:
 
 **No overlap means no card**, not a generic one, and a theme whose subjects came
 back empty is discarded at the trigger rather than papered over in the view.
-
-**Both pronouns sit on a row both participants read, deliberately.** Gender
-stays off `discovery_cards`, which every signed-in user may read; this is the
+**Both pronouns sit on a row both participants read, deliberately**: gender stays
+off `discovery_cards`, which every signed-in user may read, and this is the
 narrow channel instead — two people who have matched and are about to address
 each other. Anything unrecognised is **them**, including null, and a name is
 never used to guess.
 
-**It is not an embedding.** The product intends to place people in a space and
-minimise distance; that stage does not exist. This is overlap counting over
-genres, sports and creators. It produces the right shape of sentence and should
-not be described as the same mechanism — when the ontology stage lands, this
-scoring is what it replaces.
+**It is not an embedding.** This is overlap counting over genres, sports and
+creators. It produces the right shape of sentence and should not be described as
+the same mechanism — when the ontology stage lands, this scoring is what it
+replaces.
 
 ### The invitation becomes the first message
 
@@ -1919,8 +1529,7 @@ positioned to write the row is the one person forbidden from writing it.
 
 **It notifies nobody, tested by timestamp rather than a flag.** A message
 carrying the like's time necessarily predates a conversation that exists only
-because the like was accepted, so a message older than its own conversation
-cannot be one somebody sent. Anything typed in gets `now()` and is later by
+because the like was accepted. Anything typed in gets `now()` and is later by
 construction.
 
 ### An attachment with no caption
@@ -1928,23 +1537,21 @@ construction.
 `0010` relaxed the body constraint so a photo could travel without words, and the
 app satisfies `not null` with an empty string. The notification passed it through
 unread, so an uncaptioned attachment produced the sender's name and **a blank
-line** — with voice notes the worst case, since nothing in the app ever pairs
-text with one, so every voice message would have notified as nothing. It says
-`📷 Photo` / `📹 Video` / `🎤 Voice message` now, and a caption still wins where
-there is one.
+line** — worst with voice notes, since nothing in the app ever pairs text with
+one. It says `📷 Photo` / `📹 Video` / `🎤 Voice message` now, and a caption still
+wins where there is one.
 
 **Emoji rather than SF Symbols, and that is the medium.** An APNs alert body is
 plain text rendered by SpringBoard — no attributed string, no reach into the
 symbol set the app draws with. The chat list uses `camera.fill` / `video.fill` /
-`mic.fill` for the same three, which is right there and impossible in a banner.
-While checking it, `ChatView.lastLine` turned out to test only for `audio` and
-let everything else fall through to a camera, so **an uncaptioned video called
-itself "Photo"** — visible only to somebody who had sent one.
+`mic.fill` for the same three. While checking it, `ChatView.lastLine` turned out
+to test only for `audio` and let everything else fall through to a camera, so
+**an uncaptioned video called itself "Photo"**.
 
 ### Unread, which nothing had ever counted
 
 `read_at`, its policy and its column grant have existed since `0009` and nothing
-used them until `0030`. The app had no idea what unread meant.
+used them until `0030`.
 
 **The icon badge is set from two ends and needs both.** The count travels with
 every message notification, which is what keeps it right while the app is
@@ -1962,17 +1569,11 @@ unread rows you did not send returns exactly yours. RLS is doing the join.
 
 **The band in a thread is snapshotted before anything is marked read**, because
 opening a thread marks everything read — that is what clears the badge — so the
-boundary exists only in the first fetch. It is captured once and held for the
-life of the page; recomputing would find nothing and the band would vanish while
-somebody was reading towards it.
-
-**And it is read off the fetch, never off `messages`.** That array is seeded from
-`ChatStore` and merged with the fetch, so it also carries rows older than the
-page — and a cached row whose `readAt` is absent decodes as nil, which reads as
-*unread*. That put a phantom band at the top of a thread and kept it there
-through every relaunch, since `markRead` had nothing left to mark, while the chat
-list disagreed because it asks the server. See the cache-versioning note in
-Conventions.
+boundary exists only in the first fetch, and recomputing would make it vanish
+while somebody was reading towards it. **And it is read off the fetch, never off
+`messages`**: that array is seeded from `ChatStore`, and a cached row whose
+`readAt` is absent decodes as nil, which reads as *unread* and put a phantom band
+at the top of a thread that `markRead` had nothing left to clear.
 
 **Opening position is bottom when the unread fits and centred when it does not**,
 decided by scrolling to the end and asking whether the band survived it — no
@@ -1984,12 +1585,6 @@ on it, because a tap that launches the app is delivered during start-up, before
 `AppShell` exists. `AppShell` moves the tab, `ChatView` opens the page, and a
 conversation not yet loaded is fetched by id rather than waited for.
 
-**Not built, and each is a decision rather than an oversight:** a photograph
-inside the banner needs a Notification Service Extension — which now exists, so
-this is only a matter of attaching one; and an unread count that never clears
-would be its own bug, which is why the badge is recomputed rather than
-decremented.
-
 ### Offline: the cache existed, and the failure erased it
 
 **The chat list was empty offline, and it was not a missing cache.** `ChatStore`
@@ -1997,7 +1592,6 @@ has held the threads all along and `ChatModel.conversations` is seeded from it,
 so they draw before any request is made. What emptied the screen was the fetch
 that followed — and it did not merely blank the list, it **wrote its empty answer
 back to `ChatStore`**, so the threads were gone until the next successful load.
-Being offline cost more than the network.
 
 `ChatService.conversations()` opened `guard let me = await currentUserID() else
 { return [] }`. Offline that guard is what fires: `currentUserID()` awaits
@@ -2008,35 +1602,28 @@ that return path set none:
     let chatFailed = await ChatService.shared.lastError != nil   // false
     if !fetched.isEmpty || !chatFailed { conversations = fetched; ChatStore.save(fetched) }
 
-**Ninth instance of the same defect, and the first to destroy anything.** The
-eight before it hid data or reported a failure as a success; this one overwrote
-the copy that would have survived. `LikeService.admirers()` had the identical
-opening and emptied the admirers banner the same way.
-
-**The fix is the type, not another boolean.** Both return an optional now — nil
-for *could not ask* — so the caller is `if let fetched { … }` and there is
-nothing left to remember. A boolean in one file guarding an early return in
-another is not a guard; it is a convention, and this is what it costs when it
-lapses. Same treatment as `PhotoService.paths()` and `unreadByConversation()`,
-which were already right.
+`LikeService.admirers()` had the identical opening and emptied the admirers
+banner the same way. **The fix is the type, not another boolean**: both return an
+optional now — nil for *could not ask* — so the caller is `if let fetched { … }`.
+Same treatment as `PhotoService.paths()` and `unreadByConversation()`, which were
+already right.
 
 Three things fell out of it, all about not asserting what was never asked:
 
 - **`hasLoaded` moves only on a real answer.** It meant *a load finished*, which
   is why it was already wrong for notification routing.
 - **The empty state has two sentences.** "No conversations yet" is a claim about
-  an account; offline with no cache — a fresh install, a new phone — the app
-  cannot make it. `couldNotReach` picks the other one.
+  an account; offline with no cache the app cannot make it. `couldNotReach`
+  picks the other one.
 - **No second banner while offline.** `AppShell`'s offline banner covers every
   tab, and the service's own message on that path is "You're not signed in" —
   true of the token it could not refresh, and nonsense to somebody on a train.
 
-**Nothing about synchronisation changed.** The server is still the source of
-truth, the cache is still a cache and is still replaced wholesale by every
-successful fetch, and nothing is written offline. Only an *unsuccessful* fetch
-stopped being mistaken for a successful empty one. Threads themselves were never
-affected — `ConversationView.merge` unions the fetch onto what it holds, so an
-empty answer there changes nothing.
+**Nothing about synchronisation changed**: the server is still the source of
+truth, the cache is still replaced wholesale by every successful fetch, and only
+an *unsuccessful* fetch stopped being mistaken for a successful empty one.
+Threads themselves were never affected — `ConversationView.merge` unions the
+fetch onto what it holds.
 
 ## Photos
 
@@ -2044,18 +1631,15 @@ empty answer there changes nothing.
 `<user_id>/<position>.<ext>`. **The position *is* the order somebody meant**, so
 re-picking slot 2 overwrites slot 2 rather than leaving a seventh photograph
 behind, and `slots()` keeps the position that `paths()` throws away — packing
-0, 2, 5 into 0, 1, 2 would silently rearrange a profile its owner laid out. A
-compacted array is never the right thing to hand to something that assigns
-positions.
+0, 2, 5 into 0, 1, 2 would silently rearrange a profile its owner laid out.
 
 **Nothing uploads on edit; edits are staged and flushed on the way out.**
 `PhotoGrid` takes an optional `onEdit`, and which surface passes it is the whole
 difference between the two callers: onboarding waits for its Continue button,
-because somebody arranging pictures may yet skip. The dashboard has no button,
-so the departure is the button — `stagePhoto` records, `flushPhotos` sends,
-fired from `AppShell` on leaving the tab, on the app going away, and before
-signing out. The staging map is keyed by position, so **the last write to a slot
-wins** and swapping one picture three times pays for one upload.
+because somebody arranging pictures may yet skip. The dashboard has no button, so
+the departure is the button — `stagePhoto` records, `flushPhotos` sends, fired
+from `AppShell` on leaving the tab, on the app going away, and before signing
+out. The staging map is keyed by position, so **the last write to a slot wins**.
 
 - **`.inactive` is what catches a force-quit**, not `.background`: raising the
   app switcher makes the app inactive before the swipe kills it. A background
@@ -2068,13 +1652,11 @@ wins** and swapping one picture three times pays for one upload.
   Support, one directory per account through `AccountScope`, because a queue
   flushed into the wrong account uploads somebody else's face. **The intent is
   the file name, not a manifest**: `3.jpg` is a pending upload for slot 3,
-  `3.removed` a pending removal. A directory listing cannot disagree with
-  itself.
+  `3.removed` a pending removal. A directory listing cannot disagree with itself.
 - **Encoded at staging, not at send**, so a retry after a crash sends the same
   bytes. That is why `flushPhotos` awaits outstanding staging tasks before
   deciding it has nothing to do, and why onboarding awaits staging before the
-  route changes — it is a JPEG encode and a file write, not a round trip, and
-  the alternative is a race the route wins half the time.
+  route changes — it is a JPEG encode and a file write, not a round trip.
 - **The flush is driven by staged edits and never by the array's contents.** A
   grid that has not hydrated yet is six empty slots, and anything reconciling
   the array against the server reads that as *delete everything*.
@@ -2096,20 +1678,19 @@ wins** and swapping one picture three times pays for one upload.
 absent rather than shown and refused — `PhotoService.encode` has no re-encoding
 pass and would upload a video as picked, failing at the bucket's 15 MB door
 after the person had waited. Restoring it is `.any(of: [.images, .videos])`, the
-encoder's commented branch, the MIME types in `0015`, and the
-`AVAssetExportSession` that was the actual missing piece. The view's five video
-branches stay in place and marked dormant; `load` branches on what the item *is*,
-so the safety does not rest on the picker's filter. `kind`'s `video` option and
-the four crop columns stay in `0015` unwritten for the same pass. **Chat
-attachments are a different feature and still take video** — `chat-media`, 50 MB.
+encoder's commented branch, the MIME types and the `kind` column's `video`
+option in `0015`, and the `AVAssetExportSession` that was the actual missing
+piece. The view's five video branches stay in place and marked dormant; `load`
+branches on what the item *is*, so the safety does not rest on the picker's
+filter. **Chat attachments are a different feature and still take video** —
+`chat-media`, 50 MB.
 
 **`GeometryReader` lays its content out at top-leading, not centred.** A
 `ZStack` takes the union of its children and `CropView.imageLayer` sizes itself
 to *cover* the crop frame, so a landscape picture is wider than the phone and
-all of it hung off the right — putting "Use photo" half off screen for anyone
-cropping a wide photograph. Pin the stack to the container it was handed, and
-not with `.clipped()`: the backdrop and dimming layer deliberately
-`ignoresSafeArea`.
+all of it hung off the right — putting "Use photo" half off screen. Pin the stack
+to the container it was handed, and not with `.clipped()`: the backdrop and
+dimming layer deliberately `ignoresSafeArea`.
 
 **Some things can be set but never changed** — the shape of bug to watch for on
 the next field. A value captured once during onboarding, on a screen nobody
@@ -2125,32 +1706,29 @@ subject to no row-level security whatsoever. `tools/seed_synthetic.py` and
 environment with no default, and that is the pattern for anything like it.
 
 **Four keys have been exposed and every one of them went the same way: a chat
-transcript, never the repo.** Checked rather than assumed — `git log --all -S`
-found none of them in any commit. That is where secrets get read long after
-anyone is thinking about them, and the July pair were still live when checked
-eight months later, which is the argument for rotating at the time rather than
-noting it.
+transcript, never the repo** — checked rather than assumed, `git log --all -S`
+found none of them in any commit. The July pair were still live when checked
+eight months later, which is the argument for rotating at the time.
 
 **Rotate, then verify the old key is dead with a request** rather than trusting
 the dashboard — a revoked key that still answers `200` is the failure this check
-exists for. Note the project runs on JWT signing keys, so the legacy secret is
+exists for. The project runs on JWT signing keys, so the legacy secret is
 verification-only and there is no rotate button: what kills an exposed
 `service_role`/`anon` JWT is **disabling the legacy API keys**.
 
-**Nothing that ships is ever affected**, which is the standing design and why a
-rotation here is cheap: both targets carry only `AppConfig.supabaseAnonKey`, a
-`sb_publishable_…` value that is public by intent. If rotating a secret ever
-*does* require a rebuild, something has been put in the app that should not be.
+**Nothing that ships is ever affected**: both targets carry only
+`AppConfig.supabaseAnonKey`, a `sb_publishable_…` value that is public by intent.
+If rotating a secret ever *does* require a rebuild, something has been put in the
+app that should not be.
 
 ## Shipping: build numbers, TestFlight and review
 
 **Every upload needs `CURRENT_PROJECT_VERSION` bumped, and it appears once per
 configuration per target.** All of them must move together — the app and every
-embedded extension sharing a build number is a hard requirement of the upload,
-not a tidiness rule. **Count it, never remember it**, including from this
-paragraph: `grep -c CURRENT_PROJECT_VERSION project.pbxproj`. The number grows
-with every target, and **un-embedding a target does not reduce it** — the target
-and its configurations remain.
+embedded extension sharing a build number is a hard requirement of the upload.
+**Count it, never remember it**, including from this paragraph:
+`grep -c CURRENT_PROJECT_VERSION project.pbxproj`. The number grows with every
+target, and **un-embedding a target does not reduce it**.
 
 **Held-back features are hidden by one line and marked `ARCHIVED-`, never
 deleted**; `grep -rn "ARCHIVED-"` is the whole inventory. Two shapes:
@@ -2193,7 +1771,7 @@ unrelated to the deployment target, and a silent blocker that only appears at
 upload. `DTSDKName` in the archive is the check.
 
 **"Uploaded" is four states short of "a tester has it", and the gap is silent at
-every step.** A build can die on any rung with no notification:
+every step:**
 
     archived -> uploaded -> processed -> in a tester group -> review-approved -> Testing
 
@@ -2217,19 +1795,16 @@ per version.** The plan of record is external TestFlight before the App Store.
 | Audience | 10,000 invited testers | public |
 | Build life | **90 days** | indefinite |
 
-TestFlight checks the app; the App Store checks the app plus the shop window,
-and a large share of launch rejections are metadata ones under 2.3 that
-TestFlight never looks at. But **Guideline 2.2 puts TestFlight builds under the
-same Guidelines**, so the demo account, UGC moderation, the privacy policy and a
-working contact address all still bind — which makes it a real rehearsal. And
-90 days is a commitment: testers lose the build, so a beta means shipping on a
-cadence.
+A large share of launch rejections are metadata ones under 2.3 that TestFlight
+never looks at. But **Guideline 2.2 puts TestFlight builds under the same
+Guidelines**, so the demo account, UGC moderation, the privacy policy and a
+working contact address all still bind — and 90 days is a commitment, since
+testers lose the build.
 
 **The unattended upload does not work on this machine; uploading does.**
 `xcodebuild -exportArchive` sees no Apple ID and no App Store Connect API key,
 so it cannot mint or use a *distribution* certificate — the only identity in the
-keychain is `Apple Development`. Xcode's Organizer signs in interactively and
-re-mints what it needs. Two ways out:
+keychain is `Apple Development`. Two ways out:
 
 - Organizer → Distribute App → **App Store Connect**. Needs 2FA every time.
   **Not "TestFlight Internal Only"**, which sits directly above it in the same
@@ -2246,11 +1821,10 @@ re-mints what it needs. Two ways out:
 Sign-up is phone-only and verified by SMS, and Twilio Verify's geo permissions
 allow Hong Kong, Taiwan and the US only — so a reviewer outside those cannot
 receive a code, and one inside still needs a number they control. Apple and
-Google cannot rescue it: they refuse any identity that is not already linked,
-which is the whole point of the rule. **Apple can never be a demo route for any
-app** — `ASAuthorization` signs in whoever the device is signed into, so there is
-no credential to hand over. Guideline 2.1 rejections for "we could not sign in"
-are routine and slow.
+Google cannot rescue it: they refuse any identity that is not already linked.
+**Apple can never be a demo route for any app** — `ASAuthorization` signs in
+whoever the device is signed into, so there is no credential to hand over.
+Guideline 2.1 rejections for "we could not sign in" are routine and slow.
 
 **The answer is a test phone number.** Supabase maps a number to a fixed OTP
 (`SMS_TEST_OTP`, bounded by `SMS_TEST_OTP_VALID_UNTIL`) and sends no SMS,
@@ -2277,8 +1851,7 @@ Two ways to get this wrong, both silent:
 Considered and rejected: it makes Connect report data that did not come from the
 device, for one account only, which is 2.3.1(a) — *"no hidden, dormant, or
 undocumented features"* — and 2.1 permits a built-in demo mode only *"with prior
-Apple approval"*. A pre-populated account plus a review note is what comparable
-apps do and costs nothing.
+Apple approval"*.
 
 **`supabase/auth#1252` did not bite.** It reports that Twilio Verify always
 routes to Twilio and ignores the test OTP. Tried 2026-08-07: the number works.
@@ -2286,108 +1859,49 @@ Kept only because it is the first place to look if that ever stops being true.
 
 ## Known gaps
 
-Open as of 2026-08-07, ordered by what hurts soonest. **Delete an entry when it
-stops being true** rather than letting the list rot — a stale gap list is worse
-than none, and everything deleted from this file is in `git log -p CLAUDE.md`.
+Open as of 2026-08-08, ordered by what hurts soonest. **Delete an entry when it
+stops being true** rather than letting the list rot — everything deleted from
+this file is in `git log -p CLAUDE.md`.
 
-### Needs a device or a second person
-
-**Account deletion has never been run end to end**, and it is the load-bearing
-claim of the published privacy policy — the site's answer to Google's mandatory
-*"a way for a user to request that you delete stored data"* is this button plus
-a written request. A deletion that silently half-works is a policy that is
-false. Both halves are deployed: the app deletes its own `public.users` row
-through RLS, which cascades every table, then calls
-`supabase/functions/delete-account` for the `auth.users` record, which only
-`service_role` can do. Confirming the *function* is `ACTIVE` is not confirming
-the *flow*. Test it before submitting anything.
-
-**A restore has never been run on a device that didn't already have the data.**
-`RestoreService` is wired into launch and the mechanism checks out on
-inspection, but that is an argument, not a test. Sign in to the demo account on
-an erased simulator and confirm the profile, the photographs and the garden all
-come back — **this is also the reviewer's first launch**, so it is the one path
-nothing has ever exercised and somebody at Apple will.
-
-**Notifications are proven on sandbox and untested on production.** All three
-events, the avatar and the attachment previews were confirmed on a device on
-2026-08-05, but every `device_tokens` row so far reads `sandbox`. A TestFlight
-build mints a **production** token against a different host. Confirm a row
-reading `production`, then send one message and check the face still arrives.
-Same shape of mistake as testing HealthKit on a phone that has already been
-asked.
-
-**The plant's position is unverified.** `(858, 1626)` at stage 2 is the check
-that has caught every layout regression here, and CoreSimulator has been
-unusable since 2026-07-29 — several changes have shipped on arithmetic alone.
-Restart the simulator and re-run it.
-
-### Portals
-
-**App Store privacy labels are not filled in.** The manifest declares eleven
-data types and App Store Connect's questionnaire still says nothing. Fill it in
-from `PrivacyInfo.xcprivacy`, which is now the complete list — it gained
-`PhoneNumber`, `PhotosorVideos` and `EmailsOrTextMessages` on 2026-08-05, each
-having arrived with a feature written months after anybody last opened a plist.
-A dating app not declaring photographs is the omission a reviewer finds first.
-**The three answers that must agree are the manifest, `web/en-us/privacy/` and
-the questionnaire**; a disagreement is a routine rejection and none of the three
-checks the others.
-
-**Build 25 has not been confirmed to reach a tester.** Committed as `72cfa1b`,
-archived 2026-08-07, the first build without the dead share extension. Uploading
-is rung three of six — read the TestFlight tab.
-
-### Open in code
-
-**`0034` and `0035` were applied on 2026-08-07 and confirmed by query**: four
-columns present, the `bookmarks` table and its one policy present, and the
-backfill hit 7 rows against 7 with `photos_added_at`. **`0036` is written and
-unapplied** — the icebreaker columns and trigger. Its SQL has never run
-anywhere, so treat the first apply as the test.
-
-What they make real. `0034` is what lets a new phone skip onboarding —
-`hasExplored` has a column rather than living only in `UserDefaults`, and
-hydration no longer arrives after the route has been decided. **The failure mode
-if it did not fully land is silent**: `loadProfile` selects four columns in one
-request, PostgREST refuses the lot if any is missing, and `first_name` and
-`photos_added_at` go down with them, so a returning user is asked their name
-again — through `loadProfile`'s `try?`, with nothing on screen. `0035` is the
-bookmarks table and fails visibly instead: every write refused, the page
-permanently empty.
-
-**Identity linking is unbuilt.** Three sign-in methods mean one person can hold
-three accounts, which for a dating app is a duplicate in the pool. Deferred
-consciously for the beta; it wants deciding before launch.
-
-**A failed record upload is recorded but undrawn.** `sync` now keeps the first
-failure on `DistillViewModel.syncFailure` and nothing renders it — deliberate,
-since a failed upload must not interrupt a garden that has already grown. What
-was wrong before was that it went *unrecorded*; a quiet surface on the dashboard
-is the open half.
-
-**Onboarding answers are pushed by detached tasks nobody awaits.** The trade is
-right — onboarding should not block on a round trip for a value Postgres cannot
-refuse — but a push that failed is never retried at the point of failure. The
-backstop is `repairIdentityPush`, which runs every launch guarded on the server
-actually disagreeing. **Watch `birth_date` the first time somebody completes the
-step**: as of 2026-08-07 it is null for every account in the database, explained
-by all four predating `c1a47d8`, which also means the age gate has never been
-observed reaching Postgres.
-
-### Unanswered questions
-
-**`health_sports` is empty and it is not known whether that is right.** 0 rows
-against 1 in `health_signals`, so chronotype computed and sports didn't. The
-early return that made this ambiguous is gone, so from the next distillation an
-empty table means the device genuinely derived no sports. Settle it by checking
-whether the Health app has workouts at all.
-
-**The append/change-only path has never run from the app.** `0004`–`0006` were
-exercised directly against the database — an unchanged 553-row replay wrote 0
-rows, a change wrote 1 — but no distillation has gone through
-`append_source_records` from the phone. Distil Apple Music twice and confirm the
-second run writes only what moved.
+- **A restore has never been run on a device that didn't already have the
+  data.** `RestoreService` is wired into launch and checks out on inspection,
+  which is an argument, not a test. Sign in to the demo account on an erased
+  simulator and confirm the profile, the photographs and the garden come back —
+  **this is also the reviewer's first launch.**
+- **Notifications are proven on sandbox and untested on production.** Every
+  `device_tokens` row so far reads `sandbox`; a TestFlight build mints a
+  **production** token against a different host. Confirm a row reading
+  `production`, then send one message and check the face still arrives.
+- **The plant's position is unverified.** `(858, 1626)` at stage 2 is the check
+  that has caught every layout regression here, and CoreSimulator has been
+  unusable since 2026-07-29 — several changes have shipped on arithmetic alone.
+- **App Store privacy labels are not filled in.** The manifest declares eleven
+  data types — it gained `PhoneNumber`, `PhotosorVideos` and
+  `EmailsOrTextMessages` on 2026-08-05 — and the questionnaire still says
+  nothing. **The three answers that must agree are `PrivacyInfo.xcprivacy`,
+  `web/en-us/privacy/` and the questionnaire**; a disagreement is a routine
+  rejection and none of the three checks the others.
+- **Identity linking is unbuilt.** Three sign-in methods mean one person can
+  hold three accounts — a duplicate in the pool. Deferred for the beta; it wants
+  deciding before launch.
+- **A failed record upload is recorded but undrawn.** `sync` keeps the first
+  failure on `DistillViewModel.syncFailure` and nothing renders it. A quiet
+  surface on the dashboard is the open half.
+- **Watch `birth_date` the first time somebody completes the birthday step.** As
+  of 2026-08-07 it was null for every account, explained by all of them
+  predating `c1a47d8` — which also means the age gate has never been observed
+  reaching Postgres.
+- **`health_sports` is empty and it is not known whether that is right.** 0 rows
+  against 1 in `health_signals`. The early return that made this ambiguous is
+  gone, so from the next distillation an empty table means the device genuinely
+  derived no sports. Settle it by checking whether Health has workouts at all.
+- **The append/change-only path has never run from the app.** `0004`–`0006` were
+  exercised directly against the database — an unchanged 553-row replay wrote 0
+  rows, a change wrote 1 — but no distillation has gone through
+  `append_source_records` from the phone. Distil Apple Music twice and confirm
+  the second run writes only what moved.
+- **CAPTCHA is off for phone sign-in**, with the 10/hour SMS rate limit standing
+  in for it. **Revisit both together.**
 
 ### Deferred by decision
 
@@ -2395,30 +1909,19 @@ second run writes only what moved.
 2026-08-05: submitting earlier means shooting the demo video against a pipeline
 about to be replaced, and the same form carries the derived-metrics request,
 which needs the ontology stage to describe. **Nothing about that defers the
-policies themselves** — they bind every API Client, verified or not, which is
-why the III.E.3.b, III.A.1, revocation and III.E.4.h work all shipped anyway.
-
-Outstanding when it is picked up: Search Console as a **Domain** property signed
-in as an Owner of Cloud project `672788849005` (verifying as the wrong account
-is the standard rejection and Google does not say so); the consent screen at
-`console.cloud.google.com/auth/branding`, whose two URLs must be
+policies themselves** — they bind every API Client, verified or not. Two traps
+for whoever picks it up: Search Console must be verified as a **Domain**
+property signed in as an Owner of Cloud project `672788849005` (verifying as the
+wrong account is the standard rejection and Google does not say so), and the
+consent screen at `console.cloud.google.com/auth/branding` must carry
 `https://written-stl.com/en-us/` and `.../en-us/privacy/` **character for
 character**, matching `SignInView.swift` — not `/privacy`, which 301s, and a
-redirect is not agreement; and an Unlisted demo video, which is the hard part
-because it must show the client ID and `ASWebAuthenticationSession` has no
-address bar. Also unmeasured: what the conservative reading of III.E.4.h costs
-in coverage, and whether to apply for Content Categorization and Tagging.
+redirect is not agreement.
 
 **YouTube and Google Calendar are archived, so nothing is blocked on this
-today** — and the old claim that testers re-authorise YouTube weekly is false
-for any build that ships without it. The *Delete what was read* and *Disconnect
-YouTube* controls have still never been exercised against a real Google account,
-and the published privacy policy makes a 7-day claim resting on them; that has
-to happen before YouTube comes back, not before the next release.
-
-**CAPTCHA is off for phone sign-in**, and the SMS rate limit of 10/hour is what
-stands in for it. **Revisit both together**: raising the limit for real signup
-volume removes the only thing bounding the cost.
+today.** The Disconnect control has never been exercised against a real Google
+account and the published privacy policy makes a 7-day claim resting on it; that
+has to happen before YouTube comes back, not before the next release.
 
 ### Standing traps, not gaps
 
@@ -2430,20 +1933,19 @@ which existed for nothing. **Adding a source, a sign-in method, or anything else
 that leaves the device means editing `web/en-us/privacy/` in the same commit.**
 
 Two words it uses precisely: **struck off** is the `BanList` pass, where
-`markedRemoved` annotates `extra` and *keeps the row* — the ontology stage needs
-"collected then struck off" to differ from "never collected" — so the site says
-never used, never shown, never counted, and does not say deleted. **Deleted** is
+`markedRemoved` annotates `extra` and *keeps the row* — so the site says never
+used, never shown, never counted, and does not say deleted. **Deleted** is
 account deletion, the YouTube sweep and `SyncService.deleteSource(_:)`, which
 are real deletes. The mandatory 7-day deletion clause is answered for YouTube by
-its two controls and for everything else by account deletion and written
+its Disconnect control and for everything else by account deletion and written
 request; deletion is immediate in every case, so 7 days is a ceiling kept for
 the backups.
 
 **One network sinkholes `written-stl.com`, and it is the network rather than the
 machine.** On `wusm-wifi.wucon.wustl.edu` it resolves to
-`sinkhole.paloaltonetworks.com` — newly-registered-domain filtering, which
-clears as the domain ages, and `example.com` resolving correctly from the same
-resolver is what makes that a decision rather than a fault. **Do not diagnose a
-deployment from a sinkholed resolver.** Resolve over DoH and pin the answer:
+`sinkhole.paloaltonetworks.com` — newly-registered-domain filtering, and
+`example.com` resolving correctly from the same resolver is what makes that a
+decision rather than a fault. **Do not diagnose a deployment from a sinkholed
+resolver.** Resolve over DoH and pin the answer:
 
     curl --resolve written-stl.com:443:104.21.7.174 https://written-stl.com/en-us/
