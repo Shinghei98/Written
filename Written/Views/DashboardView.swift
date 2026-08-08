@@ -1009,6 +1009,24 @@ struct DashboardView: View {
     private func entryStack<Content: View>(@ViewBuilder rows: () -> Content) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0, content: rows)
+                // **Room for the remove badge, which hangs outside its row.**
+                // `removable` puts the cross at the row's top-trailing corner
+                // and then offsets it (8, -8) further out, so it reads as
+                // attached to the entry rather than sitting inside it — and a
+                // `ScrollView` clips to its bounds, so those 8 points were being
+                // cut off. About half the circle survived on the trailing edge,
+                // and the *first* row's badge lost its top the same way.
+                //
+                // Reserved here rather than by pulling the badge inward,
+                // because the overhang is the design: a cross tucked inside the
+                // row reads as part of the entry instead of as something
+                // attached to it, which is the springboard idiom this borrows.
+                //
+                // Always, not only while editing — reserving it on entry to
+                // edit mode would shift every row sideways at the moment the
+                // badges appear.
+                .padding(.top, RemoveBadge.overhang + 2)
+                .padding(.trailing, RemoveBadge.overhang + 4)
         }
         .frame(maxHeight: Self.stackHeight)
         // Only when there is something to scroll. A short list inside a bouncing
@@ -1783,6 +1801,15 @@ struct Jiggle: ViewModifier {
 /// The remove badge — a cross in a circle at the corner, as the old springboard
 /// had it.
 struct RemoveBadge: View {
+    /// How far the badge hangs past the corner it is pinned to.
+    ///
+    /// **Two places have to agree about this number**, which is why it is one
+    /// number: `removable` offsets the badge by it, and `entryStack` reserves
+    /// that much padding so the enclosing `ScrollView` does not clip the
+    /// overhang off. They disagreed, and about half the circle was cut away on
+    /// the trailing edge of every row.
+    static let overhang: CGFloat = 8
+
     let action: () -> Void
 
     var body: some View {
@@ -1828,8 +1855,16 @@ extension View {
                 if editing {
                     RemoveBadge(action: remove)
                         // Half off the corner, so it reads as attached to the
-                        // entry rather than sitting inside it.
-                        .offset(x: 8, y: -8)
+                        // entry rather than sitting inside it. `entryStack`
+                        // reserves exactly this much padding so the enclosing
+                        // `ScrollView` does not clip the overhang — the two
+                        // numbers are the same number and must stay so.
+                        .offset(x: RemoveBadge.overhang, y: -RemoveBadge.overhang)
+                        // Drawn over the rows below it, not under them. Without
+                        // this the badge for one row can slide beneath the next
+                        // row's artwork, which is the same half-hidden cross by
+                        // a different route.
+                        .zIndex(1)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
