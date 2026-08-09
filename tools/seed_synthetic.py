@@ -81,10 +81,24 @@ BIOGRAPHICS = [
 # to infer; it is the difference between test data that means something and test
 # data that means nothing.
 #
-# `other` is kept on one account on purpose. *Them* is the branch every unmapped
-# and null value falls to, it is the one most likely to be wrong on screen, and
-# a pool where everybody is `male` or `female` would never exercise it.
-GENDERS = ["female", "male", "female", "male", "female", "other"]
+# **The app's own labels, not lowercase tokens.** `public.users.sex` holds what
+# `Identity.columnValue` writes — `DatingPreferences.Gender.label`, pipe-joined
+# when there is more than one — and `SupabaseAuth` reads it back by matching
+# those labels. So a seeded `"female"` is a value the product never writes, and
+# the old `"other"` was one it *cannot* write: there is no such case, the third
+# is `nonbinary`, whose label is `Non-binary`.
+#
+# It read as harmless because `seed_icebreaker` lowercases before mapping, so
+# the pronoun came out right either way. The half that would not have survived
+# is restore: a device signing in reads this column and adopts a gender only if
+# the string matches a label, so a synthetic account was one that could never
+# be restored — which is precisely the sort of thing a fixture exists to catch
+# rather than to demonstrate.
+#
+# `Non-binary` is kept on one account on purpose. *Them* is the branch every
+# unmapped and null value falls to, it is the one most likely to be wrong on
+# screen, and a pool where everybody is Male or Female would never exercise it.
+GENDERS = ["Female", "Male", "Female", "Male", "Female", "Non-binary"]
 
 # Walkable from Central West End, which is the point — a discovery feed full of
 # people three states away would say nothing about whether the feed works.
