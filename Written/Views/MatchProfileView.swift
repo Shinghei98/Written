@@ -220,7 +220,11 @@ struct MatchProfileView: View {
                     // above. The images were all 600x800; none of it came from
                     // the files.
                     Color.clear
-                        .aspectRatio(1, contentMode: .fit)
+                        // **4:5, the portrait Instagram uses for a post**, not
+                        // the square its grid uses. A square crops a person to
+                        // their face; the taller frame keeps whatever they
+                        // framed, which on a dating profile is the picture.
+                        .aspectRatio(4.0 / 5.0, contentMode: .fit)
                         .overlay {
                             ProfilePhotoView(ref: .stored(path), initial: profile?.name ?? "")
                         }

@@ -292,7 +292,7 @@ struct DashboardView: View {
         // The coach marks, over the whole page. Started on appearing rather
         // than on a tab change, because during onboarding this page is reached
         // by the pull-up and there is no tab to change.
-        .tutorial(tutorialStep) { advanceTutorial() }
+        .tutorial(tutorialStep) { }
         .onAppear { startTutorialIfNeeded() }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
@@ -375,14 +375,15 @@ struct DashboardView: View {
         withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewMusic }
     }
 
-    /// Move to the next card, or finish.
+    /// Move to the next card, because the person did what the last one asked.
     ///
-    /// **Unlike the garden's, these three run straight through.** There is
-    /// nothing for the person to do between them — all three are about the same
-    /// card, and reading is the whole action — so a tap advances rather than
-    /// dismissing and waiting for a state change that would never come.
-    private func advanceTutorial() {
-        guard let step = tutorialStep else { return }
+    /// **Each of these three ends on its own gesture**, never on a tap at the
+    /// dim: scrolling the list, long-pressing an entry, opening the add sheet.
+    /// The overlay makes everything but the lit control inert, so there is no
+    /// other way past — which is the point of gating, and the reason each call
+    /// site below is a real interaction rather than a timer.
+    private func advanceTutorial(from step: Tutorial.Step) {
+        guard tutorialStep == step else { return }
         Tutorial.Progress.complete(step)
 
         let next: Tutorial.Step? = {
@@ -400,8 +401,29 @@ struct DashboardView: View {
             // starting to jiggle with a cross on it, so the step shows that
             // state rather than describing it — the same reason `-birthday
             // confirm` seeds a state and not a screen.
-            editingEntry = next == .removeEntry ? tutorialWobbleKey : nil
+            //
+            // Only when arriving at that step. Clearing it on the others would
+            // cancel a wobble the person started themselves.
+            if next == .removeEntry { editingEntry = tutorialWobbleKey }
         }
+    }
+
+    /// The artists list was scrolled, which is what "scroll to see the entire
+    /// list" asks for.
+    private func tutorialSawScroll() {
+        if tutorialStep == .reviewMusic { advanceTutorial(from: .reviewMusic) }
+    }
+
+    /// An entry was long-pressed. Ends the remove step whichever entry it was:
+    /// the mark points at one row, but the gesture is the lesson, and refusing
+    /// to accept it on a row somebody chose themselves would be pedantry.
+    private func tutorialSawLongPress() {
+        if tutorialStep == .removeEntry { advanceTutorial(from: .removeEntry) }
+    }
+
+    /// The add sheet was opened from the circle-and-cross.
+    private func tutorialSawAddTapped() {
+        if tutorialStep == .addMissing { advanceTutorial(from: .addMissing) }
     }
 
     /// The entry the remove step points at: the second overall, which is the
@@ -1073,6 +1095,18 @@ struct DashboardView: View {
     private func entryStack<Content: View>(@ViewBuilder rows: () -> Content) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0, content: rows)
+                // **A scroll is a gesture the tutorial can see.** "Scroll to
+                // see the entire list" is the only step whose instruction is
+                // not a button, so it watches the content's own offset rather
+                // than waiting for a tap that would never come.
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: EntryScrollKey.self,
+                            value: proxy.frame(in: .named(Self.entryScrollSpace)).minY
+                        )
+                    }
+                )
                 // **Room for the remove badge, which hangs outside its row.**
                 // `removable` puts the cross at the row's top-trailing corner
                 // and then offsets it (8, -8) further out, so it reads as
@@ -1092,12 +1126,21 @@ struct DashboardView: View {
                 .padding(.top, RemoveBadge.overhang + 2)
                 .padding(.trailing, RemoveBadge.overhang + 4)
         }
+        .coordinateSpace(name: Self.entryScrollSpace)
+        .onPreferenceChange(EntryScrollKey.self) { offset in
+            // Anything past a few points is a deliberate drag rather than a
+            // layout settling.
+            if offset < -6 { tutorialSawScroll() }
+        }
         .frame(maxHeight: Self.stackHeight)
         // Only when there is something to scroll. A short list inside a bouncing
         // scroller reads as broken — it springs under a finger that meant to
         // move the page.
         .modifier(NoIdleBounce())
     }
+
+    /// Named so the scroll offset above has something to be measured against.
+    private static let entryScrollSpace = "entry-stack"
 
     /// The circle-and-cross under a stack: "we missed one, tell us".
     ///
@@ -1107,6 +1150,7 @@ struct DashboardView: View {
     /// the only way anything a phone cannot observe gets into a profile.
     private func addYourOwn(kind: String) -> some View {
         Button {
+            tutorialSawAddTapped()
             favouriteKind = kind
         } label: {
             Image(systemName: "plus.circle")
@@ -1157,7 +1201,9 @@ struct DashboardView: View {
                         .removable(editing: editingEntry == key(artist: artist), index: index + 1) {
                             remove { viewModel.banArtist(artist.name) }
                         }
-                        .editableOnLongPress($editingEntry, key: key(artist: artist))
+                        .editableOnLongPress($editingEntry, key: key(artist: artist)) {
+                            tutorialSawLongPress()
+                        }
                         // The second entry overall — index 0 of the runners-up,
                         // the headliner being the first. Pointed at rather than
                         // the headliner because removing the top artist is the
@@ -1902,8 +1948,13 @@ struct RemoveBadge: View {
 extension View {
     /// Long press to make *this* entry editable. Pressing another entry hands
     /// the cross over rather than adding a second one.
-    func editableOnLongPress(_ editing: Binding<String?>, key: String) -> some View {
+    func editableOnLongPress(
+        _ editing: Binding<String?>,
+        key: String,
+        onPress: @escaping () -> Void = {}
+    ) -> some View {
         onLongPressGesture(minimumDuration: 0.45) {
+            onPress()
             withAnimation(.easeOut(duration: 0.18)) {
                 editing.wrappedValue = editing.wrappedValue == key ? nil : key
             }
@@ -2250,4 +2301,16 @@ private struct ArtworkTile: View {
 
 #Preview {
     DashboardView(viewModel: DistillViewModel(), photos: .constant(Array(repeating: nil, count: 6)))
+}
+
+/// How far the rows inside an `entryStack` have been dragged.
+///
+/// Exists for one reader: the tutorial's "scroll to see the entire list" is the
+/// only step whose instruction names a gesture rather than a control, so it has
+/// to watch the content move.
+struct EntryScrollKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }

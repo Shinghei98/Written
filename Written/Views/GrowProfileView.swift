@@ -313,17 +313,33 @@ struct GrowProfileView: View {
         withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = next }
     }
 
-    /// Dismiss the card in front of somebody.
+    /// The third card names a result rather than a control — "more connections
+    /// help us learn more about you" — so it ends when another one lands.
+    private func tutorialSawModalityConnected(count: Int) {
+        if tutorialStep == .moreConnections, count >= 3 { finishTutorial(.moreConnections) }
+    }
+
+    /// Finish the card in front of somebody, because they did the thing.
     ///
-    /// **It only ever dismisses.** The garden's three cards are each summoned by
-    /// something the person did, so advancing from one straight into the next
-    /// would put a card about updating a connection in front of somebody who
-    /// has not made one. Tapping means "I have read this"; the app decides when
-    /// there is something else to say.
-    private func advanceTutorial() {
-        guard let step = tutorialStep else { return }
+    /// **Never called by a tap on the dim.** The overlay makes everything but
+    /// the lit control inert, so the only way past a card is to use the control
+    /// it points at — `connect` for the two that name the picker, a modality
+    /// arriving for the one that names the result.
+    private func finishTutorial(_ step: Tutorial.Step) {
+        guard tutorialStep == step else { return }
         Tutorial.Progress.complete(step)
         withAnimation(.easeInOut(duration: 0.22)) { tutorialStep = nil }
+    }
+
+    /// The source picker was opened from the lit card or the lit icon.
+    ///
+    /// Both of the garden's first two steps end here: "click here to make your
+    /// first connection" and "tap the icon or the button to update" name the
+    /// same act, and `connect(_:)` is where both routes meet.
+    private func tutorialSawConnectTapped() {
+        guard let step = tutorialStep, step == .firstConnection || step == .updateConnection
+        else { return }
+        finishTutorial(step)
     }
 
     /// Whether the page can be pulled up at all: only during onboarding, and
@@ -396,12 +412,13 @@ struct GrowProfileView: View {
         // rather than inside `prompts` so the dim covers the plant and the
         // header too — the point of the step is that one thing is lit and the
         // rest of the screen is not.
-        .tutorial(tutorialStep) { advanceTutorial() }
+        .tutorial(tutorialStep) { }
         .onAppear { startTutorialIfNeeded() }
         // The second and third cards are summoned by what the person did, not
         // by a timer: a card that says "tap the icon to update your connection"
         // before there is an icon is pointing at nothing.
         .onChange(of: viewModel.treeState.connectedModalities.count) { count in
+            tutorialSawModalityConnected(count: count)
             offerTutorialAfterConnecting(count: count)
         }
         .preferredColorScheme(.light)
@@ -1304,6 +1321,11 @@ struct GrowProfileView: View {
     }
 
     private func connect(_ modality: Modality) {
+        // **The one place both lit routes meet.** The prompt card's button and
+        // the connected-source icon both land here, which is why the tutorial
+        // listens at this point rather than on either control: a step that says
+        // "the icon or the button" has to end on either.
+        tutorialSawConnectTapped()
         pickedModality = modality
         // Remembered here rather than worked out when the distillation starts:
         // by then the only thing left to go on is `nextModality`, which is a

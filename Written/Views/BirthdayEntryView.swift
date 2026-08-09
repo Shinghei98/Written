@@ -73,7 +73,10 @@ struct BirthdayEntryView: View {
                 // is not visible in the date's shape — so it has to be dropped
                 // by hand, or a fixed date would sit behind a red border and a
                 // sentence saying it was wrong.
-                .onChange(of: month + "/" + day + "/" + year) { _ in problem = nil }
+                .onChange(of: month + "/" + day + "/" + year) { _ in
+                    problem = nil
+                    raiseCardIfComplete()
+                }
 
                 // **Said out loud rather than by disabling Continue.** A button
                 // that does nothing when tapped cannot say why, and "nothing
@@ -141,6 +144,33 @@ struct BirthdayEntryView: View {
     /// is nothing to confirm about a date that cannot exist, and showing "You're
     /// 4" over a card asking whether it is right would be reading a rejected
     /// answer back as though it had been accepted.
+    /// Raise the card the moment the year is finished, with the keyboard still
+    /// up — the reference does this and it is better than waiting for Continue.
+    ///
+    /// **Typing the last digit *is* the answer**, so asking for a second action
+    /// before reading it back adds a step to the one page in onboarding that
+    /// cannot be corrected later without a support request. The card rises in
+    /// front of the keyboard rather than replacing it, so Edit puts the caret
+    /// back where it was instead of bringing the keyboard up again.
+    ///
+    /// **It stays silent about refusals.** `submit` turns the boxes red for an
+    /// impossible date, one 130 years back, or an age under 18; raising a card
+    /// automatically must not do that, because a person halfway through typing
+    /// 1998 has momentarily written 199, and telling them off mid-word is
+    /// worse than saying nothing. So this only ever *raises* — the refusals
+    /// still belong to Continue.
+    private func raiseCardIfComplete() {
+        guard confirming == nil,
+              year.count == 4,
+              let entered,
+              let birthday = Calendar.current.date(from: entered),
+              let age = Identity.age(on: birthday),
+              (0...130).contains(age),
+              age >= DistillViewModel.minimumAge
+        else { return }
+        withAnimation(Self.cardMotion) { confirming = birthday }
+    }
+
     private func submit() {
         guard let entered, let birthday = Calendar.current.date(from: entered) else {
             withAnimation(.easeOut(duration: 0.15)) {

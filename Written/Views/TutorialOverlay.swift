@@ -5,15 +5,21 @@ import SwiftUI
 ///
 /// **A dimmed screen with holes in it, and one sentence.** Everything except the
 /// thing being pointed at is greyed; the thing itself keeps its own colour, so
-/// the instruction has an object rather than a direction. Tapping anywhere
-/// advances — anywhere, with no exceptions, because a coach mark that only
-/// responds to one part of the screen is a coach mark somebody gets stuck on.
+/// the instruction has an object rather than a direction.
 ///
-/// **It points, it does not gate.** The dim never swallows a control it is not
-/// pointing at, because it is dismissed by the same tap that would have reached
-/// one. Nothing here can strand a person mid-onboarding, which is the failure
-/// this project has already paid for in other forms — an inert control, a
-/// button that authenticated nobody, a card interrogating the wrong modality.
+/// **It gates.** A step ends when the control it points at is *used* — the first
+/// source connected, the picker opened, the entry long-pressed — and a tap
+/// anywhere else does nothing at all. So the lit area stays live and everything
+/// around it is inert, which is the opposite of the first version: that one
+/// advanced on any tap, and somebody could read all six marks in six taps
+/// without doing a single thing they described.
+///
+/// **Nothing here can strand somebody**, which is the risk a gate introduces
+/// and the failure this project has paid for in other forms — an inert control,
+/// a button that authenticated nobody. The lit control is always the real one,
+/// never a copy, and it always does what it would have done with no tutorial
+/// running; and a step whose target has not been laid out yet blocks nothing,
+/// rather than covering the screen with a dim that has no hole in it.
 ///
 /// **Only during onboarding, and only once.** `isOnboarding` is the real gate:
 /// it is false for everybody past the sequence, and the sequence runs once
@@ -164,7 +170,8 @@ extension View {
 
 // MARK: - The overlay
 
-/// The dim, the holes, the sentence, and the tap that advances.
+/// The dim, the holes, and the bands that make everything but the lit control
+/// inert.
 struct TutorialOverlay: View {
     let step: Tutorial.Step
     let anchors: [Tutorial.Target: Anchor<CGRect>]
@@ -188,6 +195,7 @@ struct TutorialOverlay: View {
     }
 
     var body: some View {
+        ZStack {
             // **The dim is one shape with holes punched in it**, not four
             // rectangles arranged around the subject. Four rectangles have to be
             // recomputed for every shape of hole and leave hairlines where they
@@ -215,17 +223,62 @@ struct TutorialOverlay: View {
                     }
                     .compositingGroup()
                 }
-        // **Anywhere, with no exceptions.** The whole overlay takes the tap,
-        // including over the lit hole: a person pointed at a button will press
-        // the button, and that press has to do something rather than fall into
-        // the gap between the mark and the control.
-        .contentShape(Rectangle())
-        .onTapGesture(perform: advance)
+                // **The drawn dim never takes a touch.** Hit testing is done by
+                // the blockers below, which leave the lit area alone — a mask
+                // changes what is painted, not what is tappable, so without this
+                // the dim would swallow the very control it is pointing at.
+                .allowsHitTesting(false)
+
+            // **Four bands around the lit area, and nothing over it.** The step
+            // only completes when the real control is used, so the control has
+            // to be reachable — and everything else has to not be, or somebody
+            // wanders off mid-tutorial into a screen with a dimmed page and no
+            // way back to the instruction.
+            //
+            // Bands rather than a shape with a hole in it: `contentShape` tests
+            // a path with the non-zero rule, so a subtracted rectangle is not a
+            // hole to it. Four rectangles are exact for one target, and for the
+            // step that lights two they surround the union — which leaves the
+            // gap between them tappable, and that gap is inside the same card.
+            ForEach(Array(blockers.enumerated()), id: \.offset) { _, band in
+                Color.clear
+                    .frame(width: band.width, height: band.height)
+                    .position(x: band.midX, y: band.midY)
+                    .contentShape(Rectangle())
+                    // Absorbed, not forwarded. A tap outside the lit control is
+                    // somebody trying the wrong thing, and the honest answer is
+                    // that nothing happens.
+                    .onTapGesture {}
+            }
+        }
         .transition(.opacity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(step.text)
-        .accessibilityHint("Tap anywhere to continue")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(.isStaticText)
+    }
+
+    /// The screen minus the lit area, as four rectangles.
+    ///
+    /// Empty when nothing has been laid out yet, which is deliberate: a step
+    /// whose target has no frame must not cover the screen in a blocker with no
+    /// hole in it, because that is a page nobody can use and no instruction to
+    /// explain why.
+    private var blockers: [CGRect] {
+        let lit = holes
+        guard !lit.isEmpty else { return [] }
+
+        let union = lit.dropFirst().reduce(lit[0]) { $0.union($1) }
+        let screen = CGRect(origin: .zero, size: geometry.size)
+        return [
+            CGRect(x: screen.minX, y: screen.minY,
+                   width: screen.width, height: max(0, union.minY - screen.minY)),
+            CGRect(x: screen.minX, y: union.maxY,
+                   width: screen.width, height: max(0, screen.maxY - union.maxY)),
+            CGRect(x: screen.minX, y: union.minY,
+                   width: max(0, union.minX - screen.minX), height: union.height),
+            CGRect(x: union.maxX, y: union.minY,
+                   width: max(0, screen.maxX - union.maxX), height: union.height),
+        ].filter { $0.width > 0 && $0.height > 0 }
     }
 }
 
@@ -278,21 +331,15 @@ extension View {
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                     .minimumScaleFactor(0.8)
-                    // **A ground of its own, not just a shadow.** The sentence
-                    // lands wherever the screen's top happens to be — over the
-                    // "Grow your profile" title on the garden, over the pinned
-                    // header on the dashboard — and white-on-dim is legible
-                    // against parchment but not against everything. Its own
-                    // panel makes the contrast a property of the mark rather
-                    // than of the page underneath it.
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.black.opacity(0.55))
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 10)
+                    // **No panel behind it.** The sentence belongs to the
+                    // dimmed page rather than to a control sitting on top of
+                    // it, and a filled box reads as a thing to dismiss. The
+                    // shadow is what keeps it legible wherever the top of the
+                    // screen happens to be.
+                    .shadow(color: .black.opacity(0.65), radius: 10, y: 2)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
                     .allowsHitTesting(false)
                     .transition(.opacity)
             }
