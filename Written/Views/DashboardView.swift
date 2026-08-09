@@ -1307,15 +1307,21 @@ struct DashboardView: View {
                         // the headliner because removing the top artist is the
                         // one removal somebody is least likely to want, and a
                         // tutorial should not rehearse on it.
+                        .tutorialTarget(
+                            tutorialTargets(.music) && index == tutorialEntryIndex
+                                ? .secondEntry : nil
+                        )
                 }
                 ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
                     Divider().overlay(GardenPalette.ink.opacity(0.06))
                     ownRow(name)
                 }
             }
+            .tutorialScrollable(tutorialTargets(.music)) { tutorialSawScroll() }
 
             Divider().overlay(GardenPalette.ink.opacity(0.08))
             addYourOwn(kind: "artist")
+                .tutorialTarget(tutorialTargets(.music) ? .addPlaceholder : nil)
         } else {
             Text("Connect Apple Music and your most-played artists appear here.")
                 .font(.system(size: 14))
