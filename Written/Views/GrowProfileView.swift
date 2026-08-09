@@ -270,6 +270,13 @@ struct GrowProfileView: View {
 
     // MARK: - The tutorial
 
+    /// Names this badge as the one step two lights, if it is the branch already
+    /// connected. Every other badge stays anonymous, so the dim keeps them.
+    private func tutorialBadgeTarget(_ modality: Modality) -> Tutorial.Target? {
+        modality == viewModel.treeState.connectedModalities.first ? .connectedBadge : nil
+    }
+
+
     /// The card on screen, or nil for a page with no instruction over it.
     ///
     /// Held rather than computed, because the sequence is a *history* — which
@@ -732,6 +739,12 @@ struct GrowProfileView: View {
                                            isEnabled: !viewModel.isDistilling) {
                             connect(Self.firstModality)
                         })
+                        // **Before `.position`, for the same reason `BadgeTap`
+                        // is.** `anchorPreference` reports this view's bounds,
+                        // and after `position` those bounds are the whole
+                        // garden — the tutorial would light the entire plant
+                        // instead of one badge.
+                        .tutorialTarget(tutorialBadgeTarget(Self.firstModality))
                         .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size)))
                         // Arrives once the plant has finished opening, not with
                         // it: the seedling is the thing to look at first, and
@@ -770,6 +783,9 @@ struct GrowProfileView: View {
                                 .modifier(BadgeTap(modality: modality, isEnabled: !viewModel.isDistilling) {
                                     connect(modality)
                                 })
+                                // Before `.position`; see the note on the first
+                                // badge above.
+                                .tutorialTarget(tutorialBadgeTarget(modality))
                                 .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size)))
                                 .scaleEffect(hasShootBadgeArrived[shoot.id] == true ? 1 : 0.72)
                                 .opacity(hasShootBadgeArrived[shoot.id] == true ? 1 : 0)
@@ -823,7 +839,7 @@ struct GrowProfileView: View {
                         // them would point at a row rather than at a thing.
                         .tutorialTarget(
                             modality == viewModel.treeState.connectedModalities.first
-                                ? .connectedIcon : .none
+                                ? .connectedBar : nil
                         )
                     }
 

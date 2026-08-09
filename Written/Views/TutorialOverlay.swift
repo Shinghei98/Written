@@ -33,8 +33,13 @@ enum Tutorial {
     enum Target: String, Hashable {
         /// The card at the foot of the garden: "Ready to grow?" and its button.
         case promptCard
-        /// The first icon in the row of connected sources.
-        case connectedIcon
+        /// The badge on the plant for the branch already connected. **This is
+        /// "the icon"** in step two's sentence: `BadgeTap` calls `connect`, so
+        /// it is a control and not decoration.
+        case connectedBadge
+        /// The row naming that branch, under the plant. "The button" — its
+        /// `onTap` opens the same picker the badge does.
+        case connectedBar
         /// The section on Memories the review steps are about — the Events
         /// card, because Events is what onboarding connects first and therefore
         /// the only thing on that page with anything in it when the tutorial
@@ -80,14 +85,15 @@ enum Tutorial {
         /// subject of the step after this one. Lighting both said "either of
         /// these" about two things that do opposite jobs.
         ///
-        /// The whole bar is one target because the whole bar is one control:
-        /// `ConnectedBar.onTap` re-opens that branch's picker, so the icon and
-        /// the row around it are the same button and the sentence's "the icon
-        /// or the button" is satisfied by lighting it once.
+        /// **Two targets, because the sentence names two things and they are
+        /// in different places.** "The icon" is the badge on the plant and "the
+        /// button" is the bar beneath it; both call `connect` for that branch,
+        /// and lighting only the bar left somebody reading about an icon that
+        /// was greyed out.
         var targets: [Target] {
             switch self {
             case .firstConnection:  return [.promptCard]
-            case .updateConnection: return [.connectedIcon]
+            case .updateConnection: return [.connectedBadge, .connectedBar]
             case .moreConnections:  return [.promptCard]
             case .reviewMusic:      return [.reviewSection]
             case .removeEntry:      return [.secondEntry]
@@ -289,18 +295,22 @@ struct TutorialOverlay: View {
         let lit = holes
         guard !lit.isEmpty else { return [] }
 
-        let union = lit.dropFirst().reduce(lit[0]) { $0.union($1) }
-        let screen = CGRect(origin: .zero, size: geometry.size)
-        return [
-            CGRect(x: screen.minX, y: screen.minY,
-                   width: screen.width, height: max(0, union.minY - screen.minY)),
-            CGRect(x: screen.minX, y: union.maxY,
-                   width: screen.width, height: max(0, screen.maxY - union.maxY)),
-            CGRect(x: screen.minX, y: union.minY,
-                   width: max(0, union.minX - screen.minX), height: union.height),
-            CGRect(x: union.maxX, y: union.minY,
-                   width: max(0, screen.maxX - union.maxX), height: union.height),
-        ].filter { $0.width > 0 && $0.height > 0 }
+        // **Subtracted one hole at a time, not bounded by their union.**
+        //
+        // The union is only right when there is one lit thing. Step two lights
+        // two — the badge beside the plant and the bar at the foot of the page
+        // — and the union of those is most of the screen, so bands around it
+        // would have left the whole middle live, including the card offering
+        // Music that the step exists to keep dim.
+        //
+        // Splitting each remaining rectangle around each hole is exact for any
+        // number of holes, and for one hole it produces the same four bands as
+        // before.
+        var rects = [CGRect(origin: .zero, size: geometry.size)]
+        for hole in lit {
+            rects = rects.flatMap { $0.subtracting(hole) }
+        }
+        return rects.filter { $0.width > 0.5 && $0.height > 0.5 }
     }
 }
 
@@ -366,5 +376,31 @@ extension View {
                     .transition(.opacity)
             }
         }
+    }
+}
+
+extension CGRect {
+    /// This rectangle with `hole` taken out of it, as up to four pieces.
+    ///
+    /// Used by the tutorial's blockers, which have to be everything the screen
+    /// is *except* the lit controls. Returns `[self]` when the two do not
+    /// overlap, so subtracting a hole that is somewhere else costs nothing.
+    func subtracting(_ hole: CGRect) -> [CGRect] {
+        guard intersects(hole) else { return [self] }
+        let cut = intersection(hole)
+        var pieces: [CGRect] = []
+        if cut.minY > minY {
+            pieces.append(CGRect(x: minX, y: minY, width: width, height: cut.minY - minY))
+        }
+        if cut.maxY < maxY {
+            pieces.append(CGRect(x: minX, y: cut.maxY, width: width, height: maxY - cut.maxY))
+        }
+        if cut.minX > minX {
+            pieces.append(CGRect(x: minX, y: cut.minY, width: cut.minX - minX, height: cut.height))
+        }
+        if cut.maxX < maxX {
+            pieces.append(CGRect(x: cut.maxX, y: cut.minY, width: maxX - cut.maxX, height: cut.height))
+        }
+        return pieces
     }
 }

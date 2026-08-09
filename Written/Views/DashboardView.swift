@@ -301,7 +301,15 @@ struct DashboardView: View {
         // than on a tab change, because during onboarding this page is reached
         // by the pull-up and there is no tab to change.
         .tutorial(tutorialStep) { }
-        .onAppear { startTutorialIfNeeded() }
+        // **Not `.onAppear`, which is the whole reason this never ran.** During
+        // onboarding `HomeView` builds this page underneath the garden from the
+        // first frame, so `onAppear` fires long before anything is distilled —
+        // `events` is empty, the guard refuses, and nothing ever asks again. It
+        // now starts when the Events card comes into view, which is also when
+        // somebody is actually looking at the thing the marks describe.
+        .onPreferenceChange(EventsTopKey.self) { top in
+            startTutorialIfNeeded(eventsTop: top)
+        }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
         // was a `.task` on this view, and `AppShell` mounts every tab at launch
@@ -374,7 +382,7 @@ struct DashboardView: View {
     /// **Guarded on there being artists**, because every one of the three points
     /// at the music card: "review what we found" over an empty card would be
     /// pointing at the sentence that says nothing was found.
-    private func startTutorialIfNeeded() {
+    private func startTutorialIfNeeded(eventsTop: CGFloat) {
         // **Guarded on events, not artists.** Onboarding connects Events
         // first — the prompt card says "Start with Events" — so that is the
         // only card with anything in it when somebody first pulls this page up.
@@ -382,12 +390,20 @@ struct DashboardView: View {
         // sequence had not offered yet, and then pointed at an empty card if
         // they ever ran.
         //
-        // Two events, not one: the second step points at the second row, and a
-        // list of one has no second row to point at.
+        // One event is enough. It used to want two, because the remove step
+        // points at the second row — but a calendar can easily leave one
+        // surviving event once holidays and untyped rows are dropped, and the
+        // cost of that guard was the whole tutorial silently not appearing.
+        // `tutorialEntryIndex` points at the first row instead when there is
+        // only one.
         guard isOnboarding,
               !Tutorial.Progress.hasSeen(.reviewMusic),
-              viewModel.events.count >= 2,
-              tutorialStep == nil
+              !viewModel.events.isEmpty,
+              tutorialStep == nil,
+              // On screen, or nearly: the card's top has risen into the lower
+              // tenth of the window. Anything above that and somebody has not
+              // scrolled to it yet.
+              eventsTop < UIScreen.main.bounds.height * 0.9
         else { return }
         withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewMusic }
     }
@@ -447,8 +463,13 @@ struct DashboardView: View {
     /// the mark lights. The first is left alone — rehearsing a removal on the
     /// top entry is the removal somebody is least likely to want.
     private var tutorialWobbleKey: String? {
-        viewModel.events.dropFirst().first.map { key(event: $0) }
+        let events = viewModel.events
+        guard events.indices.contains(tutorialEntryIndex) else { return nil }
+        return key(event: events[tutorialEntryIndex])
     }
+
+    /// The second row where there is one, the first where there is not.
+    private var tutorialEntryIndex: Int { viewModel.events.count > 1 ? 1 : 0 }
 
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
@@ -1468,7 +1489,7 @@ struct DashboardView: View {
                             // mark points at — not the first, since rehearsing
                             // a removal on the top entry is the removal
                             // somebody is least likely to want.
-                            .tutorialTarget(index == 1 ? .secondEntry : nil)
+                            .tutorialTarget(index == tutorialEntryIndex ? .secondEntry : nil)
                     }
                     // What the calendar could not see: a gig somebody went to
                     // without a ticket in their inbox, a trip booked by
@@ -1484,6 +1505,14 @@ struct DashboardView: View {
                     .tutorialTarget(.addPlaceholder)
             }
             .tutorialTarget(.reviewSection)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: EventsTopKey.self,
+                        value: proxy.frame(in: .global).minY
+                    )
+                }
+            )
         }
     }
 
@@ -2349,5 +2378,18 @@ struct EntryScrollKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+/// Where the top of the Events card sits on screen.
+///
+/// The tutorial's three Memories marks start when it comes into view. Reported
+/// in global coordinates because the question is about the window rather than
+/// about the scroll view: "has somebody scrolled to this" is answered by where
+/// it is, not by how far the content has moved.
+struct EventsTopKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
     }
 }
