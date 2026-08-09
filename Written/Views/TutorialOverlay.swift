@@ -51,10 +51,16 @@ enum Tutorial {
         case addPlaceholder
 
         /// **A circle for the badge, a rounded rectangle for everything else.**
-        /// The badge is round and, once its bob is frozen, occupies exactly its
-        /// own diameter — so a rectangle around it would light a slot of empty
-        /// parchment with a badge somewhere inside. Every other target is a row
-        /// or a card, which is a rectangle.
+        ///
+        /// The badge is a circle inside square bounds, so a rounded rectangle
+        /// lights its four corners as well — parchment around a coin. Every
+        /// other target is a row or a card, which is a rectangle and is lit as
+        /// one.
+        ///
+        /// Nothing here depends on the badge being frozen: its layout frame is
+        /// the diameter whether it is bobbing or not, since the bob is an
+        /// `.offset` and offsets do not move layout. The freeze matters because
+        /// a moving badge leaves this window, not because it changes its size.
         var isRound: Bool { self == .connectedBadge }
     }
 

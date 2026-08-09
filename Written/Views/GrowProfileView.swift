@@ -273,11 +273,18 @@ struct GrowProfileView: View {
     /// **The page freezes while a coach mark is up**, and the badges are the
     /// only thing on it that moves by itself.
     ///
-    /// A mark points at something; a thing that is drifting up and down while
-    /// being pointed at is a thing the eye follows instead of reads, and the
-    /// hole cut for it has to be tall enough for the whole travel — a slot
-    /// rather than a badge. Held still, the badge needs a hole its own size,
-    /// which is what makes a circle possible.
+    /// Two reasons, and the second is the one that would actually break.
+    ///
+    /// A thing drifting up and down while being pointed at is a thing the eye
+    /// follows instead of reads.
+    ///
+    /// And a moving badge **leaves its own window**. The bob is
+    /// `badge.offset(y:)`, a render-time transform: it moves what is drawn and
+    /// does not touch the layout frame. The tutorial measures its holes with
+    /// `anchorPreference(value: .bounds)`, which reports *layout* bounds — so
+    /// the hole is the badge's static `diameter × diameter` frame, fixed in
+    /// place, while the badge slides in and out of it and is clipped by the dim
+    /// at the top and bottom of its travel. Held still, the two agree.
     ///
     /// `TimelineView(.animation(paused:))` is already the mechanism: the same
     /// switch that stops the clock when the garden is not the visible tab.
