@@ -50,6 +50,8 @@ struct DashboardView: View {
 
     @State private var isShowingSettings = false
     @State private var isShowingBookmarks = false
+    /// The four-page Memories tutorial, shown once.
+    @State private var isShowingMemoriesTutorial = false
 
     /// How far the content has scrolled, negative as it rises. Drives the
     /// header's collapse.
@@ -288,6 +290,36 @@ struct DashboardView: View {
                 onClose: { isShowingBookmarks = false }
             )
         }
+        // **Four pages the first time somebody reaches Memories.**
+        //
+        // A cover rather than marks over the page itself: what it teaches is
+        // three gestures, and a demonstration can perform a gesture where a
+        // mark can only wait for one. It also cannot be wrong about what
+        // somebody has connected, because it shows a fixture — the page behind
+        // it may be empty on a phone that has distilled one calendar.
+        //
+        // Presented on `isVisible` rather than `onAppear`: during onboarding
+        // `HomeView` builds this page under the garden from the first frame, so
+        // `onAppear` fires long before anybody has pulled it up. That mistake
+        // cost the coach marks their whole existence — they started against an
+        // empty page and were never asked again.
+        .fullScreenCover(isPresented: $isShowingMemoriesTutorial) {
+            MemoriesTutorialView {
+                Tutorial.Progress.completeMemories()
+                isShowingMemoriesTutorial = false
+            }
+        }
+        .onChange(of: isVisible) { visible in
+            guard visible, isOnboarding, !Tutorial.Progress.hasSeenMemories else { return }
+            isShowingMemoriesTutorial = true
+        }
+#if DEBUG
+        .onAppear {
+            if DebugLaunch.opensMemoriesTutorial, DebugLaunch.firesOnce("memories-tutorial") {
+                isShowingMemoriesTutorial = true
+            }
+        }
+#endif
 #if DEBUG
         .onAppear {
             // `-settings 1`, and once only: `firesOnce` is what stops the page
@@ -297,24 +329,15 @@ struct DashboardView: View {
             }
         }
 #endif
-        // The coach marks, over the whole page. Started on appearing rather
+        // The one-time Memories tutorial, over the whole page. Started rather
         // than on a tab change, because during onboarding this page is reached
         // by the pull-up and there is no tab to change.
-        .tutorial(tutorialStep) {
-            // Only `removeEntry` calls this: it is the one step a tap anywhere
-            // ends. See `Tutorial.Step.endsOnAnyTap`.
-            if let step = tutorialStep, step.endsOnAnyTap { advanceTutorial(from: step) }
-        }
         // **Not `.onAppear`, which is the whole reason this never ran.** During
         // onboarding `HomeView` builds this page underneath the garden from the
         // first frame, so `onAppear` fires long before anything is distilled —
         // `events` is empty, the guard refuses, and nothing ever asks again. It
         // now starts when the Events card comes into view, which is also when
         // somebody is actually looking at the thing the marks describe.
-        .onPreferenceChange(EventsTopKey.self) { top in
-            startTutorialIfNeeded(eventsTop: top)
-            tutorialSawSectionMove(to: top)
-        }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
         // was a `.task` on this view, and `AppShell` mounts every tab at launch
@@ -375,180 +398,6 @@ struct DashboardView: View {
     }
 
     // MARK: - Editing one entry
-
-    // MARK: - The tutorial
-
-    /// The card on screen over the dashboard, or nil.
-    @State private var tutorialStep: Tutorial.Step?
-
-    /// Where the chosen section's top was the last time it reported, so a move
-    /// can be told from a redraw.
-    @State private var tutorialLastSectionTop: CGFloat?
-
-    /// Start the dashboard's three cards the first time somebody arrives here
-    /// during onboarding with something to look at.
-    ///
-    /// **Guarded on there being artists**, because every one of the three points
-    /// at the music card: "review what we found" over an empty card would be
-    /// pointing at the sentence that says nothing was found.
-    private func startTutorialIfNeeded(eventsTop: CGFloat) {
-        // **Guarded on events, not artists.** Onboarding connects Events
-        // first — the prompt card says "Start with Events" — so that is the
-        // only card with anything in it when somebody first pulls this page up.
-        // Guarding on artists meant the three marks waited for a source the
-        // sequence had not offered yet, and then pointed at an empty card if
-        // they ever ran.
-        //
-        // One event is enough. It used to want two, because the remove step
-        // points at the second row — but a calendar can easily leave one
-        // surviving event once holidays and untyped rows are dropped, and the
-        // cost of that guard was the whole tutorial silently not appearing.
-        // `tutorialEntryIndex` points at the first row instead when there is
-        // only one.
-        guard isOnboarding,
-              !Tutorial.Progress.hasSeen(.reviewEntries),
-              tutorialSection != nil,
-              tutorialStep == nil,
-              // On screen, or nearly: the card's top has risen into the lower
-              // tenth of the window. Anything above that and somebody has not
-              // scrolled to it yet.
-              eventsTop < UIScreen.main.bounds.height * 0.9
-        else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewEntries }
-    }
-
-    /// Move to the next card, because the person did what the last one asked.
-    ///
-    /// **Each of these three ends on its own gesture**, never on a tap at the
-    /// dim: scrolling the list, long-pressing an entry, opening the add sheet.
-    /// The overlay makes everything but the lit control inert, so there is no
-    /// other way past — which is the point of gating, and the reason each call
-    /// site below is a real interaction rather than a timer.
-    private func advanceTutorial(from step: Tutorial.Step) {
-        guard tutorialStep == step else { return }
-        Tutorial.Progress.complete(step)
-
-        let next: Tutorial.Step? = {
-            switch step {
-            case .reviewEntries: return .addMissing
-            case .addMissing:    return .removeEntry
-            default:             return nil
-            }
-        }()
-
-        withAnimation(.easeInOut(duration: 0.22)) {
-            tutorialStep = next
-            // **The wobble is the instruction.** "Long press on entry to
-            // remove" describes a gesture whose whole feedback is the entry
-            // starting to jiggle with a cross on it, so the step shows that
-            // state rather than describing it — the same reason `-birthday
-            // confirm` seeds a state and not a screen.
-            //
-            // Only when arriving at that step. Clearing it on the others would
-            // cancel a wobble the person started themselves.
-            if next == .removeEntry { editingEntry = tutorialWobbleKey }
-        }
-    }
-
-    /// Somebody tried to scroll the list.
-    ///
-    /// **An attempt, not a movement.** A drag gesture rather than a scroll
-    /// offset, because a list short enough not to scroll cannot report one —
-    /// and that is exactly the list somebody gives up on, having done what the
-    /// mark asked and watched nothing happen.
-    private func tutorialSawScroll() {
-        if tutorialStep == .reviewEntries { advanceTutorial(from: .reviewEntries) }
-    }
-
-    /// The chosen section moved on screen, which means the page scrolled.
-    ///
-    /// **The wider of the two scroll detectors, and the one that matters most.**
-    /// "Scroll to see the entire list" invites scrolling the *page*, and the
-    /// drag reporter on the list itself never hears that — so a flick carried
-    /// the section off screen with the step still showing and nothing left on
-    /// screen able to end it. The probe reports this section's position on
-    /// every layout pass anyway; a change in it is a scroll, whichever scroll
-    /// view did the moving.
-    ///
-    /// A threshold rather than any change at all, because a keyboard appearing
-    /// or a row growing nudges this by a point or two and neither is somebody
-    /// scrolling.
-    private func tutorialSawSectionMove(to top: CGFloat) {
-        defer { tutorialLastSectionTop = top }
-        guard tutorialStep == .reviewEntries,
-              let last = tutorialLastSectionTop,
-              abs(top - last) > 8
-        else { return }
-        tutorialSawScroll()
-    }
-
-    /// The "What did we miss?" sheet closed, saved or cancelled.
-    ///
-    /// **On closing, not on opening.** The mark says to add what we missed, and
-    /// somebody who has opened the sheet has not done that yet — advancing on
-    /// the tap would put the next mark behind a sheet nobody can see past.
-    private func tutorialSawAddSheetClosed() {
-        if tutorialStep == .addMissing { advanceTutorial(from: .addMissing) }
-    }
-
-    /// The entry the remove step points at: the second event, matching the row
-    /// the mark lights. The first is left alone — rehearsing a removal on the
-    /// top entry is the removal somebody is least likely to want.
-    private var tutorialWobbleKey: String? {
-        let i = tutorialEntryIndex
-        switch tutorialSection {
-        case .music:
-            let runners = Array(artists.dropFirst())
-            return runners.indices.contains(i) ? key(artist: runners[i]) : nil
-        case .events:
-            return viewModel.events.indices.contains(i) ? key(event: viewModel.events[i]) : nil
-        case nil:
-            return nil
-        }
-    }
-
-    /// Which section the three Memories marks are about.
-    ///
-    /// **The first one with entries, in the order the page draws them.** Music,
-    /// then podcasts, then events. It used to be hardcoded — first music, then
-    /// events — and either way it was a guess about what somebody had connected
-    /// that the page itself already knows. Whoever is first is who has content,
-    /// and content is the only thing the marks can point at.
-    ///
-    /// Media is absent because YouTube is archived, so that card is empty for
-    /// everybody; it belongs in this list the day the source returns.
-    private var tutorialSection: TutorialSection? {
-        if !artists.isEmpty { return .music }
-        if !viewModel.events.isEmpty { return .events }
-        return nil
-    }
-
-    /// **Music and events only, and the absences are deliberate.** Media is
-    /// YouTube, archived, so that card is empty for everybody. Podcasts is
-    /// real but has none of the three parts named — no probe, no scroll
-    /// reporter, no row target — and a step with nothing lit is a page dimmed
-    /// with no hole in it, which reads as the app having frozen. Adding it
-    /// means wiring those three, not adding a case here.
-    enum TutorialSection { case music, events }
-
-    /// Whether this section is the one being pointed at, so each card can name
-    /// its own parts without knowing about the others.
-    private func tutorialTargets(_ section: TutorialSection) -> Bool {
-        tutorialSection == section
-    }
-
-    /// How many entries the chosen section has, for the row the remove step
-    /// points at.
-    private var tutorialEntryCount: Int {
-        switch tutorialSection {
-        case .music:     return max(0, artists.count - 1)
-        case .events:    return viewModel.events.count
-        case nil:        return 0
-        }
-    }
-
-    /// The second row where there is one, the first where there is not.
-    private var tutorialEntryIndex: Int { tutorialEntryCount > 1 ? 1 : 0 }
 
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
@@ -943,7 +792,6 @@ struct DashboardView: View {
                     viewModel.addFavourite(kind: kind, favouriteText)
                     favouriteText = ""
                     withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
-                    tutorialSawAddSheetClosed()
                 },
                 onCancel: {
                     // Discarded rather than kept: reopening the sheet to find
@@ -954,7 +802,6 @@ struct DashboardView: View {
                     // Cancelling counts. The mark asked somebody to look at the
                     // sheet, not to fill it in — a person who decides nothing
                     // was missed has done the step.
-                    tutorialSawAddSheetClosed()
                 }
             ) {
                 // **The same field as the school and occupation sheets**, down
@@ -1188,7 +1035,6 @@ struct DashboardView: View {
                 card { artistsBlock }
             }
         }
-        .tutorialSectionProbe(tutorialTargets(.music))
     }
 
     /// The card's own horizontal padding, named because one thing now has to
@@ -1223,18 +1069,6 @@ struct DashboardView: View {
     private func entryStack<Content: View>(@ViewBuilder rows: () -> Content) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0, content: rows)
-                // **A scroll is a gesture the tutorial can see.** "Scroll to
-                // see the entire list" is the only step whose instruction is
-                // not a button, so it watches the content's own offset rather
-                // than waiting for a tap that would never come.
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: EntryScrollKey.self,
-                            value: proxy.frame(in: .named(Self.entryScrollSpace)).minY
-                        )
-                    }
-                )
                 // **Room for the remove badge, which hangs outside its row.**
                 // `removable` puts the cross at the row's top-trailing corner
                 // and then offsets it (8, -8) further out, so it reads as
@@ -1254,21 +1088,12 @@ struct DashboardView: View {
                 .padding(.top, RemoveBadge.overhang + 2)
                 .padding(.trailing, RemoveBadge.overhang + 4)
         }
-        .coordinateSpace(name: Self.entryScrollSpace)
-        .onPreferenceChange(EntryScrollKey.self) { offset in
-            // Anything past a few points is a deliberate drag rather than a
-            // layout settling.
-            if offset < -6 { tutorialSawScroll() }
-        }
         .frame(maxHeight: Self.stackHeight)
         // Only when there is something to scroll. A short list inside a bouncing
         // scroller reads as broken — it springs under a finger that meant to
         // move the page.
         .modifier(NoIdleBounce())
     }
-
-    /// Named so the scroll offset above has something to be measured against.
-    private static let entryScrollSpace = "entry-stack"
 
     /// The circle-and-cross under a stack: "we missed one, tell us".
     ///
@@ -1329,26 +1154,15 @@ struct DashboardView: View {
                             remove { viewModel.banArtist(artist.name) }
                         }
                         .editableOnLongPress($editingEntry, key: key(artist: artist))
-                        // The second entry overall — index 0 of the runners-up,
-                        // the headliner being the first. Pointed at rather than
-                        // the headliner because removing the top artist is the
-                        // one removal somebody is least likely to want, and a
-                        // tutorial should not rehearse on it.
-                        .tutorialTarget(
-                            tutorialTargets(.music) && index == tutorialEntryIndex
-                                ? .secondEntry : nil
-                        )
                 }
                 ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
                     Divider().overlay(GardenPalette.ink.opacity(0.06))
                     ownRow(name)
                 }
             }
-            .tutorialScrollable(tutorialTargets(.music)) { tutorialSawScroll() }
 
             Divider().overlay(GardenPalette.ink.opacity(0.08))
             addYourOwn(kind: "artist")
-                .tutorialTarget(tutorialTargets(.music) ? .addPlaceholder : nil)
         } else {
             Text("Connect Apple Music and your most-played artists appear here.")
                 .font(.system(size: 14))
@@ -1577,10 +1391,6 @@ struct DashboardView: View {
                             // mark points at — not the first, since rehearsing
                             // a removal on the top entry is the removal
                             // somebody is least likely to want.
-                            .tutorialTarget(
-                                tutorialTargets(.events) && index == tutorialEntryIndex
-                                    ? .secondEntry : nil
-                            )
                     }
                     // What the calendar could not see: a gig somebody went to
                     // without a ticket in their inbox, a trip booked by
@@ -1590,13 +1400,10 @@ struct DashboardView: View {
                         ownRow(name)
                     }
                 }
-                .tutorialScrollable(tutorialTargets(.events)) { tutorialSawScroll() }
 
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
                 addYourOwn(kind: "event")
-                    .tutorialTarget(tutorialTargets(.events) ? .addPlaceholder : nil)
             }
-            .tutorialSectionProbe(tutorialTargets(.events))
         }
     }
 
@@ -2453,27 +2260,4 @@ private struct ArtworkTile: View {
     DashboardView(viewModel: DistillViewModel(), photos: .constant(Array(repeating: nil, count: 6)))
 }
 
-/// How far the rows inside an `entryStack` have been dragged.
-///
-/// Exists for one reader: the tutorial's "scroll to see the entire list" is the
-/// only step whose instruction names a gesture rather than a control, so it has
-/// to watch the content move.
-struct EntryScrollKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
 
-/// Where the top of the Events card sits on screen.
-///
-/// The tutorial's three Memories marks start when it comes into view. Reported
-/// in global coordinates because the question is about the window rather than
-/// about the scroll view: "has somebody scrolled to this" is answered by where
-/// it is, not by how far the content has moved.
-struct EventsTopKey: PreferenceKey {
-    static var defaultValue: CGFloat = .greatestFiniteMagnitude
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
-    }
-}

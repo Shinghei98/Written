@@ -108,6 +108,13 @@ enum DebugLaunch {
     /// launch. It is otherwise only reachable by tapping "View Dashboard", and
     /// `simctl` cannot tap; screenshotting during the delay and after it covers
     /// both the transition and the screen it lands on.
+    /// `-memories-tutorial 1`. The four-page Memories tutorial otherwise needs
+    /// onboarding, a distillation and a pull-up gesture, none of which `simctl`
+    /// can produce.
+    static var opensMemoriesTutorial: Bool {
+        UserDefaults.standard.string(forKey: "memories-tutorial") == "1"
+    }
+
     static var opensDashboard: Bool {
         ["dashboard", "profiles"].contains(UserDefaults.standard.string(forKey: "screen") ?? "")
     }

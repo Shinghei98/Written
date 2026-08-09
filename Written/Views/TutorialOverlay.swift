@@ -43,15 +43,6 @@ enum Tutorial {
         /// The row naming that branch, under the plant. "The button" — its
         /// `onTap` opens the same picker the badge does.
         case connectedBar
-        /// The scrollable list of entries in whichever section the tutorial
-        /// chose — **the rows, not the card**. Music, podcasts or events,
-        /// whichever has entries first; hardcoding one meant pointing at a card
-        /// that said nothing was found.
-        case reviewSection
-        /// One row inside it — the one the "long press to remove" mark points at.
-        case secondEntry
-        /// The circle-and-cross that adds something the phone could not see.
-        case addPlaceholder
 
         /// **A circle for the badge, a rounded rectangle for everything else.**
         ///
@@ -74,9 +65,6 @@ enum Tutorial {
         case firstConnection
         case updateConnection
         case moreConnections
-        case reviewEntries
-        case addMissing
-        case removeEntry
 
         static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
 
@@ -85,9 +73,6 @@ enum Tutorial {
             case .firstConnection:  return "Click here to make your first connection."
             case .updateConnection: return "Tap the icon or the button to update your connection."
             case .moreConnections:  return "More connections help us learn more about you."
-            case .reviewEntries:    return "Review what we found! Scroll to see the entire list."
-            case .addMissing:       return "Tap here to add what we missed!"
-            case .removeEntry:      return "Long press on entry to remove."
             }
         }
 
@@ -110,29 +95,10 @@ enum Tutorial {
             case .firstConnection:  return [.promptCard]
             case .updateConnection: return [.connectedBadge, .connectedBar]
             case .moreConnections:  return [.promptCard]
-            // The list alone. The placeholder is not part of "scroll to see
-            // the entire list" — it is the subject of the step after, and
-            // lighting it here would name two things in a sentence about one.
-            case .reviewEntries:    return [.reviewSection]
-            // The list *and* the placeholder, because the placeholder only
-            // means anything against the list it follows: "add what we missed"
-            // is about what is and is not in those rows.
-            case .addMissing:       return [.reviewSection, .addPlaceholder]
-            case .removeEntry:      return [.secondEntry]
             }
         }
 
-        /// Which screen it belongs to, so the garden does not draw a dashboard
-        /// step behind a page that is not on screen.
-        var isGarden: Bool { self <= .moreConnections }
 
-        /// **The one step a tap anywhere ends.** Every other mark waits for the
-        /// control it names, because the sentence describes something to do.
-        /// This one describes a gesture and then performs it *for* you — the
-        /// row is already wobbling — so there is nothing left to wait for, and
-        /// making somebody long-press a row the app has already opened would be
-        /// asking them to repeat a demonstration.
-        var endsOnAnyTap: Bool { self == .removeEntry }
     }
 
     /// How far somebody got. Account-scoped, so signing into a second account on
@@ -175,7 +141,28 @@ enum Tutorial {
         }
 
         /// Signing out clears it with everything else — see `signOutLocalState`.
-        static func clear() { completed = nil }
+        static func clear() {
+            completed = nil
+            UserDefaults.standard.removeObject(forKey: memoriesKey)
+        }
+
+        // MARK: - The Memories tutorial
+
+        /// Its own flag rather than a case in `Step`, because it is not a step:
+        /// the garden's marks point at controls on a page somebody is using,
+        /// and this is four pages of its own that run start to finish.
+        private static var memoriesKey: String { AccountScope.key("written-tutorial-memories") }
+
+        static var hasSeenMemories: Bool {
+            UserDefaults.standard.bool(forKey: memoriesKey)
+        }
+
+        /// Recorded when somebody reaches the end, not when it opens. Closing
+        /// the app halfway through should bring it back — it is four taps, and
+        /// the alternative is a tutorial somebody never sees the point of.
+        static func completeMemories() {
+            UserDefaults.standard.set(true, forKey: memoriesKey)
+        }
     }
 }
 
@@ -324,16 +311,8 @@ struct TutorialOverlay: View {
             // hole to it. Four rectangles are exact for one target, and for the
             // step that lights two they surround the union — which leaves the
             // gap between them tappable, and that gap is inside the same card.
-            // The step that ends on any tap takes the whole screen rather than
-            // the bands, so the lit row is covered too — "press anywhere" has
-            // to include the thing being pointed at.
-            if step.endsOnAnyTap {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: advance)
-            }
 
-            ForEach(Array(step.endsOnAnyTap ? [] : blockers).enumerated(), id: \.offset) { _, band in
+            ForEach(Array(blockers.enumerated()), id: \.offset) { _, band in
                 Color.clear
                     .frame(width: band.width, height: band.height)
                     // **Before `position`, and that ordering is the whole
@@ -481,51 +460,5 @@ extension CGRect {
 }
 
 extension View {
-    /// Name this list as the one the review steps light, and report a scroll.
-    ///
-    /// **A drag rather than an offset.** The step ends when somebody *tries* to
-    /// scroll, and a list too short to move reports no offset at all — which is
-    /// exactly the list where the mark would otherwise never clear, leaving a
-    /// dimmed page and an instruction already obeyed.
-    ///
-    /// `simultaneousGesture` so the scroll view still scrolls: this watches the
-    /// same drag rather than taking it.
-    ///
-    /// **One of two detectors, and the narrow one.** It only hears a drag on
-    /// this list, so scrolling the *page* — which is what "scroll to see the
-    /// entire list" invites, and what carries this section off screen — went
-    /// unheard, and the step could not be ended by the gesture it asked for.
-    /// `DashboardView` watches the section's position for that. This one stays
-    /// because it is the only thing that can answer a drag on a list too short
-    /// to move, where no position changes for the other to see.
-    @ViewBuilder
-    func tutorialScrollable(_ isTarget: Bool, onAttempt: @escaping () -> Void) -> some View {
-        if isTarget {
-            tutorialTarget(.reviewSection)
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 4).onChanged { _ in onAttempt() }
-                )
-        } else {
-            self
-        }
-    }
 
-    /// Report where this card's top sits, so the marks can start when it is
-    /// reached. Only the chosen section reports; the others stay silent, which
-    /// is what keeps `EventsTopKey`'s minimum meaningful.
-    @ViewBuilder
-    func tutorialSectionProbe(_ isTarget: Bool) -> some View {
-        if isTarget {
-            background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: EventsTopKey.self,
-                        value: proxy.frame(in: .global).minY
-                    )
-                }
-            )
-        } else {
-            self
-        }
-    }
 }
