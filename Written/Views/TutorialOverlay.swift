@@ -220,16 +220,25 @@ struct TutorialOverlay: View {
     /// see what they are being pointed *away* from to understand the pointing.
     private static let dim: Double = 0.55
 
-    /// The lit rectangle is grown a little so the thing inside it is not
-    /// touching the edge of its own hole.
+    /// The lit area is grown a little so the thing inside it is not touching
+    /// the edge of its own hole.
+    ///
+    /// **Two figures, because 8 points means something different around a card
+    /// than around a badge.** On a card it is a hairline of clearance. On a
+    /// 48-point badge it is a third again of its width — a circle visibly
+    /// larger than the thing in it, with a ring of parchment between, which
+    /// reads as the mark having missed. Round targets take 3, which is enough
+    /// to keep the badge's own gold ring off the edge and nothing more.
     private static let padding: CGFloat = 8
+    private static let roundPadding: CGFloat = 3
     private static let cornerRadius: CGFloat = 16
 
-    /// Each lit area, with the shape its target asked for.
+    /// Each lit area, with the shape and the clearance its target asked for.
     private var holes: [(rect: CGRect, isRound: Bool)] {
         step.targets.compactMap { target in
             guard let anchor = anchors[target] else { return nil }
-            let rect = geometry[anchor].insetBy(dx: -Self.padding, dy: -Self.padding)
+            let grow = target.isRound ? Self.roundPadding : Self.padding
+            let rect = geometry[anchor].insetBy(dx: -grow, dy: -grow)
             return (rect, target.isRound)
         }
     }
@@ -274,9 +283,12 @@ struct TutorialOverlay: View {
                         ForEach(Array(holes.enumerated()), id: \.offset) { _, hole in
                             Group {
                                 if hole.isRound {
-                                    // Sized on the shorter side, so a badge
-                                    // whose bounds are not quite square still
-                                    // gets a circle rather than an ellipse.
+                                    // **The shorter side, so it is a circle and
+                                    // not an ellipse.** The badge's bounds are
+                                    // square, so the two agree — but taking the
+                                    // larger side would turn any rounding error
+                                    // into a hole wider than the badge, and this
+                                    // way an error can only ever make it tighter.
                                     Circle().fill(.black)
                                         .frame(width: min(hole.rect.width, hole.rect.height),
                                                height: min(hole.rect.width, hole.rect.height))
