@@ -35,8 +35,12 @@ enum Tutorial {
         case promptCard
         /// The first icon in the row of connected sources.
         case connectedIcon
-        /// The whole music card on the dashboard, artwork through to the bars.
-        case musicCard
+        /// The section on Memories the review steps are about — the Events
+        /// card, because Events is what onboarding connects first and therefore
+        /// the only thing on that page with anything in it when the tutorial
+        /// runs. Pointing at Music would have been pointing at the sentence
+        /// that says nothing was found.
+        case reviewSection
         /// One row inside it — the one the "long press to remove" mark points at.
         case secondEntry
         /// The circle-and-cross that adds something the phone could not see.
@@ -85,7 +89,7 @@ enum Tutorial {
             case .firstConnection:  return [.promptCard]
             case .updateConnection: return [.connectedIcon]
             case .moreConnections:  return [.promptCard]
-            case .reviewMusic:      return [.musicCard]
+            case .reviewMusic:      return [.reviewSection]
             case .removeEntry:      return [.secondEntry]
             case .addMissing:       return [.addPlaceholder]
             }

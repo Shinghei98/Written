@@ -375,9 +375,18 @@ struct DashboardView: View {
     /// at the music card: "review what we found" over an empty card would be
     /// pointing at the sentence that says nothing was found.
     private func startTutorialIfNeeded() {
+        // **Guarded on events, not artists.** Onboarding connects Events
+        // first — the prompt card says "Start with Events" — so that is the
+        // only card with anything in it when somebody first pulls this page up.
+        // Guarding on artists meant the three marks waited for a source the
+        // sequence had not offered yet, and then pointed at an empty card if
+        // they ever ran.
+        //
+        // Two events, not one: the second step points at the second row, and a
+        // list of one has no second row to point at.
         guard isOnboarding,
               !Tutorial.Progress.hasSeen(.reviewMusic),
-              !artists.isEmpty,
+              viewModel.events.count >= 2,
               tutorialStep == nil
         else { return }
         withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewMusic }
@@ -434,10 +443,11 @@ struct DashboardView: View {
         if tutorialStep == .addMissing { advanceTutorial(from: .addMissing) }
     }
 
-    /// The entry the remove step points at: the second overall, which is the
-    /// first of the runners-up.
+    /// The entry the remove step points at: the second event, matching the row
+    /// the mark lights. The first is left alone — rehearsing a removal on the
+    /// top entry is the removal somebody is least likely to want.
     private var tutorialWobbleKey: String? {
-        artists.dropFirst().first.map { key(artist: $0) }
+        viewModel.events.dropFirst().first.map { key(event: $0) }
     }
 
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
@@ -815,7 +825,15 @@ struct DashboardView: View {
     private var favouriteSheet: some View {
         if let kind = favouriteKind {
             BiographicsSheet(
-                title: "What's your favorite \(kind)?",
+                // **Per kind, because "your favorite event" is not a
+                // question.** A favourite artist is a standing preference; an
+                // event is a thing that happened on a date, and asking somebody
+                // to nominate their favourite one gets a different answer from
+                // asking what the calendar missed — which is what this sheet is
+                // for everywhere else too.
+                title: kind == "event"
+                    ? "What did we miss?"
+                    : "What's your favorite \(kind)?",
                 subtitle: "Tell us what we missed.",
                 // Nothing to save is nothing to do — the same rule the report
                 // sheet applies to an empty account of what happened.
@@ -1065,10 +1083,6 @@ struct DashboardView: View {
                 card { artistsBlock }
             }
         }
-        // The whole section, both shapes of it — "review what we found" is
-        // about the found things, not about one card of them, and with genres
-        // present that is two cards.
-        .tutorialTarget(.musicCard)
     }
 
     /// The card's own horizontal padding, named because one thing now has to
@@ -1209,15 +1223,12 @@ struct DashboardView: View {
                         .removable(editing: editingEntry == key(artist: artist), index: index + 1) {
                             remove { viewModel.banArtist(artist.name) }
                         }
-                        .editableOnLongPress($editingEntry, key: key(artist: artist)) {
-                            tutorialSawLongPress()
-                        }
+                        .editableOnLongPress($editingEntry, key: key(artist: artist))
                         // The second entry overall — index 0 of the runners-up,
                         // the headliner being the first. Pointed at rather than
                         // the headliner because removing the top artist is the
                         // one removal somebody is least likely to want, and a
                         // tutorial should not rehearse on it.
-                        .tutorialTarget(index == 0 ? .secondEntry : nil)
                 }
                 ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
                     Divider().overlay(GardenPalette.ink.opacity(0.06))
@@ -1227,7 +1238,6 @@ struct DashboardView: View {
 
             Divider().overlay(GardenPalette.ink.opacity(0.08))
             addYourOwn(kind: "artist")
-                .tutorialTarget(.addPlaceholder)
         } else {
             Text("Connect Apple Music and your most-played artists appear here.")
                 .font(.system(size: 14))
@@ -1451,10 +1461,29 @@ struct DashboardView: View {
                             .removable(editing: editingEntry == key(event: event), index: index) {
                                 remove { viewModel.banEvent(event) }
                             }
-                            .editableOnLongPress($editingEntry, key: key(event: event))
+                            .editableOnLongPress($editingEntry, key: key(event: event)) {
+                                tutorialSawLongPress()
+                            }
+                            // The second row overall, which is what the remove
+                            // mark points at — not the first, since rehearsing
+                            // a removal on the top entry is the removal
+                            // somebody is least likely to want.
+                            .tutorialTarget(index == 1 ? .secondEntry : nil)
+                    }
+                    // What the calendar could not see: a gig somebody went to
+                    // without a ticket in their inbox, a trip booked by
+                    // somebody else. The same rows artists and podcasts get.
+                    ForEach(viewModel.favourites(kind: "event"), id: \.self) { name in
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        ownRow(name)
                     }
                 }
+
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                addYourOwn(kind: "event")
+                    .tutorialTarget(.addPlaceholder)
             }
+            .tutorialTarget(.reviewSection)
         }
     }
 
