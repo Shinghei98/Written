@@ -1431,9 +1431,15 @@ struct MessageBubble: View {
     /// First of a run from this sender. See `BubbleShape.hasTail`.
     var startsRun: Bool = true
 
-    /// How much of the row a bubble may occupy before it wraps. The reference
-    /// leaves a clear margin on the far side at every length.
-    private static let maxWidthFraction: CGFloat = 0.78
+    /// How much of the row a bubble may occupy before it wraps.
+    ///
+    /// **Measured off WhatsApp rather than chosen.** Its widest bubble runs to
+    /// 1006 of 1320 pixels on this device — 76% of the screen. `containerWidth`
+    /// is the screen less 32 points, so matching that means 0.83 of it, not the
+    /// 0.78 this used to be: at 0.78 the ceiling was 72% of the screen and
+    /// "Your Bach playlist is unreasonably good" broke a word early, leaving a
+    /// bubble 62% wide with a third of the row empty beside it.
+    private static let maxWidthFraction: CGFloat = 0.83
 
     /// The gap between the last word and the clock. One figure space (U+2007),
     /// which is the width of a digit — see `reserved` for why the clock's own

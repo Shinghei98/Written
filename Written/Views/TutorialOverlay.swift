@@ -243,12 +243,19 @@ struct TutorialOverlay: View {
             ForEach(Array(blockers.enumerated()), id: \.offset) { _, band in
                 Color.clear
                     .frame(width: band.width, height: band.height)
-                    .position(x: band.midX, y: band.midY)
+                    // **Before `position`, and that ordering is the whole
+                    // bug.** `position` reports the *parent's* bounds as the
+                    // view's layout size, so a `contentShape` applied after it
+                    // claims the entire screen — every band swallowed every
+                    // tap, including the one over the lit button, and the
+                    // tutorial could not be got past at all. Shaped first, then
+                    // placed.
                     .contentShape(Rectangle())
                     // Absorbed, not forwarded. A tap outside the lit control is
                     // somebody trying the wrong thing, and the honest answer is
                     // that nothing happens.
                     .onTapGesture {}
+                    .position(x: band.midX, y: band.midY)
             }
         }
         .transition(.opacity)

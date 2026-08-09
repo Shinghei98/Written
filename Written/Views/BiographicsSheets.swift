@@ -320,9 +320,15 @@ struct BirthdayFields: View {
                 switch field {
                 case .month: focused = .day
                 case .day: focused = .year
-                // Nothing after the year, so the keyboard goes rather than
-                // sitting over the button the user is now reaching for.
-                case .year: focused = nil
+                // **The keyboard stays.** It used to be dismissed here, so the
+                // confirmation card — which now rises the moment the year is
+                // finished — arrived onto a page with nothing under it, and the
+                // whole layout shifted down as the keyboard left. The card is
+                // built to sit *above* the keyboard and Edit is built to put
+                // the caret back without summoning it again; both need it still
+                // there. Holding focus is also what makes Edit instant rather
+                // than a second keyboard animation.
+                case .year: break
                 }
             }
             // Drawn rather than passed to `TextField`: the system placeholder is
