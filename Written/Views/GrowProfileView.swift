@@ -270,6 +270,19 @@ struct GrowProfileView: View {
 
     // MARK: - The tutorial
 
+    /// **The page freezes while a coach mark is up**, and the badges are the
+    /// only thing on it that moves by itself.
+    ///
+    /// A mark points at something; a thing that is drifting up and down while
+    /// being pointed at is a thing the eye follows instead of reads, and the
+    /// hole cut for it has to be tall enough for the whole travel — a slot
+    /// rather than a badge. Held still, the badge needs a hole its own size,
+    /// which is what makes a circle possible.
+    ///
+    /// `TimelineView(.animation(paused:))` is already the mechanism: the same
+    /// switch that stops the clock when the garden is not the visible tab.
+    private var isBadgeFloating: Bool { isVisible && tutorialStep == nil }
+
     /// Names this badge as the one step two lights, if it is the branch already
     /// connected. Every other badge stays anonymous, so the dim keeps them.
     private func tutorialBadgeTarget(_ modality: Modality) -> Tutorial.Target? {
@@ -728,7 +741,7 @@ struct GrowProfileView: View {
                     // the first modality — which is media now.
                     ModalityBadge(modality: Self.firstModality,
                                   progress: badgeProgress(Self.firstModality),
-                                  diameter: Self.badgeRatio * side, isFloating: isVisible)
+                                  diameter: Self.badgeRatio * side, isFloating: isBadgeFloating)
                         // **Before `.position`, and that is not a style choice.**
                         // `position` returns a view that fills its parent and
                         // merely draws the child at a point — so a tap attached
@@ -777,7 +790,7 @@ struct GrowProfileView: View {
                     ForEach(SeedlingArt.shoots(by: leafLift)) { shoot in
                         if let modality = shootModality(shoot) {
                             ModalityBadge(modality: modality, progress: badgeProgress(modality),
-                                          diameter: Self.badgeRatio * side, isFloating: isVisible)
+                                          diameter: Self.badgeRatio * side, isFloating: isBadgeFloating)
                                 // Before `.position` — see the note on the music
                                 // badge above.
                                 .modifier(BadgeTap(modality: modality, isEnabled: !viewModel.isDistilling) {

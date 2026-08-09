@@ -49,6 +49,13 @@ enum Tutorial {
         case secondEntry
         /// The circle-and-cross that adds something the phone could not see.
         case addPlaceholder
+
+        /// **A circle for the badge, a rounded rectangle for everything else.**
+        /// The badge is round and, once its bob is frozen, occupies exactly its
+        /// own diameter — so a rectangle around it would light a slot of empty
+        /// parchment with a badge somewhere inside. Every other target is a row
+        /// or a card, which is a rectangle.
+        var isRound: Bool { self == .connectedBadge }
     }
 
     /// The sequence, in order. Each case carries its own sentence, because copy
@@ -222,9 +229,12 @@ struct TutorialOverlay: View {
     private static let padding: CGFloat = 8
     private static let cornerRadius: CGFloat = 16
 
-    private var holes: [CGRect] {
-        step.targets.compactMap { anchors[$0] }.map { anchor in
-            geometry[anchor].insetBy(dx: -Self.padding, dy: -Self.padding)
+    /// Each lit area, with the shape its target asked for.
+    private var holes: [(rect: CGRect, isRound: Bool)] {
+        step.targets.compactMap { target in
+            guard let anchor = anchors[target] else { return nil }
+            let rect = geometry[anchor].insetBy(dx: -Self.padding, dy: -Self.padding)
+            return (rect, target.isRound)
         }
     }
 
@@ -247,12 +257,24 @@ struct TutorialOverlay: View {
                     ZStack {
                         Rectangle().fill(.white)
                         ForEach(Array(holes.enumerated()), id: \.offset) { _, hole in
-                            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                                .fill(.black)
-                                .frame(width: hole.width, height: hole.height)
-                                .position(x: hole.midX, y: hole.midY)
-                                // Punches through rather than painting over.
-                                .blendMode(.destinationOut)
+                            Group {
+                                if hole.isRound {
+                                    // Sized on the shorter side, so a badge
+                                    // whose bounds are not quite square still
+                                    // gets a circle rather than an ellipse.
+                                    Circle().fill(.black)
+                                        .frame(width: min(hole.rect.width, hole.rect.height),
+                                               height: min(hole.rect.width, hole.rect.height))
+                                } else {
+                                    RoundedRectangle(cornerRadius: Self.cornerRadius,
+                                                     style: .continuous)
+                                        .fill(.black)
+                                        .frame(width: hole.rect.width, height: hole.rect.height)
+                                }
+                            }
+                            .position(x: hole.rect.midX, y: hole.rect.midY)
+                            // Punches through rather than painting over.
+                            .blendMode(.destinationOut)
                         }
                     }
                     .compositingGroup()
@@ -330,7 +352,10 @@ struct TutorialOverlay: View {
         // before.
         var rects = [CGRect(origin: .zero, size: geometry.size)]
         for hole in lit {
-            rects = rects.flatMap { $0.subtracting(hole) }
+            // The rectangle either way. Hit testing a circle would leave the
+            // corners of its bounding box inert, which is four small dead
+            // zones on the one control the step wants pressed.
+            rects = rects.flatMap { $0.subtracting(hole.rect) }
         }
         return rects.filter { $0.width > 0.5 && $0.height > 0.5 }
     }
