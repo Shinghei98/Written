@@ -300,7 +300,11 @@ struct DashboardView: View {
         // The coach marks, over the whole page. Started on appearing rather
         // than on a tab change, because during onboarding this page is reached
         // by the pull-up and there is no tab to change.
-        .tutorial(tutorialStep) { }
+        .tutorial(tutorialStep) {
+            // Only `removeEntry` calls this: it is the one step a tap anywhere
+            // ends. See `Tutorial.Step.endsOnAnyTap`.
+            if let step = tutorialStep, step.endsOnAnyTap { advanceTutorial(from: step) }
+        }
         // **Not `.onAppear`, which is the whole reason this never ran.** During
         // onboarding `HomeView` builds this page underneath the garden from the
         // first frame, so `onAppear` fires long before anything is distilled —
@@ -397,15 +401,15 @@ struct DashboardView: View {
         // `tutorialEntryIndex` points at the first row instead when there is
         // only one.
         guard isOnboarding,
-              !Tutorial.Progress.hasSeen(.reviewMusic),
-              !viewModel.events.isEmpty,
+              !Tutorial.Progress.hasSeen(.reviewEntries),
+              tutorialSection != nil,
               tutorialStep == nil,
               // On screen, or nearly: the card's top has risen into the lower
               // tenth of the window. Anything above that and somebody has not
               // scrolled to it yet.
               eventsTop < UIScreen.main.bounds.height * 0.9
         else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewMusic }
+        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = .reviewEntries }
     }
 
     /// Move to the next card, because the person did what the last one asked.
@@ -421,9 +425,9 @@ struct DashboardView: View {
 
         let next: Tutorial.Step? = {
             switch step {
-            case .reviewMusic:  return .removeEntry
-            case .removeEntry:  return .addMissing
-            default:            return nil
+            case .reviewEntries: return .addMissing
+            case .addMissing:    return .removeEntry
+            default:             return nil
             }
         }()
 
@@ -441,21 +445,22 @@ struct DashboardView: View {
         }
     }
 
-    /// The artists list was scrolled, which is what "scroll to see the entire
-    /// list" asks for.
+    /// Somebody tried to scroll the list.
+    ///
+    /// **An attempt, not a movement.** A drag gesture rather than a scroll
+    /// offset, because a list short enough not to scroll cannot report one —
+    /// and that is exactly the list somebody gives up on, having done what the
+    /// mark asked and watched nothing happen.
     private func tutorialSawScroll() {
-        if tutorialStep == .reviewMusic { advanceTutorial(from: .reviewMusic) }
+        if tutorialStep == .reviewEntries { advanceTutorial(from: .reviewEntries) }
     }
 
-    /// An entry was long-pressed. Ends the remove step whichever entry it was:
-    /// the mark points at one row, but the gesture is the lesson, and refusing
-    /// to accept it on a row somebody chose themselves would be pedantry.
-    private func tutorialSawLongPress() {
-        if tutorialStep == .removeEntry { advanceTutorial(from: .removeEntry) }
-    }
-
-    /// The add sheet was opened from the circle-and-cross.
-    private func tutorialSawAddTapped() {
+    /// The "What did we miss?" sheet closed, saved or cancelled.
+    ///
+    /// **On closing, not on opening.** The mark says to add what we missed, and
+    /// somebody who has opened the sheet has not done that yet — advancing on
+    /// the tap would put the next mark behind a sheet nobody can see past.
+    private func tutorialSawAddSheetClosed() {
         if tutorialStep == .addMissing { advanceTutorial(from: .addMissing) }
     }
 
@@ -463,13 +468,60 @@ struct DashboardView: View {
     /// the mark lights. The first is left alone — rehearsing a removal on the
     /// top entry is the removal somebody is least likely to want.
     private var tutorialWobbleKey: String? {
-        let events = viewModel.events
-        guard events.indices.contains(tutorialEntryIndex) else { return nil }
-        return key(event: events[tutorialEntryIndex])
+        let i = tutorialEntryIndex
+        switch tutorialSection {
+        case .music:
+            let runners = Array(artists.dropFirst())
+            return runners.indices.contains(i) ? key(artist: runners[i]) : nil
+        case .events:
+            return viewModel.events.indices.contains(i) ? key(event: viewModel.events[i]) : nil
+        case nil:
+            return nil
+        }
+    }
+
+    /// Which section the three Memories marks are about.
+    ///
+    /// **The first one with entries, in the order the page draws them.** Music,
+    /// then podcasts, then events. It used to be hardcoded — first music, then
+    /// events — and either way it was a guess about what somebody had connected
+    /// that the page itself already knows. Whoever is first is who has content,
+    /// and content is the only thing the marks can point at.
+    ///
+    /// Media is absent because YouTube is archived, so that card is empty for
+    /// everybody; it belongs in this list the day the source returns.
+    private var tutorialSection: TutorialSection? {
+        if !artists.isEmpty { return .music }
+        if !viewModel.events.isEmpty { return .events }
+        return nil
+    }
+
+    /// **Music and events only, and the absences are deliberate.** Media is
+    /// YouTube, archived, so that card is empty for everybody. Podcasts is
+    /// real but has none of the three parts named — no probe, no scroll
+    /// reporter, no row target — and a step with nothing lit is a page dimmed
+    /// with no hole in it, which reads as the app having frozen. Adding it
+    /// means wiring those three, not adding a case here.
+    enum TutorialSection { case music, events }
+
+    /// Whether this section is the one being pointed at, so each card can name
+    /// its own parts without knowing about the others.
+    private func tutorialTargets(_ section: TutorialSection) -> Bool {
+        tutorialSection == section
+    }
+
+    /// How many entries the chosen section has, for the row the remove step
+    /// points at.
+    private var tutorialEntryCount: Int {
+        switch tutorialSection {
+        case .music:     return max(0, artists.count - 1)
+        case .events:    return viewModel.events.count
+        case nil:        return 0
+        }
     }
 
     /// The second row where there is one, the first where there is not.
-    private var tutorialEntryIndex: Int { viewModel.events.count > 1 ? 1 : 0 }
+    private var tutorialEntryIndex: Int { tutorialEntryCount > 1 ? 1 : 0 }
 
     private func key(artist: MusicHighlights.Artist) -> String { "artist:\(artist.id)" }
     private func key(channel: MediaHighlights.Channel) -> String { "channel:\(channel.id)" }
@@ -864,6 +916,7 @@ struct DashboardView: View {
                     viewModel.addFavourite(kind: kind, favouriteText)
                     favouriteText = ""
                     withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
+                    tutorialSawAddSheetClosed()
                 },
                 onCancel: {
                     // Discarded rather than kept: reopening the sheet to find
@@ -871,6 +924,10 @@ struct DashboardView: View {
                     // than typing it again.
                     favouriteText = ""
                     withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
+                    // Cancelling counts. The mark asked somebody to look at the
+                    // sheet, not to fill it in — a person who decides nothing
+                    // was missed has done the step.
+                    tutorialSawAddSheetClosed()
                 }
             ) {
                 // **The same field as the school and occupation sheets**, down
@@ -1104,6 +1161,7 @@ struct DashboardView: View {
                 card { artistsBlock }
             }
         }
+        .tutorialSectionProbe(tutorialTargets(.music))
     }
 
     /// The card's own horizontal padding, named because one thing now has to
@@ -1193,7 +1251,6 @@ struct DashboardView: View {
     /// the only way anything a phone cannot observe gets into a profile.
     private func addYourOwn(kind: String) -> some View {
         Button {
-            tutorialSawAddTapped()
             favouriteKind = kind
         } label: {
             Image(systemName: "plus.circle")
@@ -1482,14 +1539,15 @@ struct DashboardView: View {
                             .removable(editing: editingEntry == key(event: event), index: index) {
                                 remove { viewModel.banEvent(event) }
                             }
-                            .editableOnLongPress($editingEntry, key: key(event: event)) {
-                                tutorialSawLongPress()
-                            }
+                            .editableOnLongPress($editingEntry, key: key(event: event))
                             // The second row overall, which is what the remove
                             // mark points at — not the first, since rehearsing
                             // a removal on the top entry is the removal
                             // somebody is least likely to want.
-                            .tutorialTarget(index == tutorialEntryIndex ? .secondEntry : nil)
+                            .tutorialTarget(
+                                tutorialTargets(.events) && index == tutorialEntryIndex
+                                    ? .secondEntry : nil
+                            )
                     }
                     // What the calendar could not see: a gig somebody went to
                     // without a ticket in their inbox, a trip booked by
@@ -1499,20 +1557,13 @@ struct DashboardView: View {
                         ownRow(name)
                     }
                 }
+                .tutorialScrollable(tutorialTargets(.events)) { tutorialSawScroll() }
 
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
                 addYourOwn(kind: "event")
-                    .tutorialTarget(.addPlaceholder)
+                    .tutorialTarget(tutorialTargets(.events) ? .addPlaceholder : nil)
             }
-            .tutorialTarget(.reviewSection)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: EventsTopKey.self,
-                        value: proxy.frame(in: .global).minY
-                    )
-                }
-            )
+            .tutorialSectionProbe(tutorialTargets(.events))
         }
     }
 
