@@ -29,11 +29,16 @@ struct MemoriesTutorialView: View {
 
     /// The rows the card draws. Four, so there is something to scroll and a
     /// second entry to wobble.
-    private static let entries: [(name: String, share: Double)] = [
-        ("Fujii Kaze", 1.00),
-        ("Ado", 0.82),
-        ("King Gnu", 0.61),
-        ("Aimyon", 0.44),
+    /// **Invented covers, not borrowed ones.** The real page draws artwork
+    /// Apple Music supplied; a fixture cannot, and shipping somebody's sleeve
+    /// as decoration is a licence question nobody needs for a tutorial. Two
+    /// tones and a note read as a record at 30 points, which is all this has to
+    /// do — the row is recognisable by its shape, not by whose album it is.
+    private static let entries: [(name: String, share: Double, top: Color, bottom: Color)] = [
+        ("Fujii Kaze", 1.00, Color(red: 0.85, green: 0.53, blue: 0.36), Color(red: 0.51, green: 0.26, blue: 0.26)),
+        ("Ado",        0.82, Color(red: 0.37, green: 0.42, blue: 0.68), Color(red: 0.19, green: 0.20, blue: 0.36)),
+        ("King Gnu",   0.61, Color(red: 0.45, green: 0.60, blue: 0.45), Color(red: 0.22, green: 0.33, blue: 0.27)),
+        ("Aimyon",     0.44, Color(red: 0.80, green: 0.70, blue: 0.40), Color(red: 0.45, green: 0.37, blue: 0.22)),
     ]
 
     private static let pages: [String] = [
@@ -67,6 +72,21 @@ struct MemoriesTutorialView: View {
                 card
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 24)
+                    // **Swipe the card to move between pages.** Continue is
+                    // still the obvious way through; this is for the hand that
+                    // has just been shown three gestures and reaches for a
+                    // fourth. Backwards as well as forwards, unlike the button
+                    // — a reader who wants the previous page has a reason, and
+                    // the dots already say where they are.
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 24)
+                            .onEnded { value in
+                                guard abs(value.translation.width) > abs(value.translation.height)
+                                else { return }
+                                go(value.translation.width < 0 ? 1 : -1)
+                            }
+                    )
 
                 Spacer(minLength: 16)
 
@@ -99,6 +119,7 @@ struct MemoriesTutorialView: View {
                 .padding(.bottom, 28)
             }
         }
+        .overlay { if page == 3 { addSheetMock } }
         .preferredColorScheme(.light)
         .onAppear { restartAnimation(for: page) }
     }
@@ -108,7 +129,16 @@ struct MemoriesTutorialView: View {
             onFinish()
             return
         }
-        let upcoming = page + 1
+        go(1)
+    }
+
+    /// Move by one page, or do nothing at the ends.
+    ///
+    /// A swipe past the last page does **not** finish the tutorial: leaving is
+    /// a decision, and a flick is not one. Continue is the only way out.
+    private func go(_ delta: Int) {
+        let upcoming = page + delta
+        guard Self.pages.indices.contains(upcoming) else { return }
         withAnimation(.easeInOut(duration: 0.25)) { page = upcoming }
         restartAnimation(for: upcoming)
     }
@@ -155,18 +185,26 @@ struct MemoriesTutorialView: View {
             RoundedRectangle(cornerRadius: 24)
                 .strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1)
         }
-        .overlay { if page == 3 { addSheetMock } }
     }
 
     /// Three rows' worth, so the fourth is off the bottom and the list has
     /// somewhere to go.
     private static let windowHeight: CGFloat = 3 * 46
 
-    private func row(_ entry: (name: String, share: Double), isWobbling: Bool) -> some View {
+    private func row(
+        _ entry: (name: String, share: Double, top: Color, bottom: Color),
+        isWobbling: Bool
+    ) -> some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 6)
-                .fill(GardenPalette.gold.opacity(0.18))
-                .frame(width: 30, height: 30)
+                .fill(LinearGradient(colors: [entry.top, entry.bottom],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 34, height: 34)
+                .overlay {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
 
             Text(entry.name)
                 .font(.system(size: 15))
@@ -179,6 +217,10 @@ struct MemoriesTutorialView: View {
                 .fill(GardenPalette.gold.opacity(0.75))
                 .frame(width: 56 * entry.share, height: 5)
         }
+        // Room for the cross, which hangs past this row's trailing corner and
+        // was being cut in half by the card's clip — the same overhang the real
+        // page reserves for in `entryStack`.
+        .padding(.trailing, 14)
         .frame(height: 46)
         .rotationEffect(.degrees(isWobbling ? wobble : 0), anchor: .center)
         .overlay(alignment: .topTrailing) {
@@ -190,7 +232,7 @@ struct MemoriesTutorialView: View {
                     .frame(width: 20, height: 20)
                     .background(GardenPalette.ink.opacity(0.75), in: Circle())
                     .overlay { Circle().strokeBorder(GardenPalette.card, lineWidth: 1.5) }
-                    .offset(x: 6, y: -2)
+                    .offset(x: 8, y: -1)
                     .transition(.scale.combined(with: .opacity))
             }
         }
@@ -207,29 +249,70 @@ struct MemoriesTutorialView: View {
             .animation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true), value: page == 3)
     }
 
-    /// What tapping it opens, drawn rather than presented: a real sheet would
-    /// need dismissing, and this page is a demonstration nobody has to operate.
+    /// What tapping it opens, drawn rather than presented.
+    ///
+    /// **Matched to `BiographicsSheet` line for line** — the dim behind it, the
+    /// 22-point card, the title in `BrandFont.body(18)`, the subtitle beneath,
+    /// the field, and a Save that is disabled because nothing has been typed.
+    /// A tutorial that shows a dialog somebody will not recognise when they
+    /// meet it has taught them the wrong thing, and the first version was a
+    /// small white box clipped inside the card.
+    ///
+    /// Over the whole page rather than inside the card, because that is where
+    /// the real one appears: it is a decision about the page, not part of a
+    /// section.
     private var addSheetMock: some View {
-        VStack(spacing: 10) {
-            Text("What did we miss?")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(GardenPalette.ink)
-            RoundedRectangle(cornerRadius: 10)
-                .fill(GardenPalette.parchment)
-                .frame(height: 34)
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(GardenPalette.ink.opacity(0.35))
-                        .frame(width: 1, height: 16)
-                        .padding(.leading, 12)
-                        .opacity(caretVisible ? 1 : 0)
+        ZStack {
+            GardenPalette.ink.opacity(0.28)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                VStack(spacing: 4) {
+                    Text("What did we miss?")
+                        .font(BrandFont.body(18))
+                        .foregroundStyle(GardenPalette.ink)
+                    Text("Tell us what we missed.")
+                        .font(BrandFont.body(13))
+                        .foregroundStyle(GardenPalette.muted)
                 }
+
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(GardenPalette.parchment)
+                    .frame(height: 44)
+                    .overlay {
+                        HStack(spacing: 0) {
+                            // The caret, blinking where one would be.
+                            Capsule()
+                                .fill(Color.blue)
+                                .frame(width: 2, height: 20)
+                                .opacity(caretVisible ? 1 : 0)
+                            Text("Artist")
+                                .font(BrandFont.body(15))
+                                .foregroundStyle(GardenPalette.muted.opacity(0.7))
+                        }
+                    }
+
+                Text("Save")
+                    .font(BrandFont.body(15))
+                    .foregroundStyle(GardenPalette.parchment)
+                    .padding(.horizontal, 34)
+                    .padding(.vertical, 11)
+                    .background(GardenPalette.gold, in: Capsule())
+                    // Disabled, as it is until somebody types — the state this
+                    // dialog is actually in when it opens.
+                    .opacity(0.45)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+            .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 22))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22)
+                    .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+            }
+            .shadow(color: GardenPalette.ink.opacity(0.18), radius: 22, y: 10)
+            .padding(.horizontal, 28)
         }
-        .padding(14)
-        .background(GardenPalette.card, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
-        .padding(.horizontal, 18)
-        .transition(.scale(scale: 0.92).combined(with: .opacity))
+        .transition(.opacity)
     }
 
     // MARK: - The animations
