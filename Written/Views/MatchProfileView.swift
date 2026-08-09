@@ -48,14 +48,22 @@ struct MatchProfileView: View {
         .preferredColorScheme(.light)
         .statusBanner(failure)
         .overlay {
+            // **The whole run, not the one tile.** Tapping a photograph used to
+            // open that photograph alone, which made the grid a set of six dead
+            // ends; this opens the person's posts and lands on the one tapped,
+            // so the others are a scroll away rather than a second tap and a
+            // dismissal. `MatchPhotoCard` is kept — it is still the right shape
+            // for a single photograph and nothing else has to change to use it
+            // again.
             if let openPhoto, let profile, openPhoto < profile.photoPaths.count {
-                MatchPhotoCard(
+                MatchPostsView(
                     name: profile.name,
-                    path: profile.photoPaths[openPhoto],
-                    caption: profile.captions.indices.contains(openPhoto)
-                        ? profile.captions[openPhoto] : nil,
+                    paths: profile.photoPaths,
+                    captions: profile.captions,
+                    opening: openPhoto,
                     onClose: { self.openPhoto = nil }
                 )
+                .transition(.move(edge: .trailing))
             }
         }
         .task { await load() }

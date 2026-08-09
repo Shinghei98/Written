@@ -1669,9 +1669,12 @@ out. The staging map is keyed by position, so **the last write to a slot wins**.
   **no discovery card at all, permanently, with no error anywhere.**
 - The card is republished after any change, since it carries the paths.
 
-**Two or three photographs is the real floor.** `publish` refuses on an empty
-`photoPaths`, so nought means no card ever; one clears the guard but
-`DiscoveryFeed` draws two per appearance, so that person repeats immediately.
+**One photograph is enough, and nought is not.** `publish` refuses on an empty
+`photoPaths`, so nought means no card ever. One is fine: `DiscoveryFeed.draw`
+asks for `min(count, pool.count)`, so a person with one photograph shows one and
+the card draws no dots, and `MatchProfileView` uses `photoPaths.first` as the
+avatar. This paragraph used to claim two was the floor because the feed drew two
+per appearance — it does not, and has not since `draw` took that minimum.
 
 **The six boxes take photographs only, and that is a deliberate stop.**
 `matching: .images` filters inside Apple's own picker process, so videos are
