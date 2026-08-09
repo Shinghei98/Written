@@ -67,12 +67,23 @@ enum Tutorial {
             }
         }
 
-        /// What stays in colour. More than one for the step that says "the icon
-        /// **or** the button" — a sentence naming two things has to show both.
+        /// What stays in colour.
+        ///
+        /// **`updateConnection` lights the connected bar alone**, not the prompt
+        /// card beside it. "Update your connection" means the branch already
+        /// made — the Events bar and the calendar mark on it — while the card
+        /// underneath is offering Music, which is a *new* connection and the
+        /// subject of the step after this one. Lighting both said "either of
+        /// these" about two things that do opposite jobs.
+        ///
+        /// The whole bar is one target because the whole bar is one control:
+        /// `ConnectedBar.onTap` re-opens that branch's picker, so the icon and
+        /// the row around it are the same button and the sentence's "the icon
+        /// or the button" is satisfied by lighting it once.
         var targets: [Target] {
             switch self {
             case .firstConnection:  return [.promptCard]
-            case .updateConnection: return [.connectedIcon, .promptCard]
+            case .updateConnection: return [.connectedIcon]
             case .moreConnections:  return [.promptCard]
             case .reviewMusic:      return [.musicCard]
             case .removeEntry:      return [.secondEntry]
