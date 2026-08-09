@@ -313,6 +313,7 @@ struct DashboardView: View {
         // somebody is actually looking at the thing the marks describe.
         .onPreferenceChange(EventsTopKey.self) { top in
             startTutorialIfNeeded(eventsTop: top)
+            tutorialSawSectionMove(to: top)
         }
         .preferredColorScheme(.light)
         // **The location fix is asked for by `DashboardTab`, not here.** This
@@ -379,6 +380,10 @@ struct DashboardView: View {
 
     /// The card on screen over the dashboard, or nil.
     @State private var tutorialStep: Tutorial.Step?
+
+    /// Where the chosen section's top was the last time it reported, so a move
+    /// can be told from a redraw.
+    @State private var tutorialLastSectionTop: CGFloat?
 
     /// Start the dashboard's three cards the first time somebody arrives here
     /// during onboarding with something to look at.
@@ -453,6 +458,28 @@ struct DashboardView: View {
     /// mark asked and watched nothing happen.
     private func tutorialSawScroll() {
         if tutorialStep == .reviewEntries { advanceTutorial(from: .reviewEntries) }
+    }
+
+    /// The chosen section moved on screen, which means the page scrolled.
+    ///
+    /// **The wider of the two scroll detectors, and the one that matters most.**
+    /// "Scroll to see the entire list" invites scrolling the *page*, and the
+    /// drag reporter on the list itself never hears that — so a flick carried
+    /// the section off screen with the step still showing and nothing left on
+    /// screen able to end it. The probe reports this section's position on
+    /// every layout pass anyway; a change in it is a scroll, whichever scroll
+    /// view did the moving.
+    ///
+    /// A threshold rather than any change at all, because a keyboard appearing
+    /// or a row growing nudges this by a point or two and neither is somebody
+    /// scrolling.
+    private func tutorialSawSectionMove(to top: CGFloat) {
+        defer { tutorialLastSectionTop = top }
+        guard tutorialStep == .reviewEntries,
+              let last = tutorialLastSectionTop,
+              abs(top - last) > 8
+        else { return }
+        tutorialSawScroll()
     }
 
     /// The "What did we miss?" sheet closed, saved or cancelled.

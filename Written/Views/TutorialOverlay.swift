@@ -18,8 +18,11 @@ import SwiftUI
 /// and the failure this project has paid for in other forms — an inert control,
 /// a button that authenticated nobody. The lit control is always the real one,
 /// never a copy, and it always does what it would have done with no tutorial
-/// running; and a step whose target has not been laid out yet blocks nothing,
-/// rather than covering the screen with a dim that has no hole in it.
+/// running; and a step whose target is not on screen draws nothing at all —
+/// neither a dim nor a sentence — because a mark with no hole in it is a grey
+/// page somebody cannot get out of. That last one was a claim in this comment
+/// before it was true of the code: the blockers were empty, so taps passed
+/// through, while the dim went on covering everything.
 ///
 /// **Only during onboarding, and only once.** `isOnboarding` is the real gate:
 /// it is false for everybody past the sequence, and the sequence runs once
@@ -244,7 +247,26 @@ struct TutorialOverlay: View {
         }
     }
 
+    @ViewBuilder
     var body: some View {
+        // **Nothing to light, nothing drawn.** A target that is off screen has
+        // no anchor, so `holes` comes back empty — and an empty mask is a
+        // *solid* dim, which is a grey page with no hole in it and no way to
+        // reach whatever would end the step. Scroll the Memories marks' section
+        // off the top and that is exactly what happened.
+        //
+        // The guarantee this buys is worth more than the case that prompted it:
+        // a mark can only ever darken a screen that contains its subject. When
+        // the target scrolls back, the mark comes back with it, which is right
+        // — an instruction belongs beside the thing it describes.
+        if holes.isEmpty {
+            Color.clear
+        } else {
+            marked
+        }
+    }
+
+    private var marked: some View {
         ZStack {
             // **The dim is one shape with holes punched in it**, not four
             // rectangles arranged around the subject. Four rectangles have to be
@@ -468,6 +490,14 @@ extension View {
     ///
     /// `simultaneousGesture` so the scroll view still scrolls: this watches the
     /// same drag rather than taking it.
+    ///
+    /// **One of two detectors, and the narrow one.** It only hears a drag on
+    /// this list, so scrolling the *page* — which is what "scroll to see the
+    /// entire list" invites, and what carries this section off screen — went
+    /// unheard, and the step could not be ended by the gesture it asked for.
+    /// `DashboardView` watches the section's position for that. This one stays
+    /// because it is the only thing that can answer a drag on a list too short
+    /// to move, where no position changes for the other to see.
     @ViewBuilder
     func tutorialScrollable(_ isTarget: Bool, onAttempt: @escaping () -> Void) -> some View {
         if isTarget {
