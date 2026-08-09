@@ -162,6 +162,28 @@ struct DashboardView: View {
                 // How far the content has travelled, which is what the header
                 // collapses against.
                 .trackingScrollOffset { scrollOffset = $0 }
+                // **Back to the top every time this tab is returned to.**
+                // `AppShell` keeps all four tabs mounted, so a scroll position
+                // survives leaving and coming back — somebody who scrolled to
+                // their podcasts, went to Chat and returned found the page
+                // where they left it rather than where it starts, and the
+                // header collapsed with no obvious way to see the title again.
+                //
+                // Not animated: it is not a movement anybody watched happen,
+                // and animating it would draw the eye to a scroll the user did
+                // not perform.
+                //
+                // **Outside `#if DEBUG`, which is where it spent its whole
+                // life.** It sat between two `-scroll` and `-bio` helpers
+                // inside that block, so it worked every time it was tested —
+                // from Xcode, in Debug — and shipped in no archive at all. A
+                // conditional that compiles out a *feature* along with the
+                // scaffolding around it is invisible until somebody installs a
+                // Release build, which is exactly how it was found.
+                .onChange(of: isVisible) { visible in
+                    guard visible else { return }
+                    proxy.scrollTo("top", anchor: .top)
+                }
 #if DEBUG
                 // `-bio education`; see `DebugLaunch`. The rows only open to a
                 // tap, which `simctl` cannot send.
@@ -206,20 +228,6 @@ struct DashboardView: View {
                             withAnimation(.easeOut(duration: 0.18)) { editingEntry = armed }
                         }
                     }
-                }
-                // **Back to the top every time this tab is returned to.**
-                // `AppShell` keeps all four tabs mounted, so a scroll position
-                // survives leaving and coming back — somebody who scrolled to
-                // their podcasts, went to Chat and returned found the page
-                // where they left it rather than where it starts, and the
-                // header collapsed with no obvious way to see the title again.
-                //
-                // Not animated: it is not a movement anybody watched happen,
-                // and animating it would draw the eye to a scroll the user did
-                // not perform.
-                .onChange(of: isVisible) { visible in
-                    guard visible else { return }
-                    proxy.scrollTo("top", anchor: .top)
                 }
                 // `-scroll media`; see `DebugLaunch`.
                 .onAppear {
