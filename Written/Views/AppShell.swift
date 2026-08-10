@@ -187,7 +187,12 @@ struct AppShell: View {
         // the first moment a view model exists to put them in — they are
         // answered two screens before this view is built. Idempotent, and
         // `restoreFromServer` calls it again once the server's version lands.
-        .task { viewModel.adoptStoredCommunicationStyle() }
+        .task {
+            viewModel.adoptStoredCommunicationStyle()
+            // The gender and interest answers, for the same reason and by the
+            // same route — collected two screens before a view model exists.
+            viewModel.adoptStoredIdentity()
+        }
         // ARCHIVED-SPOTIFY. Its terms forbid a third-party database holding
         // Spotify Content, and beta testers have rows in one — so archiving the
         // source is not enough on its own. See `purgeArchivedSources`.

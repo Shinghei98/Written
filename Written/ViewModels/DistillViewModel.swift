@@ -404,6 +404,7 @@ final class DistillViewModel: ObservableObject {
             // overwritten by the very snapshot it should have been checked
             // against. Idempotent, so the shell's own call costs nothing here.
             adoptStoredCommunicationStyle()
+            adoptStoredIdentity()
             repairIdentityPush(snapshot)
         }
     }
@@ -1550,6 +1551,56 @@ final class DistillViewModel: ObservableObject {
         guard identity.flirtLevel != stored.flirt || identity.responseTime != stored.response
         else { return }
         setCommunicationStyle(stored)
+    }
+
+    /// Copy the onboarding identity answers into `user` records.
+    ///
+    /// **The same fact was in the export or not depending on which screen it was
+    /// set from**, which is the defect this fixes. The gender step writes
+    /// `Identity` and pushes `users.sex`; the interest step writes
+    /// `DatingPreferencesStore`. Neither makes a record, because both run two
+    /// screens ahead of any view model — so the dashboard's editors produced
+    /// `user/gender` and `user/gender_preference` rows while onboarding, which is
+    /// how almost everybody answers, produced none. The CSV is `records`, so
+    /// those people exported no gender at all.
+    ///
+    /// Adopted here rather than written there, exactly as
+    /// `adoptStoredCommunicationStyle` does and for the same reason: onboarding
+    /// must not wait on a view model, and running on every launch fixes accounts
+    /// that predate this as a side effect. Idempotent — the guards compare
+    /// against what the records already say, and `append_source_records`'
+    /// change-only trigger would discard an identical row anyway.
+    ///
+    /// **`Identity.columnValue` is the one vocabulary**, so the record says what
+    /// `users.sex` says. Two spellings of one answer is how HealthKit's
+    /// biological sex came to overwrite a chosen gender, and this is the same
+    /// column.
+    func adoptStoredIdentity() {
+        let chosen = Identity.genders
+        if !chosen.isEmpty {
+            let label = Identity.columnValue(chosen)
+            if userFact("gender") != label {
+                setUserFact("gender", label)
+            }
+        }
+
+        // Declaration order rather than set order, matching how
+        // `DatingPreferences` is already written — a row that has not changed
+        // must not look changed to the change-only trigger.
+        if let wanted = DatingPreferencesStore.saved?.genders, !wanted.isEmpty {
+            let value = DatingPreferences.Gender.allCases
+                .filter(wanted.contains)
+                .map(\.rawValue)
+                .joined(separator: "|")
+            if userFact("gender_preference") != value {
+                setUserFact("gender_preference", value)
+            }
+        }
+    }
+
+    /// What a `user` record of this type currently says, or nil for none.
+    private func userFact(_ dataType: String) -> String? {
+        records.first { $0.source == "user" && $0.dataType == dataType && !$0.isRemovedByUser }?.name
     }
 
     /// Every school somebody has attended, as they wrote it.
