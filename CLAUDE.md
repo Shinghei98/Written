@@ -108,14 +108,38 @@ build, one is impossible, and one is unresolved.
   page's own evidence**: those sixteen non-cloud rows were streamed tracks that
   read as local, so the flag cannot tell owned music from downloaded.
 
-- **Spotify** — **ARCHIVED, and removal was a condition of shipping.** Its
-  Developer Terms forbid storing Spotify Content in a third-party database, so
-  once Postgres became the source of truth it was the one source that could never
-  be restored to a new device — while its rows were synced like everyone else's,
-  which the terms do not allow. It also cannot leave development mode: five test
-  users, the developer must hold Premium, and extended quota needs 250,000
-  monthly active users, closed to individuals since May 2025.
-  `purgeArchivedSources` exists because rows already existed.
+- **Spotify** — **ARCHIVED, and removal was a condition of shipping.** The
+  reasons are not the ones this entry gave for a year, which is what reading the
+  clauses in full rather than a summary of them corrected:
+
+  - **The storage rule is a limit, not a prohibition.** **IV.3.1.a**: *"you may
+    not store, aggregate or create compilations or databases of Spotify Content,
+    other than as strictly necessary to operate your SDA… Do not store Spotify
+    Content indefinitely."* That is the shape of `0016`'s YouTube sweep — store,
+    refresh, expire — rather than "could never be restored to a new device",
+    which is what this said and is stronger than the clause supports. And
+    **IV.2.5 explicitly permits** *"transfer Spotify Content to third party data
+    processors, such as server providers for providing your SDA"*, so Postgres
+    was never the problem either.
+  - **What actually rules it out is IV.2.1.a**: *"using the Spotify Platform or
+    any Spotify Content to train a machine learning or AI model or otherwise
+    ingesting Spotify Content into a machine learning or AI model."* No
+    carve-out, and the clause names the use twice. **IV.2.5 also closes the
+    consent route**, in its own words — derived and aggregate data count, *"even
+    if a user consents to such transfer or use."* A collaborator can grant
+    rights over their own data and never over Spotify's.
+  - **And it cannot leave development mode**: *"up to 5 authenticated Spotify
+    users"*, added by hand in the dashboard by name and Spotify email. Extended
+    quota has been organisations-only since 15 May 2025 — a registered business,
+    a launched service, at least 250,000 monthly actives, key markets — and
+    individual developers are explicitly not eligible.
+
+  Five is survivable for a coordinated group, rotated by hand; it is not
+  survivable for a beta, where the sixth person logs in successfully and is then
+  refused, which reads as the app being broken. That is the same judgement that
+  archived YouTube. `purgeArchivedSources` exists because rows already existed,
+  and **lifting the source needs it suspended too** — otherwise it deletes the
+  rows locally and on the server the moment they are distilled.
 
 - **Apple Podcasts** (`PodcastDistiller`) — `MPMediaQuery.podcasts()`, one
   `MPMediaLibrary` permission, no login, same framework and same
@@ -1549,6 +1573,31 @@ that feature, applying our own term table would be.
 the chronotype and the step average, because there is no entry behind "You start
 at 06:40" for anybody to agree with. Sports left it — a sport is a named thing —
 and live under `.playedSport`.
+
+### Which sources may feed a model, and who may say so
+
+**Four may, two may not, and consent does not move the line.** Apple Music,
+Apple Podcasts, Apple Calendar and HealthKit carry no term restricting what is
+done with what they return — Apple's rules are about the permission sheet and
+what is disclosed, not about downstream use. **YouTube and Spotify both forbid
+it**: III.E.4.h and IV.2.1.a respectively, the latter naming *"train a machine
+learning or AI model or otherwise ingesting Spotify Content into"* one.
+
+**A person can grant rights over their own data and not over a platform's.**
+Spotify says so outright — IV.2.5 covers derived and aggregate data *"even if a
+user consents to such transfer or use"* — so a willing collaborator changes the
+consent question and not the licensing one.
+
+Training data comes from collaborators rather than users, which is why the
+published policy needs no new purpose: `web/en-us/privacy/`'s *Why we collect
+it* describes what happens to a user's data, and a separate agreement covers a
+collaborator's. **`private.collaborators` (`0041`) is how the two are told
+apart** — a table in the schema nothing is granted on, filled in by hand, for
+the reason `private.push_config` is there. A column on `public.users` would have
+been settable by the account it describes: `0001`'s policy is `auth.uid() = id`
+and `0009` is the only migration that revokes update, so anyone could have
+marked themselves and put their own rows in a corpus. The query, source
+exclusions included, is written at the foot of that migration.
 
 **`Ontology.subjects` was reading a `data_type` that has never existed.** It
 filtered `dataType == "song"`; `AppleMusicDistiller` writes `library_song`,
