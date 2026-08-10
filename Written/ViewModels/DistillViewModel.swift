@@ -976,6 +976,23 @@ final class DistillViewModel: ObservableObject {
             ConnectionStore.save(knownConnections)
         }
         records.removeAll { $0.source == source }
+        // **A batch may carry rows belonging to another source, and they have to
+        // replace rather than pile up.** `AppleMusicDistiller.subscriptionRecord`
+        // is one: it is produced by the Apple Music run but filed under `user`,
+        // so that the subscription reads as a fact about the person rather than
+        // as a library row. The line above only removes rows matching the source
+        // being replaced, so every re-distill appended another identical copy —
+        // measured at three in one real export, one per distillation, growing
+        // forever with nothing on screen to show it.
+        //
+        // Keyed on the whole identity rather than the id alone, because item ids
+        // are only unique within a source.
+        let arriving = Set(newRecords.lazy
+            .filter { $0.source != source }
+            .map { "\($0.source)|\($0.dataType)|\($0.itemID)" })
+        if !arriving.isEmpty {
+            records.removeAll { arriving.contains("\($0.source)|\($0.dataType)|\($0.itemID)") }
+        }
         // Freshly fetched rows know nothing of what the user struck off last
         // time, so the bans are re-applied here. Without this a re-distill
         // quietly resurrects everything they removed.
