@@ -1,0 +1,17 @@
+source,data_type,item_id,name,creator,detail,extra,collected_at
+apple_music,recommendation,reco-1,Provider suggestion,Example Artist,,genres=Pop;resource_type=recommendations,2030-01-15T03:18:10Z
+apple_music,recently_played,track-1,Italian music,Example Artist,,album=Example Album;duration_s=180;genres=Italian music;last_played=2030-01-01T12:00:00Z,2030-01-15T03:18:10Z
+music_library,library_song,local-track-1,Italian music,Example Artist,,album=Example Album;duration_s=180;genre=Italian music;added=2029-12-01T12:00:00Z,2030-01-15T03:18:10Z
+apple_calendar,event,calendar-private-1,Medical clinic visit,,,duration_min=60;start=2030-01-02T12:00:00Z,2030-01-15T03:18:00Z
+apple_calendar,event,calendar-booked-1,Ticket: Synthetic food tour,GetYourGuide,New York JFK,booked=1;url=https://tickets.invalid/synthetic;duration_min=90;start=2030-01-03T12:00:00Z;end=2030-01-03T13:30:00Z,2030-01-15T03:18:00Z
+apple_calendar,event,calendar-holiday-1,Generic Holiday,,,all_day=1;duration_min=1439;start=2030-01-04T00:00:00Z,2030-01-15T03:18:00Z
+apple_calendar,event,calendar-removed-1,Private removed event,,,duration_min=60;start=2030-01-05T12:00:00Z;removed_by_user=2030-01-15T03:18:00Z;removed_reason=legacy_reason,2030-01-15T03:18:00Z
+user,education,education,Synthetic degree,,,entered_by_user=1,2030-01-15T03:18:00Z
+user,apple_music_subscription,apple_music_subscription,subscribed,,,measured=1,2030-01-15T03:18:00Z
+location,place,user-place,Synthetic City,,,measured=1;city=Synthetic City;country=ZZ,2030-01-15T03:18:00Z
+youtube,video,video-1,Free-form title that is not used,Example Channel,,category=Film;category_id=1;published_at=2029-12-01T12:00:00Z,2030-01-15T03:18:00Z
+podcast,played,podcast-1,Episode title,Example Show,,show=Example Show;host=Example Host;categories=Science;last_played=2029-12-02T12:00:00Z,2030-01-15T03:18:00Z
+healthkit,accelerometer_sample,sample-1,Raw sample,,,date=2029-12-03T12:00:00Z,2030-01-15T03:18:00Z
+healthkit,workout,workout-1,Running,,,activity_type=running;duration_min=30;start=2029-12-03T12:00:00Z,2030-01-15T03:18:00Z
+health,activity_day,2030-01-01,2030-01-01,,,active_kcal=220;steps=8000;first_move=07:00,2030-01-15T03:18:00Z
+health,activity_hour,07:00,07:00,,,hour=7;steps=8000;share=1.0,2030-01-15T03:18:00Z

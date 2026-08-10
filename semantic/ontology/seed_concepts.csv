@@ -1,0 +1,46 @@
+concept_key,preferred_label,concept_kind,sensitivity,inference_policy,status,notes
+hub:music,Music,hub,ordinary,inferable,active,Provisional fixed hub.
+hub:film_video,"Film, TV & video",hub,ordinary,inferable,active,Provisional fixed hub.
+hub:ideas_learning,"Books, ideas & learning",hub,ordinary,inferable,active,Podcast is a medium within this area.
+hub:sports_movement,Sports & movement,hub,ordinary,review_required,active,"Purpose-limited fitness evidence, including reviewed HealthKit-derived routines when consent and coverage gates pass."
+hub:food_drink,Food & drink,hub,ordinary,inferable,active,"Reservations are scheduled, not attended."
+hub:arts_live,"Arts & live culture",hub,ordinary,inferable,active,Events and live culture.
+hub:places_cultures,"Places, travel & cultures",hub,ordinary,review_required,active,Cultural affinity only; no ancestry.
+hub:games_play,Games & play,hub,ordinary,inferable,draft,Not directly observed in the current V1 sources.
+hub:nature_outdoors,Nature & outdoors,hub,ordinary,inferable,draft,Candidate hub.
+hub:work_study_making,"Work, study & making",hub,private,explicit_only,draft,Confirmation-only in V0.
+hub:social_community,"Social life & community",hub,private,review_required,draft,Private by default.
+hub:animals_pets,"Animals & pets",hub,ordinary,review_required,draft,Pet health and personality remain explicit.
+hub:daily_rhythms,"Daily rhythms & routines",hub,private,review_required,draft,"Quantitative behavior, not identity."
+place:italy,Italy,place,ordinary,review_required,active,Reusable convergence target.
+concept:italian_music,Italian music,topic,ordinary,inferable,active,Music associated with Italy.
+concept:italian_cinema,Italian cinema,topic,ordinary,inferable,active,Cinema associated with Italy.
+concept:italian_cuisine,Italian cuisine,cuisine,ordinary,review_required,active,Cuisine associated with Italy.
+affinity:culture:italy,Italian cultural affinity,affinity,ordinary,review_required,active,Pending-review wording after independent convergence.
+identity:italian_ancestry,Italian ancestry,identity,sensitive,explicit_only,blocked,Never infer from consumption.
+identity:italian_nationality,Italian nationality,identity,sensitive,explicit_only,blocked,Never infer from consumption.
+identity:italian_native_language,Italian native language,identity,sensitive,explicit_only,blocked,Never infer from consumption.
+activity:running,Running,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:walking,Walking,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:cycling,Cycling,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:swimming,Swimming,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:hiking,Hiking,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:strength_training,Strength training,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:yoga,Yoga,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:pilates,Pilates,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:dance,Dance,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:hiit,HIIT,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:rowing,Rowing,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:elliptical,Elliptical training,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:climbing,Climbing,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:tennis,Tennis,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:pickleball,Pickleball,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:basketball,Basketball,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:soccer,Soccer,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:skiing,Skiing,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+activity:snowboarding,Snowboarding,activity,ordinary,review_required,active,Typed fitness activity; routine wording requires recurrence and review.
+routine:morning_workouts,Morning workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
+routine:afternoon_workouts,Afternoon workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
+routine:evening_workouts,Evening workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
+routine:overnight_workouts,Overnight workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
+routine:consistent_sleep_schedule,Consistent sleep schedule,activity,ordinary,review_required,active,Coarse wellness routine; never sleep quality or diagnosis.

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "written-ontology"
+version = "0.3.1"
+description = "Typed, privacy-gated semantic decision core and persistence contract for Written"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1,<4"]
+semantic = ["sentence-transformers>=3,<6"]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+written-ontology = "written_ontology.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

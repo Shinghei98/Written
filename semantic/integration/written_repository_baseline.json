@@ -1,0 +1,116 @@
+{
+  "package_version": "0.3.1",
+  "semantic_contract_version": "v0.3",
+  "repository": {
+    "owner": "Shinghei98",
+    "name": "Written",
+    "commit": "8203353532dffd5f608df92861fd8a631dc7b7d4",
+    "migration_head": "0041_collaborator.sql"
+  },
+  "repository_verification": {
+    "mode": "read_only_checkout",
+    "required_test_environment": "WRITTEN_REPOSITORY_PATH",
+    "verified_files_sha256": {
+      "Written/Models/DistilledRecord.swift": "845a7df7bece96478819b64ce9fa5a386f261d270fd44f057302011952002a00",
+      "Written/ViewModels/DistillViewModel.swift": "8bca2028e3f0a16564e28a1b8a93775ff53c9d9f1359f7bba7e0713935e4984c",
+      "Written/Services/SyncService.swift": "1c7e5bde5dc760398248b9582c9892bd6383bfda15374f860771bfe23051f08f",
+      "Written/Services/Ontology.swift": "a489deef3cec4ab8b9caa645c15ec27f20bbec8f5299e1446f5545279e398149",
+      "supabase/migrations/0004_append_only.sql": "ecc2b9ea7af19ffd3585a2ae19c578ef26bba5eb34b9377ee75bb758647cb9db",
+      "supabase/migrations/0007_discovery.sql": "b61553ae2d40aa3b6ec87f0b7c5255eb25c847d9cf57cacee9e00a08246c0c66",
+      "supabase/migrations/0040_subject_stamp.sql": "39416c91c554826693804a5a0f7eca337e5360b42c0fb55e9dc1794be7bf38ca",
+      "supabase/migrations/0041_collaborator.sql": "6c4ed386a2fa030ac33d753d3ce03136a46de4e424eaac5016ab5bf64d2ec958"
+    }
+  },
+  "authority": "target_architecture",
+  "integration_status": "reference_contracts_and_cutover_plan_not_app_migrations",
+  "reference_migrations": [
+    "sql/001_schema.sql",
+    "sql/002_rls_and_rpc.sql",
+    "sql/003_seed.sql",
+    "sql/004_product_surfaces.sql",
+    "sql/005_private_ingestion_and_fitness.sql",
+    "sql/006_current_state_and_surface_hardening.sql"
+  ],
+  "application_migrations": [
+    {
+      "sequence": 42,
+      "suggested_name": "0042_semantic_schema.sql",
+      "role": "adapt_reference_001"
+    },
+    {
+      "sequence": 43,
+      "suggested_name": "0043_semantic_rls_and_rpc.sql",
+      "role": "adapt_reference_002"
+    },
+    {
+      "sequence": 44,
+      "suggested_name": "0044_semantic_seed.sql",
+      "role": "adapt_reference_003"
+    },
+    {
+      "sequence": 45,
+      "suggested_name": "0045_semantic_product_surfaces.sql",
+      "role": "adapt_reference_004"
+    },
+    {
+      "sequence": 46,
+      "suggested_name": "0046_semantic_private_ingestion_fitness.sql",
+      "role": "adapt_reference_005"
+    },
+    {
+      "sequence": 47,
+      "suggested_name": "0047_semantic_current_state_surfaces.sql",
+      "role": "adapt_reference_006"
+    },
+    {
+      "sequence": 48,
+      "suggested_name": "0048_semantic_legacy_bridge.sql",
+      "role": "application_ingestion_match_bridge"
+    },
+    {
+      "sequence": 49,
+      "suggested_name": "0049_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 50,
+      "suggested_name": "0050_semantic_cutover.sql",
+      "role": "legacy_semantic_retirement"
+    }
+  ],
+  "repository_paths": {
+    "keep": [
+      "Written/Services/AppleMusicDistiller.swift",
+      "Written/Services/YouTubeDistiller.swift",
+      "Written/Services/PodcastDistiller.swift",
+      "Written/Services/CalendarDistiller.swift",
+      "Written/Services/GoogleCalendarDistiller.swift",
+      "Written/Services/HealthKitDistiller.swift"
+    ],
+    "adapt": [
+      "Written/Models/DistilledRecord.swift",
+      "Written/ViewModels/DistillViewModel.swift",
+      "Written/Services/SyncService.swift",
+      "Written/Services/RecordStore.swift",
+      "Written/Services/DiscoveryCardService.swift",
+      "Written/Services/DiscoveryService.swift",
+      "Written/Services/MatchProfileService.swift",
+      "Written/Services/ChatService.swift"
+    ],
+    "replace_as_semantic_authority": [
+      "Written/Services/Ontology.swift",
+      "supabase/migrations/0004_append_only.sql",
+      "supabase/migrations/0007_discovery.sql",
+      "supabase/migrations/0040_subject_stamp.sql"
+    ]
+  },
+  "cutover_phases": [
+    "baseline_and_native_dry_run",
+    "private_ingestion_and_dual_write",
+    "backfill_and_shadow_compute",
+    "memories_cutover",
+    "server_owned_discovery_and_profiles",
+    "first_exposure_icebreakers",
+    "legacy_semantic_retirement"
+  ]
+}

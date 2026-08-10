@@ -20,6 +20,11 @@ written-distillation-*.csv
 AuthKey_*
 .env
 .env.*
+# …but `semantic/.env.example` holds no secret and must be committed: it is what
+# documents `DATABASE_URL`, `WORKER_ID` and `CALENDAR_LINEAGE_HMAC_KEY` for the
+# worker. Without this line `git add -A` skips it silently, which is the same
+# quiet-omission failure the rules above exist to prevent.
+!semantic/.env.example
 
 # Xcode user state
 xcuserdata/

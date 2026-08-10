@@ -1,0 +1,43 @@
+concept_key,alias,locale,alias_type,confidence
+hub:music,music,en,preferred,1.0
+hub:film_video,movie,en,alternate,1.0
+hub:film_video,film,en,alternate,1.0
+hub:film_video,tv,en,alternate,1.0
+hub:ideas_learning,podcast,en,source_term,0.9
+hub:sports_movement,workout,en,alternate,1.0
+hub:sports_movement,exercise,en,alternate,1.0
+hub:food_drink,restaurant,en,alternate,0.8
+place:italy,Italy,en,preferred,1.0
+place:italy,Italian,en,related_label,0.75
+place:italy,Italia,it,alternate,1.0
+concept:italian_music,Italian music,en,preferred,1.0
+concept:italian_music,musica italiana,it,alternate,1.0
+concept:italian_cinema,Italian cinema,en,preferred,1.0
+concept:italian_cinema,cinema italiano,it,alternate,1.0
+concept:italian_cuisine,Italian food,en,alternate,0.95
+concept:italian_cuisine,Italian cuisine,en,preferred,1.0
+concept:italian_cuisine,cucina italiana,it,alternate,1.0
+activity:running,Running,en,preferred,1.0
+activity:walking,Walking,en,preferred,1.0
+activity:cycling,Cycling,en,preferred,1.0
+activity:swimming,Swimming,en,preferred,1.0
+activity:hiking,Hiking,en,preferred,1.0
+activity:strength_training,Strength training,en,preferred,1.0
+activity:yoga,Yoga,en,preferred,1.0
+activity:pilates,Pilates,en,preferred,1.0
+activity:dance,Dance,en,preferred,1.0
+activity:hiit,HIIT,en,preferred,1.0
+activity:rowing,Rowing,en,preferred,1.0
+activity:elliptical,Elliptical training,en,preferred,1.0
+activity:climbing,Climbing,en,preferred,1.0
+activity:tennis,Tennis,en,preferred,1.0
+activity:pickleball,Pickleball,en,preferred,1.0
+activity:basketball,Basketball,en,preferred,1.0
+activity:soccer,Soccer,en,preferred,1.0
+activity:skiing,Skiing,en,preferred,1.0
+activity:snowboarding,Snowboarding,en,preferred,1.0
+routine:morning_workouts,Morning workouts,en,preferred,1.0
+routine:afternoon_workouts,Afternoon workouts,en,preferred,1.0
+routine:evening_workouts,Evening workouts,en,preferred,1.0
+routine:overnight_workouts,Overnight workouts,en,preferred,1.0
+routine:consistent_sleep_schedule,Consistent sleep schedule,en,preferred,1.0
