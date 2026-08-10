@@ -62,6 +62,28 @@ enum Ontology {
             }
         }
 
+        /// The glyph on the Memories card, where a modality's icon used to sit.
+        ///
+        /// SF Symbols throughout, unlike the tab bar's potted plant — every one
+        /// of these has an obvious symbol and none of them is a brand.
+        var systemImage: String {
+            switch self {
+            case .music: return "music.note"
+            case .comedy: return "theatermasks"
+            case .film: return "film"
+            case .gaming: return "gamecontroller"
+            case .tech: return "desktopcomputer"
+            case .science: return "atom"
+            case .food: return "fork.knife"
+            case .fitness: return "figure.strengthtraining.traditional"
+            case .spectatorSport: return "sportscourt"
+            case .learning: return "book"
+            case .art: return "paintpalette"
+            case .travel: return "airplane"
+            case .playedSport: return "figure.run"
+            }
+        }
+
         /// What to say when two people share this domain but nothing specific
         /// inside it — the fallback caption on a dynamic profile's photographs
         /// once the shared *subjects* have run out.
@@ -238,8 +260,15 @@ enum Ontology {
     static func subjects(records: [DistilledRecord], limit: Int = 3) -> [SubjectWeight] {
         var counts: [String: Int] = [:]
 
-        for record in records where record.source == "apple_music" {
-            guard record.dataType == "song" else { continue }
+        // **`MusicHighlights.songTypes`, not a literal.** This read
+        // `dataType == "song"`, a type `AppleMusicDistiller` has never written —
+        // it emits `library_song`, `heavy_rotation`, `playlist_item` and
+        // `recently_played` — so this answered `[]` for every real library and
+        // the dynamic profile's three figures never drew. Deduplicated for the
+        // reason `topArtists` is: one song reaches us as a library row, as
+        // recently played and again inside each playlist it sits on, and
+        // counting the rows would rank an artist by how many lists they are on.
+        for record in MusicHighlights.deduplicatedSongs(in: records) {
             let subject = storedSubject(for: record)
             guard !subject.isEmpty else { continue }
             counts[subject, default: 0] += 1
@@ -379,6 +408,229 @@ enum Ontology {
                     ? a.domain.rawValue < b.domain.rawValue
                     : a.share > b.share
             }
+    }
+
+    // MARK: - Terms, grouped by the domain they landed in
+
+    /// One named thing somebody can look at and say yes or no to.
+    ///
+    /// **The text is always the source's own string** — an artist, a composer, a
+    /// channel, a show, an event title. Nothing here is a word this app invented,
+    /// which is what keeps the page a reading of somebody's data rather than a
+    /// set of labels applied to them.
+    struct Term: Identifiable, Hashable {
+        /// The kind is part of the identity: an artist and a podcast may share a
+        /// name, and two rows with one id is undefined behaviour in `ForEach`.
+        var id: String { "\(kind.rawValue):\(text.lowercased())" }
+        let text: String
+        /// Songs, episodes, occurrences — whatever the source counts in. Only
+        /// ever compared against other terms in the same domain.
+        let weight: Int
+        let artworkURL: URL?
+        /// **What striking this off means**, and the reason removal reuses the
+        /// existing machinery instead of inventing a parallel one.
+        let kind: BanList.Kind
+        /// Every string that has to enter the ban list for the underlying rows
+        /// to actually stop counting — a name, and an id where one exists.
+        /// `banChannel` already adds both, because liked videos identify a
+        /// channel by id while subscriptions carry only the title.
+        let banValues: [String]
+    }
+
+    /// One domain and everything that landed in it.
+    struct DomainTerms: Identifiable, Hashable {
+        var id: String { domain.rawValue }
+        let domain: Domain
+        let terms: [Term]
+
+        /// What orders the cards on the page. Not `mix`'s share, because `mix`
+        /// takes no YouTube parameter and never will — a domain reached only
+        /// through YouTube would sort last regardless of how much is in it.
+        var weight: Int { terms.reduce(0) { $0 + $1.weight } }
+    }
+
+    /// Everything distilled, placed under the domain it belongs to.
+    ///
+    /// **This is what the Memories page draws.** It used to be five cards named
+    /// after the plumbing — MUSIC, MEDIA, PODCASTS, EVENTS, LIFESTYLE — which is
+    /// a picture of where data came from rather than of what it says. Grouped by
+    /// domain, the page is the ontology's own conclusion with its owner standing
+    /// over it.
+    ///
+    /// **YouTube goes through a different door, and the separation is
+    /// structural.** `youTubeTerms` below cannot reach `classify`, because
+    /// placing a channel under a domain by matching a term list against its name
+    /// is *"infer or estimate the content category/type of a video or channel"* —
+    /// III.E.4.h, prohibited outright. It reads `topicCategories`, `tags` and
+    /// `categoryId`, which YouTube supplies, and drops anything carrying none of
+    /// them. Fewer channels are placed; none is guessed.
+    ///
+    /// **Sports bypass `classify` too**, for the reason `mix` gives: a term list
+    /// matched against a title cannot tell watching a sport from playing one.
+    ///
+    /// Nothing here is published. `subjects` remains the only thing feeding
+    /// `discovery_cards`, and it stays music-only — a channel name on a table
+    /// every signed-in account may read is the III.E.3.b breach
+    /// `publishDiscoveryCard` committed once already.
+    static func terms(
+        records: [DistilledRecord],
+        musicArtists: [MusicHighlights.Artist],
+        podcastShows: [ListeningHighlights.Show],
+        events: [ListeningHighlights.Event],
+        sports: [LifestyleHighlights.Sport],
+        limitPerDomain: Int = 12
+    ) -> [DomainTerms] {
+        var buckets: [Domain: [String: Term]] = [:]
+
+        func add(_ term: Term, to domain: Domain) {
+            var byText = buckets[domain] ?? [:]
+            if let existing = byText[term.id] {
+                byText[term.id] = Term(
+                    text: existing.text,
+                    weight: existing.weight + term.weight,
+                    artworkURL: existing.artworkURL ?? term.artworkURL,
+                    kind: existing.kind,
+                    banValues: Array(Set(existing.banValues + term.banValues)).sorted()
+                )
+            } else {
+                byText[term.id] = term
+            }
+            buckets[domain] = byText
+        }
+
+        // Music, by the *stamped* subject rather than the credited performer, so
+        // this page calls a Bach partita what the dynamic profile and the
+        // icebreaker call it. `storedSubject` is the one reader of that stamp.
+        var artistArtwork: [String: URL] = [:]
+        for artist in musicArtists where artist.artworkURL != nil {
+            artistArtwork[artist.name.lowercased()] = artist.artworkURL
+        }
+        // The same deduplicated songs `subjects` counts, so the Memories card
+        // and the dynamic profile rank music by one measure rather than two.
+        for record in MusicHighlights.deduplicatedSongs(in: records) {
+            let subject = storedSubject(for: record)
+            guard !subject.isEmpty else { continue }
+            add(Term(text: subject, weight: 1,
+                     artworkURL: artistArtwork[subject.lowercased()],
+                     kind: .artist, banValues: [subject]),
+                to: .music)
+        }
+
+        for show in podcastShows {
+            guard let domain = classify(title: show.name, channel: show.publisher, detail: "") else { continue }
+            add(Term(text: show.name, weight: max(show.episodes, 1), artworkURL: nil,
+                     kind: .show,
+                     banValues: show.showID.isEmpty ? [show.name] : [show.name, show.showID]),
+                to: domain)
+        }
+
+        // The organizer, not the calendar's name — same reasoning as `mix`.
+        for event in events {
+            guard let domain = classify(title: event.name, channel: event.organizer, detail: "") else { continue }
+            add(Term(text: event.name, weight: 1, artworkURL: nil,
+                     kind: .event, banValues: [event.name]),
+                to: domain)
+        }
+
+        for sport in sports {
+            add(Term(text: sport.name, weight: max(sport.sessions, 1), artworkURL: nil,
+                     kind: .sport, banValues: [sport.name]),
+                to: .playedSport)
+        }
+
+        for (domain, term) in youTubeTerms(records: records) {
+            add(term, to: domain)
+        }
+
+        var grouped: [DomainTerms] = []
+        for (domain, byText) in buckets {
+            let ranked = byText.values.sorted { a, b in
+                a.weight == b.weight ? a.text < b.text : a.weight > b.weight
+            }
+            grouped.append(DomainTerms(domain: domain, terms: Array(ranked.prefix(limitPerDomain))))
+        }
+        // Ties break on the domain's name, so the same library always draws the
+        // same cards in the same order — a page that reshuffled between two
+        // visits would read as unstable.
+        grouped.sort { a, b in
+            a.weight == b.weight ? a.domain.rawValue < b.domain.rawValue : a.weight > b.weight
+        }
+        return grouped
+    }
+
+    /// YouTube's channels, placed only by labels YouTube itself supplied.
+    ///
+    /// **`classify` is deliberately not in scope here**, and that is the whole
+    /// design of this function rather than a note on it. A channel is aggregated
+    /// across every row that mentions it — a subscription carries the avatar and
+    /// the channel's topics, a liked video carries the video's category id and
+    /// the creator's tags — and the union goes to
+    /// `domain(youTubeTopics:creatorTags:categoryID:)`, which reads and never
+    /// guesses. A channel with none of the three is **absent**, not placed
+    /// somewhere plausible.
+    ///
+    /// Worth knowing this list empties on its own: `0016` deletes YouTube titles
+    /// and channel names 30 days after collection, so these terms disappear for
+    /// anybody who has not re-distilled in a month. That is the retention rule
+    /// working, and it must not be drawn as a failure.
+    private static func youTubeTerms(records: [DistilledRecord]) -> [(Domain, Term)] {
+        struct Channel {
+            var topics: [String] = []
+            var tags: [String] = []
+            var categoryID: String?
+            var artwork: URL?
+            var ids: Set<String> = []
+            var rows = 0
+        }
+
+        var channels: [String: Channel] = [:]
+
+        for record in records where record.source == "youtube" && !record.isRemovedByUser {
+            let name = record.creator.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            var channel = channels[name] ?? Channel()
+            channel.rows += 1
+            channel.topics += splitList(record.extraValue("topics"))
+            channel.tags += splitList(record.extraValue("tags"))
+            if channel.categoryID == nil { channel.categoryID = record.extraValue("category_id") }
+            // Only a subscription's thumbnail is the *channel's* avatar; a liked
+            // video's is a still from that video, which is a picture of one
+            // thing rather than of the channel.
+            if record.dataType == "subscription", channel.artwork == nil {
+                channel.artwork = record.extraValue("artwork").flatMap(URL.init(string:))
+                if !record.itemID.isEmpty { channel.ids.insert(record.itemID) }
+            }
+            if let channelID = record.extraValue("channel_id"), !channelID.isEmpty {
+                channel.ids.insert(channelID)
+            }
+            channels[name] = channel
+        }
+
+        var placed: [(Domain, Term)] = []
+        for (name, channel) in channels {
+            guard let domain = domain(
+                youTubeTopics: channel.topics,
+                creatorTags: channel.tags,
+                categoryID: channel.categoryID
+            ) else { continue }
+            placed.append((domain, Term(
+                text: name,
+                weight: channel.rows,
+                artworkURL: channel.artwork,
+                kind: .channel,
+                banValues: [name] + channel.ids.sorted()
+            )))
+        }
+        return placed
+    }
+
+    /// `topics` and `tags` are stored pipe-joined by `YouTubeDistiller`.
+    private static func splitList(_ value: String?) -> [String] {
+        guard let value, !value.isEmpty else { return [] }
+        return value.split(separator: "|").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
     }
 
     // MARK: - Reading YouTube's own labels

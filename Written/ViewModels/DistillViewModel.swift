@@ -49,6 +49,16 @@ final class DistillViewModel: ObservableObject {
     @Published private(set) var sports: [LifestyleHighlights.Sport] = []
     @Published private(set) var averageDailySteps: Int?
 
+    /// What Memories draws: everything distilled, grouped under the domain it
+    /// landed in, for its owner to confirm by leaving alone or strike off.
+    ///
+    /// Derived in `recomputeDerived` from the rankings above rather than from
+    /// the records directly, so a term and the entry behind it can never
+    /// disagree — except for YouTube, which `Ontology.terms` reads straight off
+    /// the rows because the labels it is allowed to use live in `extra` and
+    /// nothing else carries them up.
+    @Published private(set) var domainTerms: [Ontology.DomainTerms] = []
+
     /// Who the profile belongs to: age and sex from Health, district and city
     /// from one location fix.
     @Published private(set) var identity = IdentitySummary()
@@ -1710,6 +1720,33 @@ final class DistillViewModel: ObservableObject {
         RecordStore.save(records)
     }
 
+    /// Strike a term off the Memories page.
+    ///
+    /// **It dispatches to the existing kinds rather than inventing a `.term`
+    /// one, and that is the whole point.** A ban that only hid the row from this
+    /// page would leave every record behind it feeding the mix, the discovery
+    /// card and the icebreaker — and the website says of a struck-off row that
+    /// it is *never used, never shown, never counted*. Going through
+    /// `BanList.Kind` means `applyingBans` marks the underlying records
+    /// `markedRemoved` exactly as striking off an entry always has.
+    ///
+    /// `banValues` carries the name *and* any id, because the two halves of a
+    /// source disagree about which it writes down: liked videos identify a
+    /// channel by id while subscriptions carry only the title, and an episode
+    /// row names its show while the show row carries the id.
+    func banTerm(_ term: Ontology.Term) {
+        for value in term.banValues where !value.isEmpty {
+            bans.add(term.kind, value)
+        }
+        bans.save()
+        syncBans()
+        records = records.map(applyingBans)
+        recomputeDerived()
+        // The removal is written into each record's `extra`, so the struck-off
+        // state is part of the snapshot and has to be saved with it.
+        RecordStore.save(records)
+    }
+
     func banChannel(_ channel: MediaHighlights.Channel) {
         // Both, because liked videos identify their channel by id while
         // subscriptions and older records only carry the title.
@@ -2058,7 +2095,13 @@ final class DistillViewModel: ObservableObject {
             // Every artist credited on the track, so a banned artist's
             // collaborations go too.
             let credited = record.creator.split(separator: "|").map { String($0) }
-            for artist in credited + [record.name] where bans.contains(.artist, artist) {
+            // **And the stamped subject**, which for classical is the composer.
+            // Memories names a Bach partita "Bach", so striking it off has to
+            // reach rows whose `creator` is whoever performed it — otherwise the
+            // term vanishes from the page and every song behind it carries on
+            // counting toward the mix, the card and the icebreaker.
+            let stamped = record.extraValue("subject").map { [$0] } ?? []
+            for artist in credited + stamped + [record.name] where bans.contains(.artist, artist) {
                 return record.markedRemoved(reason: "banned_artist")
             }
         }
@@ -2155,6 +2198,18 @@ final class DistillViewModel: ObservableObject {
         mediaChannels = MediaHighlights.topChannels(in: records, limit: Self.rankedEntries)
         podcastShows = ListeningHighlights.shows(in: records)
         events = ListeningHighlights.events(in: records)
+        // **After the five above, because it is built out of them.** The domain
+        // cards on Memories are a reading of the same rankings rather than a
+        // second pass over the records, so a term cannot disagree with the entry
+        // it came from. `sports` is the exception and is passed as it stands —
+        // it is set at distill time rather than here, for the reason below.
+        domainTerms = Ontology.terms(
+            records: records,
+            musicArtists: musicArtists,
+            podcastShows: podcastShows,
+            events: events,
+            sports: sports
+        )
         // The lifestyle figures are deliberately absent. They used to be
         // recomputed here like everything else, which stopped working the moment
         // the raw HealthKit rows were discarded rather than stored: this method
@@ -2331,7 +2386,15 @@ final class DistillViewModel: ObservableObject {
                     source: source, dataType: "liked_video", itemID: "yt-mv",
                     name: "Official MV — 청춘 (Youth)", creator: "LE SSERAFIM",
                     detail: "The official music video.",
-                    extra: "channel_id=chan-LE SSERAFIM", collectedAt: now
+                    // **YouTube's own labels, because nothing else may place a
+                    // channel.** `Ontology.terms` reads `topics`, `tags` and
+                    // `category_id` and drops anything carrying none of them —
+                    // III.E.4.h forbids inferring a channel's category — so a
+                    // fixture without them exercises only the refusal. Some rows
+                    // below deliberately still lack them, which is the other
+                    // half of the test.
+                    extra: "channel_id=chan-LE SSERAFIM;category_id=10;topics=Music",
+                    collectedAt: now
                 )
             ]
             rows += ["Socially inept", "Group chats, ranked", "My roommate's start-up",
@@ -2340,7 +2403,10 @@ final class DistillViewModel: ObservableObject {
                     source: source, dataType: "liked_video", itemID: "yt-comedy-\(index)",
                     name: title, creator: "Socially Inept",
                     detail: "Stand-up comedy from a tech-adjacent basement.",
-                    extra: "channel_id=chan-Socially Inept", collectedAt: now
+                    // Creator tags rather than a topic, so the second of the
+                    // three readers gets exercised too.
+                    extra: "channel_id=chan-Socially Inept;tags=comedy|standup",
+                    collectedAt: now
                 )
             }
             rows += channels.flatMap { name, likes, subscribed -> [DistilledRecord] in
@@ -2350,7 +2416,10 @@ final class DistillViewModel: ObservableObject {
                         DistilledRecord(
                             source: source, dataType: "subscription", itemID: "chan-\(name)",
                             name: name, creator: name, detail: "",
-                            extra: "subscribed_at=", collectedAt: now
+                            // `channels.list` supplies these for a subscription;
+                            // `subscriptions.list` alone would not, which is why
+                            // the distiller makes a second call.
+                            extra: "subscribed_at=;topics=Music", collectedAt: now
                         )
                     )
                 }
@@ -2468,7 +2537,12 @@ final class DistillViewModel: ObservableObject {
         var rows: [DistilledRecord] = [
             DistilledRecord(
                 source: source,
-                dataType: "top_track",
+                // **A type the distiller actually writes.** This was
+                // `top_track`, which no source has ever produced, so the fixture
+                // exercised none of the paths that read music — `MusicHighlights`
+                // ranks `songTypes` and so does `Ontology`, and both saw an empty
+                // library while the preview looked populated.
+                dataType: "library_song",
                 itemID: "\(source)-hooked",
                 name: "青花瓷",
                 creator: "周杰倫 Jay Chou",
@@ -2481,7 +2555,12 @@ final class DistillViewModel: ObservableObject {
             (0..<songs).map { index in
                 DistilledRecord(
                     source: source,
-                    dataType: "top_track",
+                    // **A type the distiller actually writes.** This was
+                // `top_track`, which no source has ever produced, so the fixture
+                // exercised none of the paths that read music — `MusicHighlights`
+                // ranks `songTypes` and so does `Ontology`, and both saw an empty
+                // library while the preview looked populated.
+                dataType: "library_song",
                     itemID: "\(source)-\(artist)-\(index)",
                     name: "Preview song \(index + 1)",
                     creator: artist,

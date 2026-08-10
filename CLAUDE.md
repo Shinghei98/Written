@@ -777,11 +777,37 @@ the drawing breaking rather than as growth, which is why stage 4 has art.
 permanently by **any** other explicit transaction touching the badge — including
 its own arrival, since `hasBadgeArrived` and `hasShootBadgeArrived` flip inside
 `withAnimation(.spring(…))`. Reported as "only the new icons float".
-`ModalityBadge` offsets by a sine of `TimelineView`'s date instead: a pure
-function of time. The schedule is **paused when the garden is not the visible
-tab** (`isVisible`, as `ChatView` and `DashboardTab` already take one), since
-every tab stays mounted. **Every badge reads the same clock with no phase
-offset**, so they read as one plant breathing rather than four things drifting.
+A sine of `TimelineView`'s date drives it instead: a pure function of time. The
+schedule is **paused when the garden is not the visible tab** (`isVisible`, as
+`ChatView` and `DashboardTab` already take one), since every tab stays mounted.
+**Every badge reads the same clock with no phase offset**, so they read as one
+plant breathing rather than four things drifting — and there is now literally
+one clock, in `GrowProfileView.garden`, rather than one inside each badge.
+
+**The bob goes into `.position`, never into `.offset`, and that is a rule about
+the coach mark rather than about the plant.** An `.offset` is a render-time
+transform: it moves the pixels and leaves the layout frame behind. The tutorial
+cuts its hole from `anchorPreference`, which reports that frame — so a bobbing
+badge sat up to **16.8 device pixels outside its own spotlight** against 9 of
+clearance, and the obvious fix, freezing the badge under a mark, was subtler than
+it looks: `TimelineView(paused:)` freezes `context.date` without resetting it, so
+"frozen" meant *stopped somewhere in the cycle*, not *stopped at centre*.
+
+`ModalityBadge.bobOffset(at:diameter:)` is static and the caller adds it to
+`.position`, which *is* layout, so anchors carry it and the hole tracks the badge
+frame by frame whether it is moving or held. Freezing became a decision about how
+it looks. **The general rule: nothing may sit between `.tutorialTarget` and the
+pixels that moves the drawing without moving the frame** — the arrival
+`.scaleEffect` is the other one, and it is handled by making the mark wait for
+the spring to land (`badgeSettle`) rather than by trying to see through it.
+
+**Measured, not asserted.** `-tutorial badge` opens the step without a
+connection and `tools/badge_hole_check.py` reads the screenshot: the badge's gold
+ring fails a brightness test, which splits its hole into two lit components — a
+ring of parchment outside the badge and the badge's interior inside it — so one
+pass measures hole and badge independently and compares centres. It refuses to
+measure a screenshot taken during the mark's 0.22s fade, because a partial dim
+finds regions that are not holes and reports a failure that is not real.
 
 **Badge positions must be read off `leafLift`, never off `displayedSkeleton`.**
 `SeedlingArt.shoots(by:)` does not only filter by stage — past 3 it *blends*
@@ -994,7 +1020,17 @@ stays on `tab == which` even while both are drawn, so a finger travelling up the
 screen cannot press a row it is only sliding past; and `gardenLift` returns to
 **zero at rest**, since parking the garden off-screen would make every future
 route out of the dashboard responsible for resetting it. `-reveal 0.5` holds the
-frame, because `simctl` can send no drag.
+frame and `-reveal 1` lands on the dashboard, because `simctl` can send no drag —
+**the only way to screenshot Memories from a script**, since it is otherwise
+behind a gesture.
+
+**It did nothing at all for a while, and by two independent faults.** It set the
+lift from a `background` `GeometryReader`'s `onAppear`, which can fire before the
+parent is laid out — so `proxy.size.height` was 0 and the lift was nought. And
+the two guards that zero `gardenLift` for an abandoned drag fire on becoming
+active and on the first `tab` change, which is twice during launch, both times
+after the flag had set its lift. Either alone was enough. `isDebugRevealing`
+exempts it from both and the lift is re-applied on the size change.
 
 Regular use is the reverse: the bar exists, so the garden gives up the arrow and
 the pull-up and the dashboard drops its "Garden" button, gaining sign-out and
@@ -1435,7 +1471,60 @@ calendar events through `classify`. Four things about it:
 **`classify` matches substrings**, so "art" inside "Bartholomew" places a
 podcast under `.art`. Tolerable for a percentage and not for a caption — which
 is why captions only ever name *subjects*, which are never classified. Coverage
-against a real library is unmeasured.
+against a real library is unmeasured; **the Memories page below is what will
+measure it**, being the first screen that puts a domain heading over a named
+thing where anybody can see it is wrong.
+
+### Memories is the ontology's surface
+
+`Ontology.terms` groups everything distilled under the domain it landed in, and
+`DashboardView.domainSections` draws one card per domain. It replaced five cards
+named after *sources* — MUSIC, MEDIA, PODCASTS, EVENTS, LIFESTYLE — which were a
+picture of the plumbing. **Every term is the source's own string**: an artist, a
+composer, a channel, a show, an event title. Nothing on that page is a word this
+app invented, which is what keeps it a reading of somebody's data rather than a
+set of labels applied to them.
+
+**Striking a term off goes through `BanList.Kind`, never a new `.term` kind.**
+`banTerm` carries a name *and* any id, dispatches to the existing kind, and
+lands in `applyingBans` — so the records behind it are `markedRemoved` and stop
+feeding the mix, the discovery card and the icebreaker. A ban that only hid the
+row from this page would make the website's *never used, never shown, never
+counted* untrue.
+
+**YouTube goes through a different door, and it is structural rather than a
+rule to remember.** `Ontology.youTubeTerms` cannot reach `classify`: placing a
+channel under a domain by matching a term list against its name is exactly
+*"infer or estimate the content category/type of a video or channel"*. It reads
+`topics`, `tags` and `category_id` out of `extra` — the keys `YouTubeDistiller`
+already writes — and a channel carrying none of the three is **absent, not
+placed plausibly**. The premise usually offered for this page is backwards and
+worth stating once: III.E.3.b forbids showing Authorized Data to *anyone other
+than* its owner, so channel rows on somebody's own page are the permitted case,
+while *aggregating* them is the restricted one.
+
+Two consequences. **The YouTube cards empty themselves**: `0016` deletes those
+strings 30 days after collection, so they vanish for anybody who has not
+re-distilled in a month, and that must never be drawn as a failure. And **a
+user-editable term list derived from YouTube data is Google's Content
+Categorization and Tagging feature** — reading labels YouTube supplied is not
+that feature, applying our own term table would be.
+
+**The readings are not terms and stayed behind.** `lifestyleSection` still draws
+the chronotype and the step average, because there is no entry behind "You start
+at 06:40" for anybody to agree with. Sports left it — a sport is a named thing —
+and live under `.playedSport`.
+
+**`Ontology.subjects` was reading a `data_type` that has never existed.** It
+filtered `dataType == "song"`; `AppleMusicDistiller` writes `library_song`,
+`heavy_rotation`, `playlist_item` and `recently_played`. So it answered `[]` for
+every real library, and `discovery_cards.top_subjects` was empty for a reason
+nobody had found. It reads `MusicHighlights.songTypes` and
+`MusicHighlights.deduplicatedSongs` now, both made internal precisely so there is
+one list rather than two that drift. **The preview fixture had the same disease
+in reverse** — it wrote `top_track`, which no distiller emits, so the simulator
+showed a populated music card while every code path that reads music saw an empty
+library.
 
 **Photo captions degrade subject → domain → nothing.** Two real libraries share
 one or two specific things and almost never six, so captioning all six with

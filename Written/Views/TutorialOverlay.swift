@@ -51,10 +51,18 @@ enum Tutorial {
         /// other target is a row or a card, which is a rectangle and is lit as
         /// one.
         ///
-        /// Nothing here depends on the badge being frozen: its layout frame is
-        /// the diameter whether it is bobbing or not, since the bob is an
-        /// `.offset` and offsets do not move layout. The freeze matters because
-        /// a moving badge leaves this window, not because it changes its size.
+        /// **Nothing here depends on the badge being frozen, and this comment
+        /// once said so while the opposite was true.** The bob was an `.offset`
+        /// — a render-time transform — so the badge moved and its layout frame,
+        /// which is what a hole is cut from, did not: it spent most of its cycle
+        /// outside its own spotlight, by 16.8 device pixels against 9 of
+        /// clearance. The reassurance was a description of the bug.
+        ///
+        /// It is true again now for the opposite reason. `GrowProfileView` adds
+        /// the bob to `.position`, which *is* layout, so the anchor carries it
+        /// and this window tracks the badge frame by frame. Freezing under a
+        /// coach mark is a decision about how it looks, not a condition for the
+        /// hole being right. `tools/badge_hole_check.py` is what keeps that true.
         var isRound: Bool { self == .connectedBadge }
     }
 

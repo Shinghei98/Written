@@ -304,6 +304,14 @@ struct GrowProfileView: View {
     /// what the tree currently looks like.
     @State private var tutorialStep: Tutorial.Step?
 
+    /// A step that has been earned but is waiting for its subject to finish
+    /// arriving. See `openPendingTutorialIfReady`.
+    @State private var pendingTutorialStep: Tutorial.Step?
+
+    /// How long a badge's arrival spring takes to land, a little past its own
+    /// `response: 0.55` so the scale has actually settled rather than nearly.
+    private static let badgeSettle: Double = 0.62
+
     /// Show the opening card the first time somebody lands on the garden with
     /// nothing connected.
     ///
@@ -337,7 +345,45 @@ struct GrowProfileView: View {
             }
         }()
         guard let next, !Tutorial.Progress.hasSeen(next) else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = next }
+        pendingTutorialStep = next
+        openPendingTutorialIfReady()
+    }
+
+    /// Open the step that is waiting, once the thing it points at is finished
+    /// arriving.
+    ///
+    /// **Deferred rather than refused**, which is the whole reason this is a
+    /// pending value and not a `guard` inside the function above. A guard would
+    /// drop the step permanently — the connection count only changes once — and
+    /// a coach mark that silently stops appearing is the failure this project
+    /// has paid for in other shapes.
+    ///
+    /// What it waits for is `.connectedBadge` being at full size. The badge
+    /// springs in under `.scaleEffect`, which is a render-time transform applied
+    /// *after* `.tutorialTarget`, so the hole is cut at full size while the
+    /// badge is still at 72% — the same class of mistake as the bob, and the one
+    /// case the `.position` fix cannot reach. Both flips happen inside
+    /// `withAnimation(.spring(…))` on the same event that offers this step, so
+    /// the windows overlap exactly.
+    private func openPendingTutorialIfReady() {
+        guard isOnboarding, tutorialStep == nil, let pending = pendingTutorialStep else { return }
+        guard pending.targets.contains(.connectedBadge) == false || hasConnectedBadgeArrived
+        else { return }
+        pendingTutorialStep = nil
+        withAnimation(.easeInOut(duration: 0.25)) { tutorialStep = pending }
+    }
+
+    /// Whether the badge the step will light has finished springing in.
+    ///
+    /// The cotyledon badge carries `Modality.offered[0]`; every shoot carries
+    /// `offered[shoot.id + 1]`, which is why the index shifts by one here. It
+    /// answers false for a modality with no badge drawn yet, which is right —
+    /// there would be nothing to light.
+    private var hasConnectedBadgeArrived: Bool {
+        guard let first = viewModel.treeState.connectedModalities.first,
+              let index = Modality.offered.firstIndex(of: first)
+        else { return false }
+        return index == 0 ? hasBadgeArrived : hasShootBadgeArrived[index - 1] == true
     }
 
     /// The third card names a result rather than a control — "more connections
@@ -469,6 +515,17 @@ struct GrowProfileView: View {
                 Task {
                     try? await Task.sleep(nanoseconds: delay)
                     viewModel.advancePreviewStage()
+                }
+            }
+            // `-tutorial badge`; see `DebugLaunch.tutorialTarget`. After the
+            // plant has settled, so the badge is at full size and the hole is
+            // being measured against a badge rather than against a spring.
+            if DebugLaunch.tutorialTarget == "badge", DebugLaunch.firesOnce("tutorial") {
+                Task {
+                    try? await Task.sleep(nanoseconds: delay + UInt64(Self.badgeSettle * 1_000_000_000))
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        tutorialStep = .updateConnection
+                    }
                 }
             }
             if let source = DebugLaunch.connectSource, DebugLaunch.firesOnce("connect") {
@@ -742,13 +799,45 @@ struct GrowProfileView: View {
                 // music belongs to the pair of leaves it grew, so it stays a
                 // music note once connected rather than turning into whatever
                 // is offered next.
+                // **One clock for every badge, and the bob goes into `.position`
+                // rather than into an `.offset`.**
+                //
+                // `.offset` is a render-time transform: it moves the pixels and
+                // leaves the layout frame where it was. The coach mark cuts its
+                // hole from `anchorPreference`, which reports that layout frame
+                // — so a bobbing badge drifted out of its own spotlight by up to
+                // 9.4 points against 3 points of clearance. Adding the lift to
+                // `.position` makes it layout, anchors resolve *after*
+                // `.position`, and the hole now tracks the badge frame by frame.
+                //
+                // One `TimelineView` around both groups rather than one inside
+                // each badge, which is also what the no-phase-offset rule
+                // actually asks for: four clocks were four things that could
+                // drift.
+                TimelineView(.animation(paused: !isBadgeFloating)) { context in
+                // **An explicit `ZStack`, and it is not decoration.** These two
+                // groups were siblings in the garden's own `ZStack`, so both
+                // filled it and every badge placed itself with `.position`.
+                // Inside a `TimelineView` they become a tuple in a container
+                // that is not a stack, and they laid out *vertically* — the
+                // cotyledon badge held its place while the shoot badges were
+                // pushed 170 and 290 points down the screen and one was lost
+                // off the bottom. Measured against a screenshot from before the
+                // change, which is the only reason it was noticed: nothing
+                // errored and the plant still looked like a plant.
+                ZStack {
+                let lift = ModalityBadge.bobOffset(at: context.date,
+                                                   diameter: Self.badgeRatio * side)
+
                 if displayedSkeleton.illustrated != nil {
-                    // Whatever comes first in the sequence, not music by name.
-                    // The cotyledons are the plant's first growth, so they carry
-                    // the first modality — which is media now.
+                    // Whatever comes first in the sequence, not music by name —
+                    // `Modality.offered[0]`, so reordering `allCases` moves this
+                    // badge with it and nothing here has to be edited. The
+                    // cotyledons are the plant's first growth, so they carry the
+                    // first modality, which is plans.
                     ModalityBadge(modality: Self.firstModality,
                                   progress: badgeProgress(Self.firstModality),
-                                  diameter: Self.badgeRatio * side, isFloating: isBadgeFloating)
+                                  diameter: Self.badgeRatio * side)
                         // **Before `.position`, and that is not a style choice.**
                         // `position` returns a view that fills its parent and
                         // merely draws the child at a point — so a tap attached
@@ -765,7 +854,8 @@ struct GrowProfileView: View {
                         // garden — the tutorial would light the entire plant
                         // instead of one badge.
                         .tutorialTarget(tutorialBadgeTarget(Self.firstModality))
-                        .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size)))
+                        .position(cotyledonBadge(in: CGRect(origin: .zero, size: geometry.size))
+                            .lifted(by: lift))
                         // Arrives once the plant has finished opening, not with
                         // it: the seedling is the thing to look at first, and
                         // the badge is an invitation to what comes next.
@@ -797,7 +887,7 @@ struct GrowProfileView: View {
                     ForEach(SeedlingArt.shoots(by: leafLift)) { shoot in
                         if let modality = shootModality(shoot) {
                             ModalityBadge(modality: modality, progress: badgeProgress(modality),
-                                          diameter: Self.badgeRatio * side, isFloating: isBadgeFloating)
+                                          diameter: Self.badgeRatio * side)
                                 // Before `.position` — see the note on the music
                                 // badge above.
                                 .modifier(BadgeTap(modality: modality, isEnabled: !viewModel.isDistilling) {
@@ -806,12 +896,15 @@ struct GrowProfileView: View {
                                 // Before `.position`; see the note on the first
                                 // badge above.
                                 .tutorialTarget(tutorialBadgeTarget(modality))
-                                .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size)))
+                                .position(shootBadge(shoot, in: CGRect(origin: .zero, size: geometry.size))
+                                    .lifted(by: lift))
                                 .scaleEffect(hasShootBadgeArrived[shoot.id] == true ? 1 : 0.72)
                                 .opacity(hasShootBadgeArrived[shoot.id] == true ? 1 : 0)
                                 .allowsHitTesting(hasShootBadgeArrived[shoot.id] == true)
                         }
                     }
+                }
+                }
                 }
             }
 
@@ -1389,6 +1482,9 @@ struct GrowProfileView: View {
         // Straight to full extension: the animated form is in step with a stem
         // that, this time, is not climbing.
         leafLift = skeleton.illustrated?.extended ?? 1
+        // A coach mark may have been earned while its badge was still on its
+        // way in — see `openPendingTutorialIfReady`.
+        openPendingTutorialIfReady()
     }
 
     private func growTree() async {
@@ -1464,6 +1560,13 @@ struct GrowProfileView: View {
                 withAnimation(.spring(response: 0.55, dampingFraction: 0.66)) {
                     hasBadgeArrived = true
                 }
+                // **After the spring, not with it.** The flag is what the mark
+                // waits on, but `scaleEffect` interpolates for the length of the
+                // spring while the hole is cut from the layout frame at full
+                // size — so opening on the flag alone still shows a badge
+                // growing inside a spotlight it does not fill.
+                try? await Task.sleep(nanoseconds: UInt64(Self.badgeSettle * 1_000_000_000))
+                openPendingTutorialIfReady()
             }
         }
         if let stage = next.illustrated {
@@ -1481,6 +1584,10 @@ struct GrowProfileView: View {
                     withAnimation(.spring(response: 0.55, dampingFraction: 0.66)) {
                         hasShootBadgeArrived[shoot.id] = true
                     }
+                    // See the cotyledon badge above: the mark waits for the
+                    // spring to land, not merely for the flag.
+                    try? await Task.sleep(nanoseconds: UInt64(Self.badgeSettle * 1_000_000_000))
+                    openPendingTutorialIfReady()
                 }
             }
         }
@@ -1972,6 +2079,17 @@ private struct StepProgressBar: View {
 /// `DragGesture` during onboarding — a tap gesture leaves drags alone, where a
 /// button's own gesture recogniser competes for them, and a badge that
 /// swallowed the pull would be a worse loss than a shortcut is a gain.
+extension CGPoint {
+    /// This point raised by the badges' shared bob.
+    ///
+    /// Named rather than written as `CGPoint(x:y:)` at each call site: the two
+    /// badge groups have to lift by the same number, and a second copy of the
+    /// arithmetic is a second thing to forget.
+    func lifted(by amount: CGFloat) -> CGPoint {
+        CGPoint(x: x, y: y + amount)
+    }
+}
+
 struct BadgeTap: ViewModifier {
     let modality: Modality
     let isEnabled: Bool
@@ -2026,7 +2144,6 @@ struct ModalityBadge: View {
     /// scales the whole thing. These are the fractions the tuned 48pt badge had:
     /// a 3pt ring and a 6pt bob.
     private var ringWidth: CGFloat { diameter * (3.0 / 48.0) }
-    private var bob: CGFloat { diameter * (6.0 / 48.0) }
 
     /// One flat gold, not a gradient: any variation around the rim reads as a
     /// glint travelling as the badge bobs, which is the shimmer this is meant to
@@ -2036,34 +2153,46 @@ struct ModalityBadge: View {
     /// gold and two copies of one colour drift apart the first time either moves.
     private static let ringGold = GardenPalette.badgeGold
 
-    /// Whether the garden is the tab on screen.
-    ///
-    /// The clock below runs on the display refresh, and every tab in `AppShell`
-    /// stays mounted — so without this the badges would redraw sixty times a
-    /// second behind Explore, Chat and the dashboard, forever.
-    var isFloating = true
-
     /// One full up-and-down, in seconds. Slow enough to be ambient: a bob you
     /// can time is a progress indicator, and nothing here is in progress.
     private static let bobPeriod: Double = 5.2
 
+    /// **The badge draws itself and does not move itself.**
+    ///
+    /// The bob used to live here as an `.offset` inside a `TimelineView`, and
+    /// that is precisely what put the coach mark's hole in the wrong place: the
+    /// hole is cut from `anchorPreference`, which reports *layout* geometry,
+    /// while `.offset` is a render-time transform that never moves layout. On a
+    /// 74.9pt badge the bob is ±9.4pt against 3pt of clearance, so the badge
+    /// spent most of its cycle outside its own spotlight — and the fix of the
+    /// day, forcing the offset to zero while the clock was paused, was only
+    /// correct because `isBadgeFloating` happened to be `tutorialStep == nil`.
+    /// Nothing made that survive.
+    ///
+    /// `GrowProfileView` owns the clock now and adds `bobOffset` to
+    /// `.position`'s `y`, which *is* layout — so the anchor carries it and the
+    /// hole tracks the badge frame by frame, moving or frozen. Freezing became a
+    /// decision about how it looks rather than a condition for being correct.
     var body: some View {
-        // **A clock, not `withAnimation(.repeatForever())`.**
-        //
-        // The bob used to be a repeating animation started in `onAppear`, and
-        // any *other* explicit transaction touching this view replaced it —
-        // permanently, because nothing restarted it. The badges' own arrival is
-        // one: `hasBadgeArrived` flips inside a `withAnimation(.spring(…))`, so
-        // a badge stopped floating a moment after it appeared. The filling
-        // progress ring did it too. What was left looked arbitrary — whichever
-        // badge had most recently escaped a transaction was the one still
-        // moving, which is exactly how it was reported.
-        //
-        // Derived from the date, the offset is a pure function of time. There is
-        // no animation to interrupt, so nothing can interrupt it.
-        TimelineView(.animation(paused: !isFloating)) { context in
-            badge.offset(y: offset(at: context.date))
-        }
+        badge
+    }
+
+    /// How far a badge is lifted at a given moment: **a sine of the wall clock,
+    /// the same for every badge with no phase offset**, so they rise and fall
+    /// together and read as one plant breathing.
+    ///
+    /// Staggering them was tried and is wrong. The argument for it was that the
+    /// old per-badge `onAppear` repeats were never synchronised, so a shared
+    /// clock would be a change in character; what it actually looked like was
+    /// four things drifting independently, which reads as the badges being
+    /// loose.
+    ///
+    /// A shared clock is also what keeps them together over a long session: the
+    /// offset is computed from the date, not accumulated, so nothing drifts.
+    /// Static because the caller applies it — see `body`.
+    static func bobOffset(at date: Date, diameter: CGFloat) -> CGFloat {
+        let turns = date.timeIntervalSinceReferenceDate / bobPeriod
+        return -(diameter * (6.0 / 48.0)) * CGFloat(sin(turns * 2 * .pi))
     }
 
     private var badge: some View {
@@ -2078,23 +2207,6 @@ struct ModalityBadge: View {
                 Circle().strokeBorder(GardenPalette.gold.opacity(0.35), lineWidth: 1)
             }
             .overlay { ring }
-    }
-
-    /// A sine of the wall clock — **the same one for every badge, with no phase
-    /// offset**, so they rise and fall together.
-    ///
-    /// Staggering them was tried and is wrong. The argument for it was that the
-    /// old per-badge `onAppear` repeats were never synchronised, so a shared
-    /// clock would be a change in character; but what it actually looked like
-    /// was four things drifting independently, which reads as the badges being
-    /// loose. In step they read as one plant breathing, which is what they hang
-    /// off.
-    ///
-    /// A shared clock is also what keeps them together over a long session: the
-    /// offset is computed from the date, not accumulated, so nothing drifts.
-    private func offset(at date: Date) -> CGFloat {
-        let turns = date.timeIntervalSinceReferenceDate / Self.bobPeriod
-        return -bob * CGFloat(sin(turns * 2 * .pi))
     }
 
     /// The gold arc along the badge's edge.

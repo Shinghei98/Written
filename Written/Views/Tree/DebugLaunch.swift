@@ -115,6 +115,19 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "memories-tutorial") == "1"
     }
 
+    /// `-tutorial badge` → open the coach mark that lights the connected badge,
+    /// without connecting anything.
+    ///
+    /// **For measuring the hole rather than for looking at the mark.** Reaching
+    /// that step honestly means a connection, a distillation and a plant that
+    /// has finished growing, and `simctl` can send none of it — so the one
+    /// invariant worth checking automatically, that the hole is exactly where
+    /// the badge is, was checkable only by hand. `tools/badge_hole_check.py`
+    /// reads the screenshot this produces.
+    static var tutorialTarget: String? {
+        UserDefaults.standard.string(forKey: "tutorial")
+    }
+
     static var opensDashboard: Bool {
         ["dashboard", "profiles"].contains(UserDefaults.standard.string(forKey: "screen") ?? "")
     }

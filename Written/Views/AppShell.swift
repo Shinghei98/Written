@@ -168,14 +168,19 @@ struct AppShell: View {
                 Color.clear
                     .onAppear {
                         revealTravel = proxy.size.height + 120
-#if DEBUG
-                        // `-reveal 0.5` on the launch line; see `DebugLaunch`.
-                        if let fraction = DebugLaunch.revealFraction, isOnboarding {
-                            gardenLift = -proxy.size.height * CGFloat(fraction)
-                        }
-#endif
+                        applyDebugReveal(height: proxy.size.height)
                     }
-                    .onChange(of: proxy.size.height) { revealTravel = $0 + 120 }
+                    .onChange(of: proxy.size.height) {
+                        revealTravel = $0 + 120
+                        // **The lift has to be re-applied here, not only on
+                        // appear.** A `background` reader's `onAppear` can fire
+                        // before its parent has been laid out, so
+                        // `proxy.size.height` was 0 and `-reveal` set a lift of
+                        // nought — the flag read as broken and the dashboard was
+                        // unreachable from `simctl` entirely, which is the one
+                        // thing it exists for.
+                        applyDebugReveal(height: $0)
+                    }
             }
         )
         // The onboarding sliders reach the record system here, because this is
@@ -313,7 +318,7 @@ struct AppShell: View {
                 Task { await viewModel.flushPhotos() }
             }
 
-            guard phase == .active, !isRevealing, gardenLift != 0 else { return }
+            guard phase == .active, !isRevealing, !isDebugRevealing, gardenLift != 0 else { return }
             gardenLift = 0
         }
         // The same invariant from the other side. Any route that lands on a tab
@@ -328,7 +333,7 @@ struct AppShell: View {
             // edit, so nothing is ever pending on the way in.
             Task { await viewModel.flushPhotos() }
 
-            guard !isRevealing, gardenLift != 0 else { return }
+            guard !isRevealing, !isDebugRevealing, gardenLift != 0 else { return }
             gardenLift = 0
         }
         // A refusal is a moment, not a state — unlike being offline, which ends
@@ -386,6 +391,35 @@ struct AppShell: View {
     /// Set while a reveal drag is actually in progress, so the guard above can
     /// tell a live gesture from an abandoned one.
     @State private var isRevealing = false
+
+    /// Whether a launch argument is holding the garden up.
+    ///
+    /// **Both zero-the-lift guards have to know about it.** They exist to undo a
+    /// drag nobody finished, and they fire on becoming active and on the first
+    /// `tab` change — which is to say twice during launch, both times after the
+    /// flag has set its lift. `-reveal` therefore did nothing at all, on top of
+    /// the zero-height bug above: two independent faults, and either alone was
+    /// enough to make the dashboard unreachable from `simctl`.
+    private var isDebugRevealing: Bool {
+#if DEBUG
+        DebugLaunch.revealFraction != nil
+#else
+        false
+#endif
+    }
+
+    /// `-reveal 0.5` holds the pull-up half way; `-reveal 1` lands on the
+    /// dashboard. `simctl` can send no drag, so this is the only way to reach
+    /// either from a script.
+    private func applyDebugReveal(height: CGFloat) {
+#if DEBUG
+        guard height > 0,
+              let fraction = DebugLaunch.revealFraction,
+              isOnboarding
+        else { return }
+        gardenLift = -height * CGFloat(fraction)
+#endif
+    }
 
     @Environment(\.scenePhase) private var scenePhase
 

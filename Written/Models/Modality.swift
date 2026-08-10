@@ -39,7 +39,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
     /// move the branches — and the plant is supposed to look exactly as it did.
     /// Reordering the *sequence* changes which badge stands for what; reordering
     /// the *cases* would change the drawing.
-    static let allCases: [Modality] = [.plans, .music, .lifestyle, .media]
+    static let allCases: [Modality] = [.plans, .media, .music, .lifestyle]
 
     /// The modalities actually put in front of somebody, in order.
     ///
@@ -123,6 +123,13 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // ARCHIVED-SPOTIFY — `"spotify"` removed for the App Store build.
         case .music: return ["apple_music"]
         // ARCHIVED-YOUTUBE — `"youtube"` removed for the App Store build.
+        //
+        // **Lift it again to record Google's OAuth verification video**, which
+        // has to show the consent screen and the data being used, and put it
+        // straight back: the consent screen is in Testing, so anybody not on
+        // the 100-account allowlist gets a 403 after a *successful* login,
+        // which reads as the app being broken rather than as a source being
+        // unavailable.
         //
         // Apple Podcasts is the **second source not in `written_api.xlsx`**,
         // after Apple Calendar — a podcast is hours of attention given to one

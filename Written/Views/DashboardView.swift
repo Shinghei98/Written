@@ -75,11 +75,6 @@ struct DashboardView: View {
     @FocusState private var isFavouriteFocused: Bool
 
 
-    /// The centred artist plus the list under them — six in all, as the card is
-    /// designed for. Ranked by the view model when the records changed, not here:
-    /// this is read on every body pass.
-    private var artists: [MusicHighlights.Artist] { viewModel.musicArtists }
-
     var body: some View {
         ZStack(alignment: .top) {
             GardenPalette.parchment.ignoresSafeArea()
@@ -104,13 +99,14 @@ struct DashboardView: View {
                         // than down among what their phone observed about them.
                         communicationSection
                             .id("communication")
-                        musicSection
-                        mediaSection
-                            .id("media")
-                        podcastSection
-                            .id("podcasts")
-                        eventsSection
-                            .id("events")
+                        // **One card per domain, not one per source.** Five
+                        // cards named MUSIC / MEDIA / PODCASTS / EVENTS /
+                        // LIFESTYLE were a picture of the plumbing; these are
+                        // what the ontology concluded, with their owner standing
+                        // over them. See `Ontology.terms`.
+                        domainSections
+                        // The readings, which are not terms — a chronotype has
+                        // no entry behind it to agree with.
                         lifestyleSection
                             .id("lifestyle")
                         // **Onboarding only**, like the "Garden" button in the
@@ -213,8 +209,17 @@ struct DashboardView: View {
                             // Stands in for the long press `simctl` cannot send.
                             let armed: String?
                             switch target {
-                            case "channel": armed = channels.dropFirst().first.map(key(channel:))
-                            case "sport": armed = viewModel.sports.first.map(key(sport:))
+                            // **Terms are uniform now**, so there is one way to
+                            // arm a removal rather than one per source. `-edit
+                            // sport` still names a domain because that is the
+                            // one whose rows come from Health and look
+                            // different; everything else takes the second term
+                            // of the first card, which is the row the remove
+                            // mark points at.
+                            case "sport":
+                                armed = viewModel.domainTerms
+                                    .first { $0.domain == .playedSport }?
+                                    .terms.first?.id
                             case "birthday":
                                 withAnimation { editor = .birthday }
                                 return
@@ -224,7 +229,9 @@ struct DashboardView: View {
                             case "place":
                                 withAnimation { editor = .place }
                                 return
-                            default: armed = artists.dropFirst().first.map(key(artist:))
+                            default:
+                                armed = viewModel.domainTerms.first?
+                                    .terms.dropFirst().first?.id
                             }
                             guard let armed else { return }
                             withAnimation(.easeOut(duration: 0.18)) { editingEntry = armed }
@@ -780,10 +787,15 @@ struct DashboardView: View {
                 // to nominate their favourite one gets a different answer from
                 // asking what the calendar missed — which is what this sheet is
                 // for everywhere else too.
-                title: kind == "event"
-                    ? "What did we miss?"
-                    : "What's your favorite \(kind)?",
-                subtitle: "Tell us what we missed.",
+                // **One question now, because `kind` is a domain.** With the
+                // cards named after domains the favourite phrasing breaks
+                // everywhere ("your favorite Science?"), and the missed phrasing
+                // was always the truer one: this sheet exists for what a phone
+                // could not observe.
+                title: "What did we miss?",
+                subtitle: Ontology.Domain(rawValue: kind)
+                    .map { "Anything in \($0.label.lowercased()) we didn't find." }
+                    ?? "Tell us what we missed.",
                 // Nothing to save is nothing to do — the same rule the report
                 // sheet applies to an empty account of what happened.
                 confirmEnabled: !favouriteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1009,33 +1021,86 @@ struct DashboardView: View {
         return candidates.first { UIImage(systemName: $0) != nil } ?? "person.fill"
     }
 
-    // MARK: - Music
+    // MARK: - The ontology, one card per domain
 
-    /// Two blocks, not one card with a rule down the middle: what the music is
-    /// made of, then who makes it.
+    /// What was found about somebody, grouped by what it says rather than by
+    /// where it came from.
     ///
-    /// Only the first carries the MUSIC label — it names the section, and
-    /// repeating it on the second would read as a second section. Which block
-    /// comes first is therefore which one gets titled: with no genres to show
-    /// there is only one block, and the artists take the label.
-    private var musicSection: some View {
-        VStack(spacing: 14) {
-            if genres.isEmpty {
-                card {
-                    cardLabel("MUSIC", icon: Modality.music.systemImage)
-                    Divider().overlay(GardenPalette.ink.opacity(0.08))
-                    artistsBlock
+    /// **The page is a confirmation, not a report.** Every term here is the
+    /// source's own string — an artist, a composer, a channel, a show, an event
+    /// — placed under a domain by `Ontology.terms`. Leaving one alone is
+    /// agreement; striking it off goes through the same `BanList` the entry rows
+    /// always used, so it stops counting toward the mix, the discovery card and
+    /// the icebreaker rather than merely disappearing from view.
+    ///
+    /// **This is the first screen that makes `classify`'s mistakes visible**,
+    /// and that cuts both ways: it matches substrings, so "art" inside
+    /// "Bartholomew" files a podcast under Art. Tolerable in a percentage, plain
+    /// as day under a heading — which is the point of letting somebody remove it
+    /// and the risk of showing it at all. Coverage against a real library has
+    /// never been measured; this is what will measure it.
+    @ViewBuilder
+    private var domainSections: some View {
+        ForEach(viewModel.domainTerms) { group in
+            card {
+                cardLabel(group.domain.label.uppercased(), icon: group.domain.systemImage)
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+                entryStack {
+                    ForEach(Array(group.terms.enumerated()), id: \.element.id) { index, term in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        termRow(term, peak: group.terms.first?.weight ?? 0)
+                            .removable(editing: editingEntry == term.id, index: index) {
+                                remove { viewModel.banTerm(term) }
+                            }
+                            .editableOnLongPress($editingEntry, key: term.id)
+                    }
+                    // What no phone could observe — the same rows the source
+                    // cards gave their own additions, keyed by domain now.
+                    ForEach(viewModel.favourites(kind: group.domain.rawValue), id: \.self) { name in
+                        Divider().overlay(GardenPalette.ink.opacity(0.06))
+                        ownRow(name)
+                    }
                 }
-            } else {
-                card {
-                    cardLabel("MUSIC", icon: Modality.music.systemImage)
-                    Divider().overlay(GardenPalette.ink.opacity(0.08))
-                    genreBlock.padding(.top, 16)
-                }
-                card { artistsBlock }
+
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                addYourOwn(kind: group.domain.rawValue)
             }
+            // `-scroll music`, `-scroll science`. The old anchors were named
+            // after sources and those sections no longer exist.
+            .id(group.domain.rawValue)
         }
     }
+
+    /// One term: its picture where the source gave one, its name, and a bar
+    /// saying how much of this domain it accounts for.
+    ///
+    /// **The peak is the domain's own top term, not a global maximum.** A bar
+    /// says "less than that one" and nothing else out loud, so comparing a
+    /// podcast against somebody's most-played artist would draw every domain but
+    /// music as empty.
+    private func termRow(_ term: Ontology.Term, peak: Int) -> some View {
+        HStack(spacing: 12) {
+            ArtworkTile(name: term.text, url: term.artworkURL, side: 40, corner: 8)
+
+            Text(term.text)
+                .font(.system(size: 16))
+                .foregroundStyle(GardenPalette.ink)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            ShareBar(fraction: peak > 0 ? Double(term.weight) / Double(peak) : 0)
+                .frame(width: 96, height: 8)
+        }
+        .padding(.vertical, 9)
+        // The count never reaches the screen, so it has to be in the label —
+        // the bar carries it visually and says nothing to a screen reader.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(term.text), \(term.weight)")
+    }
+
+    // MARK: - Music
 
     /// The card's own horizontal padding, named because one thing now has to
     /// cancel it: the flirt dial divides *the card* into thirds, so it has to
@@ -1127,329 +1192,11 @@ struct DashboardView: View {
             }
     }
 
-    @ViewBuilder
-    private var artistsBlock: some View {
-        if let top = artists.first {
-            headliner(top)
-                .padding(.vertical, 22)
-                .removable(editing: editingEntry == key(artist: top), index: 0) {
-                    remove { viewModel.banArtist(top.name) }
-                }
-                .editableOnLongPress($editingEntry, key: key(artist: top))
-
-            Text("Your top artists")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(GardenPalette.ink)
-                .padding(.bottom, 4)
-
-            // The runners-up: everyone the headliner beat, in order, scrolling
-            // within the card rather than running down the page.
-            entryStack {
-                ForEach(Array(artists.dropFirst().enumerated()), id: \.element.id) { index, artist in
-                    if index > 0 {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                    }
-                    artistRow(artist, peak: runnerUpPeak)
-                        .removable(editing: editingEntry == key(artist: artist), index: index + 1) {
-                            remove { viewModel.banArtist(artist.name) }
-                        }
-                        .editableOnLongPress($editingEntry, key: key(artist: artist))
-                }
-                ForEach(viewModel.favourites(kind: "artist"), id: \.self) { name in
-                    Divider().overlay(GardenPalette.ink.opacity(0.06))
-                    ownRow(name)
-                }
-            }
-
-            Divider().overlay(GardenPalette.ink.opacity(0.08))
-            addYourOwn(kind: "artist")
-        } else {
-            Text("Connect Apple Music and your most-played artists appear here.")
-                .font(.system(size: 14))
-                .foregroundStyle(GardenPalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 20)
-        }
-    }
-
     // MARK: - Media
-
-    private var channels: [MediaHighlights.Channel] { viewModel.mediaChannels }
-
-    /// The channels behind the videos, ranked. Nothing to show without YouTube,
-    /// so the card stays away entirely rather than sitting there empty.
-    @ViewBuilder
-    private var mediaSection: some View {
-        if !channels.isEmpty {
-            card {
-                cardLabel("MEDIA", icon: Modality.media.systemImage)
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-                if let top = channels.first {
-                    channelHeadliner(top)
-                        .padding(.vertical, 22)
-                        .removable(editing: editingEntry == key(channel: top), index: 0) {
-                            remove { viewModel.banChannel(top) }
-                        }
-                        .editableOnLongPress($editingEntry, key: key(channel: top))
-                }
-
-                if channels.count > 1 {
-                    Text("Your top channels")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(GardenPalette.ink)
-                        .padding(.bottom, 4)
-
-                    // The headliner above plus four rows in view, the rest
-                    // behind a scroll — the same shape the artists card takes,
-                    // so the two read as one page rather than two designs.
-                    // `stackHeight` is roughly four of these rows, which is what
-                    // makes it plainly a list with more in it.
-                    entryStack {
-                        ForEach(Array(channels.dropFirst().enumerated()), id: \.element.id) { index, channel in
-                            if index > 0 {
-                                Divider().overlay(GardenPalette.ink.opacity(0.06))
-                            }
-                            channelRow(channel, peak: channelPeak)
-                                .removable(editing: editingEntry == key(channel: channel), index: index + 1) {
-                                    remove { viewModel.banChannel(channel) }
-                                }
-                                .editableOnLongPress($editingEntry, key: key(channel: channel))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// The channel this person watches most, given the size the music card gives
-    /// its headliner.
-    private func channelHeadliner(_ channel: MediaHighlights.Channel) -> some View {
-        VStack(spacing: 12) {
-            ArtworkTile(name: channel.name, url: channel.artworkURL, side: 150, corner: 20)
-                .shadow(color: GardenPalette.ink.opacity(0.16), radius: 14, y: 6)
-
-            HStack(spacing: 5) {
-                Text(channel.name)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(GardenPalette.ink)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-
-                if channel.subscribed {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(GardenPalette.gold)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(channel.name), \(channel.likes) liked\(channel.subscribed ? ", subscribed" : "")"
-        )
-    }
-
-    /// The bars measure the *score*, so length and order say the same thing.
-    /// Drawn from raw likes they contradicted the ranking — a subscribed channel
-    /// sat above one with a longer bar, which reads as a sorting bug.
-    ///
-    /// Scaled to the top *listed* channel, not the headliner: the headliner has
-    /// no bar to compare against, exactly as with the artists.
-    private var channelPeak: Double {
-        channels.dropFirst().map(\.score).max() ?? 0
-    }
-
-    private func channelRow(_ channel: MediaHighlights.Channel, peak: Double) -> some View {
-        HStack(spacing: 12) {
-            ArtworkTile(name: channel.name, url: channel.artworkURL, side: 40, corner: 8)
-
-            HStack(spacing: 5) {
-                Text(channel.name)
-                    .font(.system(size: 16))
-                    .foregroundStyle(GardenPalette.ink)
-                    .lineLimit(1)
-
-                // What lifted this channel up the list, said plainly, so the
-                // order can be argued with.
-                if channel.subscribed {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(GardenPalette.gold)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            ShareBar(fraction: peak > 0 ? channel.score / peak : 0)
-                .frame(width: 96, height: 8)
-        }
-        .padding(.vertical, 9)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(channel.name), \(channel.likes) liked\(channel.subscribed ? ", subscribed" : "")"
-        )
-    }
 
     // MARK: - Podcasts, audiobooks, events
 
-    private var shows: [ListeningHighlights.Show] { viewModel.podcastShows }
-
-    /// The shows they follow, ranked by having actually started one.
-    ///
-    /// Carries the placeholder, like music — a podcast somebody loves and has
-    /// not downloaded is invisible to the distillation, and this is where they
-    /// say so.
-    @ViewBuilder
-    private var podcastSection: some View {
-        if !shows.isEmpty || !viewModel.favourites(kind: "podcast").isEmpty {
-            card {
-                cardLabel("PODCASTS", icon: "mic.fill")
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-                entryStack {
-                    ForEach(Array(shows.enumerated()), id: \.element.id) { index, show in
-                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
-                        showRow(show)
-                            .removable(editing: editingEntry == key(show: show), index: index) {
-                                remove { viewModel.banShow(show) }
-                            }
-                            .editableOnLongPress($editingEntry, key: key(show: show))
-                    }
-                    ForEach(viewModel.favourites(kind: "podcast"), id: \.self) { name in
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        ownRow(name)
-                    }
-                }
-
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-                addYourOwn(kind: "podcast")
-            }
-        }
-    }
-
-    private func showRow(_ show: ListeningHighlights.Show) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(show.name)
-                    .font(.system(size: 16))
-                    .foregroundStyle(GardenPalette.ink)
-                    .lineLimit(1)
-                if !show.publisher.isEmpty {
-                    Text(show.publisher)
-                        .font(.system(size: 12))
-                        .foregroundStyle(GardenPalette.muted)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            // The share bar measures how far into an episode they got, which is
-            // the only behavioural fact Apple exposes here — there is no play
-            // count and no last-played date, measured on a real library.
-            ShareBar(fraction: show.progress)
-                .frame(width: 72, height: 8)
-        }
-        .padding(.vertical, 9)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(show.name), \(Int(show.progress * 100))% through an episode")
-    }
-
-    /// The shape of a year's calendar, and never a title.
-    ///
-    /// **Every event is still collected, stored and synced** — the titles are
-    /// the signal and the database keeps all of them for the ontology stage.
-    /// What changed is only what this page prints. A title is also a therapy
-    /// appointment, a doctor's name, dinner with somebody; collecting that is a
-    /// documented trade, and printing it on a profile page by default is a
-    /// different act that was never argued for.
-    ///
-    /// The habit is what a reader would actually take from a calendar anyway:
-    /// how much is arranged, how much of it was paid for in advance, and when it
-    /// happens. None of that needs a name attached.
-    @ViewBuilder
-    private var eventsSection: some View {
-        let events = viewModel.events
-        if !events.isEmpty {
-            card {
-                cardLabel("EVENTS", icon: Modality.plans.systemImage)
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-                // **The events, not a summary of them.** This printed readings
-                // — arranged, booked ahead, evenings, weekends, busiest day —
-                // and nobody recognises their own year in a count. They
-                // recognise the tour and the flight. Scrollable and bounded like
-                // Media's and Podcasts', because a year of calendar is long.
-                entryStack {
-                    ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
-                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
-                        eventRow(event)
-                            .removable(editing: editingEntry == key(event: event), index: index) {
-                                remove { viewModel.banEvent(event) }
-                            }
-                            .editableOnLongPress($editingEntry, key: key(event: event))
-                            // The second row overall, which is what the remove
-                            // mark points at — not the first, since rehearsing
-                            // a removal on the top entry is the removal
-                            // somebody is least likely to want.
-                    }
-                    // What the calendar could not see: a gig somebody went to
-                    // without a ticket in their inbox, a trip booked by
-                    // somebody else. The same rows artists and podcasts get.
-                    ForEach(viewModel.favourites(kind: "event"), id: \.self) { name in
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                        ownRow(name)
-                    }
-                }
-
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-                addYourOwn(kind: "event")
-            }
-        }
-    }
-
     private func key(event: ListeningHighlights.Event) -> String { "event-\(event.id)" }
-
-    private func eventRow(_ event: ListeningHighlights.Event) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(event.name)
-                    .font(.system(size: 16))
-                    .foregroundStyle(GardenPalette.ink)
-                    .lineLimit(1)
-                if let detail = Self.eventDetail(event) {
-                    Text(detail)
-                        .font(.system(size: 12))
-                        .foregroundStyle(GardenPalette.muted)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            // **The strongest claim in the distillation, and it earns the
-            // mark.** A ticketing site wrote this one in by itself, which means
-            // it cost money and a Saturday — quite unlike a title somebody
-            // typed. `CalendarDistiller` keeps `url` for exactly this.
-            if event.booked {
-                Image(systemName: "ticket.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(GardenPalette.gold)
-            }
-        }
-        .padding(.vertical, 11)
-    }
-
-    /// The date, and the calendar it came from when that says something the
-    /// date does not. Undated events exist — an all-day entry with no time — so
-    /// this is optional rather than a placeholder nobody can read.
-    private static func eventDetail(_ event: ListeningHighlights.Event) -> String? {
-        var parts: [String] = []
-        if let start = event.start {
-            parts.append(start.formatted(.dateTime.day().month().year()))
-        }
-        if !event.calendar.isEmpty, event.calendar.lowercased() != "calendar" {
-            parts.append(event.calendar)
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
 
     /// A row the person typed in rather than one their phone observed. Marked,
     /// because the two are different kinds of evidence and a card that blurred
@@ -1480,20 +1227,20 @@ struct DashboardView: View {
         let hasChronotype = viewModel.chronotype != nil
         let hasSteps = viewModel.averageDailySteps != nil && !viewModel.hourlyActivity.isEmpty
 
-        if hasChronotype || hasSteps || !viewModel.sports.isEmpty {
-            VStack(spacing: 14) {
-                if hasChronotype || hasSteps {
-                    HStack(spacing: 14) {
-                        if hasChronotype { circadianCard }
-                        if hasSteps { stepsCard }
-                    }
-                    // Both halves stretch to the taller one, so their bottoms
-                    // line up the way the reference's pairs do.
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if !viewModel.sports.isEmpty { exerciseCard }
+        // **The sports block has gone and the readings have not**, which is the
+        // line between this section and the domain cards above. A sport is a
+        // named thing somebody can confirm or strike off, so it is a term and
+        // lives under SPORT. A chronotype is a *reading* — there is no entry
+        // behind "You start at 06:40" to agree with — and neither is a step
+        // average, so both would simply have been deleted along with the card.
+        if hasChronotype || hasSteps {
+            HStack(spacing: 14) {
+                if hasChronotype { circadianCard }
+                if hasSteps { stepsCard }
             }
+            // Both halves stretch to the taller one, so their bottoms line up
+            // the way the reference's pairs do.
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1613,44 +1360,6 @@ struct DashboardView: View {
         }
     }
 
-    private var exerciseCard: some View {
-        card {
-            cardLabel("EXERCISE", icon: "figure.run")
-            Divider().overlay(GardenPalette.ink.opacity(0.08))
-
-            VStack(spacing: 0) {
-                ForEach(Array(viewModel.sports.enumerated()), id: \.element.id) { index, sport in
-                    if index > 0 {
-                        Divider().overlay(GardenPalette.ink.opacity(0.06))
-                    }
-                    sportRow(sport, peak: viewModel.sports.map(\.sessions).max() ?? 0)
-                        .removable(editing: editingEntry == key(sport: sport), index: index) {
-                            remove { viewModel.banSport(sport.name) }
-                        }
-                        .editableOnLongPress($editingEntry, key: key(sport: sport))
-                }
-            }
-            .padding(.top, 6)
-        }
-    }
-
-    private func sportRow(_ sport: LifestyleHighlights.Sport, peak: Int) -> some View {
-        HStack(spacing: 12) {
-            Text(sport.name)
-                .font(.system(size: 16))
-                .foregroundStyle(GardenPalette.ink)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            ShareBar(fraction: peak > 0 ? Double(sport.sessions) / Double(peak) : 0)
-                .frame(width: 96, height: 8)
-        }
-        .padding(.vertical, 9)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(sport.name), \(sport.sessions) sessions, \(sport.minutes) minutes")
-    }
-
     private func spread(_ minutes: Int) -> String {
         if minutes < 60 { return "\(minutes) min" }
         let hours = minutes / 60
@@ -1684,24 +1393,6 @@ struct DashboardView: View {
         }
         .foregroundStyle(GardenPalette.muted)
         .padding(.bottom, 12)
-    }
-
-    /// The most-listened artist, centred over their cover.
-    private func headliner(_ artist: MusicHighlights.Artist) -> some View {
-        VStack(spacing: 12) {
-            ArtworkTile(name: artist.name, url: artist.artworkURL, side: 150, corner: 20)
-                .shadow(color: GardenPalette.ink.opacity(0.16), radius: 14, y: 6)
-
-            Text(artist.name)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(GardenPalette.ink)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity)
-        // The count is gone from the face of it, so it has to stay in the label.
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(artist.name), \(songs(artist.songs))")
     }
 
     private var genres: [MusicHighlights.Genre] { viewModel.musicGenres }
@@ -1777,39 +1468,6 @@ struct DashboardView: View {
         return "\(max(1, value))%"
     }
 
-    /// What a full-width bar means: the busiest of the listed artists, so the
-    /// top row fills its track and the rest are read against it. Scaling to the
-    /// headliner instead would leave every bar short of the end, with nothing on
-    /// the card at full length to compare them to — their count is the line
-    /// under the cover.
-    private var runnerUpPeak: Int {
-        artists.dropFirst().map(\.songs).max() ?? 0
-    }
-
-    private func artistRow(_ artist: MusicHighlights.Artist, peak: Int) -> some View {
-        HStack(spacing: 12) {
-            ArtworkTile(name: artist.name, url: artist.artworkURL, side: 40, corner: 8)
-
-            Text(artist.name)
-                .font(.system(size: 16))
-                .foregroundStyle(GardenPalette.ink)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            ShareBar(fraction: peak > 0 ? Double(artist.songs) / Double(peak) : 0)
-                .frame(width: 96, height: 8)
-        }
-        .padding(.vertical, 9)
-        // The count left the screen with the text, so it has to stay in the
-        // label — a bar says "less than that one" and nothing else out loud.
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(artist.name), \(songs(artist.songs))")
-    }
-
-    private func songs(_ count: Int) -> String {
-        "\(count) \(count == 1 ? "song" : "songs")"
-    }
 }
 
 private extension View {

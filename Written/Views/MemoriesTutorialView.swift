@@ -119,7 +119,6 @@ struct MemoriesTutorialView: View {
                 .padding(.bottom, 28)
             }
         }
-        .overlay { if page == 3 { addSheetMock } }
         .preferredColorScheme(.light)
         .onAppear { restartAnimation(for: page) }
     }
@@ -185,6 +184,16 @@ struct MemoriesTutorialView: View {
             RoundedRectangle(cornerRadius: 24)
                 .strokeBorder(GardenPalette.ink.opacity(0.06), lineWidth: 1)
         }
+        // **Inside the card, and deaf.** This is a picture of a dialog, not a
+        // dialog: over the whole page it dimmed the tutorial's own sentence and
+        // its Continue button, which is what made it read as something to
+        // dismiss — and, since a `Color` is hit-testable, it swallowed every tap
+        // aimed at Continue, so the last page could not be left at all.
+        //
+        // Scoped to the card it is plainly part of the demonstration, and
+        // `allowsHitTesting(false)` lets both Continue and the card's own swipe
+        // carry on working underneath it.
+        .overlay { if page == 3 { addSheetMock } }
     }
 
     /// Three rows' worth, so the fourth is off the bottom and the list has
@@ -217,10 +226,14 @@ struct MemoriesTutorialView: View {
                 .fill(GardenPalette.gold.opacity(0.75))
                 .frame(width: 56 * entry.share, height: 5)
         }
-        // Room for the cross, which hangs past this row's trailing corner and
-        // was being cut in half by the card's clip — the same overhang the real
-        // page reserves for in `entryStack`.
-        .padding(.trailing, 14)
+        // **Room for the cross *inside* the row, because nothing here may hang
+        // outside it.** The scrolling window is `.frame(height:).clipped()`, and
+        // `clipped()` clips on both axes — so a badge offset past the trailing
+        // edge loses whatever it overhangs, which is what cut it in half twice.
+        // Adding trailing padding alone did not fix it: padding shrinks the
+        // content, it does not widen the clip. The badge is placed flush with
+        // the row's edge instead and this reserves the space it lands in.
+        .padding(.trailing, 18)
         .frame(height: 46)
         .rotationEffect(.degrees(isWobbling ? wobble : 0), anchor: .center)
         .overlay(alignment: .topTrailing) {
@@ -232,7 +245,8 @@ struct MemoriesTutorialView: View {
                     .frame(width: 20, height: 20)
                     .background(GardenPalette.ink.opacity(0.75), in: Circle())
                     .overlay { Circle().strokeBorder(GardenPalette.card, lineWidth: 1.5) }
-                    .offset(x: 8, y: -1)
+                    // Flush with the row's trailing edge, never past it.
+                    .offset(x: 0, y: 1)
                     .transition(.scale.combined(with: .opacity))
             }
         }
@@ -263,8 +277,10 @@ struct MemoriesTutorialView: View {
     /// section.
     private var addSheetMock: some View {
         ZStack {
-            GardenPalette.ink.opacity(0.28)
-                .ignoresSafeArea()
+            // Clipped to the card's own shape, so the dim stops where the
+            // demonstration does.
+            RoundedRectangle(cornerRadius: 24)
+                .fill(GardenPalette.ink.opacity(0.28))
 
             VStack(spacing: 14) {
                 VStack(spacing: 4) {
@@ -310,8 +326,12 @@ struct MemoriesTutorialView: View {
                     .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
             }
             .shadow(color: GardenPalette.ink.opacity(0.18), radius: 22, y: 10)
-            .padding(.horizontal, 28)
+            // Nearly the card's width, since the card is already inset from the
+            // screen — the 28 this used to carry was measured against the screen
+            // and leaves a stamp-sized dialog once it sits inside the card.
+            .padding(.horizontal, 6)
         }
+        .allowsHitTesting(false)
         .transition(.opacity)
     }
 

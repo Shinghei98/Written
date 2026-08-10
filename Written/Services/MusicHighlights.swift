@@ -25,7 +25,13 @@ enum MusicHighlights {
     /// Apple Music's `recommendation` rows are deliberately absent: those are
     /// Apple's suggestions, not listening, and counting them would credit
     /// artists the person has never chosen.
-    private static let songTypes: Set<String> = [
+    /// **Internal, because `Ontology` has to agree with it.** Two lists of which
+    /// rows count as listening is two lists that drift, and the drift already
+    /// happened: `Ontology.subjects` filtered on `dataType == "song"`, which
+    /// `AppleMusicDistiller` has never written, so it answered `[]` for every
+    /// real library and `discovery_cards.top_subjects` was empty for reasons
+    /// nobody had found.
+    static let songTypes: Set<String> = [
         "library_song", "heavy_rotation", "playlist_item", "recently_played"
     ]
 
@@ -238,7 +244,7 @@ enum MusicHighlights {
     /// played, and again inside a playlist. Counting the rows would inflate an
     /// artist by how many lists their song sits on rather than by their music,
     /// so collapse on the platform's own id first.
-    private static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
+    static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seen: Set<String> = []
         var songs: [DistilledRecord] = []
         for record in records where Modality.music.recordSources.contains(record.source)
