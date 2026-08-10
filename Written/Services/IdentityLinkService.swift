@@ -131,16 +131,69 @@ final class IdentityLinkService: NSObject, ObservableObject {
         }
 
         do {
-            _ = try await visit(authorizeURL)
-            // Supabase attaches the identity server-side during the callback,
-            // so there is nothing to post back — only to read the new truth.
+            let callback = try await visit(authorizeURL)
+            // **The callback is the answer, and throwing it away made every
+            // refusal silent.** Supabase attaches the identity server-side
+            // *during* this redirect and reports a failure by putting `error`
+            // and `error_description` on the URL it sends back — there is no
+            // second request to check. This discarded it and then set
+            // `lastError = nil` unconditionally, so a refused link and a
+            // successful one were the same screen: a toggle that did not move
+            // and nothing to say why.
+            if let message = Self.failure(in: callback) {
+                lastError = message
+                await refresh()
+                return
+            }
+
             await refresh()
-            lastError = nil
+
+            // Belt and braces: a callback carrying no error at all, after which
+            // the provider is still not attached, is a claim of success the
+            // server does not support. Say the likeliest reason rather than
+            // nothing — an identity may only belong to one account, and holding
+            // two accounts is easy here, since three sign-in methods each make
+            // their own.
+            if linked.contains(provider) {
+                lastError = nil
+            } else {
+                lastError = "That account is already connected to another Written account."
+            }
         } catch is CancellationError {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// What went wrong, read off the URL Supabase redirected back to.
+    ///
+    /// **Both the query and the fragment**, because which one carries it
+    /// depends on the flow: an error raised before the token exchange arrives as
+    /// a query, and one raised during it comes back in the fragment, where a
+    /// token would have been. Reading only one of the two is how this looks
+    /// fixed and still swallows half of the failures.
+    private static func failure(in callback: URL) -> String? {
+        var items: [URLQueryItem] = []
+        let components = URLComponents(url: callback, resolvingAgainstBaseURL: false)
+        items += components?.queryItems ?? []
+        if let fragment = components?.fragment {
+            items += URLComponents(string: "?" + fragment)?.queryItems ?? []
+        }
+
+        func value(_ name: String) -> String? {
+            items.first { $0.name == name }?.value?
+                .replacingOccurrences(of: "+", with: " ")
+        }
+
+        guard value("error") != nil || value("error_code") != nil else { return nil }
+
+        // Supabase's own wording where it has some, since it is the only thing
+        // that knows which of several refusals this was.
+        if let described = value("error_description"), !described.isEmpty {
+            return described
+        }
+        return "Couldn't connect that account."
     }
 
     /// Detaches `provider`.

@@ -28,6 +28,10 @@ struct MatchProfileView: View {
     @State private var failure: String?
     /// Which photograph is open full-screen, by position.
     @State private var openPhoto: Int?
+    /// Saved for later, privately — the person bookmarked is never told, never
+    /// notified, and cannot read the row. See `0035`.
+    @State private var isBookmarked = false
+    @State private var isReporting = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -52,21 +56,74 @@ struct MatchProfileView: View {
             // open that photograph alone, which made the grid a set of six dead
             // ends; this opens the person's posts and lands on the one tapped,
             // so the others are a scroll away rather than a second tap and a
-            // dismissal. `MatchPhotoCard` is kept — it is still the right shape
-            // for a single photograph and nothing else has to change to use it
-            // again.
+            // dismissal. What each of those posts *is* is `DiscoveryCard`, so a
+            // person's photographs look the same wherever you meet them — see
+            // `MatchPostsView`.
             if let openPhoto, let profile, openPhoto < profile.photoPaths.count {
                 MatchPostsView(
+                    personID: personID,
                     name: profile.name,
+                    age: profile.age,
+                    district: profile.district,
                     paths: profile.photoPaths,
                     captions: profile.captions,
                     opening: openPhoto,
+                    isBookmarked: isBookmarked,
+                    onBookmark: toggleBookmark,
+                    onMore: { isReporting = true },
                     onClose: { self.openPhoto = nil }
                 )
                 .transition(.move(edge: .trailing))
             }
+
+            // **At the top level, not inside the card**, for the reason
+            // `DiscoveryCard.onMore` records: the sheet is centred on the
+            // *screen*, and an overlay attached to a card centres on the card
+            // and is clipped by its corner radius.
+            if isReporting {
+                ReportSheet(
+                    name: profile?.name ?? fallbackName,
+                    onSend: { text in
+                        let name = profile?.name ?? fallbackName
+                        // **Blocked here, not on the server's answer**, exactly
+                        // as Explore and Chat do it: the report is worth
+                        // retrying, getting away from somebody is not something
+                        // to make conditional on a network.
+                        viewModel.banPerson(personID)
+                        isReporting = false
+                        Task {
+                            _ = await ChatService.shared.report(personID, named: name, body: text)
+                        }
+                    },
+                    onCancel: { isReporting = false }
+                )
+            }
         }
         .task { await load() }
+        .task { await loadBookmark() }
+    }
+
+    /// **Left alone when `bookmarkedIDs()` answers nil**, which means *could not
+    /// ask* rather than *nothing saved*. Assigning an empty set on a dropped
+    /// request would draw a saved person as unsaved, and the tap that followed
+    /// would save them a second time.
+    private func loadBookmark() async {
+        guard let saved = await BookmarkService.shared.bookmarkedIDs() else { return }
+        isBookmarked = saved.contains(personID)
+    }
+
+    /// Optimistic, and put back if the write is refused — the same shape the
+    /// feed's bookmark takes. Nothing was removed from view, so a revert has
+    /// nothing to restore beyond the glyph.
+    private func toggleBookmark() {
+        let wanted = !isBookmarked
+        isBookmarked = wanted
+        Task {
+            let ok = wanted
+                ? await BookmarkService.shared.add(personID)
+                : await BookmarkService.shared.remove(personID)
+            if !ok { isBookmarked = !wanted }
+        }
     }
 
     private func load() async {
@@ -243,53 +300,5 @@ struct MatchProfileView: View {
             }
         }
         .padding(.top, 20)
-    }
-}
-
-/// One photograph, full width, with the shared line under it.
-///
-/// **`DiscoveryCard`'s shape without its verbs.** The feed's card is an
-/// invitation — a heart, an envelope, a bookmark — and none of that belongs
-/// here: this page is reached *after* an invitation exists, so offering to send
-/// another would let somebody invite a person they are already talking to. What
-/// carries over is the part worth keeping, a photograph with a sentence under
-/// it that is about both people.
-struct MatchPhotoCard: View {
-
-    let name: String
-    let path: String
-    let caption: String?
-    var onClose: () -> Void = {}
-
-    var body: some View {
-        ZStack {
-            // Tapping anywhere outside closes it, which is the gesture people
-            // try first on a photograph opened from a grid.
-            Color.black.opacity(0.55)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-
-            VStack(spacing: 0) {
-                ProfilePhotoView(ref: .stored(path), initial: name)
-                    .aspectRatio(4 / 5, contentMode: .fill)
-                    .clipped()
-
-                // **Absent rather than blank when there is nothing shared.** A
-                // caption slot with no caption reads as a photograph that
-                // failed to load its text.
-                if let caption {
-                    Text(caption)
-                        .font(.system(size: 14))
-                        .foregroundStyle(GardenPalette.ink)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(GardenPalette.card)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .padding(.horizontal, 18)
-            .accessibilityLabel(caption.map { "\(name). \($0)" } ?? name)
-        }
     }
 }
