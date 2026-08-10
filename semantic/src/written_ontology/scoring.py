@@ -239,12 +239,29 @@ class FusionEngine:
                 else 0.0
             )
             group_strengths[group] = strength
+            # **Rounded to 8dp, as `ConceptScore` already rounds its own copies
+            # of these two below.** Both are weighted averages, so duplicating
+            # every contributing item scales numerator and denominator alike and
+            # cannot change them — in real arithmetic. In floating point it can,
+            # in the last bit and only sometimes: with one fixture the mirrored
+            # run gives 0.800000000000002 against 0.8000000000000002, while
+            # tripling the same rows happens to land bit-identical.
+            #
+            # That is the whole of the package's "duplicate records cannot
+            # satisfy recurrence" invariant resting on luck, because
+            # `source_breakdown` is part of `ConceptScore` equality while these
+            # two fields were the only unrounded floats in it. `group_strengths`
+            # deliberately keeps full precision, so nothing downstream of the
+            # per-group loop is affected.
+            #
+            # Deviation from upstream v0.3.1 — report it rather than carrying it
+            # silently the next time the package ships a version.
             breakdown.append(
                 SourceBreakdown(
                     independence_group=group,
                     strength=strength,
-                    mapping_agreement=mapping_agreement,
-                    evidence_quality=evidence_quality,
+                    mapping_agreement=round(mapping_agreement, 8),
+                    evidence_quality=round(evidence_quality, 8),
                     unique_lineages=len(by_lineage),
                     evidence_count=len({item.observation_id for item in items}),
                 )

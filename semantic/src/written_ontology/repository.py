@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
+
+# A schema name cannot travel as a bind parameter, so it is interpolated — and
+# therefore has to be proven to be an identifier first.
+_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,12 +26,37 @@ class PostgresJobQueue:
     psycopg is imported lazily so the offline demo remains dependency-free.
     """
 
-    def __init__(self, database_url: str, worker_id: str, lease_seconds: int = 300) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        worker_id: str,
+        *,
+        schema: str,
+        lease_seconds: int = 300,
+    ) -> None:
+        """`schema` is required and has deliberately no default.
+
+        Upstream this class hardcoded ``private.worker_jobs`` in three
+        statements. In the Written application the table is
+        ``semantic_private.worker_jobs``, and ``private`` is a **real,
+        unrelated schema** holding ``push_config`` (the shared push secret),
+        ``notify`` and ``collaborators``. So a missed rename would not fail
+        loudly against an empty namespace — it would address a live one. A
+        default would make that mistake silent; requiring the argument makes it
+        impossible.
+        """
         self.database_url = database_url
         self.worker_id = worker_id
+        if not _IDENTIFIER.match(schema):
+            raise ValueError(f"schema must be a bare lowercase identifier, got {schema!r}")
+        self.schema = schema
         if lease_seconds < 30:
             raise ValueError("lease_seconds must be at least 30")
         self.lease_seconds = lease_seconds
+
+    @property
+    def _jobs(self) -> str:
+        return f"{self.schema}.worker_jobs"
 
     def _connect(self):  # type: ignore[no-untyped-def]
         try:
@@ -38,9 +68,9 @@ class PostgresJobQueue:
 
     def claim(self) -> WorkerJob | None:
         lease_token = f"{self.worker_id}:{uuid4()}"
-        statement = """
+        statement = f"""
         with exhausted as (
-          update private.worker_jobs
+          update {self._jobs}
           set status = 'dead', locked_at = null, locked_by = null,
               last_error = 'lease_expired_after_max_attempts'
           where attempts >= 5
@@ -54,7 +84,7 @@ class PostgresJobQueue:
           returning id
         ), candidate as (
           select id
-          from private.worker_jobs
+          from {self._jobs}
           where attempts < 5
             and (
               (status = 'queued' and available_at <= now())
@@ -67,7 +97,7 @@ class PostgresJobQueue:
           for update skip locked
           limit 1
         )
-        update private.worker_jobs as job
+        update {self._jobs} as job
         set status = 'running',
             locked_at = now(),
             locked_by = %(lease_token)s,
@@ -113,8 +143,8 @@ class PostgresJobQueue:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    update private.worker_jobs
+                    f"""
+                    update {self._jobs}
                     set status = 'succeeded', locked_at = null, locked_by = null,
                         result = %(result)s::jsonb, last_error = null
                     where id = %(job_id)s::uuid and locked_by = %(lease_token)s
@@ -140,8 +170,8 @@ class PostgresJobQueue:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    update private.worker_jobs
+                    f"""
+                    update {self._jobs}
                     set status = case when %(retry)s and attempts < 5 then 'queued' else 'dead' end,
                         available_at = case
                           when %(retry)s and attempts < 5

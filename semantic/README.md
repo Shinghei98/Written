@@ -1,5 +1,52 @@
 # Written semantic system starter v0.3.1
 
+> ## Vendored into the Written repository — read this first
+>
+> This is the upstream package, adapted. Five things differ from what its own
+> documentation describes, and each will otherwise waste an hour.
+>
+> **Run it with Python 3.11+, not the system one.** `python3` on this machine is
+> 3.9.6 and cannot run the package at all — `pyproject.toml` requires `>=3.11`
+> and `test_repository_integration.py` imports `tomllib`. The repo's usual
+> `python3 tools/x.py` convention does not carry over here.
+>
+> ```bash
+> cd semantic
+> PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
+>   WRITTEN_REPOSITORY_PATH="$(cd .. && pwd)" \
+>   /Users/shingheimok/miniconda3/bin/python3 -m unittest discover -s tests -v
+> ```
+>
+> **Set `WRITTEN_REPOSITORY_PATH` or two tests silently skip** — the seam drift
+> report and the checkout ancestry check, which are the two most useful things
+> here. CI sets it; a local run that omits it says `OK (skipped=2)` and has
+> proved less than it looks.
+>
+> **The reference `sql/001`–`006` are deliberately not vendored.** Their adapted
+> forms are `supabase/migrations/0042`–`0047`. Two copies of the same ten
+> thousand lines of DDL is the failure the integration contract names, so
+> anything in the docs telling you to run `sql/003_seed.sql` means `0044`.
+> `seed_consistency.py` already audits the app migration, and passes: 45
+> concepts, 42 aliases, 37 edges, exact parity.
+>
+> **`PostgresJobQueue` now requires `schema=`, with no default.** This app owns
+> a real, unrelated `private` schema (`push_config` holds the shared push
+> secret), so a missed rename would address live objects rather than missing
+> ones. The worker table is `semantic_private.worker_jobs`; `WORKER_SCHEMA`
+> overrides it for a disposable test project.
+>
+> **Seed changes cannot be made by appending to `0044`.** Every insert there is
+> gated on an `ontology.versions` row with `status = 'draft'` and the file ends
+> by publishing that version — so against an already-migrated database the
+> appended rows are inert, while the CSV auditor still reports parity. A seed
+> change needs a new migration with a new version row.
+>
+> One deviation from upstream is recorded in `scoring.py`: `SourceBreakdown`'s
+> two weighted averages are rounded to 8dp, as `ConceptScore` already rounds its
+> own copies. Without it the package's duplicate-invariance tests pass or fail
+> on which way a float lands. **Report it upstream** rather than carrying it
+> silently into the next version.
+
 This package is an engineering handoff for Written's private ingestion,
 ontology, Memories, purpose-scoped matching, directional bio selection, and
 match-authorized icebreakers. Its governing rule is **capture broadly,

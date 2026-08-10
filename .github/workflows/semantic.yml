@@ -1,0 +1,56 @@
+# The semantic package's test suite — the first CI this repository has had.
+#
+# It needs no secrets, and that is deliberate: every test is offline, and the
+# manifest checks read the checkout that `actions/checkout` has already
+# provided. Nothing here touches Supabase, so there is no credential to leak.
+#
+# Two settings are load-bearing rather than boilerplate:
+#
+#   fetch-depth: 0   the checkout test asserts the reviewed commit is an
+#                    ancestor of HEAD, which a shallow clone cannot answer. It
+#                    fails with a message saying so, but depth is the fix.
+#   WRITTEN_REPOSITORY_PATH
+#                    without it the two manifest tests skip. A green suite that
+#                    quietly skipped the drift report is exactly the outcome
+#                    this file exists to prevent.
+name: semantic
+
+on:
+  push:
+    paths:
+      - 'semantic/**'
+      - 'supabase/migrations/0044_semantic_seed.sql'
+      - '.github/workflows/semantic.yml'
+  pull_request:
+    paths:
+      - 'semantic/**'
+      - 'supabase/migrations/0044_semantic_seed.sql'
+      - '.github/workflows/semantic.yml'
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the suite
+        working-directory: semantic
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: src
+          WRITTEN_REPOSITORY_PATH: ${{ github.workspace }}
+        run: python -m unittest discover -s tests -v
+
+      - name: Deterministic demo
+        working-directory: semantic
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: src
+        run: python -m written_ontology.cli demo

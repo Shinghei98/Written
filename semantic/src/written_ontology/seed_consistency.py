@@ -24,9 +24,17 @@ from pathlib import Path
 from typing import TypeVar
 
 
+# The reference chain names its own schema `private`; the Written application
+# maps every semantic object onto `semantic_private`, because this app already
+# owns a `private` schema holding unrelated push and collaborator objects. The
+# name is a single constant so the tuple below, the tests that assert against
+# it, and anything else that has to name the schema all move together — a
+# hand-edit in two places is how a rename half-applies and still passes.
+SEMANTIC_PRIVATE_SCHEMA = "semantic_private"
+
 INTENTIONAL_SQL_ONLY_SEED_TABLES = (
     "ontology.relation_types",
-    "private.sources",
+    f"{SEMANTIC_PRIVATE_SCHEMA}.sources",
     "ontology.versions",
     "ontology.model_versions",
     "ontology.embedding_models",
@@ -700,6 +708,7 @@ __all__ = [
     "ConceptSeed",
     "EdgeSeed",
     "INTENTIONAL_SQL_ONLY_SEED_TABLES",
+    "SEMANTIC_PRIVATE_SCHEMA",
     "SeedCatalog",
     "SeedConsistencyError",
     "SeedDifference",

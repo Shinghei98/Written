@@ -19,6 +19,13 @@
       "supabase/migrations/0007_discovery.sql": "b61553ae2d40aa3b6ec87f0b7c5255eb25c847d9cf57cacee9e00a08246c0c66",
       "supabase/migrations/0040_subject_stamp.sql": "39416c91c554826693804a5a0f7eca337e5360b42c0fb55e9dc1794be7bf38ca",
       "supabase/migrations/0041_collaborator.sql": "6c4ed386a2fa030ac33d753d3ce03136a46de4e424eaac5016ab5bf64d2ec958"
+    },
+    "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
+    "accepted_drift_sha256": {
+      "Written/ViewModels/DistillViewModel.swift": {
+        "sha256": "e04dfcad77eb8de5869dfe3f1baec1001f0e3f3ee5ffc11c9ca3121d21efa136",
+        "reason": "Doc comment only. `sync`'s comment claimed Health's raw rows were discarded in `distillHealth`; measurement showed distilled_records holds zero health rows because `sync` never calls `push` for that source at all. No executable line changed."
+      }
     }
   },
   "authority": "target_architecture",
@@ -112,5 +119,16 @@
     "server_owned_discovery_and_profiles",
     "first_exposure_icebreakers",
     "legacy_semantic_retirement"
-  ]
+  ],
+  "reference_migrations_note": "Historical record of the standalone reference chain. Those files are deliberately NOT vendored into the Written repository: their adapted forms are application_migrations 42-47, and keeping both would be two divergent copies of the same DDL.",
+  "application_migrations_applied": [
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+  ],
+  "application_migrations_authored_next": 48,
+  "application_migrations_reserved_note": "49 (server projections) is due in phase server_owned_discovery_and_profiles and 50 (cutover) in legacy_semantic_retirement. They are reserved, not contiguous-by-requirement: the contract forbids reusing a number, not skipping one. 50 is irreversible and must not exist on disk before a minimum supported client version does."
 }

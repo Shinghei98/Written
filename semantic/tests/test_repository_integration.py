@@ -38,55 +38,132 @@ class RepositoryIntegrationManifestTests(unittest.TestCase):
         self.assertRegex(repository["migration_head"], r"^\d{4}_[a-z0-9_]+\.sql$")
         self.assertEqual(self.manifest["authority"], "target_architecture")
 
-    def test_reference_migrations_exist_in_package(self) -> None:
+    def test_adapted_application_migrations_exist_in_repository(self) -> None:
+        """The reference `sql/` tree is not vendored; its adapted form is.
+
+        Upstream this asserted that `sql/001…006` were present in the package.
+        In this repository they deliberately are not: copying them alongside
+        their adaptations would be two divergent copies of ten thousand lines
+        of the same DDL, which the integration contract names as a failure.
+        What must exist instead are the app migrations they became.
+        """
+        migrations = ROOT.parent / "supabase" / "migrations"
+        applied = self.manifest["application_migrations_applied"]
+        by_sequence = {
+            item["sequence"]: item["suggested_name"]
+            for item in self.manifest["application_migrations"]
+        }
+        for sequence in applied:
+            name = by_sequence[sequence]
+            with self.subTest(migration=name):
+                self.assertTrue((migrations / name).is_file(), f"{name} is missing")
+        self.assertEqual(
+            by_sequence[max(applied)], "0047_semantic_current_state_surfaces.sql"
+        )
+        # The reference chain is recorded as history and must stay recorded,
+        # but nothing may look for those files on disk any more.
+        self.assertEqual(len(self.manifest["reference_migrations"]), 6)
         for relative_path in self.manifest["reference_migrations"]:
             with self.subTest(relative_path=relative_path):
-                self.assertTrue((ROOT / relative_path).is_file())
-        self.assertEqual(
-            self.manifest["reference_migrations"][-1],
-            "sql/006_current_state_and_surface_hardening.sql",
-        )
-        for relative_path in (
-            "sql/tests/006_current_state_and_surface_hardening_contract.sql",
-            "sql/tests/fixtures/005_surface_fact_upgrade_fixture.sql",
-            "sql/tests/006_surface_fact_upgrade_contract.sql",
-        ):
-            with self.subTest(relative_path=relative_path):
-                self.assertTrue((ROOT / relative_path).is_file())
+                self.assertFalse(
+                    (ROOT / relative_path).exists(),
+                    f"{relative_path} was vendored; it should not be",
+                )
 
-    def test_configured_written_checkout_matches_reviewed_evidence(self) -> None:
+    def test_configured_written_checkout_descends_from_reviewed_evidence(self) -> None:
+        """A baseline, not a pin.
+
+        Upstream this asserted `HEAD == repository.commit` and
+        `migration_head == 0041_collaborator.sql`. Once the package lives
+        *inside* the repository it describes, that is self-referential: it goes
+        red on the next commit anybody makes, which trains people to ignore it.
+
+        What is actually worth asserting is that the checkout has not diverged
+        from what v0.3.1 reviewed — the reviewed commit is still an ancestor,
+        and the migration head has only moved forward.
+        """
         if self.repository_path is None:
             self.skipTest("set WRITTEN_REPOSITORY_PATH for checkout verification")
         self.assertTrue((self.repository_path / ".git").exists())
-        completed = subprocess.run(
-            ["git", "-C", str(self.repository_path), "rev-parse", "HEAD"],
-            check=True,
+        reviewed = self.manifest["repository"]["commit"]
+        descends = subprocess.run(
+            ["git", "-C", str(self.repository_path),
+             "merge-base", "--is-ancestor", reviewed, "HEAD"],
             capture_output=True,
             text=True,
         )
         self.assertEqual(
-            completed.stdout.strip(), self.manifest["repository"]["commit"]
+            descends.returncode,
+            0,
+            f"reviewed commit {reviewed} is not an ancestor of HEAD — either the "
+            f"history was rewritten or this is a different repository "
+            f"(a shallow clone also fails here; fetch with depth 0)",
         )
         migration_names = sorted(
             path.name
             for path in (self.repository_path / "supabase/migrations").glob("*.sql")
         )
         self.assertTrue(migration_names)
-        self.assertEqual(
-            migration_names[-1], self.manifest["repository"]["migration_head"]
+        self.assertGreaterEqual(
+            migration_names[-1],
+            self.manifest["repository"]["migration_head"],
+            "migration head moved backwards from the reviewed baseline",
         )
-        for relative_path, expected_digest in self.manifest[
-            "repository_verification"
-        ]["verified_files_sha256"].items():
-            with self.subTest(relative_path=relative_path):
-                payload = (self.repository_path / relative_path).read_bytes()
-                self.assertEqual(hashlib.sha256(payload).hexdigest(), expected_digest)
 
-    def test_application_migration_plan_is_contiguous_and_named(self) -> None:
+    def test_reviewed_swift_and_sql_seams_report_their_drift(self) -> None:
+        """A drift report over the seams the contract calls adapt-or-replace.
+
+        These eight files are where the application and the semantic system
+        meet. A digest change is not a failure in itself — it is a signal that
+        the application side moved and somebody should decide whether the
+        semantic side must follow. Knowing movement is recorded in
+        `accepted_drift_sha256` with a reason; anything else is reported by
+        name, because a stale pin nobody updates says nothing at all.
+        """
+        if self.repository_path is None:
+            self.skipTest("set WRITTEN_REPOSITORY_PATH for checkout verification")
+        verification = self.manifest["repository_verification"]
+        reviewed = verification["verified_files_sha256"]
+        accepted = verification.get("accepted_drift_sha256", {})
+        unexplained: list[str] = []
+        for relative_path, reviewed_digest in reviewed.items():
+            payload = (self.repository_path / relative_path).read_bytes()
+            actual = hashlib.sha256(payload).hexdigest()
+            if actual == reviewed_digest:
+                continue
+            allowed = accepted.get(relative_path, {}).get("sha256")
+            if actual == allowed:
+                continue
+            unexplained.append(
+                f"  {relative_path}\n"
+                f"    reviewed {reviewed_digest}\n"
+                f"    accepted {allowed or '(none recorded)'}\n"
+                f"    actual   {actual}"
+            )
+        self.assertEqual(
+            unexplained,
+            [],
+            "unexplained drift in reviewed seams — record it in "
+            "accepted_drift_sha256 with a reason, or revert it:\n"
+            + "\n".join(unexplained),
+        )
+        for relative_path, entry in accepted.items():
+            with self.subTest(relative_path=relative_path):
+                self.assertIn(relative_path, reviewed, "accepted drift for an unreviewed file")
+                self.assertTrue(entry.get("reason", "").strip(), "accepted drift needs a reason")
+
+    def test_application_migration_plan_is_ordered_and_named(self) -> None:
         migrations = self.manifest["application_migrations"]
         sequences = [migration["sequence"] for migration in migrations]
-        self.assertEqual(sequences, list(range(42, 51)))
+        self.assertEqual(sequences, sorted(sequences), "plan is out of order")
+        self.assertEqual(len(set(sequences)), len(sequences), "a number is reused")
         self.assertEqual(migrations[-1]["suggested_name"], "0050_semantic_cutover.sql")
+        # Applied is a prefix of the plan, and the next to author follows it.
+        applied = self.manifest["application_migrations_applied"]
+        self.assertEqual(applied, sequences[: len(applied)])
+        self.assertEqual(
+            self.manifest["application_migrations_authored_next"], max(applied) + 1
+        )
         for migration in migrations:
             expected_prefix = f"{migration['sequence']:04d}_"
             self.assertTrue(migration["suggested_name"].startswith(expected_prefix))

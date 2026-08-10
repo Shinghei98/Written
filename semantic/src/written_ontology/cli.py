@@ -96,7 +96,13 @@ def main(argv: list[str] | None = None) -> int:
         worker_id = os.environ.get("WORKER_ID") or (
             f"written-ontology:{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
         )
-        worker = SemanticWorker(PostgresJobQueue(database_url, worker_id))
+        # No default, for the reason `PostgresJobQueue.__init__` gives: this
+        # application owns a real `private` schema that is nothing to do with
+        # the semantic system, so guessing wrong addresses live objects rather
+        # than missing ones. `WORKER_SCHEMA` exists so a disposable test project
+        # can point elsewhere without editing code.
+        schema = os.environ.get("WORKER_SCHEMA", "semantic_private")
+        worker = SemanticWorker(PostgresJobQueue(database_url, worker_id, schema=schema))
         _print(worker.run_once())
         return 0
     raise AssertionError("unreachable")

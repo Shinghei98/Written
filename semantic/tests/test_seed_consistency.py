@@ -7,6 +7,7 @@ from pathlib import Path
 
 from written_ontology.seed_consistency import (
     INTENTIONAL_SQL_ONLY_SEED_TABLES,
+    SEMANTIC_PRIVATE_SCHEMA,
     SeedCatalog,
     audit_seed_files,
     compare_seed_catalogs,
@@ -17,7 +18,17 @@ from written_ontology.seed_consistency import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED_DIR = ROOT / "ontology"
-SQL_SEED = ROOT / "sql" / "003_seed.sql"
+# **The seed under audit is the app's migration, not the reference file.** The
+# reference `sql/003_seed.sql` is deliberately not vendored — its adapted form
+# is `0044_semantic_seed.sql`, and keeping both would be two divergent copies of
+# one catalog. This is the whole reason the package is in-repo rather than
+# beside it: out of repo this path would be a pinned external checkout that goes
+# stale silently.
+#
+# The parser survives the move untouched because it anchors on the CTE names
+# `seed`, `revision_seed`, `label_seed` and `edge_seed`, all of which the
+# adaptation preserved verbatim.
+SQL_SEED = ROOT.parent / "supabase" / "migrations" / "0044_semantic_seed.sql"
 
 
 class SeedConsistencyTests(unittest.TestCase):
@@ -115,7 +126,7 @@ class SeedConsistencyTests(unittest.TestCase):
             INTENTIONAL_SQL_ONLY_SEED_TABLES,
             (
                 "ontology.relation_types",
-                "private.sources",
+                f"{SEMANTIC_PRIVATE_SCHEMA}.sources",
                 "ontology.versions",
                 "ontology.model_versions",
                 "ontology.embedding_models",
@@ -148,7 +159,8 @@ class SeedConsistencyTests(unittest.TestCase):
         self.assertRegex(
             sql,
             re.compile(
-                r"update\s+private\.sources\s+set\s+active\s*=\s*false"
+                rf"update\s+{re.escape(SEMANTIC_PRIVATE_SCHEMA)}\.sources"
+                r"\s+set\s+active\s*=\s*false"
                 r"\s+where\s+source_code\s*=\s*'healthkit'",
                 re.IGNORECASE,
             ),
