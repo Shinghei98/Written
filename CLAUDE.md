@@ -1485,6 +1485,60 @@ be set to `.incoming`, since the default is outgoing and would teach Siri that
 the avatar is iOS's** — every communication notification carries it and there is
 no API to remove it.
 
+## The semantic contract, and what it supersedes
+
+**`Written-Semantic-System-v0.3.1` is the authority for semantic design, and
+this app is not.** Its integration plan is written against this repository by
+name — commit `8203353`, migration head `0041` — and says so outright: *"When
+the current Swift/SQL implementation and the v0.3.1 contract disagree, the
+v0.3.1 contract controls."* Its governing rule is **capture broadly in an
+authorized private vault, promote narrowly into semantic evidence, expose only
+purpose- and surface-authorized projections** — four separate decisions where
+this app currently has one.
+
+Everything below about the ontology, the dynamic profile, Memories and the
+icebreaker is **still true of the shipping code and is now the legacy path**.
+It is kept rather than deleted: the reasoning is still worth having, the code
+still runs, and the cutover is six phases away. What changes is its status —
+none of it is the authority any more.
+
+| Named as superseded | Becomes |
+|---|---|
+| `Ontology.swift`, `mix`, `terms`, `classify` | Server-owned classification and mapping; legacy behind a flag during shadow |
+| Client-authored `discovery_cards` semantics | A paginated server-owned RPC enforcing block, eligibility, revision and surface grants |
+| `summary_distilled_records` as current state | Ingestion runs with membership, coverage, tombstones and validity windows |
+| `seed_icebreaker` (`0036`) | Revision-bound frames requiring active match authorization; legacy themes are **not** migrated into validated facts |
+| Title-keyed `BanList` removals | Assertion-specific no-reason RPCs; a title ban never becomes a concept-level negative |
+
+**Two namespaces, and the distinction is load-bearing.** The reference chain
+uses `private` for its own objects; this app already owns that schema
+(`push_config`, `notify`, `collaborators`). Every semantic object is
+`semantic_private` here.
+
+**And the hazard is the grant, not the revoke** — the obvious reading is wrong,
+and it took a clean replay to find out. Reference `001` revokes `service_role`'s
+usage on `private`; measured on a from-empty install, `service_role` never had
+it (`has_schema_privilege` answers false), and push works anyway because
+`private.notify` is `security definer` and runs as its owner. What bites is
+reference `002` **granting** `service_role` usage plus `select, insert, update`
+on every table in the schema — widening access to `push_config`, which holds
+the shared push secret, and to `collaborators`, which was put in an ungranted
+schema precisely so nobody could mark themselves. "An adapted grant broadens
+access" is the integration plan's own failure condition. `0042`/`0043` are
+adapted for that reason and **no executable statement in either names
+`private`**; re-test that whenever another reference migration is adapted.
+
+**Which is also the argument for the replay itself.** Applying 41 migrations by
+hand over weeks never proved they build a schema from nothing. Done once against
+an empty project, the chain applied cleanly — and produced the measurement that
+corrected this paragraph.
+
+**`0042` and `0043` ship no product behaviour.** Phase 0 installs the schema and
+proves it upgrades cleanly. `004`–`006` become `0045`–`0047`, and the bridge,
+projection and cutover migrations `0048`–`0050` are app-specific. Nothing is
+read by Swift until Phase 3 at the earliest, and §12's KMS design is a
+prerequisite of Phase 1 rather than a detail of it.
+
 ### The dynamic profile
 
 The official way one match presents themselves to another — distinct from the
