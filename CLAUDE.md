@@ -233,9 +233,17 @@ When it returns, its condition is the whole design: **offered only where the
   HealthKit. Worth knowing `fitness.*` was a **restricted** scope, so even when
   it existed it would have dragged this project into a CASA assessment.
 
-- **Apple Health** (`HealthKitDistiller`) — one record per workout (sport,
-  duration, energy, distance, recording app) and one per day (exercise minutes,
-  active calories, steps). Two windows, not one:
+- **Apple Health** (`HealthKitDistiller`) — five `data_type`s, and the counts
+  are the reason they are all kept: `age` (1) and `biological_sex` (1);
+  `workout` (0–300 a year — sport, duration, energy, distance, recording app);
+  `activity_day` (≤365 — exercise minutes, active calories, steps, first
+  movement); and `activity_hour`, **24 rows for the whole window rather than
+  8,760**, because the question is which hours somebody is active in and not
+  what they did at 3pm last March. `DistillViewModel.healthKeptTypes` lists all
+  five and is kept as a list precisely because it now excludes nothing — it is
+  the gate a *new* HealthKit type has to pass, and a type that is read and
+  travels by default is how a permission sheet grows without anybody deciding.
+  Two windows, not one:
   `AppConfig.healthWorkoutLookbackDays` and `healthActivityLookbackDays`, both a
   year, kept apart because the asymmetry is real — workouts are sparse, quantity
   samples dense — so the activity window is the dial to turn first if a
@@ -435,11 +443,22 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   list, and the value of the list is that it stays short and complete.
   - **Postgres, keyed to the account** — the distillation itself, via
     `SyncService`, plus the profile, the ban list and derived health signals.
-    **Raw HealthKit rows are never uploaded**, enforced twice: the device derives
-    its signals and *discards* the raw workouts and activity samples without
-    writing them to disk, and `SyncService.localOnlySources` refuses the source
-    outright. Only the chronotype, sport levels, hourly profile and step average
-    travel. Row-level security is the whole authorisation layer.
+    **HealthKit rows travel now, except one.** They used to be derived and
+    discarded — which produced an export with nothing in it and figures nobody
+    could check — and the reason given was volume, which was never there: the
+    distiller sums samples into day and hour buckets *before* making a record
+    (`activity_hour` is 24 rows for the whole window, not 8,760), so a year is
+    about 400–700 rows against 2,540 from one real Apple Music library.
+
+    **`health/biological_sex` is the exception and is refused at the wire** by
+    `SyncService.localOnlyTypes` — a per-`source/data_type` list, because the
+    unit of that decision is a row rather than a source. It is a protected
+    characteristic, nothing downstream asks for it, and `public.users.sex`
+    already means the gender somebody *chose*. It is still kept locally and still
+    in the owner's own export. `localOnlySources` survives, empty, for the next
+    source that may not be stored at all — Spotify was the last.
+
+    Row-level security is the whole authorisation layer.
   - **Lyrics providers** — `LyricsService` sends the top song's artist and title
     to lrclib.net, then music.163.com if LRCLIB has no answer. One artist and one
     title, no user id, no library, cached so a song is asked once.

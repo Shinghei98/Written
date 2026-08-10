@@ -124,8 +124,22 @@
 			</array>
 		</dict>
 
-		<!-- Derived from HealthKit, never the raw samples: a chronotype band, a
-		     median wake time, and sport names with session counts. -->
+		<!-- From HealthKit. This used to say "never the raw samples", and no
+		     longer can: workouts (sport, duration, active energy, distance and
+		     the app that recorded them), one row per day of exercise minutes,
+		     active calories, steps and first movement, and a 24-hour activity
+		     profile all travel now, alongside the chronotype band, median wake
+		     time and sport counts derived from them.
+
+		     Still not the raw samples HealthKit holds — the distiller sums them
+		     into day and hour buckets before any record exists, so a year is
+		     about 400 to 700 rows rather than a per-sample stream.
+
+		     Biological sex is deliberately absent. It is read and kept on the
+		     device and shown in the owner's own export, and it is refused at the
+		     wire by SyncService.localOnlyTypes, so it is not collected in the
+		     sense this manifest means. That is also why no ...TypeHealth entry
+		     appears here: nothing in that category leaves the phone. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeFitness</string>

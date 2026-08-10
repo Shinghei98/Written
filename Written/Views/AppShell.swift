@@ -196,6 +196,10 @@ struct AppShell: View {
         // ARCHIVED-SPOTIFY. Its terms forbid a third-party database holding
         // Spotify Content, and beta testers have rows in one — so archiving the
         // source is not enough on its own. See `purgeArchivedSources`.
+        //
+        // **This has to be suspended if Spotify is ever offered again**, or it
+        // deletes the rows the moment they are distilled, locally and on the
+        // server both.
         .task { viewModel.purgeArchivedSources() }
         // **The grid starts empty on every launch**, because `photos` is state
         // on `RootView` and nothing ever read the account's own back. So the

@@ -779,16 +779,17 @@ final class DistillViewModel: ObservableObject {
                 let applied = newRecords.map(applyingBans)
                 applyLifestyle(from: applied)
 
-                // **The raw rows are discarded.** Workouts, activity days and
-                // hourly steps are read, reduced to the figures above, and
-                // dropped — they are never handed to `replaceRecords`, so they
-                // never reach `records`, and never reach the file on disk. Only
-                // the extracted demographics stay, and only because age and sex
-                // are answers rather than samples.
+                // **The raw rows are kept now**, where they used to be reduced to
+                // the figures above and dropped. The reason they were dropped was
+                // volume, and the volume was never there: the distiller
+                // aggregates before it makes a record — `activity_hour` is 24
+                // rows for the whole window rather than 8,760, and says so — so
+                // a year is about 400 to 700 rows against 2,540 from one real
+                // Apple Music library.
                 //
-                // Passing the kept rows through `replaceRecords` rather than
-                // assigning them also clears the raw rows an older build of this
-                // app already wrote to disk.
+                // What that bought was an export with nothing in it and figures
+                // nobody could check. `biological_sex` is the one row that still
+                // does not travel; see `SyncService.localOnlyTypes`.
                 let extracted = applied.filter { Self.healthKeptTypes.contains($0.dataType) }
                 knownConnections.insert("health")
                 replaceRecords(from: "health", with: extracted)
@@ -801,13 +802,22 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
-    /// The only HealthKit rows that outlive the distillation that produced them.
+    /// The HealthKit rows that outlive the distillation that produced them.
     ///
-    /// Both are answers, not samples: an age and a biological sex, each a single
-    /// value HealthKit hands over on request. What is dropped is the reading —
-    /// every workout, every day, every hour — which is the part guideline 5.1.3
-    /// is about and the part there is genuinely a lot of.
-    private static let healthKeptTypes: Set<String> = ["age", "biological_sex"]
+    /// **Everything, and the list survives being complete.** It could be deleted
+    /// now that it excludes nothing, and should not be: it is the gate a future
+    /// HealthKit type has to pass. Reading a new type and having it kept, synced
+    /// and exported by default is how a permission sheet grows without anybody
+    /// deciding it should, and this app's rule is that the sheet lists only what
+    /// is actually read.
+    ///
+    /// Kept is not the same as uploaded. `biological_sex` is here and is refused
+    /// at the wire by `SyncService.localOnlyTypes` — it is a protected
+    /// characteristic, nothing downstream asks for it, and `public.users.sex`
+    /// already means the gender somebody *chose*.
+    private static let healthKeptTypes: Set<String> = [
+        "age", "biological_sex", "workout", "activity_day", "activity_hour"
+    ]
 
     /// Works the lifestyle card out of the raw rows, once.
     ///
@@ -2261,13 +2271,23 @@ final class DistillViewModel: ObservableObject {
             events: events,
             sports: sports
         )
-        // The lifestyle figures are deliberately absent. They used to be
-        // recomputed here like everything else, which stopped working the moment
-        // the raw HealthKit rows were discarded rather than stored: this method
-        // runs after *any* change — banning an artist, editing a birthday — so
-        // it would have found no health records and silently blanked the whole
-        // lifestyle card in response to something unrelated. They are set once,
-        // by `applyLifestyle(from:)` at distill time and by the restore.
+        // **The lifestyle figures are derived again, and the guard is the whole
+        // of the old bug.** They used to be recomputed here like everything
+        // else, which stopped working the moment the raw HealthKit rows were
+        // discarded rather than stored: this method runs after *any* change —
+        // banning an artist, editing a birthday — so it found no health records
+        // and silently blanked the card in response to something unrelated.
+        //
+        // The rows persist now, and once synced they come back with
+        // `RestoreService.hydrate()`. Without this a reinstall would restore
+        // every workout and still draw an empty chronotype dial, which would be
+        // a gap this change created rather than one it inherited.
+        //
+        // Absent rows leave the existing figures alone rather than overwriting
+        // them with nothing — which is exactly what the old version failed to
+        // do, and the only reason it had to be removed.
+        let health = records.filter { $0.source == "health" && !$0.isRemovedByUser }
+        if !health.isEmpty { applyLifestyle(from: health) }
         identity = IdentitySummary.summary(in: records)
         // After `identity`, which it reads for the age offset and the district.
         let previousSong = exampleProfile.song

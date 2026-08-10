@@ -121,6 +121,14 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // Apple Music first: it is the one the product depends on, and the
         // picker draws these in order.
         // ARCHIVED-SPOTIFY — `"spotify"` removed for the App Store build.
+        //
+        // **Lifting it needs two edits, not one**, and the second is easy to
+        // miss: `AppShell` runs `purgeArchivedSources()` on every launch, which
+        // deletes Spotify rows locally *and* calls `deleteSource` on the server.
+        // With the source live that wipes the rows the moment they are
+        // distilled. Its terms would also need answering — they forbid a
+        // third-party database holding Spotify Content, which is what
+        // `SyncService.localOnlySources` is for.
         case .music: return ["apple_music"]
         // ARCHIVED-YOUTUBE — `"youtube"` removed for the App Store build.
         //
@@ -135,7 +143,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // after Apple Calendar — a podcast is hours of attention given to one
         // show over weeks, which is a stronger claim about a person than a
         // follow costs.
-        case .media: return ["apple_podcasts"]
+        case .media: return ["apple_podcasts", "youtube"]
         // Not in `written_api.xlsx` — the first source that isn't. A calendar
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
@@ -163,7 +171,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // EventKit, so for most people the second row would collect the same
         // dinner twice. It was here for the people whose calendar the device
         // cannot see at all.
-        case .plans: return ["apple_calendar"]
+        case .plans: return ["apple_calendar", "google_calendar"]
         case .lifestyle: return ["health"]
         }
     }

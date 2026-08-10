@@ -41,24 +41,60 @@ actor SyncService {
 
     /// Sources whose raw rows never reach Postgres.
     ///
-    /// **health** — raw workouts and activity rows are the sensitive part, so
-    /// only the figures derived from them travel, via `pushHealthSignals`. The
-    /// device discards the raw rows once it has derived them, so this guard is
-    /// the second of two defences rather than the only one.
+    /// **Empty, and kept.** `health` was the last entry: raw workouts and
+    /// activity rows were withheld and only the derived figures travelled. That
+    /// was decided on volume, and the volume was never there — the distiller
+    /// aggregates before it makes a record, so a year of Health is about 400 to
+    /// 700 rows. What it actually cost was an export with nothing in it.
     ///
     /// Spotify was the other entry until it was dropped as a source: its
     /// Developer Terms forbid storing Spotify Content in a third-party database,
     /// which made it the one source that could never be restored to a new
-    /// device once the server became the source of truth.
-    private static let localOnlySources: Set<String> = ["health"]
+    /// device once the server became the source of truth. That is the shape of
+    /// thing this list is for — a whole source that may not be stored — and it
+    /// is worth keeping empty rather than deleting, because the next one will
+    /// arrive the same way.
+    private static let localOnlySources: Set<String> = []
+
+    /// Individual rows that are read, kept and exported, but never uploaded.
+    ///
+    /// **`source/data_type`, because the unit of this decision is a row.**
+    /// Withholding a whole source was too blunt once Health's workouts and
+    /// activity became worth having: one row out of five had to stay behind and
+    /// the other four had to travel.
+    ///
+    /// **`health/biological_sex`** is a protected characteristic. Nothing
+    /// downstream asks for it, and `public.users.sex` already means the gender
+    /// somebody *chose* — two fields accepting the same words is precisely how
+    /// HealthKit came to overwrite a chosen gender, silently and repeatedly, and
+    /// worst for the people it matters most to. It stays on the device, where
+    /// the export can still show it to its owner.
+    ///
+    /// Omitting a row is safe rather than destructive: `append_source_records`
+    /// appends and its trigger drops rows identical to the newest version, so a
+    /// type that never arrives simply never exists server-side.
+    private static let localOnlyTypes: Set<String> = ["health/biological_sex"]
 
     /// Returns nil when the rows landed, and why not when they didn't.
     ///
-    /// **A refused source is not a failure**, so Health answers nil: there is
-    /// nothing to report about rows that were never meant to travel.
+    /// **A refused row is not a failure**, so a push left with nothing to send
+    /// answers nil: there is nothing to report about rows that were never meant
+    /// to travel.
     @discardableResult
     func push(source: String, records: [DistilledRecord]) async -> String? {
         guard !Self.localOnlySources.contains(source) else { return nil }
+        let sendable = records.filter {
+            !Self.localOnlyTypes.contains("\($0.source)/\($0.dataType)")
+        }
+        // **An empty push is not the same as nothing to push**, and conflating
+        // them would have been a quiet regression: `append_source_records`
+        // upserts `source_connections` even from an empty array, which is how a
+        // source that legitimately returned nothing still registers as
+        // connected. Podcasts is the case that matters — zero is its normal
+        // answer. So this returns early only when rows existed and every one was
+        // withheld, never when the source simply had none.
+        guard !(sendable.isEmpty && !records.isEmpty) else { return nil }
+        let records = sendable
         // This used to be a bare `else { return }`, which is the whole of why a
         // lost distillation had nothing to say for itself: the one failure that
         // takes every row with it left no trace at all.
