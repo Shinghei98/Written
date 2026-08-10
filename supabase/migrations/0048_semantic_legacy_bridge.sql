@@ -84,11 +84,24 @@ alter table semantic_private.ingestion_runs
 -- construction; the check above says so rather than leaving two columns that
 -- could drift. What changes is only what the *children* are allowed to be.
 
-alter table semantic_private.ingestion_runs
-  drop constraint if exists ingestion_runs_connector_identity_v031_key;
-alter table semantic_private.ingestion_runs
-  add constraint ingestion_runs_connector_identity_v031_key
-  unique (id, user_id, connector_source_code);
+-- Added only if absent, never dropped and recreated. On a replay the three
+-- child foreign keys below already depend on it, and `drop … if exists`
+-- succeeds at finding it and then fails on the dependency — which is a replay
+-- failure rather than a real one, and every migration in this chain is expected
+-- to survive being applied twice.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'ingestion_runs_connector_identity_v031_key'
+      and conrelid = 'semantic_private.ingestion_runs'::regclass
+  ) then
+    alter table semantic_private.ingestion_runs
+      add constraint ingestion_runs_connector_identity_v031_key
+      unique (id, user_id, connector_source_code);
+  end if;
+end;
+$$;
 
 do $$
 declare
@@ -133,11 +146,13 @@ begin
         and rel.relname = child.table_name
         and ref.relname = 'ingestion_runs'
         and (
-          select array_agg(att.attname order by att.attname)
+          -- `attname` is `name`, not `text`, and there is no implicit
+          -- `name[] = text[]`, so the cast is required rather than tidy.
+          select array_agg(att.attname::text order by att.attname::text)
           from unnest(con.conkey) as k(attnum)
           join pg_attribute as att
             on att.attrelid = con.conrelid and att.attnum = k.attnum
-        ) = array['ingestion_run_id', 'source_code', 'user_id']
+        ) = array['ingestion_run_id', 'source_code', 'user_id']::text[]
     loop
       execute format(
         'alter table semantic_private.%I drop constraint %I',
@@ -145,19 +160,26 @@ begin
       );
     end loop;
 
-    execute format(
-      'alter table semantic_private.%I
-         add constraint %I
-         foreign key (ingestion_run_id, user_id, connector_source_code)
-         references semantic_private.ingestion_runs(id, user_id, connector_source_code)
-         %s deferrable initially deferred',
-      child.table_name,
-      child.table_name || '_run_connector_v031_fkey',
-      case when child.table_name = 'ingestion_run_scopes'
-           then 'on delete cascade'
-           else 'on delete no action'
-      end
-    );
+    -- Guarded so a replay is a no-op rather than a duplicate-object error.
+    if not exists (
+      select 1 from pg_constraint
+      where conname = child.table_name || '_run_connector_v031_fkey'
+        and conrelid = format('semantic_private.%I', child.table_name)::regclass
+    ) then
+      execute format(
+        'alter table semantic_private.%I
+           add constraint %I
+           foreign key (ingestion_run_id, user_id, connector_source_code)
+           references semantic_private.ingestion_runs(id, user_id, connector_source_code)
+           %s deferrable initially deferred',
+        child.table_name,
+        child.table_name || '_run_connector_v031_fkey',
+        case when child.table_name = 'ingestion_run_scopes'
+             then 'on delete cascade'
+             else 'on delete no action'
+        end
+      );
+    end if;
   end loop;
 end;
 $$;
@@ -165,6 +187,65 @@ $$;
 -- `ingestion_run_items` needs no repoint: its composite key references
 -- `ingestion_run_scopes`, not the run, and both sides now mean the record
 -- source. The existing constraint already keeps an item and its scope in step.
+
+-- **`current_source_items` carries two more of the same conflation, and they
+-- are easy to miss** because they name the run differently — `last_seen_run_id`
+-- and `last_change_run_id` rather than `ingestion_run_id`, so the column-set
+-- match above does not see them. Both reference
+-- `ingestion_runs(id, user_id, source_code)`, which forces a current item's
+-- *record* source to equal the run's *connector* source: exactly the defect
+-- this part exists to remove, in the table the current-state contract is built
+-- on.
+--
+-- Here the source component is dropped rather than repointed. An item's record
+-- source is already validated by its own foreign key to `sources`, and the two
+-- run references only need to name a real run belonging to the same person —
+-- adding a connector column per reference would store the same fact twice and
+-- invite the two copies to disagree. `ingestion_runs` already carries
+-- `unique (id, user_id)`, so the narrower target exists.
+do $$
+declare
+  constraint_name text;
+  run_column text;
+begin
+  for constraint_name, run_column in
+    select con.conname,
+           (
+             select att.attname::text
+             from unnest(con.conkey) as k(attnum)
+             join pg_attribute as att
+               on att.attrelid = con.conrelid and att.attnum = k.attnum
+             where att.attname::text like '%run_id'
+           )
+    from pg_constraint as con
+    join pg_class as rel on rel.oid = con.conrelid
+    join pg_class as ref on ref.oid = con.confrelid
+    where con.contype = 'f'
+      and rel.relnamespace = 'semantic_private'::regnamespace
+      and rel.relname = 'current_source_items'
+      and ref.relname = 'ingestion_runs'
+      and exists (
+        select 1
+        from unnest(con.conkey) as k(attnum)
+        join pg_attribute as att
+          on att.attrelid = con.conrelid and att.attnum = k.attnum
+        where att.attname::text = 'source_code'
+      )
+  loop
+    execute format(
+      'alter table semantic_private.current_source_items drop constraint %I',
+      constraint_name
+    );
+    execute format(
+      'alter table semantic_private.current_source_items
+         add constraint %I foreign key (%I, user_id)
+         references semantic_private.ingestion_runs(id, user_id) on delete no action',
+      'current_source_items_' || run_column || '_v031_fkey',
+      run_column
+    );
+  end loop;
+end;
+$$;
 
 comment on column semantic_private.observations.source_code is
   'The record source: whose semantics and policy govern THIS row. Not the '
@@ -200,6 +281,55 @@ insert into semantic_private.connector_record_source_matrix
 select source_code, source_code, 'a connector may always deliver its own records'
 from semantic_private.sources
 on conflict (connector_source_code, record_source_code) do nothing;
+
+-- **The new column must be additive, and `not null` alone is not.** Every
+-- existing writer — the contract tests, `0046`'s and `0047`'s own fixtures, and
+-- any caller written before this migration — inserts a run without naming a
+-- connector, and a bare `not null` turns all of them into constraint
+-- violations. That is not a migration that "ships no product behaviour"; it is
+-- one that breaks everything already there.
+--
+-- So the column defaults to the row's own source when the caller says nothing,
+-- which is exactly what was true before this migration and therefore cannot
+-- change any existing meaning. A caller that *does* name a connector gets what
+-- it asked for. Done as a trigger rather than a column default because a
+-- default cannot read another column of the row being inserted.
+create or replace function semantic_private.default_connector_source_v031()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.connector_source_code is null then
+    new.connector_source_code := new.source_code;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists ingestion_runs_default_connector_v031
+  on semantic_private.ingestion_runs;
+create trigger ingestion_runs_default_connector_v031
+before insert on semantic_private.ingestion_runs
+for each row execute function semantic_private.default_connector_source_v031();
+
+drop trigger if exists observations_default_connector_v031
+  on semantic_private.observations;
+create trigger observations_default_connector_v031
+before insert on semantic_private.observations
+for each row execute function semantic_private.default_connector_source_v031();
+
+drop trigger if exists raw_source_records_default_connector_v031
+  on semantic_private.raw_source_records;
+create trigger raw_source_records_default_connector_v031
+before insert on semantic_private.raw_source_records
+for each row execute function semantic_private.default_connector_source_v031();
+
+drop trigger if exists ingestion_run_scopes_default_connector_v031
+  on semantic_private.ingestion_run_scopes;
+create trigger ingestion_run_scopes_default_connector_v031
+before insert on semantic_private.ingestion_run_scopes
+for each row execute function semantic_private.default_connector_source_v031();
 
 create or replace function semantic_private.guard_connector_record_source_v031()
 returns trigger
@@ -711,6 +841,165 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Part A, continued — four guards enforced the same conflation in plpgsql
+-- ---------------------------------------------------------------------------
+--
+-- Repointing the foreign keys was necessary and **not sufficient**, which only
+-- executing the migration revealed. Four `before` triggers compare a row's
+-- source to its run's in procedural code, where no constraint audit finds them:
+--
+--     or run_row.source_code is distinct from new.source_code then
+--       raise exception 'observations may only be appended to their running
+--                        ingestion run';
+--
+-- With the keys fixed and these left alone, a cross-source row is refused by a
+-- trigger whose message says nothing about sources — the worst kind of failure
+-- to diagnose later. Three of them now compare `connector_source_code`, which
+-- is the fact they were always reaching for: an observation belongs to the run
+-- that fetched it.
+--
+-- `guard_ingestion_run_item_v031` drops the clause instead. An item carries no
+-- connector column and needs none: `guard_ingestion_scope_v031` already binds
+-- the scope to the run's connector, and the item is bound to its scope by the
+-- check immediately below the removed one. Re-deriving it from the run would be
+-- the same fact asserted twice through a longer path.
+--
+-- Replaced whole because plpgsql bodies cannot be patched in place. Each was
+-- extracted from its latest definition and edited programmatically rather than
+-- retyped, so the diff is exactly the clause named above.
+
+create or replace function semantic_private.guard_observation_ingestion_run()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  run_row semantic_private.ingestion_runs%rowtype;
+begin
+  select * into run_row
+  from semantic_private.ingestion_runs
+  where id = new.ingestion_run_id
+  for key share;
+  if not found
+     or run_row.status <> 'running'
+     or run_row.user_id is distinct from new.user_id
+     or run_row.connector_source_code is distinct from new.connector_source_code then
+    raise exception 'observations may only be appended to their running ingestion run';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function semantic_private.guard_raw_source_record_run_v031()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  run_row semantic_private.ingestion_runs%rowtype;
+begin
+  select * into run_row
+  from semantic_private.ingestion_runs
+  where id = new.ingestion_run_id
+  for key share;
+  if not found
+     or run_row.status <> 'running'
+     or run_row.user_id is distinct from new.user_id
+     or run_row.connector_source_code is distinct from new.connector_source_code then
+    raise exception 'raw records may only be appended to their running ingestion run';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function semantic_private.guard_ingestion_scope_v031()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  run_row semantic_private.ingestion_runs%rowtype;
+begin
+  if tg_op <> 'INSERT' then
+    raise exception 'ingestion scope manifests are append-only';
+  end if;
+  select * into run_row
+  from semantic_private.ingestion_runs
+  where id = new.ingestion_run_id
+  for key share;
+  if not found
+     or run_row.status <> 'running'
+     or run_row.user_id is distinct from new.user_id
+     or run_row.connector_source_code is distinct from new.connector_source_code then
+    raise exception 'scope manifest requires its matching running ingestion run';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function semantic_private.guard_ingestion_run_item_v031()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  run_row semantic_private.ingestion_runs%rowtype;
+  scope_row semantic_private.ingestion_run_scopes%rowtype;
+  raw_row semantic_private.raw_source_records%rowtype;
+  observation_row semantic_private.observations%rowtype;
+begin
+  if tg_op <> 'INSERT' then
+    raise exception 'ingestion run membership is append-only';
+  end if;
+  select * into run_row
+  from semantic_private.ingestion_runs
+  where id = new.ingestion_run_id
+  for key share;
+  if not found
+     or run_row.status <> 'running'
+     or run_row.user_id is distinct from new.user_id then
+    raise exception 'run membership requires its matching running ingestion run';
+  end if;
+  select * into scope_row
+  from semantic_private.ingestion_run_scopes
+  where ingestion_run_id = new.ingestion_run_id
+    and scope_key = new.scope_key
+  for key share;
+  if not found
+     or scope_row.user_id is distinct from new.user_id
+     or scope_row.source_code is distinct from new.source_code then
+    raise exception 'run item must match its immutable scope manifest';
+  end if;
+  if new.raw_source_record_id is not null then
+    select * into raw_row
+    from semantic_private.raw_source_records
+    where id = new.raw_source_record_id and user_id = new.user_id;
+    if not found
+       or raw_row.source_code is distinct from new.source_code
+       or raw_row.data_type is distinct from scope_row.data_type
+       or raw_row.source_item_hmac is distinct from new.source_item_hmac
+       or raw_row.record_fingerprint is distinct from new.record_fingerprint then
+      raise exception 'run item raw evidence does not match its source identity';
+    end if;
+  end if;
+  if new.observation_id is not null then
+    select * into observation_row
+    from semantic_private.observations
+    where id = new.observation_id and user_id = new.user_id;
+    if not found
+       or observation_row.source_code is distinct from new.source_code
+       or observation_row.data_type is distinct from scope_row.data_type
+       or observation_row.action_type is distinct from scope_row.action_type
+       or observation_row.source_item_hmac is distinct from new.source_item_hmac
+       or observation_row.record_fingerprint is distinct from new.record_fingerprint then
+      raise exception 'run item observation does not match its source identity';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Part B — legacy backfill scaffolding
 -- ---------------------------------------------------------------------------
 --
@@ -1087,6 +1376,8 @@ grant select, insert, update on table semantic_private.legacy_match_bridge to se
 grant select, insert, update on table semantic_private.legacy_suppressions to service_role;
 
 revoke all on function semantic_private.flag_enabled_v031(text, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function semantic_private.default_connector_source_v031()
   from public, anon, authenticated, service_role;
 revoke all on function semantic_private.guard_connector_record_source_v031()
   from public, anon, authenticated, service_role;
