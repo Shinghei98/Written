@@ -240,10 +240,36 @@ enum MusicHighlights {
 
     // MARK: - Reading the records
 
-    /// The same song reaches us more than once — as a top track, as recently
-    /// played, and again inside a playlist. Counting the rows would inflate an
-    /// artist by how many lists their song sits on rather than by their music,
-    /// so collapse on the platform's own id first.
+    /// The same song reaches us more than once — as a library row, as recently
+    /// played, and again inside every playlist it sits on. Counting the rows
+    /// would rank an artist by how many lists their song is on rather than by
+    /// their music.
+    ///
+    /// **Collapsed on title and artist, not on the platform's id**, and that is
+    /// the correction rather than the original design. Ids only ever deduplicate
+    /// *within* a source, and this app reads one library through two of them:
+    /// `AppleMusicDistiller` and `MusicLibraryDistiller` both return the cloud
+    /// library on a subscriber's phone, with different ids for the same track.
+    /// Measured on a real export: 320 songs under each source, **320 title and
+    /// artist pairs in common, and zero ids in common** — so every song counted
+    /// twice and every artist total was double.
+    ///
+    /// The doubling was uniform, which is why it hid: rankings held and the
+    /// shares in `Ontology.subjects` were unaffected, because the denominator
+    /// doubled with the numerator. What was wrong was every absolute count, and
+    /// the safety of the rest rested on two sources having identical coverage —
+    /// the moment one cloud song is missing locally, the ranking skews with
+    /// nothing on screen to say so.
+    ///
+    /// **The cost is a live version and a studio one collapsing** where the
+    /// title and artist match exactly. That is the right trade against counting
+    /// an entire library twice, and it is the same key the empty-id fallback
+    /// already used — it simply stops being reached only in the rare case.
+    ///
+    /// Skipping cloud items in `MusicLibraryDistiller` was the alternative and is
+    /// worse on this evidence: CLAUDE.md's own measurement found the sixteen
+    /// non-cloud rows on that library were Apple Music downloads that merely read
+    /// as local, so the flag cannot be trusted to tell owned music from streamed.
     static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seen: Set<String> = []
         var songs: [DistilledRecord] = []
@@ -252,9 +278,14 @@ enum MusicHighlights {
             // Struck off by the user. The row is still in the data, carrying the
             // note that says so; it just stops counting toward anything.
             && !record.isRemovedByUser {
-            // No id is no worse than a unique one here; fall back to the pair
-            // that identifies a song to a reader.
-            let key = record.itemID.isEmpty ? "\(record.source)|\(record.name)|\(record.creator)" : record.itemID
+            let title = record.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let artist = record.creator.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            // A row with neither is not a song anybody can name; fall back to its
+            // id so it is at least counted once rather than collapsing every
+            // untitled row into one.
+            let key = title.isEmpty && artist.isEmpty
+                ? "\(record.source)|\(record.itemID)"
+                : "\(title)|\(artist)"
             if seen.insert(key).inserted { songs.append(record) }
         }
         return songs

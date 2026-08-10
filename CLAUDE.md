@@ -92,6 +92,22 @@ build, one is impossible, and one is unresolved.
   earns its keep for people who *own* music — iTunes purchases, a synced
   collection — which is real and uncommon.
 
+  **The other face of that measurement: on a subscriber's phone both sources
+  return the same library, so every song was counted twice.** A real export had
+  320 `library_song` rows under `apple_music` and 320 under `music_library`,
+  **320 title-and-artist pairs in common and zero ids in common** — and
+  `MusicHighlights.deduplicatedSongs` collapsed on the id, which only ever
+  deduplicates *within* a source. It collapses on title and artist now: 1,046
+  song rows went 888 unique to 560.
+
+  It hid because the doubling was uniform — rankings held and
+  `Ontology.subjects`' shares were untouched, since the denominator doubled with
+  the numerator. Only the absolute counts were wrong, and the rest was safe only
+  while the two sources had identical coverage. **Skipping cloud items in
+  `MusicLibraryDistiller` was the obvious alternative and is worse on this
+  page's own evidence**: those sixteen non-cloud rows were streamed tracks that
+  read as local, so the flag cannot tell owned music from downloaded.
+
 - **Spotify** — **ARCHIVED, and removal was a condition of shipping.** Its
   Developer Terms forbid storing Spotify Content in a third-party database, so
   once Postgres became the source of truth it was the one source that could never

@@ -73,7 +73,19 @@ actor SyncService {
     /// Omitting a row is safe rather than destructive: `append_source_records`
     /// appends and its trigger drops rows identical to the newest version, so a
     /// type that never arrives simply never exists server-side.
-    private static let localOnlyTypes: Set<String> = ["health/biological_sex"]
+    /// **Internal, because withholding a row is only half of it.** The server is
+    /// the source of truth and `apply(_:)` replaces the local cache with its
+    /// copy, so a row that never uploads is a row that survives exactly until
+    /// the next hydration — which is every launch. `DistillViewModel` reads this
+    /// to carry them across. Refusing to send and refusing to forget are one
+    /// decision and have to be made in one place.
+    static let localOnlyTypes: Set<String> = ["health/biological_sex"]
+
+    /// Whether this row is kept on the device and never uploaded.
+    static func isLocalOnly(_ record: DistilledRecord) -> Bool {
+        localOnlySources.contains(record.source)
+            || localOnlyTypes.contains("\(record.source)/\(record.dataType)")
+    }
 
     /// Returns nil when the rows landed, and why not when they didn't.
     ///

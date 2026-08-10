@@ -329,7 +329,16 @@ final class DistillViewModel: ObservableObject {
     /// account because the upload hasn't landed yet would be the restore
     /// undoing the work.
     func apply(_ snapshot: RestoreService.Snapshot) {
-        records = snapshot.records.map(applyingBans)
+        // **Rows that never upload have to be carried across, or they live
+        // exactly one launch.** The server is the source of truth and this
+        // replaces the cache with its copy — which is right for everything that
+        // travels and fatal for anything that does not. `health/biological_sex`
+        // is withheld at the wire on purpose, so the snapshot cannot contain it,
+        // and without this the next hydration would delete the row a distill had
+        // just written. Refusing to send it and refusing to forget it are one
+        // decision, so `SyncService` owns both halves.
+        let heldBack = records.filter(SyncService.isLocalOnly)
+        records = (snapshot.records + heldBack).map(applyingBans)
         bans = snapshot.bans
         bans.save()
         knownConnections.formUnion(snapshot.connectedSources)
