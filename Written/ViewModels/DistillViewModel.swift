@@ -1042,9 +1042,29 @@ final class DistillViewModel: ObservableObject {
     /// is the one place every source's records pass through, so one call here
     /// covers all of them.
     ///
-    /// Health is the exception, and takes the other branch: its raw rows are
-    /// gone by the time this runs — discarded in `distillHealth` — so only the
-    /// figures derived from them travel, plus the row saying it was connected.
+    /// **Health takes the other branch, and that branch is now a known gap
+    /// rather than a design.** It sends only the derived figures plus the row
+    /// saying it was connected, so `distilled_records` holds **zero** rows with
+    /// `source == "health"` — measured 2026-08-10, for every account, ever.
+    ///
+    /// This comment used to explain that by saying the raw rows were "gone by
+    /// the time this runs, discarded in `distillHealth`". They are not — and
+    /// `distillHealth` is precisely the function that now *keeps* them: it
+    /// filters to `healthKeptTypes` and calls `replaceRecords(from: "health",
+    /// with: extracted)`, under a comment reading "**The raw rows are kept
+    /// now**". The keep half landed; the send half was never written.
+    /// `SyncService.localOnlyTypes` is innocent — it withholds only
+    /// `health/biological_sex`, and `push` would carry `workout`,
+    /// `activity_day`, `activity_hour` and `age` if it were ever called.
+    ///
+    /// Second-order: `apply(_:)` carries across only `isLocalOnly` rows when
+    /// the server snapshot arrives, so the local copy survives exactly one
+    /// launch and the owner's own export comes back empty.
+    ///
+    /// **Do not fix it here.** The v0.3.1 contract requires a recorded
+    /// `fitness_connection` purpose grant before any HealthKit transfer, so
+    /// re-pointing this at `push` would ship an ungated transfer weeks before
+    /// the rule lands. The fix is the typed envelopes in Phase 1.
     private func sync(source: String, records: [DistilledRecord]) {
         let chronotype = self.chronotype
         let sports = self.sports

@@ -483,12 +483,31 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   list, and the value of the list is that it stays short and complete.
   - **Postgres, keyed to the account** — the distillation itself, via
     `SyncService`, plus the profile, the ban list and derived health signals.
-    **HealthKit rows travel now, except one.** They used to be derived and
-    discarded — which produced an export with nothing in it and figures nobody
-    could check — and the reason given was volume, which was never there: the
-    distiller sums samples into day and hour buckets *before* making a record
-    (`activity_hour` is 24 rows for the whole window, not 8,760), so a year is
-    about 400–700 rows against 2,540 from one real Apple Music library.
+    **HealthKit rows do not travel, and this paragraph claimed for months that
+    they did.** Measured 2026-08-10: `distilled_records` holds **zero** rows
+    with `source='health'`, for every user, ever, while five `source_connections`
+    rows and six `health_signals` rows show Health distilling normally. The
+    cause is not the wire filter — `localOnlyTypes` is exactly
+    `["health/biological_sex"]`, as described below, and `push` would send the
+    rest. It is that **`DistillViewModel.sync` never calls `push` for health at
+    all**: `DistillViewModel.swift:1063` branches the source away and sends only
+    `pushHealthSignals` plus a `pushConnection(recordCount: 0)`. The
+    *keep* half landed (`:791-805` writes the raw rows to `RecordStore`); the
+    *send* half was never written, which is why the doc comment at `:1045-1047`
+    describes the opposite of what the code does. Second-order: `apply(_:)`
+    (`:340-341`) carries across only `isLocalOnly` rows, so the local copy
+    survives exactly one launch and the owner's export is empty again.
+
+    **Do not fix this under the legacy path.** The v0.3.1 contract requires a
+    recorded `fitness_connection` purpose grant *before* any HealthKit transfer,
+    and its §3.4 names this exact contradiction. The real fix is the typed
+    envelopes in Phase 1, not a re-pointed `push`.
+
+    The volume argument that was once given for discarding these rows was never
+    real, and that part stands: the distiller sums samples into day and hour
+    buckets *before* making a record (`activity_hour` is 24 rows for the whole
+    window, not 8,760), so a year is about 400–700 rows against 2,540 from one
+    real Apple Music library.
 
     **`health/biological_sex` is the exception and is refused at the wire** by
     `SyncService.localOnlyTypes` — a per-`source/data_type` list, because the
@@ -1539,6 +1558,39 @@ projection and cutover migrations `0048`–`0050` are app-specific. Nothing is
 read by Swift until Phase 3 at the earliest, and §12's KMS design is a
 prerequisite of Phase 1 rather than a detail of it.
 
+**Only `0048` is being written now, and the other two numbers are reserved
+rather than contiguous.** `0049` (server projections) belongs to Phase 4 and
+`0050` (cutover) to Phase 6. Three reasons, and the third is the one that bites:
+§10's own gate reads *"existing push/chat/profile behavior remains green through
+0048"*, so `0048` **is** the additive boundary; `0049` must match a
+`SemanticSurfaceService` that does not exist and its acceptance gate — two
+adversarial users against real assertions — is unrunnable before Phase 2; and
+`0050` is irreversible by contract (§9: *"do not reverse 0050 in place"*) while
+**this project has no migration ledger at all** — `supabase_migrations` is not
+an empty schema, it is an absent one — so a routine `supabase db push` after
+linking would apply it and break `DiscoveryCardService`, `DiscoveryService`,
+`MatchProfileService` and `ChatService` for every installed build. §5 requires
+never *reusing* a number, not contiguity: if product work needs a migration
+first, it takes `0049` and the pair shifts.
+
+**What `0048` has to carry, and the reason it is not bookkeeping:**
+`0042`–`0047` reference `auth.users` 31 times and legacy `public.*` tables zero
+times, so the semantic schema is completely decoupled today and `0048` is the
+single point where the two worlds meet. Its load-bearing change is a foreign
+key: `0042:482-484` constrains
+`(ingestion_run_id, user_id, source_code) → ingestion_runs`, which *encodes*
+the provenance defect — an observation's source must equal its run's source, so
+a `user` row inside an Apple Music batch is stored as Apple Music evidence.
+`connector_source_code` and a repointed FK are what fix it, and
+`finalize_ingestion_run_v031` (`0047:526`) has to be replaced to partition by
+record source.
+
+**One trap in `0043` that `0048` must not walk into.** It grants
+`select, insert, update on all tables in schema semantic_private to
+service_role`, and **`on all tables` binds at execution time, not going
+forward** — so every table `0048` adds gets no grant unless `0048` grants it
+explicitly.
+
 ### The dynamic profile
 
 The official way one match presents themselves to another — distinct from the
@@ -2121,10 +2173,26 @@ this file is in `git log -p CLAUDE.md`.
   of 2026-08-07 it was null for every account, explained by all of them
   predating `c1a47d8` — which also means the age gate has never been observed
   reaching Postgres.
-- **`health_sports` is empty and it is not known whether that is right.** 0 rows
-  against 1 in `health_signals`. The early return that made this ambiguous is
-  gone, so from the next distillation an empty table means the device genuinely
-  derived no sports. Settle it by checking whether Health has workouts at all.
+- **`health_sports` being empty is correct, and only one thing about it is still
+  open.** Settled 2026-08-10 three ways. The database: 5 `health` connections
+  and 6 `health_signals` rows carrying real data (`days_observed` 310–366,
+  `average_daily_steps` 2,985–11,606), so HealthKit is answering. The code:
+  `SyncService.swift:367` writes `health_sports` in the same `do` block as the
+  `health_signals` POST at `:353`, which succeeded every run — so the only path
+  past it is `sports.isEmpty`, and `LifestyleHighlights.swift:139-156` draws
+  that list solely from `dataType == "workout"`. Zero sports means zero
+  `HKWorkout` samples; the push is not broken and the derivation drops nothing.
+  And the v0.3.1 handoff §4, analysing the real export independently, found 365
+  `activity_day` + 24 `activity_hour` rows, no workouts, coverage
+  `aggregate_only` — *"a correct abstention for missing modality"*.
+
+  The likely cause is that **no test device has an Apple Watch**; steps come
+  from the iPhone's motion coprocessor and arrive for everyone, while
+  `HKWorkout` needs something recording sessions. **What is still open:** a
+  declined Workouts toggle is indistinguishable from no workouts, since
+  HealthKit returns a refused read as an empty set
+  (`HealthKitDistiller.swift:560`) and nothing records the sample count. One
+  line in the distiller's `Trail` (`:213-238`) would settle it.
 - **The append/change-only path has never run from the app.** `0004`–`0006` were
   exercised directly against the database — an unchanged 553-row replay wrote 0
   rows, a change wrote 1 — but no distillation has gone through
