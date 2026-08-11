@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Export every distinct music term for hand-labelling.
 
-    SUPABASE_SECRET_KEY=... python3 tools/export_terms_to_label.py
+    SUPABASE_SECRET_KEY=... python3.14 tools/export_terms_to_label.py
+
+**Needs Python 3.11 or newer.** `python3` on macOS is Xcode's 3.9, which has no
+`enum.StrEnum` and so cannot import `written_ontology`. Nothing else here needs
+a modern interpreter.
 
 **Why by hand.** Resolution maps genres and nothing else — 36 concepts — while
 741 performers, 174 composers, 288 albums and 1,559 titles are extracted, match
@@ -159,8 +163,23 @@ def seeded_genres() -> dict[str, str]:
     here = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, os.path.join(os.path.dirname(here), "semantic", "src"))
     sys.path.insert(0, here)
-    from seed_music_concepts import GENRES  # noqa: E402
-    from written_ontology.normalize import normalize_text  # noqa: E402
+    try:
+        from seed_music_concepts import GENRES  # noqa: E402
+        from written_ontology.normalize import normalize_text  # noqa: E402
+    except ImportError as error:
+        # **`python3` on macOS is Xcode's 3.9, which has no `enum.StrEnum`.**
+        # Everything in this file works there; `written_ontology` does not, and
+        # it is reached only for the genre prefill. Naming the interpreter is
+        # the whole fix, and saying so beats a traceback pointing at
+        # `enum.py` — which reads as a broken package rather than a shell
+        # picking a fifteen-year-old Python off the PATH.
+        sys.exit(
+            f"{error}\n\n"
+            "This needs Python 3.11 or newer — `python3` is probably Xcode's "
+            "3.9. Try:\n\n"
+            "    python3.14 tools/export_terms_to_label.py\n"
+            "    /opt/homebrew/bin/python3 tools/export_terms_to_label.py\n"
+        )
 
     resolved: dict[str, str] = {}
     for concept_key, label, aliases, _broader in GENRES:
@@ -170,12 +189,17 @@ def seeded_genres() -> dict[str, str]:
 
 
 def main() -> None:
+    # **Before the network, not after.** These two settle in milliseconds and
+    # either can end the run; fetching several thousand rows first and then
+    # exiting on a missing interpreter wastes a minute and reads like the
+    # download was the problem.
+    seeded = seeded_genres()
     key = env_key()
+
     records = fetch_records(key)
     counted = terms(records)
     previous = existing_labels(OUTPUT)
-    seeded = seeded_genres()
-    from written_ontology.normalize import normalize_text
+    from written_ontology.normalize import normalize_text  # noqa: E402
 
     rows = []
     for role, term in counted:
