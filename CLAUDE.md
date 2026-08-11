@@ -1870,6 +1870,32 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
+**Evidence is written by ingestion, not by the worker, and the schema is what
+decided that.** `guard_observation_ingestion_run` refuses any observation whose
+run is not still `running`, while `finalize_ingestion_run_v031` enqueues
+`recompute_user` *after* the run closes — so a worker claiming that job finds a
+`succeeded` run and every insert is refused. No grant fixes it. Classification
+belongs where the plaintext already is: the ingestion Lambda holds it before it
+encrypts it, and runs while the run is open. `ingestion_run_items` carrying both
+`raw_source_record_id` and `observation_id`, with a check requiring at least
+one, says the same from the other side.
+
+**And the split survives, which is the part that had to be checked rather than
+assumed.** `ingest_source_records_v031` is `security definer` owned by
+`postgres`, so the observation insert — and the six `security invoker` triggers
+it fires — run as the definer. `semantic_ingestor` gains **no table privilege at
+all**: still one callable function, still zero tables, still unable to read a
+row back. `0059` asserts exactly that, because it is the migration that could
+have broken it.
+
+**Calendar and HealthKit are captured and describe nothing.**
+`private_observation_projection_is_valid_v03` demands a sanitised shape for
+those two that is a *classifier's output* rather than a transcription, and §7
+permits only the current Calendar classifier over Calendar rows. The endpoint
+sends no `normalized_payload` for them, so their rows are stored encrypted and
+contribute zero evidence — which is what §10's Calendar gate asks for rather
+than a limitation.
+
 **The worker exists, and it is the other half of the split.** `0057` gives it
 `semantic_worker`: `bypassrls` and an **enumerated grant list** — ten tables
 read, two written, nothing outside `semantic_private`, all asserted from the

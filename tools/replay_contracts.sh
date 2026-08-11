@@ -181,6 +181,10 @@ apply_twice 0057_semantic_worker_role.sql
 # 0058 adds what the worker's own triggers need — inserting one observation
 # fires six security-invoker triggers that run as the worker, not the owner.
 apply_twice 0058_worker_trigger_grants.sql
+# 0059 moves projection into ingestion, where the plaintext already is and the
+# run is still open. Its assertion is the one that matters: the ingestion role
+# must gain no table access from writing observations.
+apply_twice 0059_ingestion_writes_observations.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

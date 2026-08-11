@@ -11,7 +11,7 @@ import { createDecipheriv } from "node:crypto";
 
 import {
   canonicalize, consentPurposeFor, encryptPayload, InvalidEnvelope, keyVersionFor,
-  normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
+  normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -222,4 +222,27 @@ test("the manifest is the batch's distinct scopes, always partial", () => {
   // from omission, which §10 forbids outright.
   assert.ok(scopes.every((s) => s.completeness === "partial"));
   assert.ok(scopes.every((s) => /^[a-z0-9][a-z0-9_.:-]{0,127}$/.test(s.scope_key)));
+});
+
+test("only describable rows become evidence", () => {
+  // Calendar and HealthKit are captured and contribute nothing: their sanitised
+  // shape is a classifier's output, not a transcription, and §7 permits only
+  // the current Calendar classifier over Calendar rows.
+  assert.equal(normalizedPayload("apple_calendar", { kind: "calendar", value: { title: "X" } }), null);
+  assert.equal(normalizedPayload("healthkit", { kind: "fitness", value: { kind: "workout" } }), null);
+
+  // A row with no title is not evidence of a song.
+  assert.equal(normalizedPayload("apple_music", { kind: "music", value: { album: "A" } }), null);
+
+  const fields = normalizedPayload("apple_music", {
+    kind: "music",
+    value: { title: "Partita No. 2", composer: "J.S. Bach", primaryPerformer: "Itzhak Perlman",
+             genres: [], album: null, creditedArtists: ["Itzhak Perlman"] },
+  });
+  assert.equal(fields.title, "Partita No. 2");
+  assert.equal(fields.composer, "J.S. Bach");
+  assert.equal(fields.schema_version, "music-v03");
+  // Absent and empty are the same thing to a resolver, and the private sources
+  // are held to 1 KB — a limit worth respecting everywhere.
+  assert.ok(!("genres" in fields) && !("album" in fields));
 });

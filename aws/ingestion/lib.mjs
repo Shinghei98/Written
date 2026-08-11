@@ -153,6 +153,57 @@ export function encryptPayload(dek, plaintextUtf8) {
   return Buffer.concat([iv, body, cipher.getAuthTag()]).toString("base64");
 }
 
+// Sources this endpoint is willing to describe as evidence.
+//
+// **Calendar and HealthKit are absent on purpose.**
+// `private_observation_projection_is_valid_v03` demands a sanitised shape for
+// those two — `calendar-v03`, `sanitized_classification`, `action_weight = 0`,
+// under 1 KB with a `classification_state` — and that shape is the *output of a
+// classifier*, not a transcription of the payload. §7 permits only the current
+// Calendar classifier over Calendar rows. Their rows are captured and encrypted
+// and contribute zero evidence, which is what §10's Calendar gate asks for.
+const PROJECTABLE = new Set(["apple_music", "music_library", "spotify"]);
+
+/**
+ * What a music row says, with the capture stripped out.
+ *
+ * **Deliberately not the whole envelope.** `observed_at` and `ingestion_id`
+ * describe *how* a row was collected; an observation is about what was
+ * observed. The full envelope stays in the encrypted vault for anything that
+ * later wants it — which is the point of keeping raw capture at all.
+ *
+ * Returns `null` for anything it cannot honestly describe, and the caller sends
+ * no observation for those. A row with no title is not evidence of a song.
+ */
+export function normalizedPayload(sourceCode, payload) {
+  if (!PROJECTABLE.has(sourceCode)) return null;
+  const value = payload?.kind === "music" ? payload.value : null;
+  if (!value) return null;
+
+  const fields = {
+    title: value.title,
+    primary_performer: value.primaryPerformer,
+    credited_artists: value.creditedArtists,
+    composer: value.composer,
+    album: value.album,
+    genres: value.genres,
+    release_date: value.releaseDate,
+    isrc: value.isrc,
+    play_count: value.playCount,
+    rank: value.rank,
+  };
+  for (const [key, held] of Object.entries(fields)) {
+    const empty = held === null || held === undefined || held === ""
+      || (Array.isArray(held) && held.length === 0);
+    if (empty) delete fields[key];
+  }
+  if (!fields.title) return null;
+
+  fields.schema_version = "music-v03";
+  fields.record_kind = "music_item";
+  return fields;
+}
+
 export class InvalidEnvelope extends Error {
   constructor(index, message) {
     super(`records[${index}]: ${message}`);
@@ -225,6 +276,16 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
     encrypted_payload_b64: encryptPayload(dek, canonicalize(sealed)),
     consent_purpose: consentPurposeFor(sourceCode),
     retention_policy_version: RETENTION_POLICY_VERSION,
+    // **Evidence, written here because here is where the plaintext is.**
+    // `guard_observation_ingestion_run` refuses an observation whose run is not
+    // still `running`, and the run closes at finalization — so a worker
+    // claiming the job afterwards can never write one. Null for anything this
+    // endpoint declines to describe, and the function then stores the raw row
+    // alone.
+    normalized_payload: normalizedPayload(sourceCode, typedPayload),
+    observation_kind: "catalog_item",
+    payload_schema_version: "music-v03",
+    privacy_class: "public_catalog",
   };
 }
 
