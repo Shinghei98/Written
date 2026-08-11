@@ -6,6 +6,9 @@
 
 # Distillation exports (personal data — never commit)
 written-distillation-*.csv
+# The term-labelling sheet: one person's whole music library in plain text,
+# the same class as an export and equally unwelcome in history.
+ontology-terms.csv
 
 # Credentials. None of these belong in a repository, and the reason this list
 # exists rather than trusting care is that an APNs key was committed by a
