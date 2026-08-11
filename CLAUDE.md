@@ -1626,6 +1626,25 @@ projection and cutover migrations `0048`–`0050` are app-specific. Nothing is
 read by Swift until Phase 3 at the earliest, and §12's KMS design is a
 prerequisite of Phase 1 rather than a detail of it.
 
+**That KMS decision is made: AWS**, and it is written up in
+`semantic/docs/KMS_DESIGN.md`. The scheme names no vendor — `DECISIONS.md` files
+the provider, the key hierarchy and the worker's host under *"not implemented or
+intentionally deferred"*, all in one bullet, because they are one decision. So
+choosing AWS also answers where the worker runs: Lambda on an EventBridge
+schedule, which fits a worker whose CLI *requires* `--once` and which had no
+host at all before, this project's only compute being three Deno edge functions
+and a static site.
+
+Two things from that document are worth knowing without reading it. **Crypto
+erasure means deleting the user's wrapped-key row, never the KMS key** — one is
+a routine deletion request, the other erases every user at once. And **the
+ingestion identity gets encrypt-only while the worker gets decrypt**, so the
+thing exposed to the internet can write into the vault and cannot read it back.
+One sub-decision is open: whether ingestion runs on Supabase, which needs a
+standing AWS credential in an edge function's environment, or on AWS, which does
+not. Recommended on AWS, and it must be settled before Phase 1 builds the
+endpoint, since it decides where the endpoint lives.
+
 **Only `0048` is being written now, and the later numbers are reserved rather
 than contiguous.** `0049` was then spent on something real — capturing
 `public.rls_auto_enable()`, a Supabase dashboard event trigger that existed in
