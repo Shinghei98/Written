@@ -281,6 +281,29 @@ export function normalizedPayload(sourceCode, payload) {
   return fields;
 }
 
+/**
+ * The observation fields, or nothing at all.
+ *
+ * **Omitted rather than sent as null**, because JSON `null` is not SQL NULL:
+ * `element -> 'normalized_payload'` turns it into `'null'::jsonb`, which passed
+ * an `is not null` guard server-side and then failed the closed-projection
+ * check — taking a whole Calendar run's capture down with it. `0060` fixes the
+ * server to test `jsonb_typeof(...) = 'object'`, and this stops sending the
+ * ambiguous value in the first place. Either alone would do; both is right,
+ * because the server must not trust the caller's shape and the caller should
+ * not send a shape it does not mean.
+ */
+function projection(sourceCode, typedPayload) {
+  const fields = normalizedPayload(sourceCode, typedPayload);
+  if (!fields) return {};
+  return {
+    normalized_payload: fields,
+    observation_kind: "catalog_item",
+    payload_schema_version: "music-v03",
+    privacy_class: "public_catalog",
+  };
+}
+
 export class InvalidEnvelope extends Error {
   constructor(index, message) {
     super(`records[${index}]: ${message}`);
@@ -366,10 +389,7 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
     // claiming the job afterwards can never write one. Null for anything this
     // endpoint declines to describe, and the function then stores the raw row
     // alone.
-    normalized_payload: normalizedPayload(sourceCode, typedPayload),
-    observation_kind: "catalog_item",
-    payload_schema_version: "music-v03",
-    privacy_class: "public_catalog",
+    ...projection(sourceCode, typedPayload),
   };
 }
 

@@ -336,3 +336,22 @@ test("the database call's arguments build without touching a database", () => {
   // Absent `truncated` must not throw — the common case is no shortfall.
   assert.doesNotThrow(() => ingestArguments({ userId: USER }, [], "arn"));
 });
+
+test("a row with no projection carries no observation fields at all", () => {
+  // JSON `null` is not SQL NULL. Sent as null, `-> 'normalized_payload'` makes
+  // it `'null'::jsonb`, which passed an `is not null` guard and then failed the
+  // closed-projection check — taking a whole Calendar run's capture with it.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const calendar = toRecordRow({ record_source_code: "apple_calendar", data_type: "event",
+    action_type: "booked", provider_item_id: "e.1",
+    typed_payload: { kind: "calendar", value: { title: "X" } } }, 0, ctx);
+  assert.ok(!("normalized_payload" in calendar), "omitted, not null");
+  assert.ok(!("observation_kind" in calendar));
+  assert.ok(!("privacy_class" in calendar));
+
+  const song = toRecordRow({ record_source_code: "apple_music", data_type: "library_song",
+    action_type: "library_song", provider_item_id: "i.1",
+    typed_payload: { kind: "music", value: { title: "A" } } }, 0, ctx);
+  assert.equal(song.normalized_payload.title, "A");
+  assert.equal(song.privacy_class, "public_catalog");
+});
