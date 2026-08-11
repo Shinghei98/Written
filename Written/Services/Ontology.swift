@@ -435,6 +435,19 @@ enum Ontology {
         /// `banChannel` already adds both, because liked videos identify a
         /// channel by id while subscriptions carry only the title.
         let banValues: [String]
+        /// Every source that contributed to this term.
+        ///
+        /// **A set because terms merge, and the merge was invisible.** `id` is
+        /// kind-and-text, so one artist read from Apple Music and again from
+        /// Spotify is a single chip — and until this existed the row could not
+        /// say so, which left a test user unable to tell a term backed by two
+        /// libraries from one backed by a single play.
+        ///
+        /// It is also what makes striking a term off a judgement rather than a
+        /// guess: a Spotify classical row files under the performer because
+        /// Spotify returns no composer, and knowing which service a term came
+        /// from is the first half of knowing whether it is wrong.
+        let sources: Set<String>
     }
 
     /// One domain and everything that landed in it.
@@ -490,7 +503,10 @@ enum Ontology {
                     weight: existing.weight + term.weight,
                     artworkURL: existing.artworkURL ?? term.artworkURL,
                     kind: existing.kind,
-                    banValues: Array(Set(existing.banValues + term.banValues)).sorted()
+                    banValues: Array(Set(existing.banValues + term.banValues)).sorted(),
+                    // The union is the point: this branch *is* the merge, and
+                    // until now nothing recorded that it had happened.
+                    sources: existing.sources.union(term.sources)
                 )
             } else {
                 byText[term.id] = term
@@ -512,7 +528,8 @@ enum Ontology {
             guard !subject.isEmpty else { continue }
             add(Term(text: subject, weight: 1,
                      artworkURL: artistArtwork[subject.lowercased()],
-                     kind: .artist, banValues: [subject]),
+                     kind: .artist, banValues: [subject],
+                     sources: [record.source]),
                 to: .music)
         }
 
@@ -520,7 +537,10 @@ enum Ontology {
             guard let domain = classify(title: show.name, channel: show.publisher, detail: "") else { continue }
             add(Term(text: show.name, weight: max(show.episodes, 1), artworkURL: nil,
                      kind: .show,
-                     banValues: show.showID.isEmpty ? [show.name] : [show.name, show.showID]),
+                     banValues: show.showID.isEmpty ? [show.name] : [show.name, show.showID],
+                     // A literal rather than a field, because
+                     // `ListeningHighlights.shows` filters on exactly this source.
+                     sources: ["apple_podcasts"]),
                 to: domain)
         }
 
@@ -528,13 +548,18 @@ enum Ontology {
         for event in events {
             guard let domain = classify(title: event.name, channel: event.organizer, detail: "") else { continue }
             add(Term(text: event.name, weight: 1, artworkURL: nil,
-                     kind: .event, banValues: [event.name]),
+                     kind: .event, banValues: [event.name],
+                     // Carried rather than assumed: this is the one term type
+                     // with two real sources, `apple_calendar` and
+                     // `google_calendar`, so a literal here would be a lie.
+                     sources: [event.source]),
                 to: domain)
         }
 
         for sport in sports {
             add(Term(text: sport.name, weight: max(sport.sessions, 1), artworkURL: nil,
-                     kind: .sport, banValues: [sport.name]),
+                     kind: .sport, banValues: [sport.name],
+                     sources: ["health"]),
                 to: .playedSport)
         }
 
@@ -619,7 +644,8 @@ enum Ontology {
                 weight: channel.rows,
                 artworkURL: channel.artwork,
                 kind: .channel,
-                banValues: [name] + channel.ids.sorted()
+                banValues: [name] + channel.ids.sorted(),
+                sources: ["youtube"]
             )))
         }
         return placed

@@ -2225,50 +2225,18 @@ final class DistillViewModel: ObservableObject {
 
         guard !bans.isEmpty else { return record }
 
-        if Modality.music.recordSources.contains(record.source) {
-            // Every artist credited on the track, so a banned artist's
-            // collaborations go too.
-            let credited = record.creator.split(separator: "|").map { String($0) }
-            // **And the stamped subject**, which for classical is the composer.
-            // Memories names a Bach partita "Bach", so striking it off has to
-            // reach rows whose `creator` is whoever performed it — otherwise the
-            // term vanishes from the page and every song behind it carries on
-            // counting toward the mix, the card and the icebreaker.
-            let stamped = record.extraValue("subject").map { [$0] } ?? []
-            for artist in credited + stamped + [record.name] where bans.contains(.artist, artist) {
-                return record.markedRemoved(reason: "banned_artist")
-            }
-        }
-
-        if Modality.media.sources.contains(record.source) {
-            let keys = [record.creator, record.name, record.itemID,
-                        record.extraValue("channel_id") ?? ""]
-            for key in keys where !key.isEmpty && bans.contains(.channel, key) {
-                return record.markedRemoved(reason: "banned_channel")
-            }
-        }
-
-        // Only the workout rows: banning "Yoga" should take the yoga sessions
-        // out, not the day's step count that happens to include the walk there.
-        if record.dataType == "workout", bans.contains(.sport, record.name) {
-            return record.markedRemoved(reason: "banned_sport")
-        }
-
-        // A show and every episode of it. The show row carries the name, an
-        // episode row carries it in `creator` — so one strike takes the whole
-        // programme rather than leaving its episodes behind under a heading that
-        // no longer exists.
-        if record.source == "apple_podcasts" {
-            let keys = [record.name, record.creator, record.itemID]
-            for key in keys where !key.isEmpty && bans.contains(.show, key) {
-                return record.markedRemoved(reason: "banned_show")
-            }
-        }
-
-        // By title, so a recurring appointment stays struck off when next week's
-        // occurrence arrives with a new id — see `BanList.Kind.event`.
-        if record.dataType == "event", bans.contains(.event, record.name) {
-            return record.markedRemoved(reason: "banned_event")
+        // **The five branches this used to spell out now live on
+        // `DistilledRecord.matches(kind:keys:)`.** They moved because
+        // `TermDetailView` has to list the rows behind a term, and the rows it
+        // lists must be exactly the rows the cross would take — two copies of
+        // this rule would drift, and nothing on screen would say so until
+        // somebody struck a term off and the wrong songs went with it.
+        //
+        // The order is preserved: artist, channel, sport, show, event. It only
+        // matters where a row could match two kinds, which is rare and unchanged.
+        for kind in BanList.Kind.contentKinds
+        where record.matches(kind: kind, keys: bans.keys(kind)) {
+            return record.markedRemoved(reason: kind.removalReason)
         }
 
         return record

@@ -64,6 +64,32 @@ struct BanList: Codable, Equatable {
         /// cost of over-matching here is one invitation nobody sees, which is
         /// the outcome they asked for.
         case word
+
+        /// The kinds that strike something off your own distillation, in the
+        /// order `applyingBans` has always tested them.
+        ///
+        /// **`person` and `word` are deliberately absent**: neither describes a
+        /// row of your own data — one hides somebody else's profile, the other
+        /// filters a message they sent — so asking whether they match a
+        /// `DistilledRecord` is a question with no meaning rather than one that
+        /// happens to answer false.
+        static let contentKinds: [Kind] = [.artist, .channel, .sport, .show, .event]
+
+        /// What `extra`'s `removed_reason` says when this kind takes a row.
+        ///
+        /// Spelled here rather than at the five call sites so the strings the
+        /// ontology stage reads cannot drift from the kinds that write them.
+        var removalReason: String {
+            switch self {
+            case .artist:  return "banned_artist"
+            case .channel: return "banned_channel"
+            case .sport:   return "banned_sport"
+            case .show:    return "banned_show"
+            case .event:   return "banned_event"
+            case .person:  return "blocked_person"
+            case .word:    return "filtered_word"
+            }
+        }
     }
 
     struct Entry: Codable, Hashable {
@@ -165,6 +191,72 @@ extension DistilledRecord {
     /// carry it; `removed_reason` is what tells the two apart, and the ontology
     /// stage should read that rather than assume a person decided.
     var isRemovedByUser: Bool { extraValue(Self.removalKey) != nil }
+
+    /// Whether a strike-off of `kind` over `keys` reaches this row.
+    ///
+    /// **Lifted out of `DistillViewModel.applyingBans`, which was the only
+    /// statement of this rule and stated it as a mutation.** Two things ask it
+    /// now: the pass that annotates a withheld row, and the term detail sheet,
+    /// which lists the rows behind a term. They have to agree exactly — what
+    /// somebody reads before deciding to strike a term off must be what the
+    /// strike-off actually takes, or the page is showing evidence for a
+    /// decision it does not govern. A second copy of these five branches would
+    /// drift, and the drift would be invisible until somebody removed a term
+    /// and the wrong songs disappeared.
+    ///
+    /// `keys` is lowercased by the caller or not at all: `BanList.contains`
+    /// does its own normalising and this takes an already-built set so the
+    /// detail sheet can ask about one term's values without constructing a
+    /// whole `BanList`.
+    func matches(kind: BanList.Kind, keys: Set<String>) -> Bool {
+        guard !keys.isEmpty else { return false }
+        func hit(_ value: String) -> Bool {
+            !value.isEmpty && keys.contains(value.lowercased())
+        }
+
+        switch kind {
+        case .artist:
+            guard Modality.music.recordSources.contains(source) else { return false }
+            // Every artist credited on the track, so a banned artist's
+            // collaborations go too.
+            let credited = creator.split(separator: "|").map(String.init)
+            // **And the stamped subject**, which for classical is the composer.
+            // Memories names a Bach partita "Bach", so striking it off has to
+            // reach rows whose `creator` is whoever performed it — otherwise the
+            // term vanishes from the page and every song behind it carries on
+            // counting toward the mix, the card and the icebreaker.
+            let stamped = extraValue("subject").map { [$0] } ?? []
+            return (credited + stamped + [name]).contains(where: hit)
+
+        case .channel:
+            guard Modality.media.sources.contains(source) else { return false }
+            return [creator, name, itemID, extraValue("channel_id") ?? ""].contains(where: hit)
+
+        case .sport:
+            // Only the workout rows: banning "Yoga" should take the yoga
+            // sessions out, not the day's step count that happens to include
+            // the walk there.
+            return dataType == "workout" && hit(name)
+
+        case .show:
+            // A show and every episode of it. The show row carries the name, an
+            // episode row carries it in `creator` — so one strike takes the
+            // whole programme rather than leaving its episodes behind under a
+            // heading that no longer exists.
+            guard source == "apple_podcasts" else { return false }
+            return [name, creator, itemID].contains(where: hit)
+
+        case .event:
+            // By title, so a recurring appointment stays struck off when next
+            // week's occurrence arrives with a new id — see `BanList.Kind.event`.
+            return dataType == "event" && hit(name)
+
+        case .person, .word:
+            // Neither describes a row of your own distillation: one hides
+            // somebody else's profile, the other filters a chat message.
+            return false
+        }
+    }
 
     /// A copy carrying the removal note. `extra` is `key=value;…`, so this is
     /// two more pairs on the end.

@@ -140,6 +140,10 @@ enum ListeningHighlights {
         var id: String { eventID }
         let eventID: String
         let name: String
+        /// Which calendar connector this came from. Carried rather than assumed
+        /// because it is genuinely two — `apple_calendar` and `google_calendar`
+        /// — and the Memories row shows the user where a term came from.
+        let source: String
         let start: Date?
         /// Written in by a ticketing site rather than typed by the user —
         /// Eventbrite, Ticketmaster, Dice all leave a `url`. It cost money and a
@@ -247,6 +251,7 @@ enum ListeningHighlights {
                 Event(
                     eventID: record.itemID,
                     name: record.name,
+                    source: record.source,
                     start: record.extraValue("start").flatMap(Self.iso.date(from:)),
                     booked: record.extraValue("booked") == "1",
                     organizer: record.extraValue("organizer") ?? "",

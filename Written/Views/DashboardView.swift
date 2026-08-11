@@ -65,6 +65,19 @@ struct DashboardView: View {
     /// user never pointed at.
     @State private var editingEntry: String?
 
+    /// The term whose evidence is being read, and the card it was drawn under.
+    ///
+    /// Both, because `TermDetailView` names the domain in its header and
+    /// `Ontology.Term` does not carry one — a term is placed *into* a domain by
+    /// `terms(records:…)` rather than knowing which it landed in.
+    @State private var inspected: InspectedTerm?
+
+    struct InspectedTerm: Identifiable {
+        let term: Ontology.Term
+        let domain: Ontology.Domain
+        var id: String { term.id }
+    }
+
     /// Which biographics row is being corrected, if any.
     @State private var editor: BiographicsEditor?
 
@@ -295,6 +308,16 @@ struct DashboardView: View {
             BookmarksView(
                 viewModel: viewModel,
                 onClose: { isShowingBookmarks = false }
+            )
+        }
+        // What is behind one term. A cover rather than a sheet, matching
+        // Settings and Bookmarks — somewhere you go and come back from.
+        .fullScreenCover(item: $inspected) { entry in
+            TermDetailView(
+                viewModel: viewModel,
+                term: entry.term,
+                domain: entry.domain,
+                onClose: { inspected = nil }
             )
         }
         // **Four pages the first time somebody reaches Memories.**
@@ -1054,6 +1077,17 @@ struct DashboardView: View {
                                 remove { viewModel.banTerm(term) }
                             }
                             .editableOnLongPress($editingEntry, key: term.id)
+                            // **Tap reads, long-press edits.** Tap was free on
+                            // this row — the page-level gesture only disarms
+                            // edit mode — and the two verbs stay distinct: a
+                            // tap can never remove anything, so opening the
+                            // evidence carries no risk of striking a term off
+                            // by accident. Guarded so a tap while a cross is
+                            // showing still just puts the cross away.
+                            .onTapGesture {
+                                guard editingEntry == nil else { return }
+                                inspected = InspectedTerm(term: term, domain: group.domain)
+                            }
                     }
                     // What no phone could observe — the same rows the source
                     // cards gave their own additions, keyed by domain now.
@@ -1090,14 +1124,38 @@ struct DashboardView: View {
 
             Spacer(minLength: 8)
 
+            // **Where this came from, always — not only when it is surprising.**
+            // A mark that appears sometimes reads as a warning; a mark that is
+            // always there is a property of the term. Two glyphs beside one row
+            // and one beside its neighbour *is* the merge, legible without
+            // anybody explaining it — and until this existed the page could not
+            // say that an artist came from two libraries at all.
+            //
+            // Glyphs rather than names because "Apple Music · Spotify" is
+            // twenty-two characters competing with the term itself. The full
+            // names are in the detail sheet, where there is room to be plain.
+            // Sorted, so the row does not reshuffle between two viewings — the
+            // same rule the ranking below it follows.
+            HStack(spacing: 3) {
+                ForEach(term.sources.sorted(), id: \.self) { source in
+                    Image(systemName: Modality.icon(forSource: source))
+                        .font(.system(size: 9))
+                        .foregroundStyle(GardenPalette.muted.opacity(0.55))
+                }
+            }
+
             ShareBar(fraction: peak > 0 ? Double(term.weight) / Double(peak) : 0)
                 .frame(width: 96, height: 8)
         }
         .padding(.vertical, 9)
         // The count never reaches the screen, so it has to be in the label —
-        // the bar carries it visually and says nothing to a screen reader.
+        // the bar carries it visually and says nothing to a screen reader. The
+        // glyphs are in the same position: decorative to VoiceOver unless said.
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(term.text), \(term.weight)")
+        .accessibilityLabel(
+            "\(term.text), \(term.weight), from "
+                + term.sources.sorted().map(Modality.displayName(forSource:)).joined(separator: ", ")
+        )
     }
 
     // MARK: - Music
@@ -1880,7 +1938,11 @@ private struct ShareBar: View {
 /// There is no cover for records distilled before the distillers started
 /// keeping image URLs, and none while the image is still loading, so the
 /// monogram is the resting state rather than an error case.
-private struct ArtworkTile: View {
+///
+/// Internal rather than private since `TermDetailView` draws the same tile for
+/// the term it is explaining. Two copies would drift the moment either was
+/// touched, and the monogram fallback is the part worth not duplicating.
+struct ArtworkTile: View {
     let name: String
     let url: URL?
     var side: CGFloat = 44
