@@ -1562,6 +1562,21 @@ hand over weeks never proved they build a schema from nothing. Done once against
 an empty project, the chain applied cleanly — and produced the measurement that
 corrected this paragraph.
 
+**`0042`–`0049` are applied to production as of 2026-08-10, and the migration
+head is `0049`.** The ledger exists now: `supabase_migrations` was absent
+entirely — not empty, *absent* — because every migration had been applied by
+hand, so `supabase db push` would have tried `0001` against a full database.
+`supabase migration repair --status applied 0001 … 0041` came first, and
+`0042`–`0049` were deliberately left unrepaired because they genuinely had not
+been applied. **From now on `db push` is the deployment mechanism**, and
+`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers.
+
+Nothing about the product changed: all seven feature flags are seeded off,
+nothing in Swift reads the new schemas, and the legacy path is untouched. The
+check that mattered came back exactly right — the app's `private` schema ACL
+fingerprint is byte-identical either side of the deploy, and `anon`,
+`authenticated` and `service_role` still have no usage on it.
+
 **`0042` and `0043` ship no product behaviour.** Phase 0 installs the schema and
 proves it upgrades cleanly. `004`–`006` become `0045`–`0047`, and the bridge,
 projection and cutover migrations `0048`–`0050` are app-specific. Nothing is

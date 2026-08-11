@@ -1,7 +1,35 @@
 # Applying 0042–0049 to production
 
-Everything here is ready and verified. **Nothing has been applied.** The block
-is access, not readiness — see the last section.
+> ## APPLIED 2026-08-10. This is now a record, not a plan.
+>
+> Ledger repaired (0001–0041), `supabase db push` applied `0042`–`0049`, and
+> every check below passed. Post-deploy state:
+>
+> | Check | Result |
+> |---|---|
+> | Semantic schemas | 3 of 3 (`semantic_private`, `ontology`, `api`) |
+> | Tables created | 67 `semantic_private` + 16 `ontology` |
+> | `api` RPCs | 7 (six Memories + `feature_flags`) |
+> | Source-coupled run FKs | **0** — the conflation is gone in production |
+> | Feature flags enabled | **0 of 7** |
+> | `private` ACL fingerprint | `80a84bd432d956bb40696a66f3c0936f` — **identical to the pre-deploy baseline** |
+> | `anon` / `authenticated` / `service_role` on `private` | false / false / false |
+> | `authenticated` on `semantic_private` / `ontology` | false / false (`api` only) |
+> | Legacy path | untouched — 6,148 `distilled_records`, 5 `discovery_cards`, icebreaker trigger and `append_source_records` both present |
+> | Advisors | **no ERROR**; 70 new INFO, all `rls_enabled_no_policy` on the new schemas |
+>
+> **Those 70 INFO findings are the intended posture, not a gap.** RLS is on with
+> no policy on every new table, which denies every caller that is not
+> `service_role` — the same shape as `private.push_config`. Read them as
+> confirmation.
+>
+> **One thing is deliberately not done yet:** the `api` schema is not in the
+> project's exposed schemas, so `api.feature_flags()` is not reachable from the
+> client. That is Phase 1 work, alongside the `Accept-Profile` header in
+> `PostgREST.swift`.
+>
+> Everything below is the procedure as written beforehand, kept because the
+> reasoning still applies to `0050`/`0051`.
 
 ## Production baseline, captured 2026-08-10 (read-only)
 
