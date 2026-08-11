@@ -28,7 +28,7 @@ import boto3
 from written_ontology.repository import PostgresJobQueue, WorkerJob
 from written_ontology.worker import SemanticWorker
 
-from observations import project_user
+from fitness import build_fitness_snapshot
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 VAULT_KEY_ARN = os.environ["VAULT_KEY_ARN"]
@@ -69,10 +69,26 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
 
     The payload names the user and the input revision the run produced, plus the
     four model ids the contract binds a computation to. Only the user is used
-    today: this projects vault rows into observations and stops there. Scoring,
-    resolution and embedding are the models' work and come after, which is why
-    their ids are carried but not honoured — a result stamped with a model that
-    did not run would be worse than no result.
+    today. Scoring, resolution and embedding are the models' work and come
+    after, which is why their ids are carried but not honoured — a result
+    stamped with a model that did not run would be worse than no result.
+
+    **It no longer calls `project_user`, and that is the second half of `0059`.**
+    Writing observations from here could never work: `guard_observation_ingestion
+    _run` takes a `for key share` lock on the run, which needs `update` on
+    `ingestion_runs` on top of `select`, and a worker that could update a run
+    could mark somebody's capture complete. The privilege was the visible half;
+    the real one is that an observation belongs to the run that captured it, and
+    a worker running minutes later has no running run of its own. That is why
+    projection moved into ingestion, and this call was what survived the move —
+    failing every invocation with `42501` and taking the whole job down with it,
+    which is how it blocked the fitness snapshot behind it.
+
+    One consequence, unfixed and belonging elsewhere: ~1,224 music rows captured
+    before `0059` still have no observation, all of them behind a single
+    ingestion run left `running` from before finalization existed. They are the
+    zombie-run problem rather than a projection problem, and reviving this call
+    would have written their evidence into a run that will never finalize.
     """
     import psycopg
     from psycopg.rows import dict_row
@@ -80,7 +96,9 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
     user_id = job.payload["user_id"]
     try:
         with psycopg.connect(database_url(), row_factory=dict_row) as connection:
-            counts = project_user(connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN)
+            fitness = build_fitness_snapshot(
+                connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN
+            )
     except Exception as error:
         # **The queue is forbidden from carrying this, so the log has to.**
         # `SemanticWorker` catches a handler exception and records the stable
@@ -133,13 +151,20 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
     # structurally rather than by anyone remembering. A handler that could put
     # arbitrary strings in a durable row is a handler that could put a decrypted
     # calendar title there.
-    return {
+    result = {
         "status": "succeeded",
-        "item_count": counts["read"],
-        "created_count": counts["written"],
-        "skipped_count": counts["skipped_no_payload"],
-        "changed": counts["written"] > 0,
+        "item_count": fitness["read"],
+        "created_count": fitness["written"],
+        "skipped_count": fitness["unreadable"],
+        "changed": fitness["written"] > 0,
+        "candidate_count": fitness["candidates"],
+        "abstained": bool(fitness.get("abstained")),
     }
+    # Absent rather than null when there is no snapshot: the vocabulary types
+    # this key as a uuid, and a null would be refused for the whole result.
+    if fitness.get("snapshot_id"):
+        result["fitness_snapshot_id"] = fitness["snapshot_id"]
+    return result
 
 
 def handler(event, context):  # noqa: ANN001 - Lambda signature

@@ -275,6 +275,12 @@ struct FitnessPayload: Codable, Equatable, Sendable {
 
     /// `activity_hour`: which hour of the day this row aggregates.
     var hourOfDay: Int?
+    /// That hour's share of the day's movement, as the distiller computed it.
+    ///
+    /// Derivable from `steps` across all 24 rows, so unlike `firstMoveHour` this
+    /// was never *lost* — but the classifier reads `share` by name, and a field
+    /// the source states is kept rather than recomputed.
+    var hourShare: Double?
 }
 
 // MARK: - Video

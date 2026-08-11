@@ -194,6 +194,10 @@ apply_twice 0061_fitness_purpose_grant.sql
 # 0062 gives the shadow comparison a durable home in ingestion_runs.metrics,
 # written while the run is still running because a terminal run is immutable.
 apply_twice 0062_run_coverage_metrics.sql
+# 0063 lets the worker write a fitness coverage snapshot. Its assertion pins the
+# worker's *whole* reach rather than adding to it, so this re-run is also the
+# check that a later migration has not widened it by a table.
+apply_twice 0063_worker_fitness_snapshot_grants.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

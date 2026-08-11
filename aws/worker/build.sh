@@ -22,7 +22,13 @@ OUT="$HERE/dist/worker.zip"
 
 trap 'rm -rf "$STAGE"' EXIT
 
-cp "$HERE/handler.py" "$HERE/observations.py" "$STAGE/"
+# **Every `.py` beside this script, not a list of names.** The list was
+# `handler.py observations.py`, and adding `fitness.py` built a zip without it —
+# no error, a smaller bundle, and the failure deferred to an ImportError on the
+# next invocation. A named list is a second place to remember something, and
+# this is the project's "verify in the archive, never in the build settings"
+# lesson in another language.
+cp "$HERE"/*.py "$STAGE/"
 cp "$ROOT/aws/ingestion/supabase-ca.pem" "$STAGE/"
 
 # The vendored package itself — the queue, the worker loop and the job
@@ -48,6 +54,14 @@ python3 -m pip install --quiet --target "$STAGE" \
 for module in psycopg psycopg_binary cryptography typing_extensions written_ontology; do
   [ -e "$STAGE/$module" ] || [ -e "$STAGE/$module.py" ] || {
     echo "missing from the bundle: $module" >&2; exit 1; }
+done
+
+# The glob above, checked rather than assumed. `set -u` makes an unmatched glob
+# loud, but a `cp` that silently skipped a file would not be — and this is the
+# one that was wrong.
+for source in "$HERE"/*.py; do
+  [ -e "$STAGE/$(basename "$source")" ] || {
+    echo "missing from the bundle: $(basename "$source")" >&2; exit 1; }
 done
 
 mkdir -p "$HERE/dist"

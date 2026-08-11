@@ -82,6 +82,26 @@ extension DistilledRecord {
     func extraInt(_ key: String) -> Int? { extraValue(key).flatMap(Int.init) }
     func extraDouble(_ key: String) -> Double? { extraValue(key).flatMap(Double.init) }
 
+    /// The hour out of an `HH:MM` extra, for `first_move`.
+    ///
+    /// **`extraInt` silently answered nil for every one of these.**
+    /// `HealthKitDistiller` writes `first_move=06:00` (`"%02d:00"`), and
+    /// `Int("06:00")` refuses the colon — so `FitnessPayload.firstMoveHour` was
+    /// null on all 366 `activity_day` rows in the vault. The chronotype signal,
+    /// which is the most distinctive thing an activity day carries, was dropped
+    /// at the envelope boundary with nothing anywhere saying so. A typed field
+    /// reading a string shape it cannot parse is the same defect as *two columns
+    /// that accept the same words*, one level down.
+    ///
+    /// The minutes are always `00`, so an `Int` hour is lossless here and the
+    /// classifier's `HH:MM` is reconstructible from it.
+    func extraHour(_ key: String) -> Int? {
+        guard let raw = extraValue(key) else { return nil }
+        let hour = raw.split(separator: ":").first.flatMap { Int($0) }
+        guard let hour, (0...23).contains(hour) else { return nil }
+        return hour
+    }
+
     /// `nil` for absent, so "not stated" and "stated false" stay apart. The
     /// distillers only ever write `1`, which makes the distinction free.
     func extraFlag(_ key: String) -> Bool? {
@@ -223,8 +243,9 @@ extension FitnessPayload {
             exerciseMinutes: record.extraDouble("exercise_min"),
             activeKcal: record.extraDouble("active_kcal"),
             steps: record.extraDouble("steps"),
-            firstMoveHour: record.extraInt("first_move"),
-            hourOfDay: record.dataType == "activity_hour" ? record.extraInt("hour") : nil
+            firstMoveHour: record.extraHour("first_move"),
+            hourOfDay: record.dataType == "activity_hour" ? record.extraInt("hour") : nil,
+            hourShare: record.dataType == "activity_hour" ? record.extraDouble("share") : nil
         )
     }
 }
