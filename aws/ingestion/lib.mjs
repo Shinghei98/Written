@@ -151,13 +151,24 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
   const sealed = { ...rest, typed_payload: typedPayload ?? null };
   delete sealed.consent_purpose; // derived, never the caller's
 
+  // **The fingerprint is taken over the content, never over the capture.**
+  // `observed_at` is stamped at distillation and `ingestion_id` is minted per
+  // run, so both differ on every pass — leave them in and re-distilling an
+  // unchanged library stores every row again, `duplicates` is always 0, and the
+  // vault grows without bound while looking perfectly healthy. This is
+  // `append_source_records`' own rule, which excludes `collected_at`,
+  // `distilled_at` and `updated_at` for exactly this reason and paid for it
+  // first. They stay in the *ciphertext*: when a thing was read is a fact
+  // worth keeping, it is just not part of what the thing is.
+  const { observed_at, ingestion_id, ...content } = sealed;
+
   return {
     record_source_code: sourceCode,
     data_type: dataType,
     occurred_at: occurredAt,
     source_item_hmac: sourceItemHmac(hmacKey, { userId, sourceCode, providerItemId }),
     record_fingerprint: recordFingerprint(hmacKey, {
-      userId, sourceCode, dataType, providerItemId, occurredAt, payload: sealed,
+      userId, sourceCode, dataType, providerItemId, occurredAt, payload: content,
     }),
     encrypted_payload_b64: encryptPayload(dek, canonicalize(sealed)),
     consent_purpose: consentPurposeFor(sourceCode),

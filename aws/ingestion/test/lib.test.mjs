@@ -158,3 +158,29 @@ test("re-sending the same envelope produces the same fingerprint", () => {
   assert.equal(first.source_item_hmac, second.source_item_hmac);
   assert.notEqual(first.encrypted_payload_b64, second.encrypted_payload_b64);
 });
+
+test("re-distilling an unchanged item is a duplicate, not a new row", () => {
+  // **The defect this catches would have looked perfectly healthy.**
+  // `observed_at` is stamped at distillation and `ingestion_id` is minted per
+  // run, so both differ on every pass. Fingerprinting over them means every
+  // re-distill stores every row again, `duplicates` reads 0 forever, and the
+  // vault grows without bound while every number on the dashboard looks right.
+  // `append_source_records` excludes collected_at/distilled_at/updated_at for
+  // exactly this reason and paid for it first.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const base = {
+    record_source_code: "apple_music", data_type: "library_song",
+    provider_item_id: "i.1", typed_payload: { title: "A" },
+  };
+  const monday = toRecordRow(
+    { ...base, observed_at: "2026-08-01T10:00:00Z", ingestion_id: "run-1" }, 0, ctx);
+  const tuesday = toRecordRow(
+    { ...base, observed_at: "2026-08-02T22:31:04Z", ingestion_id: "run-2" }, 0, ctx);
+  assert.equal(monday.record_fingerprint, tuesday.record_fingerprint);
+
+  // But a real change is still a new row — the append-only reading.
+  const changed = toRecordRow(
+    { ...base, observed_at: "2026-08-02T22:31:04Z", ingestion_id: "run-2",
+      typed_payload: { title: "A", playCount: 9 } }, 0, ctx);
+  assert.notEqual(monday.record_fingerprint, changed.record_fingerprint);
+});

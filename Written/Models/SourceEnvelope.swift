@@ -43,6 +43,19 @@ struct SourceEnvelope: Codable, Equatable, Sendable {
     var connectorSource: SemanticSource
     var recordSource: SemanticSource
 
+    /// The kind of row, in the source's own vocabulary — `library_song`,
+    /// `event`, `workout`. `DistilledRecord.dataType`, unchanged.
+    ///
+    /// **Missing from the first version of this struct, and the endpoint
+    /// refused every batch because of it.** §4's sketch lists `action` and this
+    /// was read as covering both; they are different questions.
+    /// `raw_source_records.data_type` is `not null` and constrained
+    /// `^[a-z][a-z0-9_]{0,63}$`, and the action is *derived* from this plus the
+    /// row — so an envelope carrying only the action cannot be stored and
+    /// cannot be reclassified later either, which is the whole point of keeping
+    /// raw capture.
+    var dataType: String
+
     /// What the person did. `nil` when the row carries no act, which is a
     /// state the schema allows and the coverage report counts —
     /// see `ActionMapping.notAnAction`.
@@ -93,6 +106,7 @@ struct SourceEnvelope: Codable, Equatable, Sendable {
         case ingestionID = "ingestion_id"
         case connectorSource = "connector_source_code"
         case recordSource = "record_source_code"
+        case dataType = "data_type"
         case action = "action_type"
         case unweightedAction = "unweighted_action_type"
         case providerItemID = "provider_item_id"
@@ -174,6 +188,7 @@ extension SourceEnvelope {
                 ingestionID: ingestionID,
                 connectorSource: connectorSource,
                 recordSource: recordSource,
+                dataType: record.dataType,
                 action: action,
                 unweightedAction: unweighted,
                 providerItemID: record.itemID,

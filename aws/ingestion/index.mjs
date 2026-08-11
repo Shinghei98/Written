@@ -333,7 +333,17 @@ export async function handler(event) {
     // of the statement — which is a description of the vault's shape handed to
     // whoever provoked it. It goes to CloudWatch, where the operator can read
     // it, and the caller gets a bare code.
-    if (error?.status === 401) return json(401, { error: "unauthorized" });
+    // **The refusal reason goes to the log, never to the caller.** Telling a
+    // stranger *why* their token was rejected is a probing oracle; telling
+    // nobody at all is how the first real device request became unexplainable
+    // — the invocation was there in CloudWatch, the vault was empty, and
+    // nothing anywhere said which check had failed. `functions/push` learned
+    // this the same way: anything the function needs to say has to travel
+    // somewhere the operator can actually read.
+    if (error?.status === 401) {
+      console.error("rejected token:", error.message);
+      return json(401, { error: "unauthorized" });
+    }
     if (error?.status === 400) return json(400, { error: error.message });
     console.error("ingestion failed", error);
     return json(500, { error: "ingestion failed" });

@@ -241,7 +241,17 @@ actor SemanticIngestionService {
                 return .transient("ingestion endpoint returned \(http.statusCode)")
 
             default:
-                return .permanent("ingestion endpoint refused the batch (\(http.statusCode))")
+                // **The endpoint says why; say it.** The first real device
+                // request came back "refused the batch (400)" and the reason —
+                // a missing `data_type` — was sitting unread in the response
+                // body. A status code alone turns a one-line contract mismatch
+                // into a hunt, which is this codebase's recurring defect
+                // wearing yet another hat.
+                let detail = String(data: data, encoding: .utf8)
+                    .flatMap { $0.isEmpty ? nil : $0 } ?? "no detail"
+                return .permanent(
+                    "ingestion endpoint refused the batch (\(http.statusCode)): \(detail)"
+                )
             }
         } catch {
             return .transient(error.localizedDescription)
@@ -286,6 +296,7 @@ extension SemanticIngestionService {
             ingestionID: ingestionID,
             connectorSource: .user,
             recordSource: .user,
+            dataType: "probe",
             action: nil,
             unweightedAction: nil,
             providerItemID: "ingestion-probe",
