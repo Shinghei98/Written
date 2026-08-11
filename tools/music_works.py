@@ -18,7 +18,14 @@ import re
 import unicodedata
 
 from music_dictionary import (
+    ARTIST_ERA,
     ARTIST_WORK,
+    CLASSICAL_ERAS,
+    COMPILATION_MIN_ALBUM,
+    COMPILATION_MIN_ROWS,
+    DECADE_GENRES,
+    GENRE_TRANSLATIONS,
+    decade_of,
     MEDIA_GENRES,
     WORK_BY_ALBUM,
     WORK_DECORATIONS,
@@ -228,3 +235,96 @@ def propagate(rows: list[dict]) -> dict[str, str]:
         key = normalized_song_key(row.get("title", ""), row.get("performer", ""))
         learned.setdefault(key, work)
     return learned
+
+
+# ---------------------------------------------------------------------------
+# Era
+#
+# **Two vocabularies, because the sources are genuinely different.** A classical
+# period is *stated by Apple as a genre* — `Baroque Era`, `Romantic Era` — so it
+# is read. Popular music has no such field, so its era comes from release dates,
+# which is where the care is needed: a release date is the date of *that
+# recording*, not of the song.
+
+def english_genre(genre: str) -> str:
+    """Apple's genre in English, whatever locale it arrived in.
+
+    Load-bearing for era as well as for genre: without it a Chinese-labelled
+    `巴洛克音樂` row would not match `Baroque Era` and a classical library would
+    silently have no periods at all.
+    """
+    text = (genre or "").strip()
+    return GENRE_TRANSLATIONS.get(text, text)
+
+
+def classical_eras(genres: list[str]) -> set[str]:
+    """Periods Apple stated. No dates, no inference."""
+    return {
+        CLASSICAL_ERAS[english_genre(genre)]
+        for genre in genres or ()
+        if english_genre(genre) in CLASSICAL_ERAS
+    }
+
+
+def takes_decades(genres: list[str]) -> bool:
+    """Whether a decade means anything for this music.
+
+    A decade is a claim about popular-music style. It says nothing about a Bach
+    partita, and a recording date would actively mislead — so anything outside
+    this family gets no era rather than a wrong one.
+    """
+    return any(english_genre(genre) in DECADE_GENRES for genre in genres or ())
+
+
+def dates_are_trustworthy(rows: list[dict]) -> bool:
+    """Whether this artist's release dates describe songs or one release event.
+
+    Both conditions are required and each alone is common: a classical soloist
+    legitimately has 65 rows sharing one date, and an ordinary album legitimately
+    has one date. Together they select a compilation — and on the real library,
+    exactly one artist.
+    """
+    years = {(row.get("released") or "")[:4] for row in rows}
+    years.discard("")
+    if len(years) != 1 or len(rows) < COMPILATION_MIN_ROWS:
+        return True
+
+    per_album: dict[str, int] = {}
+    for row in rows:
+        album = row.get("album") or row.get("title") or ""
+        per_album[album] = per_album.get(album, 0) + 1
+    return max(per_album.values(), default=0) < COMPILATION_MIN_ALBUM
+
+
+def artist_eras(performer: str, rows: list[dict]) -> set[str]:
+    """Every era this artist's rows support.
+
+    Order matters. A hand-named artist wins outright, because the reason for
+    naming one is that the dates are known to be wrong. Classical periods come
+    next and need no dates at all. Decades come last and only for the genres
+    where a decade is a statement about style.
+    """
+    named = ARTIST_ERA.get((performer or "").strip())
+    if named:
+        return set(named)
+
+    eras: set[str] = set()
+    for row in rows:
+        eras |= classical_eras(row.get("genres", []))
+    if eras:
+        return eras
+
+    if not any(takes_decades(row.get("genres", [])) for row in rows):
+        return set()
+    if not dates_are_trustworthy(rows):
+        # Known-unreliable dates and nobody has named the artist. An era is
+        # withheld rather than asserted from a compilation's release date.
+        return set()
+
+    for row in rows:
+        year = (row.get("released") or "")[:4]
+        if year.isdigit():
+            decade = decade_of(int(year))
+            if decade:
+                eras.add(decade)
+    return eras

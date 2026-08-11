@@ -237,3 +237,86 @@ def test_an_opera_is_a_work_too(works):
     an opera and an anime alike, which is why this is not a `media:` prefix."""
     assert works.stated_work('Bel raggio lusinghier (From "Semiramide")', "") \
         == "Semiramide"
+
+
+# --- era --------------------------------------------------------------------
+#
+# Two vocabularies, because the sources genuinely differ: a classical period is
+# stated by Apple as a genre, while popular music has only release dates — and a
+# release date is the date of *that recording*, not of the song.
+
+def rows(n, years, biggest_album, genres):
+    """`n` rows across `years`, with `biggest_album` of them on one album."""
+    return [
+        {"released": f"{years[i % len(years)]}-01-01",
+         "album": "A" if i < biggest_album else f"other{i}",
+         "genres": genres}
+        for i in range(n)
+    ]
+
+
+def test_a_classical_period_is_read_not_derived(works):
+    """Apple states `Baroque Era` as a genre, so no date is involved — which is
+    the whole reason classical does not use decades."""
+    assert works.artist_eras("x", rows(20, ["2022"], 20, ["Baroque Era"])) \
+        == {"era:baroque"}
+
+
+def test_a_chinese_period_reaches_the_same_era(works):
+    """`巴洛克音樂` is `Baroque Era`. Without the translation table a
+    Chinese-labelled classical library would have no periods at all — the
+    failure would be total and completely silent."""
+    assert works.artist_eras("x", rows(20, ["2022"], 20, ["巴洛克音樂", "古典樂"])) \
+        == {"era:baroque"}
+
+
+def test_a_classical_recording_date_is_never_a_decade(works):
+    """Emil Gilels has 65 rows all dated 1981. That is when the record was made,
+    not when the music is from, and `era:1980s` would be nonsense about
+    Beethoven. Classical outside a stated period gets no era."""
+    assert works.artist_eras("Emil Gilels", rows(65, ["1981"], 65, ["Classical"])) \
+        == set()
+
+
+@pytest.mark.parametrize("name,n,years,biggest,genres,expected", [
+    ("YOASOBI", 100, ["2019", "2021", "2023", "2026"], 48, ["J-Pop"],
+     {"era:2010s", "era:2020s"}),
+    ("IZ*ONE", 37, ["2018", "2021"], 10, ["K-Pop", "Pop"], {"era:2010s", "era:2020s"}),
+    ("Kiroro", 10, ["1998"], 10, ["J-Pop"], {"era:1990s"}),
+    ("Stevie Wonder", 10, ["1976"], 10, ["R&B/Soul"], {"era:1970s"}),
+    # Anime music is popular music whose date means something: `only my railgun`
+    # is 2009 and *Solo Leveling* is 2024.
+    ("fripSide", 2, ["2009"], 2, ["Anime"], {"era:2000s"}),
+])
+def test_popular_music_takes_its_decade_from_release_dates(
+    works, name, n, years, biggest, genres, expected
+):
+    assert works.artist_eras(name, rows(n, years, biggest, genres)) == expected
+
+
+def test_a_compilation_does_not_set_the_era(works):
+    """**The case that broke the first design.** Every one of Hikaru Utada's 100
+    rows is dated 2024-12-11, because they came from `HIKARU UTADA SCIENCE
+    FICTION TOUR 2024` — so a naive decade rule files "First Love" (1999) under
+    `era:2020s` and inverts the artist most associated with 90s J-pop.
+
+    She is named in `ARTIST_ERA`, which wins outright; the point of naming an
+    artist is that the dates are known to be wrong."""
+    assert works.artist_eras("Hikaru Utada", rows(100, ["2024"], 100, ["J-Pop"])) \
+        == {"era:1990s", "era:2000s"}
+
+
+def test_an_unnamed_compilation_withholds_rather_than_guesses(works):
+    """The same shape without a hand-named era. Nothing is asserted from a
+    compilation's release date — abstention, not a wrong decade."""
+    assert works.artist_eras("Nobody", rows(100, ["2024"], 100, ["J-Pop"])) == set()
+
+
+def test_both_compilation_conditions_are_required(works):
+    """Each alone is ordinary and must not trigger the guard: a normal album has
+    one date, and an artist can legitimately have many rows across many years."""
+    # One date, small album — an ordinary single-album artist.
+    assert works.artist_eras("x", rows(25, ["1998"], 10, ["J-Pop"])) == {"era:1990s"}
+    # Big album, many dates — a long compilation that still dates its tracks.
+    assert works.artist_eras("x", rows(60, ["1998", "2005"], 60, ["J-Pop"])) \
+        == {"era:1990s", "era:2000s"}

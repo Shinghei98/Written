@@ -367,7 +367,35 @@ DECADE_GENRES: frozenset[str] = frozenset({
     "Hip-Hop/Rap", "R&B/Soul", "Electronic", "Dance", "House", "Techno",
     "Disco", "Alternative", "Adult Contemporary", "Singer/Songwriter",
     "Latin", "Country", "Jazz",
+    # Anime songs are popular music with a release date that means something —
+    # `only my railgun` is 2009 and *Solo Leveling* is 2024, and the decade is
+    # the difference between them. Left out at first because the era rule was
+    # written from the genres named in conversation, and fripSide then resolved
+    # to no era at all.
+    "Anime",
 })
+
+
+# **An artist whose release dates are known to lie.** A compilation, live album
+# or remaster stamps the whole catalogue with its own date: every one of Hikaru
+# Utada's 100 rows says 2024-12-11, because they came from `HIKARU UTADA SCIENCE
+# FICTION TOUR 2024` — so the decade rule would file "First Love" (1999) under
+# `era:2020s` and invert the one artist most associated with 90s J-pop.
+#
+# Measured across 45 pop artists with ten or more rows: **44 get a correct decade
+# from dates and one does not.** So this is a named exception rather than a
+# reason to distrust dates generally.
+ARTIST_ERA: dict[str, tuple[str, ...]] = {
+    "Hikaru Utada": ("era:1990s", "era:2000s"),
+}
+
+# The shape that betrays a compilation: many rows, one release date, and a single
+# album far larger than a record. Both conditions are needed — a classical
+# soloist legitimately has 65 rows on one date, and a normal album legitimately
+# has one date. Tuned against the real library, where together they select
+# exactly the one artist above.
+COMPILATION_MIN_ROWS = 20
+COMPILATION_MIN_ALBUM = 30
 
 
 def decade_of(year: int) -> str | None:
