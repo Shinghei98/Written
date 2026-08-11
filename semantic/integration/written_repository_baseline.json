@@ -100,12 +100,17 @@
     },
     {
       "sequence": 53,
-      "suggested_name": "0053_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0053_ingest_with_wrapped_key.sql",
+      "role": "ingestion_envelope_key_binding"
     },
     {
       "sequence": 54,
-      "suggested_name": "0054_semantic_cutover.sql",
+      "suggested_name": "0054_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 55,
+      "suggested_name": "0055_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -156,8 +161,9 @@
     49,
     50,
     51,
-    52
+    52,
+    53
   ],
-  "application_migrations_authored_next": 53,
-  "application_migrations_reserved_note": "50 is the KMS key registry, 51 aligns its key-version vocabulary with 0046's, and 52 gives the ingestion endpoint an identity that can call one function and read nothing. 53 (server projections) is due in phase server_owned_discovery_and_profiles and 54 (cutover) in legacy_semantic_retirement. The pair has shifted four times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 54 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 54,
+  "application_migrations_reserved_note": "50 is the KMS key registry, 51 aligns its key-version vocabulary with 0046's, 52 gives the ingestion endpoint an identity that can call one function and read nothing, and 53 binds the wrapped data key to the rows it protects in that one call. 54 (server projections) is due in phase server_owned_discovery_and_profiles and 55 (cutover) in legacy_semantic_retirement. The pair has shifted five times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 55 is irreversible and must not exist on disk before a minimum supported client version does."
 }

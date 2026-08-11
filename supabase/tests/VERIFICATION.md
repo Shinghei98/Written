@@ -38,7 +38,7 @@ hosted project's *services* create rather than the database image:
 
 | Lane | What it proves |
 |---|---|
-| **A** | `0001`→`0052` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. Contract 006 passes both before and after `0048`. `0048`–`0051` each apply and replay. |
+| **A** | `0001`→`0053` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. Contract 006 passes both before and after `0048`. `0048`–`0051` each apply and replay. |
 | **B** | Calendar upgrade fixture: `0042`–`0045`, load `fixtures/0046_calendar_upgrade_fixture.sql`, apply+replay `0046`, contract passes. Then `0047` and `0048` on that populated state. |
 | **C** | Surface-fact fixture: `0042`–`0046`, load `fixtures/0047_surface_fact_upgrade_fixture.sql`, apply+replay `0047`, contract passes. Then `0048` on that populated state. |
 
@@ -86,6 +86,27 @@ rather than read. Against a full chain in a throwaway container, as
   (`connector spotify may not deliver user records`).
 - **The role cannot read what it just wrote**: `permission denied for table
   raw_source_records`.
+
+`0053` replaces that function to carry the call's wrapped data key, and was
+run the same way:
+
+- The key and the rows arrive in one statement — `key_recorded: true`.
+- A second call **retires** the first key and records its own, and both rows
+  still name a key that exists. That is the invariant that matters: retiring is
+  not deleting, so ciphertext under an old version still decrypts.
+- Reusing a version with a *different* wrapped key is **refused by name**. A
+  wrong key does not announce itself, so this is the one failure that must never
+  be papered over.
+- An empty batch records no key at all — otherwise a probe call leaves a key
+  protecting nothing, kept for the life of the account because nothing
+  downstream can prove it unused.
+
+**And the replay caught a real defect in it.** The first draft used `create
+function` after the `drop`, which applies once and fails the second time with
+`function ... already exists with same argument types`. `create or replace` is
+correct *because* the drop removed the old signature — the drop handles the
+parameter change, the replace handles being run twice, and neither substitutes
+for the other.
 
 **One of those was a product bug, found by running it.**
 `AppleMusicDistiller` emits a `user` row for subscription state during an Apple

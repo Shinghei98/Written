@@ -160,6 +160,10 @@ apply_twice 0051_align_encryption_key_version.sql
 # role can select and call, and raises if the revokes did not take. An apply
 # failure is the failing assertion.
 apply_twice 0052_semantic_ingestor_role.sql
+# 0053 replaces the one function 0052's argument rests on, so it re-asserts the
+# same thing: one callable function, no readable tables. A `drop` that missed or
+# a `create` that overloaded both surface here as a count of two.
+apply_twice 0053_ingest_with_wrapped_key.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

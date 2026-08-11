@@ -1677,6 +1677,31 @@ password, since Supavisor resolves the tenant before checking it and the two
 failures otherwise look equally like an outage; and transaction mode does not
 support prepared statements, so the Lambda's driver must have them off.
 
+**`0053` closes a gap that only appeared while designing the Lambda, and it was
+structural rather than an oversight.** Three correct facts left no way to
+encrypt anything: ingestion holds `GenerateDataKey` and `Encrypt` and **not**
+`Decrypt`, because §12 limits decrypt to the worker path; `0050` models one
+*active* wrapped key per user, to be reused; and `0052` gives the role execute
+on one function that cannot touch the key table. **A stored wrapped key is
+unusable to the identity obliged to encrypt with it** — recovering it needs
+`Decrypt`, and giving ingestion that would collapse the two-identity split that
+is the whole point. `kms:Encrypt` on the payload is no escape either: it caps at
+4 KB.
+
+So **the data key is per *call*, which is inherent to a write-only identity
+rather than a choice** — it cannot reuse what it cannot recover, and a Lambda is
+stateless. `0050` already anticipated the shape: *"Retired is not deleted: rows
+encrypted under it still name it."* Each call retires the previous active key
+and records its own, so "active" means the one the latest ingestion used, which
+is the only sense the word can carry when a key is never reused.
+
+**The key and the rows travel in one statement**, because two calls have a
+failure mode where ciphertext exists and the key to read it does not — that is
+indistinguishable from data loss and no retry recovers it. And reusing a version
+with a *different* wrapped key is refused outright: whichever ciphertext is not
+under the stored key would be permanently unreadable, and a wrong key does not
+announce itself. Refusing costs a retry; accepting costs the data.
+
 Two traps in that migration, both paid for. **`revoke ... on schema public` from
 one role does nothing**: usage there belongs to the `PUBLIC` pseudo-role, and
 revoking it from `PUBLIC` would take it from `anon` and `authenticated` too. The
@@ -1741,14 +1766,14 @@ which is crypto-erasure with nothing to remember to call. It ships no behaviour
 and nothing writes it yet.
 
 **The later numbers are reserved rather than contiguous, and they have shifted
-four times.** The plan allocated three: a bridge, then server projections, then
-cutover. Four of the numbers behind them went to real work — `0049` to
+five times.** The plan allocated three: a bridge, then server projections, then
+cutover. Five of the numbers behind them went to real work — `0049` to
 capturing `public.rls_auto_enable()`, a Supabase dashboard event trigger that
 existed in production and in no file; `0050` to the key registry above; `0051`
 to aligning that registry's `key_version` vocabulary with `0046`'s, which it got
-wrong by one character; and `0052` to the ingestion identity. So **server
-projections are `0053` and cutover is `0054`**, and that is exactly what §5
-permits: never *reuse* a number, but
+wrong by one character; `0052` to the ingestion identity; and `0053` to binding the
+wrapped data key to the rows it protects. So **server projections are `0054` and
+cutover is `0055`**, and that is exactly what §5 permits: never *reuse* a number, but
 skipping one is fine, and if product work needs a migration first they shift
 again.
 
@@ -1767,7 +1792,7 @@ the other side and watching it refuse.
 **So the plan's numbers are no longer the app's, and its §-quotes are written in
 the plan's.** §10's gate reads *"existing push/chat/profile behavior remains
 green through 0048"* and §9 says *"do not reverse 0050 in place"* — the first
-still means our `0048`, the second now means our `0054`. Read a number in
+still means our `0048`, the second now means our `0055`. Read a number in
 `WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**, not as a filename;
 `application_migrations` in the baseline manifest carries the mapping, which is
 why each entry has a `role` beside its name.
