@@ -114,6 +114,31 @@ Music run, and the matrix held identity pairs only — so that record was refuse
 at ingestion and would simply never have arrived. `0052` declares the pair with
 its rationale.
 
+## The run lifecycle, on a real device
+
+`0055`/`0056` on a real Apple Music distillation, 2026-08-11. The run finalized:
+**9 scopes, 9 heads, 1,224 run items, 1,224 `current_source_items`, 1 worker
+job enqueued** — the last being what Phase 2 consumes.
+
+**The number that proves the design is 1,224 against 1,225 captured.**
+
+| | captured | promoted |
+|---|---|---|
+| `apple_music/*`, nine data types | 1,224 | 1,224 |
+| `user/apple_music_subscription` | 1 | **0** |
+
+Every action-bearing pair promoted one for one. The subscription row carries no
+action, so it belongs to no scope, gets no run item and never becomes evidence —
+while still being captured and encrypted. *Capture broadly, promote narrowly*,
+as an integer rather than a paragraph.
+
+Behaviour confirmed against a throwaway chain beforehand: a two-batch run
+finalizes with a receipt reading `succeeded` / revision 1 / changed 2; a re-run
+of identical content finalizes again with `state_changed: false` and
+`changed_item_count: 0`; and **a `complete` scope whose count is wrong is
+refused by name**, rolling the whole transaction back — which is §10's "failed
+runs change no current source state", seen rather than assumed.
+
 ## The iOS envelope vocabulary
 
 `Written/Models/SemanticSource.swift` maps every `data_type` the app emits to an

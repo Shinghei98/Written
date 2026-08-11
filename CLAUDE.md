@@ -1870,6 +1870,12 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
+**Proven on a real distillation.** Apple Music finalized with 9 scopes, 9
+heads, 1,224 run items, 1,224 `current_source_items` and one worker job — and
+the number that matters is 1,224 against 1,225 captured. Every action-bearing
+pair promoted one for one; `user/apple_music_subscription` promoted **zero**,
+because a fact about an account is not an act. The rule shows up as an integer.
+
 **And `0055` could throw away a whole batch, which the first probe after it did.**
 A run of entirely unpromotable rows has no scope, the finalizer refuses that,
 and because finalization shares the insert's transaction **the rollback took the
