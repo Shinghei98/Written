@@ -139,6 +139,42 @@ of identical content finalizes again with `state_changed: false` and
 refused by name**, rolling the whole transaction back — which is §10's "failed
 runs change no current source state", seen rather than assumed.
 
+## HealthKit, once somebody consented
+
+A real Lifestyle connection on 2026-08-11, through `FitnessPurposePrimer` and
+then HealthKit's own sheet:
+
+| | |
+|---|---|
+| Grants | 1 — `active`, `fitness-v1`, matching **false**, bio **false** |
+| Vault rows | 390 — `activity_day=366`, `activity_hour=24` |
+| Legacy, same types | **366 / 24** — exact match |
+| `consent_purpose` | `fitness_connection`, derived server-side |
+| **Observations** | **0** |
+| Scopes | both `partial` |
+
+**The 24 is the design showing up in a number.** `activity_hour` is twenty-four
+rows for the whole year rather than 8,760 — the distiller buckets before it
+makes a record, because the question is which hours somebody moves in and not
+what they did at 3pm last March. A year of Health is 390 rows against Apple
+Music's 1,225.
+
+**No `workout` rows, and that is the already-recorded finding rather than a
+new fault:** steps come from the iPhone's motion coprocessor and arrive for
+everyone, while `HKWorkout` needs something recording sessions, and no test
+device has an Apple Watch. The legacy path agrees exactly, which is what makes
+it an absence rather than a loss.
+
+**`biological_sex` never reached the vault**, as it never reaches Postgres:
+`SyncService.localOnlyTypes` refuses it at the wire and `dualWriteToVault` asks
+the same function rather than reimplementing the rule. Refusing to send and
+refusing to forget are one decision made in one place.
+
+**Zero observations**, like Calendar: the sanitised fitness shape is a
+classifier's output and §7 permits only the current one, which does not exist.
+§10's *"aggregate-only HealthKit produces zero fitness claims"* is met by
+producing none at all.
+
 ## Calendar in the vault, describing nothing
 
 A real Apple Calendar distillation, 2026-08-11, and every number is the designed

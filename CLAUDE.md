@@ -1938,7 +1938,27 @@ endpoint sends no projection and titles sit encrypted and inert. The eight
 and `event` produced *two* scopes — `booked` and `entered_by_user` — which is
 the per-row refinement working, and the reason the Calendar source exists.
 
-**HealthKit is not enabled and must not be until somebody consents.**
+**HealthKit dual-writes now, behind a consent somebody actually gave.** 390
+rows — 366 `activity_day`, 24 `activity_hour` — under `fitness_connection`,
+matching the legacy path exactly, with **zero observations**. The 24 is the
+design in a number: an hour bucket for the whole year rather than 8,760 rows,
+because the question is which hours somebody moves in. No `workout` rows, which
+is the already-recorded absence rather than a loss — no test device has an Apple
+Watch — and the legacy path agrees, which is what makes it an absence.
+`biological_sex` never reached the vault, because `dualWriteToVault` asks
+`SyncService.isLocalOnly` rather than reimplementing the rule.
+
+**The grant is `0061`: `public.record_fitness_grant`, subject `auth.uid()` with
+no parameter for it**, because a function that let a caller name whose consent
+it recorded would be a function for forging consent. In `public` rather than
+`api`, which is not an exposed schema. All four permission booleans are false —
+matching, bio naming, icebreaker naming, controlled explanation — and
+`FitnessPurposePrimer` says those refusals out loud, since a consent screen
+listing only benefits asks agreement to something unstated. **Declining costs
+nothing**: Health still connects and distils, and only the encrypted copy is
+withheld.
+
+**The old note, kept because it is why any of this exists:**
 `guard_raw_healthkit_grant` refuses an active HealthKit row unless
 `healthkit_use_grants` holds an active grant, and there are none. Enabling it
 today would have every batch refused and — because
