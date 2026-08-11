@@ -304,6 +304,81 @@ function projection(sourceCode, typedPayload) {
   };
 }
 
+export const CALENDAR_SOURCES = new Set(["apple_calendar", "google_calendar"]);
+
+/**
+ * The calendar events in this batch, in the shape the classifier Lambda takes.
+ *
+ * **Keyed by `record_fingerprint`, never by position.** The decisions come back
+ * from another process, and matching them to rows by array index is the kind of
+ * coupling that survives every test and breaks the first time one side filters
+ * something. `ref` goes out and comes back untouched.
+ *
+ * The typed payload crosses the wire because the classifier needs the title —
+ * it is the one thing that decides whether an event is a booking — and it does
+ * not come back: the package's own contract is that the private title
+ * *participates only in the HMAC lineage and is not returned*.
+ */
+export function calendarEventsFor(envelopes, rows) {
+  const events = [];
+  rows.forEach((row, index) => {
+    if (!CALENDAR_SOURCES.has(row.record_source_code)) return;
+    const envelope = envelopes[index];
+    events.push({
+      ref: row.record_fingerprint,
+      item_id: envelope?.provider_item_id ?? row.record_fingerprint,
+      payload: envelope?.typed_payload?.value ?? {},
+    });
+  });
+  return events;
+}
+
+/**
+ * Merge the classifier's verdicts onto the rows they belong to.
+ *
+ * **The observation's vocabulary is not the record's**, which `0064` exists for:
+ * a captured Calendar row is an `event` with action `booked` or
+ * `entered_by_user`, while the observation it supports must be a
+ * `calendar_event` with action `booked` or `scheduled` and a weight of exactly
+ * zero. Both are named here rather than derived, because the mapping is a
+ * statement about the contract rather than a transformation of the data.
+ *
+ * A row whose capture carries no `occurred_at` is downgraded to `review` even
+ * when the classifier called it a candidate: the constraint requires a time for
+ * a candidate, and the observation takes its time from the record. Sending a
+ * candidate without one would fail the whole batch rather than that row.
+ */
+export function applyCalendarProjections(rows, decisions) {
+  let applied = 0;
+  for (const row of rows) {
+    if (!CALENDAR_SOURCES.has(row.record_source_code)) continue;
+    const decision = decisions?.[row.record_fingerprint];
+    if (!decision) continue;
+
+    let payload = decision.normalized_payload;
+    let lineage = decision.content_lineage_hmac ?? null;
+    if (decision.classification_state === "candidate" && !row.occurred_at) {
+      payload = {
+        schema_version: "calendar-v03",
+        record_kind: "calendar_classification",
+        classification_state: "review",
+      };
+      lineage = null;
+    }
+
+    row.normalized_payload = payload;
+    row.observation_kind = "sanitized_classification";
+    row.payload_schema_version = "calendar-v03";
+    row.privacy_class = "private_calendar_sanitized";
+    row.observation_data_type = "calendar_event";
+    row.observation_action_type = row.action_type === "booked" ? "booked" : "scheduled";
+    row.observation_action_weight = 0;
+    row.content_lineage_hmac = lineage;
+    applied += 1;
+  }
+  return applied;
+}
+
 export class InvalidEnvelope extends Error {
   constructor(index, message) {
     super(`records[${index}]: ${message}`);

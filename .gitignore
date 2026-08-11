@@ -43,6 +43,7 @@ out/
 aws/ingestion/node_modules/
 aws/ingestion/dist/
 aws/worker/dist/
+aws/classifier/dist/
 
 # Python bytecode from running the semantic tests and tools.
 __pycache__/

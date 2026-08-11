@@ -198,6 +198,11 @@ apply_twice 0062_run_coverage_metrics.sql
 # worker's *whole* reach rather than adding to it, so this re-run is also the
 # check that a later migration has not widened it by a table.
 apply_twice 0063_worker_fitness_snapshot_grants.sql
+# 0064 lets a projection name its own data_type, action and weight, because the
+# contract's observation vocabulary is not the connector's capture vocabulary.
+# Re-running it also proves the temp table is rebuilt rather than reused: a
+# warm backend holding the old thirteen-column shape is the failure mode.
+apply_twice 0064_observation_projection_vocabulary.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

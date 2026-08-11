@@ -29,11 +29,19 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import pg from "pg";
 
-import { ingestArguments, keyVersionFor, normalizeSource, toRecordRow, InvalidEnvelope } from "./lib.mjs";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import {
+  applyCalendarProjections, calendarEventsFor, ingestArguments, keyVersionFor,
+  normalizeSource, toRecordRow, InvalidEnvelope,
+} from "./lib.mjs";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const VAULT_KEY_ARN = process.env.VAULT_KEY_ARN;
 const LINEAGE_KEY_ARN = process.env.LINEAGE_KEY_ARN;
+// Unset means Calendar rows are captured and describe nothing, which is what
+// they did before the classifier existed. A deliberate off switch rather than
+// a missing configuration: this endpoint must work without it.
+const CALENDAR_CLASSIFIER_ARN = process.env.CALENDAR_CLASSIFIER_ARN;
 const DB_SECRET_ID = process.env.DB_SECRET_ID;
 const JWKS_URL = process.env.SUPABASE_JWKS_URL;
 const ISSUER = process.env.SUPABASE_ISSUER;
@@ -52,6 +60,7 @@ const SUPABASE_CA = readFileSync(new URL("./supabase-ca.pem", import.meta.url), 
 
 const kms = new KMSClient({ region: REGION });
 const secrets = new SecretsManagerClient({ region: REGION });
+const lambda = new LambdaClient({ region: REGION });
 
 // Module scope, so a warm invocation reuses all three. None of them is a
 // per-request fact and each costs a round trip.
@@ -177,6 +186,57 @@ async function lineageKey() {
   }));
   cachedLineageKey = Buffer.from(Mac);
   return cachedLineageKey;
+}
+
+/**
+ * Ask the Calendar classifier what these events are, and attach its verdicts.
+ *
+ * **A separate function because the classifier is Python.** §7 permits only the
+ * current Calendar classifier over Calendar rows, and that is
+ * `written_ontology.calendar_semantics` — 1,283 lines with its own tests. It
+ * runs where it lives and this endpoint asks it, rather than a port that would
+ * diverge from the thing the tests cover.
+ *
+ * **A failure here must not fail the distillation.** The rows are captured
+ * either way; what is lost is the evidence they would have supported, and
+ * `ingest_source_records_v031` stores a row with no projection perfectly
+ * happily — which is exactly what Calendar did before this existed. Losing
+ * somebody's calendar because a classifier timed out would be a far worse
+ * trade, and the count is logged so a silent slide into never classifying
+ * anything is visible.
+ */
+async function classifyCalendar(records, rows, userId) {
+  if (!CALENDAR_CLASSIFIER_ARN) return;
+  const events = calendarEventsFor(records, rows);
+  if (events.length === 0) return;
+
+  try {
+    const response = await lambda.send(new InvokeCommand({
+      FunctionName: CALENDAR_CLASSIFIER_ARN,
+      // Synchronous: the verdicts have to be in hand before the batch is
+      // written, because an observation may only be appended to a run that is
+      // still running and this one closes at the end of this request.
+      InvocationType: "RequestResponse",
+      Payload: Buffer.from(JSON.stringify({ user_id: userId, events }), "utf8"),
+    }));
+    if (response.FunctionError) {
+      console.log(JSON.stringify({ calendar_classifier: "function_error" }));
+      return;
+    }
+    const result = JSON.parse(Buffer.from(response.Payload).toString("utf8"));
+    const applied = applyCalendarProjections(rows, result.decisions);
+    // **Dispositions only, which are a closed vocabulary from the package.**
+    // They count events per outcome and cannot describe one — the titles never
+    // left the classifier, and §12 forbids plaintext in logs.
+    console.log(JSON.stringify({
+      calendar_classified: applied,
+      dispositions: result.dispositions ?? {},
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      calendar_classifier: "unavailable", error_type: error?.name ?? "Error",
+    }));
+  }
 }
 
 /**
@@ -330,6 +390,8 @@ export async function handler(event) {
       if (error instanceof InvalidEnvelope) return json(400, { error: error.message });
       throw error;
     }
+
+    await classifyCalendar(records, rows, userId);
 
     const receipt = await ingest(rows, {
       userId,

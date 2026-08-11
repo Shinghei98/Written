@@ -10,8 +10,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor,
-  normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
+  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -362,4 +361,99 @@ test("a row with no projection carries no observation fields at all", () => {
     typed_payload: { kind: "music", value: { title: "A" } } }, 0, ctx);
   assert.equal(song.normalized_payload.title, "A");
   assert.equal(song.privacy_class, "public_catalog");
+});
+
+// ---------------------------------------------------------------------------
+// Calendar projections
+//
+// The classifier runs in another process, so what is testable here is the join:
+// which events get sent, how verdicts are matched back, and the vocabulary the
+// observation is given. `0064` exists because that vocabulary is not the
+// record's, and getting it wrong fails the whole batch rather than one row.
+
+test("calendarEventsFor sends only calendar rows, keyed by fingerprint", () => {
+  const envelopes = [
+    { record_source_code: "apple_music", typed_payload: { value: { title: "x" } } },
+    { record_source_code: "apple_calendar", provider_item_id: "ev-9",
+      typed_payload: { value: { title: "Ticket: Hamilton" } } },
+  ];
+  const rows = [
+    { record_source_code: "apple_music", record_fingerprint: "a" },
+    { record_source_code: "apple_calendar", record_fingerprint: "b" },
+  ];
+  const events = calendarEventsFor(envelopes, rows);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].ref, "b");
+  assert.equal(events[0].item_id, "ev-9");
+  assert.equal(events[0].payload.title, "Ticket: Hamilton");
+});
+
+test("a candidate gets the contract's vocabulary, not the record's", () => {
+  const rows = [{
+    record_source_code: "apple_calendar", record_fingerprint: "b",
+    data_type: "event", action_type: "booked", occurred_at: "2026-09-02T19:00:00.000Z",
+  }];
+  const applied = applyCalendarProjections(rows, {
+    b: {
+      classification_state: "candidate",
+      content_lineage_hmac: "f".repeat(64),
+      normalized_payload: {
+        schema_version: "calendar-v03", record_kind: "calendar_classification",
+        classification_state: "candidate", artifact_type: "public_ticket",
+      },
+    },
+  });
+  assert.equal(applied, 1);
+  const row = rows[0];
+  // The record stays an `event`; the observation is a `calendar_event`.
+  assert.equal(row.data_type, "event");
+  assert.equal(row.observation_data_type, "calendar_event");
+  assert.equal(row.observation_action_type, "booked");
+  assert.equal(row.observation_action_weight, 0);
+  assert.equal(row.observation_kind, "sanitized_classification");
+  assert.equal(row.privacy_class, "private_calendar_sanitized");
+  assert.equal(row.content_lineage_hmac, "f".repeat(64));
+});
+
+test("entered_by_user becomes scheduled, which is what the constraint allows", () => {
+  const rows = [{
+    record_source_code: "apple_calendar", record_fingerprint: "b",
+    action_type: "entered_by_user", occurred_at: "2026-09-02T19:00:00.000Z",
+  }];
+  applyCalendarProjections(rows, {
+    b: { classification_state: "excluded", normalized_payload: {
+      schema_version: "calendar-v03", record_kind: "calendar_classification",
+      classification_state: "excluded" } },
+  });
+  assert.equal(rows[0].observation_action_type, "scheduled");
+});
+
+test("a candidate with no capture time is downgraded to review", () => {
+  // The observation takes its time from the record, and the constraint demands
+  // one for a candidate. Sending it anyway fails the whole batch.
+  const rows = [{
+    record_source_code: "apple_calendar", record_fingerprint: "b",
+    action_type: "booked", occurred_at: null,
+  }];
+  applyCalendarProjections(rows, {
+    b: {
+      classification_state: "candidate",
+      content_lineage_hmac: "f".repeat(64),
+      normalized_payload: {
+        schema_version: "calendar-v03", record_kind: "calendar_classification",
+        classification_state: "candidate", artifact_type: "travel_itinerary",
+      },
+    },
+  });
+  assert.equal(rows[0].normalized_payload.classification_state, "review");
+  assert.equal(rows[0].normalized_payload.artifact_type, undefined);
+  assert.equal(rows[0].content_lineage_hmac, null);
+});
+
+test("a row the classifier said nothing about is left alone", () => {
+  // The classifier being unavailable must leave the row capturable, which is
+  // what Calendar did before any of this existed.
+  const rows = [{ record_source_code: "apple_calendar", record_fingerprint: "b" }];
+  assert.equal(applyCalendarProjections(rows, {}), 0);
+  assert.equal(rows[0].normalized_payload, undefined);
 });
