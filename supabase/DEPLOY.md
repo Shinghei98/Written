@@ -1,9 +1,11 @@
-# Applying 0042–0049 to production
+# Applying the semantic chain to production
 
 > ## APPLIED 2026-08-10. This is now a record, not a plan.
 >
 > Ledger repaired (0001–0041), `supabase db push` applied `0042`–`0049`, and
-> every check below passed. Post-deploy state:
+> every check below passed. **`0050` went the same day, on the same
+> mechanism** — one pending migration, one push, recorded at the foot of this
+> file. Post-deploy state after `0049`:
 >
 > | Check | Result |
 > |---|---|
@@ -124,32 +126,69 @@ Then run `get_advisors` for security, since DDL landed.
 **No product behaviour.** Nothing in Swift reads `semantic_private`, `ontology`
 or `api`. Every feature flag is seeded off. The legacy path is untouched:
 `append_source_records`, `discovery_cards`, `seed_icebreaker` and
-`match_profile` all keep working exactly as before. `0050` (server projections)
-and `0051` (cutover) are the ones that change behaviour, and neither is written.
+`match_profile` all keep working exactly as before. **`0051` (server
+projections) and `0052` (cutover) are the ones that change behaviour**, and
+neither is written. Those numbers have shifted twice — `0049` went to the
+captured platform trigger and `0050` to the key registry — so read a number in
+the integration plan as a role rather than a filename.
 
 **`0049` is a no-op against production**, where `rls_auto_enable` and
 `ensure_rls` already exist. It is there so a replay matches.
 
-## Why this has not been run
+## How this was unblocked
 
-Two independent blocks, either of which is enough:
+Two independent blocks stood in the way, either of which was enough, and both
+are worth keeping because either could recur:
 
 - **The Supabase MCP server is read-only.** Confirmed by probe, not assumed:
   `create temporary table` returns `25006: cannot execute CREATE TABLE in a
-  read-only transaction`. It exposes no `apply_migration`.
-- **The CLI is not authenticated.** `supabase projects list` returns
-  `Access token not provided`.
+  read-only transaction`, and it exposes no `apply_migration`. It stays that
+  way — the CLI is the write path.
+- **The CLI was not authenticated.** `supabase projects list` returned
+  `Access token not provided`. `supabase login` fixed it.
 
-To unblock, either `supabase login` (then the steps above run as written), or
-restart the MCP server without its read-only flag. **Prefer the CLI**: it
-writes the ledger as it goes, which is the entire point of step 1, and an MCP
-that can write to production is a broader grant than this task needs.
+**The CLI is the right tool regardless of which block clears first**: it writes
+the ledger as it goes, which is the entire point of step 1, and an MCP that can
+write to production is a broader grant than this task needs. The MCP is still
+what does the *verification*, which is exactly the right split.
 
 ## Rollback
 
-`0042`–`0049` are additive: new schemas, no change to any `public` object, no
+`0042`–`0050` are additive: new schemas, no change to any `public` object, no
 data migrated. If something is wrong, `drop schema semantic_private cascade;
 drop schema ontology cascade; drop schema api cascade;` returns the database to
 `0041` — and `0049` should be left in place, since it only captures what
 production already had. This is the last point at which rollback is that easy;
-`0051` is forward-only by contract.
+`0052` is forward-only by contract.
+
+**One caveat that only applies once `0050` is in use**: dropping
+`semantic_private` takes `user_encryption_keys` with it, and **that is a
+mass crypto-erasure** — every `encrypted_payload` written under those keys
+becomes permanently unreadable. Harmless while the table is empty, which it is
+today. From the first row onward, dump it before dropping anything.
+
+---
+
+## 0050, applied 2026-08-10
+
+One pending migration, one `supabase db push`, no ledger work needed — the
+ledger from the previous deploy is doing its job. The push warns about a Docker
+file-sharing mount; that is the CLI failing to cache a local catalog and has
+nothing to do with the migration, which applied.
+
+| Check | Result |
+|---|---|
+| `semantic_private.user_encryption_keys` present | yes |
+| RLS on / policies | **on / 0** — deny-all to every client role, `service_role` only |
+| `anon` / `authenticated` select | false / false |
+| `service_role` insert | true |
+| Partial unique index (one live key per user) | present |
+| Check constraints (version, ARN, blob length) | 3 |
+| Rows | 0 — nothing writes it yet |
+| `private` table-ACL fingerprint | **identical either side of the push** |
+| `anon` / `authenticated` / `service_role` usage on `private` | false / false / false |
+| Advisors | **no ERROR.** 71 `rls_enabled_no_policy` INFO on the new schemas — 70 before, plus this table — and the other 2 are `private.push_config` and `private.collaborators`, the same intended posture. All 24 WARN are pre-existing and in `public`. |
+
+The ACL fingerprint here is computed by a different expression from step 4's, so
+it is not comparable to `80a84bd4…`; it was measured immediately before and
+immediately after the push with the same query, which is the check that matters.

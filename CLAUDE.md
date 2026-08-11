@@ -1612,9 +1612,11 @@ hand, so `supabase db push` would have tried `0001` against a full database.
 `supabase migration repair --status applied 0001 … 0041` came first, and
 `0042`–`0049` were deliberately left unrepaired because they genuinely had not
 been applied. **From now on `db push` is the deployment mechanism**, and
-`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers. `0050` is
-written and replaying green and is **not** applied; it can go whenever, since it
-ships no behaviour and nothing writes it.
+`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers. **`0050`
+went the same day on that mechanism** — one pending migration, one push, no
+ledger work — and the checks came back right: RLS on with no policy, no client
+role reaching it, zero rows, and the `private` ACL fingerprint identical either
+side of the push.
 
 Nothing about the product changed: all seven feature flags are seeded off,
 nothing in Swift reads the new schemas, and the legacy path is untouched. The

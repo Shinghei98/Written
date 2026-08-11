@@ -87,9 +87,9 @@ plus decrypt permission reads anybody.
 
 ### Where the wrapped key lives
 
-`0050_semantic_user_encryption_keys.sql` — **written and passing**, applied and
-replayed by `tools/replay_contracts.sh`, not yet on production. Taking `0050`
-shifts server projections to `0051` and cutover to `0052`.
+`0050_semantic_user_encryption_keys.sql` — **applied to production
+2026-08-10**, and applied-then-replayed by `tools/replay_contracts.sh` on every
+run. Taking `0050` shifts server projections to `0051` and cutover to `0052`.
 
 ```
 semantic_private.user_encryption_keys
@@ -194,7 +194,9 @@ it) shares the Lambda or gets its own schedule.
 3. ~~Settle the ingestion-hosting sub-decision.~~ **Done — AWS.**
 4. ~~The key-registry migration.~~ **Done — `0050`, passing, not yet applied to
    production.**
-5. Apply `0050` to production, which is safe whenever: it ships no behaviour and
-   nothing writes it.
-6. Then Phase 1 — the typed envelope in Swift, and the API Gateway + Lambda
-   ingestion endpoint this unblocks.
+5. ~~Apply `0050` to production.~~ **Done** — RLS on with no policy, zero rows,
+   `private` ACL fingerprint identical either side. See `supabase/DEPLOY.md`.
+6. **Phase 1**, which nothing now blocks: the typed `SourceEnvelope` /
+   `SourcePayload` in Swift, and the API Gateway + Lambda ingestion endpoint.
+   The first thing it must do is `GenerateDataKey` and write the row `0050`
+   defines — until something does, the vault has a lock and no key.
