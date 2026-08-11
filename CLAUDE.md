@@ -483,25 +483,35 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   list, and the value of the list is that it stays short and complete.
   - **Postgres, keyed to the account** — the distillation itself, via
     `SyncService`, plus the profile, the ban list and derived health signals.
-    **HealthKit rows do not travel, and this paragraph claimed for months that
-    they did.** Measured 2026-08-10: `distilled_records` holds **zero** rows
-    with `source='health'`, for every user, ever, while five `source_connections`
-    rows and six `health_signals` rows show Health distilling normally. The
-    cause is not the wire filter — `localOnlyTypes` is exactly
-    `["health/biological_sex"]`, as described below, and `push` would send the
-    rest. It is that **`DistillViewModel.sync` never calls `push` for health at
-    all**: `DistillViewModel.swift:1063` branches the source away and sends only
-    `pushHealthSignals` plus a `pushConnection(recordCount: 0)`. The
-    *keep* half landed (`:791-805` writes the raw rows to `RecordStore`); the
-    *send* half was never written, which is why the doc comment at `:1045-1047`
-    describes the opposite of what the code does. Second-order: `apply(_:)`
-    (`:340-341`) carries across only `isLocalOnly` rows, so the local copy
-    survives exactly one launch and the owner's export is empty again.
+    **HealthKit rows travel now — and for months this paragraph said so while
+    the code did the opposite.** Measured 2026-08-10, before the fix:
+    `distilled_records` held **zero** rows with `source='health'`, for every
+    user ever, while five `source_connections` rows and six `health_signals`
+    rows showed Health distilling normally. Nothing looked wrong because the
+    half that failed was the invisible half.
 
-    **Do not fix this under the legacy path.** The v0.3.1 contract requires a
-    recorded `fitness_connection` purpose grant *before* any HealthKit transfer,
-    and its §3.4 names this exact contradiction. The real fix is the typed
-    envelopes in Phase 1, not a re-pointed `push`.
+    The wire filter was never the cause — `localOnlyTypes` is exactly
+    `["health/biological_sex"]`, as below. **`DistillViewModel.sync` simply
+    never called `push` for health**, branching it away to send only the derived
+    figures. The *keep* half of that change had landed (`distillHealth` writes
+    the rows to `RecordStore`); the *send* half was never written, which is why
+    `sync`'s own doc comment described the opposite of the code, blaming
+    `distillHealth` for discarding rows that `distillHealth` is precisely the
+    function that keeps. Second-order: `apply(_:)` carries across only
+    `isLocalOnly` rows, so the local copy survived exactly one launch and the
+    owner's export came back empty.
+
+    Health now takes the same path as every other source, plus its derived
+    figures. One edge case needs the old `pushConnection` fallback and keeps it:
+    `push` returns early when rows existed and *every* one was withheld, which
+    for Health is a real shape — a library with a date of birth and a sex and
+    nothing else — and without it such a person's Health would read as never
+    connected.
+
+    **Revisit at Phase 1.** The v0.3.1 contract wants HealthKit transfer gated
+    on a recorded `fitness_connection` purpose grant, and
+    `semantic_private.healthkit_use_grants` exists to hold one; nothing in Swift
+    writes it yet. This is the legacy path the typed envelopes replace.
 
     The volume argument that was once given for discarding these rows was never
     real, and that part stands: the distiller sums samples into day and hour
@@ -1558,9 +1568,12 @@ projection and cutover migrations `0048`–`0050` are app-specific. Nothing is
 read by Swift until Phase 3 at the earliest, and §12's KMS design is a
 prerequisite of Phase 1 rather than a detail of it.
 
-**Only `0048` is being written now, and the other two numbers are reserved
-rather than contiguous.** `0049` (server projections) belongs to Phase 4 and
-`0050` (cutover) to Phase 6. Three reasons, and the third is the one that bites:
+**Only `0048` is being written now, and the later numbers are reserved rather
+than contiguous.** `0049` was then spent on something real — capturing
+`public.rls_auto_enable()`, a Supabase dashboard event trigger that existed in
+production and in no file — so **server projections are `0050` and cutover is
+`0051`**. That shift is exactly what §5 permits: never *reuse* a number, but
+skipping one is fine. Projections belong to Phase 4 and cutover to Phase 6. Three reasons, and the third is the one that bites:
 §10's own gate reads *"existing push/chat/profile behavior remains green through
 0048"*, so `0048` **is** the additive boundary; `0049` must match a
 `SemanticSurfaceService` that does not exist and its acceptance gate — two

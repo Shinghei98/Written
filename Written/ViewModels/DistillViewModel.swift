@@ -1042,29 +1042,30 @@ final class DistillViewModel: ObservableObject {
     /// is the one place every source's records pass through, so one call here
     /// covers all of them.
     ///
-    /// **Health takes the other branch, and that branch is now a known gap
-    /// rather than a design.** It sends only the derived figures plus the row
-    /// saying it was connected, so `distilled_records` holds **zero** rows with
-    /// `source == "health"` — measured 2026-08-10, for every account, ever.
+    /// **Health is no longer an exception, and the history is worth keeping.**
+    /// It used to branch away from `push` and send only its derived figures, so
+    /// `distilled_records` held zero rows with `source == "health"` for every
+    /// account that had ever connected it — measured 2026-08-10 against five
+    /// connected accounts and six `health_signals` rows. Nothing looked wrong,
+    /// because the half that failed was the invisible half.
     ///
-    /// This comment used to explain that by saying the raw rows were "gone by
-    /// the time this runs, discarded in `distillHealth`". They are not — and
-    /// `distillHealth` is precisely the function that now *keeps* them: it
-    /// filters to `healthKeptTypes` and calls `replaceRecords(from: "health",
-    /// with: extracted)`, under a comment reading "**The raw rows are kept
-    /// now**". The keep half landed; the send half was never written.
-    /// `SyncService.localOnlyTypes` is innocent — it withholds only
-    /// `health/biological_sex`, and `push` would carry `workout`,
-    /// `activity_day`, `activity_hour` and `age` if it were ever called.
+    /// The comment here used to explain that by saying the raw rows were "gone
+    /// by the time this runs, discarded in `distillHealth`". They were not, and
+    /// `distillHealth` is precisely the function that keeps them. The keep half
+    /// of that change landed; the send half was never written, and this comment
+    /// described the intention rather than the code.
     ///
-    /// Second-order: `apply(_:)` carries across only `isLocalOnly` rows when
-    /// the server snapshot arrives, so the local copy survives exactly one
-    /// launch and the owner's own export comes back empty.
+    /// One row still stays behind: `SyncService.localOnlyTypes` withholds
+    /// `health/biological_sex` at the wire, and `apply(_:)` carries it across a
+    /// hydration so it survives more than one launch. It is a protected
+    /// characteristic, `public.users.sex` already means the gender somebody
+    /// *chose*, and its owner can still see it in their own export.
     ///
-    /// **Do not fix it here.** The v0.3.1 contract requires a recorded
-    /// `fitness_connection` purpose grant before any HealthKit transfer, so
-    /// re-pointing this at `push` would ship an ungated transfer weeks before
-    /// the rule lands. The fix is the typed envelopes in Phase 1.
+    /// **Revisit this at Phase 1.** The v0.3.1 contract wants HealthKit
+    /// transfer gated on a recorded `fitness_connection` purpose grant, and
+    /// `semantic_private.healthkit_use_grants` already exists to hold one —
+    /// nothing in Swift writes it yet. This path is the legacy one, and it is
+    /// what the typed envelopes replace.
     private func sync(source: String, records: [DistilledRecord]) {
         let chronotype = self.chronotype
         let sports = self.sports
@@ -1079,21 +1080,47 @@ final class DistillViewModel: ObservableObject {
             // the reason an earlier call had recorded — and the record push is
             // the first one, which is to say the one whose failure costs the
             // whole distillation.
-            var failure: String?
+            // **Every source pushes its records, Health included.** It used to
+            // take a branch that skipped `push` entirely and sent only the
+            // derived figures, which is why `distilled_records` held zero rows
+            // with `source = "health"` for every account that had ever
+            // connected it — while `health_signals` filled up normally, so
+            // nothing looked broken. The keep half of that change had landed
+            // (`distillHealth` writes the rows to `RecordStore`); the send half
+            // never did.
+            //
+            // `push` withholds `health/biological_sex` at the wire and
+            // `apply(_:)` carries it across a hydration, so the protected
+            // characteristic still never leaves the device and still appears in
+            // its owner's own export. The other four types travel.
+            var failure = await SyncService.shared.push(source: source, records: records)
+
             if source == "health" {
-                failure = await SyncService.shared.pushHealthSignals(
+                // One edge case `push` cannot cover. It returns early when rows
+                // existed and *every* one was withheld — right in general, but
+                // for Health that is a real shape: a library with a date of
+                // birth and a sex and nothing else. `append_source_records` is
+                // what normally records the connection, so without this such a
+                // person's Health would read as never connected.
+                let everyRowWithheld =
+                    !records.isEmpty && records.allSatisfy(SyncService.isLocalOnly)
+                if everyRowWithheld {
+                    let connection = await SyncService.shared.pushConnection(
+                        source: "health", recordCount: 0
+                    )
+                    if failure == nil { failure = connection }
+                }
+
+                // The derived figures travel too, and separately: they are a
+                // reading of the rows rather than a copy of them, and the
+                // dashboard reads them without touching `distilled_records`.
+                let signals = await SyncService.shared.pushHealthSignals(
                     chronotype: chronotype,
                     sports: sports,
                     hourlyActivity: hourly,
                     averageDailySteps: steps
                 )
-                // Health writes no records, so nothing else records that it was
-                // connected — `replace_source_records` is what does it for every
-                // other source, and Health never reaches it.
-                let connection = await SyncService.shared.pushConnection(source: "health", recordCount: 0)
-                if failure == nil { failure = connection }
-            } else {
-                failure = await SyncService.shared.push(source: source, records: records)
+                if failure == nil { failure = signals }
             }
             // The ban list rides along, not only when it changes.
             //

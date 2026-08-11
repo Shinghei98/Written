@@ -57,9 +57,13 @@ class RepositoryIntegrationManifestTests(unittest.TestCase):
             name = by_sequence[sequence]
             with self.subTest(migration=name):
                 self.assertTrue((migrations / name).is_file(), f"{name} is missing")
-        self.assertEqual(
-            by_sequence[max(applied)], "0047_semantic_current_state_surfaces.sql"
-        )
+        # Keyed off role, not name. Migration numbers shift — 0049 was spent on
+        # captured platform drift and pushed projections and cutover up one —
+        # and a hardcoded filename here is the same self-referential pin this
+        # class was rewritten to stop being.
+        by_role = {item["role"]: item for item in self.manifest["application_migrations"]}
+        self.assertIn("adapt_reference_006", by_role)
+        self.assertIn(by_role["adapt_reference_006"]["sequence"], applied)
         # The reference chain is recorded as history and must stay recorded,
         # but nothing may look for those files on disk any more.
         self.assertEqual(len(self.manifest["reference_migrations"]), 6)
@@ -157,7 +161,10 @@ class RepositoryIntegrationManifestTests(unittest.TestCase):
         sequences = [migration["sequence"] for migration in migrations]
         self.assertEqual(sequences, sorted(sequences), "plan is out of order")
         self.assertEqual(len(set(sequences)), len(sequences), "a number is reused")
-        self.assertEqual(migrations[-1]["suggested_name"], "0050_semantic_cutover.sql")
+        # Cutover is last whatever number it ends up with — it is the only
+        # irreversible migration and nothing may be planned after it.
+        self.assertEqual(migrations[-1]["role"], "legacy_semantic_retirement")
+        self.assertTrue(migrations[-1]["suggested_name"].endswith("_semantic_cutover.sql"))
         # Applied is a prefix of the plan, and the next to author follows it.
         applied = self.manifest["application_migrations_applied"]
         self.assertEqual(applied, sequences[: len(applied)])

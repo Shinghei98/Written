@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "e04dfcad77eb8de5869dfe3f1baec1001f0e3f3ee5ffc11c9ca3121d21efa136",
-        "reason": "Doc comment only. `sync`'s comment claimed Health's raw rows were discarded in `distillHealth`; measurement showed distilled_records holds zero health rows because `sync` never calls `push` for that source at all. No executable line changed."
+        "sha256": "162e38124207166a1f59251310a9b74c26124a5c449eb4271590cbbe2dce4309",
+        "reason": "Health now takes the same push path as every other source. It had branched away from SyncService.push and sent only derived figures, so distilled_records held zero rows with source='health' for every account that had ever connected it. localOnlyTypes still withholds health/biological_sex at the wire and apply(_:) still carries it across a hydration. Doc comments corrected in the same file."
       }
     }
   },
@@ -76,12 +76,17 @@
     },
     {
       "sequence": 49,
-      "suggested_name": "0049_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0049_capture_platform_rls_event_trigger.sql",
+      "role": "capture_platform_schema_drift"
     },
     {
       "sequence": 50,
-      "suggested_name": "0050_semantic_cutover.sql",
+      "suggested_name": "0050_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 51,
+      "suggested_name": "0051_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -127,8 +132,10 @@
     44,
     45,
     46,
-    47
+    47,
+    48,
+    49
   ],
-  "application_migrations_authored_next": 48,
-  "application_migrations_reserved_note": "49 (server projections) is due in phase server_owned_discovery_and_profiles and 50 (cutover) in legacy_semantic_retirement. They are reserved, not contiguous-by-requirement: the contract forbids reusing a number, not skipping one. 50 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 50,
+  "application_migrations_reserved_note": "50 (server projections) is due in phase server_owned_discovery_and_profiles and 51 (cutover) in legacy_semantic_retirement. They shifted up by one when 0049 was spent capturing a platform event trigger that existed in production and in no file. The contract forbids reusing a number, not skipping one. 51 is irreversible and must not exist on disk before a minimum supported client version does."
 }
