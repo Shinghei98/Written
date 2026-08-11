@@ -93,7 +93,95 @@ struct SpotifyDistiller {
             }
         }
 
-        return records
+        return await withComposers(records)
+    }
+
+    // MARK: - Composers
+
+    /// Fills in the composer and genres Spotify does not return.
+    ///
+    /// **Only for rows that could change, and only up to a ceiling.** Looking
+    /// every track up would be the shape CLAUDE.md warns about — a per-item
+    /// fetch with no ceiling — even batched. The gate costs nothing: the artist
+    /// rows fetched moments ago carry `genres`, so a library with no classical
+    /// artist in it asks the catalog nothing at all, which is most people.
+    ///
+    /// A row the lookup misses is left exactly as it was. Its subject stays the
+    /// performer, which is what it would have been anyway, so a failure here
+    /// costs nothing that was not already lost.
+    private func withComposers(_ records: [DistilledRecord]) async -> [DistilledRecord] {
+        // Which artists this person's own library says are classical. Built from
+        // the artist rows rather than guessed from a name, because "is this
+        // classical" is a question Spotify answers about artists even though it
+        // will not answer it about tracks.
+        var classicalArtists: Set<String> = []
+        for record in records where record.dataType == "top_artist"
+            || record.dataType == "followed_artist" {
+            let genres = (record.extraValue("genres") ?? "").lowercased()
+            if Self.classicalHints.contains(where: genres.contains) {
+                classicalArtists.insert(record.name.lowercased())
+            }
+        }
+        guard !classicalArtists.isEmpty else { return records }
+
+        var isrcs: [String] = []
+        for record in records {
+            guard let isrc = record.extraValue("isrc"), !isrc.isEmpty else { continue }
+            let credited = record.creator.split(separator: "|")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            guard credited.contains(where: classicalArtists.contains) else { continue }
+            isrcs.append(isrc)
+            if isrcs.count >= AppConfig.maxComposerLookups { break }
+        }
+        guard !isrcs.isEmpty else { return records }
+
+        let credits = await ComposerService.shared.credits(forISRCs: isrcs)
+        guard !credits.isEmpty else { return records }
+
+        return records.map { record in
+            guard let isrc = record.extraValue("isrc"),
+                  let found = credits[isrc] else { return record }
+            // **Stamp the ingredients, not the conclusion.** `musicSubject` is
+            // the one implementation of "composer for classical, performer
+            // otherwise" and it stays that way — this hands it the genre and the
+            // composer it was missing and lets it decide, rather than deciding
+            // here and having two copies of the rule to keep in step.
+            let subject = Ontology.musicSubject(
+                genres: found.genres,
+                composer: found.composer,
+                performer: record.creator.split(separator: "|").first
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+            )
+            var extra = record.extra
+            extra += ";composer=\(found.composer)"
+            if !found.genres.isEmpty {
+                extra += ";genres=\(found.genres.joined(separator: "|"))"
+            }
+            // Replace the stamp rather than append a second one: `extraValue`
+            // takes the first match, so a stale `subject=` would win.
+            extra = Self.replacingSubject(in: extra, with: subject)
+            return DistilledRecord(
+                source: record.source, dataType: record.dataType, itemID: record.itemID,
+                name: record.name, creator: record.creator, detail: record.detail,
+                extra: extra, collectedAt: record.collectedAt
+            )
+        }
+    }
+
+    /// Matched against Spotify's own artist genres, lowercased. Incomplete by
+    /// construction and deliberately generous — the cost of a false positive is
+    /// one wasted entry in a batched request, and the cost of a false negative
+    /// is a composer nobody ever sees.
+    private static let classicalHints = [
+        "classical", "baroque", "romantic", "opera", "orchestra", "choral",
+        "early music", "renaissance", "chamber music"
+    ]
+
+    private static func replacingSubject(in extra: String, with subject: String) -> String {
+        var pairs = extra.split(separator: ";").map(String.init)
+            .filter { !$0.hasPrefix("subject=") }
+        if !subject.isEmpty { pairs.append("subject=\(subject)") }
+        return pairs.joined(separator: ";")
     }
 
     // MARK: - Fetching
@@ -149,6 +237,23 @@ struct SpotifyDistiller {
         let artists = names.joined(separator: "|")
 
         var extra = "album=\(albumName(of: track))"
+        // **The one identifier Spotify and Apple Music share.** Spotify returns
+        // no composer and no track genre, so the classical rule cannot fire on
+        // anything this API gives — but Apple's catalog carries both for the
+        // same recording, and an ISRC is how to ask it. Stamped on every track
+        // rather than only the classical-looking ones, because which rows are
+        // worth asking about is a decision made later, over the whole library,
+        // and a row that never carried the id cannot be revisited without a
+        // re-distill.
+        //
+        // Present on full track objects, which is what `/v1/me/top/tracks` and
+        // playlist items return. `recently-played` is the one to watch: if it
+        // ever returns simplified objects this comes back empty and those rows
+        // simply keep their performer.
+        if let isrc = (track["external_ids"] as? [String: Any])?["isrc"] as? String,
+           !isrc.isEmpty {
+            extra += ";isrc=\(isrc)"
+        }
         // **The subject is the first credit, never the joined string.**
         // `Ontology.storedSubject` falls back to `creator` when no `subject=` is
         // stamped, and `creator` here is pipe-joined — so an unstamped Spotify

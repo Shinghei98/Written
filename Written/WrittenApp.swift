@@ -41,7 +41,10 @@ struct WrittenApp: App {
             // learned: hung off a screen's `onAppear` it may never fire, and
             // reported through a self-dismissing banner it may never be read —
             // and both look exactly like a survey that found nothing.
-            RootView().modifier(MediaSurveyAlert()).dynamicTypeSize(...Self.largestSupportedText)
+            RootView()
+                .modifier(MediaSurveyAlert())
+                .modifier(ComposerProbeAlert())
+                .dynamicTypeSize(...Self.largestSupportedText)
 #else
             RootView().dynamicTypeSize(...Self.largestSupportedText)
 #endif
@@ -63,6 +66,36 @@ private struct MediaSurveyAlert: ViewModifier {
             }
             .alert(
                 "Media survey",
+                isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })
+            ) {
+                Button("OK", role: .cancel) { outcome = nil }
+            } message: {
+                Text(outcome ?? "")
+            }
+    }
+}
+
+/// Asks Apple Music's catalog for one recording's composer and holds the answer
+/// on screen.
+///
+/// **The same shape as the media survey, for the same reason.** This settles
+/// whether `filter[isrc]` works at all — the premise the whole composer path
+/// rests on — and it can only be answered from a signed, installed build where
+/// MusicKit will mint a developer token. Hung off a screen's `onAppear` it may
+/// never fire; reported through a banner it may never be read. Both look
+/// exactly like a lookup that found nothing.
+private struct ComposerProbeAlert: ViewModifier {
+    @State private var outcome: String?
+
+    func body(content: Content) -> some View {
+        content
+            .task {
+                guard let isrc = DebugLaunch.probeISRC,
+                      DebugLaunch.firesOnce("probe-isrc") else { return }
+                outcome = await ComposerService.shared.probe(isrc: isrc)
+            }
+            .alert(
+                "Composer probe",
                 isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })
             ) {
                 Button("OK", role: .cancel) { outcome = nil }

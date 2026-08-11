@@ -114,6 +114,19 @@ enum AppConfig {
     /// trips at all: it is a local query, not a thousand ids over the network.
     static let maxLibrarySongs = 3_000
 
+    /// Ceiling on Spotify tracks looked up in Apple Music's catalog for a
+    /// composer — see `ComposerService`.
+    ///
+    /// **The same hazard `maxSongsRated` describes, one service further out.**
+    /// Spotify returns no composer, so a classical listener's whole library is
+    /// eligible, and without a ceiling this would scale with the size of it.
+    /// Two things already bound it before this does: the lookup is batched a
+    /// hundred ISRCs to a request, and it only runs for people whose own artist
+    /// rows say they listen to classical at all — which is nobody, for most
+    /// libraries. So this is the backstop rather than the mechanism, and it is
+    /// set where 500 tracks costs five requests.
+    static let maxComposerLookups = 500
+
     // MARK: Apple Calendar
 
     /// How far back events are read. Five years.

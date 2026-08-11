@@ -115,6 +115,26 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "memories-tutorial") == "1"
     }
 
+    /// `-probe-isrc <ISRC>` → ask Apple Music's catalog for one recording's
+    /// composer and print the answer.
+    ///
+    /// **This settles a premise rather than showing a screen**, which is why it
+    /// is here rather than in a test: `filter[isrc]` needs the developer and
+    /// music-user tokens, which only exist inside a signed, installed build on
+    /// a device with an Apple Music account. Nothing in the composer path is
+    /// worth trusting until this prints a name.
+    ///
+    /// ```
+    /// xcrun simctl launch <device> com.written.datingapp -probe-isrc DEN962300581
+    /// ```
+    ///
+    /// If it prints no composer, the fallback is MusicBrainz — measured at one
+    /// request per second against roughly a hundred per request here, and
+    /// returning `composer` for classical but several `writer` credits for pop.
+    static var probeISRC: String? {
+        UserDefaults.standard.string(forKey: "probe-isrc")
+    }
+
     /// `-tutorial badge` → open the coach mark that lights the connected badge,
     /// without connecting anything.
     ///
