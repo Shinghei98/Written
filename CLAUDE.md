@@ -1870,6 +1870,40 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
+**The worker exists, and it is the other half of the split.** `0057` gives it
+`semantic_worker`: `bypassrls` and an **enumerated grant list** — ten tables
+read, two written, nothing outside `semantic_private`, all asserted from the
+catalog at migration time. Policies would have been the wrong tool: RLS here is
+keyed on `auth.uid()`, which a batch processor with no JWT can never satisfy, so
+a policy for this role could only be `using (true)` — a second mechanism that
+decides nothing while the table grants still decide everything. `semantic_private`
+therefore still has **no policies anywhere**, which remains statable in one
+sentence.
+
+`aws/worker` is the **vendored package**, not a reimplementation: `SemanticWorker`
+and `PostgresJobQueue` come from `written_ontology`, with its lease tokens,
+attempt limits, contract validation and fail-closed unhandled-job behaviour
+already tested. Writing a second queue in another language would have meant the
+thing in production was not the thing the tests cover.
+
+**It projects music and refuses the rest, deliberately.**
+`private_observation_projection_is_valid_v03` waves through every source except
+Calendar and HealthKit, where it demands a sanitised shape — `calendar-v03`,
+`sanitized_classification`, `action_weight = 0`, under 1 KB with a
+`classification_state`. That shape is the *output of a classifier* this worker
+does not implement, and §7 permits only the current Calendar classifier over
+Calendar rows. Satisfying the constraint without the classifier would be
+inventing evidence.
+
+**Two packaging traps, both paid for.** `typing_extensions` must be named
+explicitly — psycopg 3 needs it below Python 3.13 and pip drops it under
+`--platform`, surfacing as the package's own *"install the postgres extra"*
+message, which swallows the real `ImportError` and points somewhere else
+entirely. And wheels must be resolved for `manylinux2014_x86_64`, or an Apple
+machine bundles arm64 binaries that fail at *import* in a way that reads like a
+typo. `build.sh` now checks the staged tree for every expected module, so both
+fail at build rather than at invoke.
+
 **The vault has been read back, and that is the premise nothing else could
 substitute for.** 1,227 payloads had been encrypted and not one decrypted: if
 the crypto were wrong the vault would be garbage and nothing anywhere would say

@@ -175,6 +175,9 @@ apply_twice 0055_ingestion_scopes_items_finalize.sql
 # 0056 makes finalization conditional on the run having a scope, so a run of
 # entirely unpromotable rows keeps what it captured instead of rolling it back.
 apply_twice 0056_finalize_only_with_a_scope.sql
+# 0057 gives the worker its identity and asserts, by reading the catalog, that
+# it reads ten tables, writes two and reaches nothing outside semantic_private.
+apply_twice 0057_semantic_worker_role.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

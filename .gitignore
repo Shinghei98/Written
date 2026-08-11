@@ -42,3 +42,4 @@ out/
 # The ingestion Lambda builds locally; neither the tree nor the zip belongs in git.
 aws/ingestion/node_modules/
 aws/ingestion/dist/
+aws/worker/dist/

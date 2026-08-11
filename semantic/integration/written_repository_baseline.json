@@ -124,12 +124,17 @@
     },
     {
       "sequence": 57,
-      "suggested_name": "0057_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0057_semantic_worker_role.sql",
+      "role": "worker_service_identity"
     },
     {
       "sequence": 58,
-      "suggested_name": "0058_semantic_cutover.sql",
+      "suggested_name": "0058_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 59,
+      "suggested_name": "0059_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -184,8 +189,9 @@
     53,
     54,
     55,
-    56
+    56,
+    57
   ],
-  "application_migrations_authored_next": 57,
-  "application_migrations_reserved_note": "50-56 carry the encrypted-vault ingestion path: key registry, vocabulary alignment, ingestion identity, wrapped-key binding, key-write ordering, the run lifecycle (scopes, run items, finalization) and the guard that keeps an all-unpromotable run's capture. 57 (server projections) is due in phase server_owned_discovery_and_profiles and 58 (cutover) in legacy_semantic_retirement. The pair has shifted eight times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 58 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 58,
+  "application_migrations_reserved_note": "50-57 carry the encrypted-vault path end to end: key registry, vocabulary alignment, the ingestion identity and its wrapped-key binding, key-write ordering, the run lifecycle, the finalize guard, and the worker identity that reads the vault back. 58 (server projections) is due in phase server_owned_discovery_and_profiles and 59 (cutover) in legacy_semantic_retirement. The pair has shifted nine times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 59 is irreversible and must not exist on disk before a minimum supported client version does."
 }
