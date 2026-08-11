@@ -286,45 +286,60 @@ enum MusicHighlights {
     /// non-cloud rows on that library were Apple Music downloads that merely read
     /// as local, so the flag cannot be trusted to tell owned music from streamed.
     ///
-    /// **The collapse is scoped to one library read twice, not to two services.**
-    /// It was written for `apple_music` against `music_library` — the same Apple
-    /// metadata arriving by two routes, which is why matching on title and artist
-    /// works there. Spotify is a different library with different metadata, and
-    /// letting the key reach across would have been wrong in both directions at
-    /// once: `AppleMusicDistiller` writes a single artist name while
-    /// `SpotifyDistiller` pipe-joins every credit, so a single-artist track would
-    /// collapse and discard the Spotify row, while a featured one — `Drake`
-    /// against `Drake|Future|Kyla` — would not, and would count twice.
-    /// Spelling-dependent, silent, and different for every track.
+    /// **The collapse now reaches across services, keyed on the primary
+    /// performer.** It briefly did not: when Spotify came back the key carried a
+    /// source *group*, because `AppleMusicDistiller` writes a single artist name
+    /// while `SpotifyDistiller` pipe-joins every credit — so a single-artist
+    /// track would have collapsed and discarded the Spotify row while a featured
+    /// one, `Drake` against `Drake|Future|Kyla`, would not and would count
+    /// twice. Spelling-dependent, silent, and different for every track.
     ///
-    /// So the key carries a *group* rather than a source: sources that read the
-    /// same library share one, and anything else stands on its own. For the
-    /// collection prototype that is also the answer we want — Apple Music and
-    /// Spotify are meant to be legible side by side rather than merged into a
-    /// figure that hides which service it came from.
-    private static func dedupeGroup(for source: String) -> String {
-        // One Apple library, two readers. Everything else is itself.
-        ["apple_music", "music_library"].contains(source) ? "apple" : source
+    /// That objection is gone. Both services now carry a comparable *first*
+    /// credit, so keying on it collapses a recording owned on both into one —
+    /// which is what "how much of this do I listen to" means. It works whether
+    /// or not a composer lookup succeeded, because the performer is present on
+    /// both sides regardless.
+    ///
+    /// **Losing the source is the cost, and it is paid elsewhere.** Dedupe drops
+    /// the losing row, so a term built from survivors alone would claim one
+    /// source for a recording that is on two. `Ontology.terms` therefore reads
+    /// its source set from `allSongRows` rather than from this, which is why
+    /// that method exists.
+    private static func dedupeKey(for record: DistilledRecord) -> String {
+        let title = record.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // The first credit, matching `Ontology.primaryPerformer` — Apple writes
+        // one name, Spotify pipe-joins, and the lead is the common ground.
+        let performer = record.creator
+            .split(separator: "|").first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? ""
+        // A row with neither is not a song anybody can name; fall back to its id
+        // so it is at least counted once rather than collapsing every untitled
+        // row into one.
+        return title.isEmpty && performer.isEmpty
+            ? "\(record.source)|\(record.itemID)"
+            : "\(title)|\(performer)"
+    }
+
+    /// Every music row that counts as listening, **undeduplicated**.
+    ///
+    /// Exists for one caller: `Ontology.terms` builds each term's source set
+    /// from this, because the deduplicated set has by then thrown away the very
+    /// rows that prove a recording is on more than one service.
+    static func allSongRows(in records: [DistilledRecord]) -> [DistilledRecord] {
+        records.filter {
+            Modality.music.recordSources.contains($0.source)
+                && songTypes.contains($0.dataType)
+                && !$0.isRemovedByUser
+        }
     }
 
     static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seen: Set<String> = []
         var songs: [DistilledRecord] = []
-        for record in records where Modality.music.recordSources.contains(record.source)
-            && songTypes.contains(record.dataType)
-            // Struck off by the user. The row is still in the data, carrying the
-            // note that says so; it just stops counting toward anything.
-            && !record.isRemovedByUser {
-            let group = dedupeGroup(for: record.source)
-            let title = record.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let artist = record.creator.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            // A row with neither is not a song anybody can name; fall back to its
-            // id so it is at least counted once rather than collapsing every
-            // untitled row into one.
-            let key = title.isEmpty && artist.isEmpty
-                ? "\(group)|\(record.source)|\(record.itemID)"
-                : "\(group)|\(title)|\(artist)"
-            if seen.insert(key).inserted { songs.append(record) }
+        // Struck-off rows are already gone: the row stays in the data carrying
+        // the note that says so, and stops counting toward anything.
+        for record in allSongRows(in: records) {
+            if seen.insert(dedupeKey(for: record)).inserted { songs.append(record) }
         }
         return songs
     }

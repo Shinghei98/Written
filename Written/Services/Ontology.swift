@@ -333,6 +333,22 @@ enum Ontology {
         return record.creator.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Who the recording is *by* — the first credit, and only the first.
+    ///
+    /// **The counterpart to `storedSubject`, and the reason both are needed.**
+    /// For a classical row the subject is the composer and this is the
+    /// performer; for everything else they are the same string and the term
+    /// they produce collapses. Splitting on `|` because `SpotifyDistiller`
+    /// pipe-joins every credit while Apple Music writes one name — so the first
+    /// element is the lead performer on both, which is what makes a term
+    /// comparable across the two services.
+    private static func primaryPerformer(of record: DistilledRecord) -> String {
+        record.creator
+            .split(separator: "|")
+            .first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+    }
+
     /// What somebody is into, ranked, from every source that may be classified.
     ///
     /// **This is the ontology stage being switched on**, and until now it was
@@ -514,23 +530,61 @@ enum Ontology {
             buckets[domain] = byText
         }
 
-        // Music, by the *stamped* subject rather than the credited performer, so
-        // this page calls a Bach partita what the dynamic profile and the
-        // icebreaker call it. `storedSubject` is the one reader of that stamp.
+        // Music: **the stamped subject and the primary performer, as two terms.**
+        //
+        // A Bach partita played by Itzhak Perlman is two facts about a listener,
+        // not one, and they must never merge — they are different people. This
+        // page used to emit only `storedSubject`, which for classical is the
+        // composer, so the performer was simply lost: Perlman survived in
+        // `MusicHighlights.topArtists` and nowhere on this card. For everything
+        // that is not classical the two strings are identical and `Term.id`
+        // collapses them, so nothing changes for pop.
+        //
+        // **The first credit only, not every credit.** `creditedArtists` splits
+        // the whole pipe-joined list, and emitting a term per credit would put
+        // every featured artist on the card. The primary performer is who the
+        // recording is *by*; the long tail is `topArtists`' job.
+        //
+        // **The two terms are backed by the same rows**, which has a consequence
+        // worth stating rather than leaving to be discovered: striking one off
+        // marks those rows removed, so the other's weight drops with it.
+        // Striking "Bach" thins "Perlman". That follows from `applyingBans`
+        // working per row rather than per term, and it is arguably right — the
+        // recording did go — but it will surprise somebody.
         var artistArtwork: [String: URL] = [:]
         for artist in musicArtists where artist.artworkURL != nil {
             artistArtwork[artist.name.lowercased()] = artist.artworkURL
         }
-        // The same deduplicated songs `subjects` counts, so the Memories card
-        // and the dynamic profile rank music by one measure rather than two.
+        // Sources come from every music row, **not** from the deduplicated set.
+        // Dedupe drops the losing row, so a term built from survivors alone
+        // would claim one source for a recording owned on two services — and the
+        // glyph strip exists precisely to show that it is on both.
+        var termSources: [String: Set<String>] = [:]
+        for record in MusicHighlights.allSongRows(in: records) {
+            for text in [storedSubject(for: record), primaryPerformer(of: record)]
+            where !text.isEmpty {
+                termSources[text.lowercased(), default: []].insert(record.source)
+            }
+        }
+        func sources(for text: String) -> Set<String> {
+            termSources[text.lowercased()] ?? []
+        }
+
         for record in MusicHighlights.deduplicatedSongs(in: records) {
-            let subject = storedSubject(for: record)
-            guard !subject.isEmpty else { continue }
-            add(Term(text: subject, weight: 1,
-                     artworkURL: artistArtwork[subject.lowercased()],
-                     kind: .artist, banValues: [subject],
-                     sources: [record.source]),
-                to: .music)
+            // A set so the pop case — where subject and performer are the same
+            // string — adds one term rather than the same one twice.
+            var texts: [String] = []
+            for text in [storedSubject(for: record), primaryPerformer(of: record)]
+            where !text.isEmpty && !texts.contains(where: { $0.lowercased() == text.lowercased() }) {
+                texts.append(text)
+            }
+            for text in texts {
+                add(Term(text: text, weight: 1,
+                         artworkURL: artistArtwork[text.lowercased()],
+                         kind: .artist, banValues: [text],
+                         sources: sources(for: text)),
+                    to: .music)
+            }
         }
 
         for show in podcastShows {
