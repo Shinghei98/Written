@@ -63,6 +63,30 @@ reads like a typo rather than an architecture mismatch. `boto3` is deliberately
 absent: the runtime bundles it, and shipping a copy pins a version that drifts
 from the one AWS patches.
 
+## The seam is in the wrong place, and the schema said so
+
+**`recompute_user` cannot create observations, and the design has to move.**
+`observations` carries a trigger — `guard_observation_ingestion_run` — whose
+second line is:
+
+    if not found or run_row.status <> 'running' then
+      raise exception 'observations may only be appended to their running ingestion run';
+
+`finalize_ingestion_run_v031` enqueues `recompute_user` **after** the run
+closes, so by the time this worker claims the job the run is `succeeded` and
+every insert is refused. No grant fixes that; it is the schema stating where
+classification belongs.
+
+It belongs in **ingestion**, which already holds the plaintext before it
+encrypts it and runs while the run is open. `ingestion_run_items` carrying both
+`raw_source_record_id` and `observation_id`, with a check requiring at least
+one, says the same thing from the other side.
+
+So this directory keeps its identity, its packaging and its decrypt path — all
+of which are proven — and the projection moves to `aws/ingestion`. What
+`recompute_user` should do instead is what its name says: resolve existing
+observations to concepts, score and embed. That is the next piece.
+
 ## Working on it
 
     ./build.sh          # dist/worker.zip, linux x86_64 wheels, ~11 MB

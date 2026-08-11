@@ -178,6 +178,9 @@ apply_twice 0056_finalize_only_with_a_scope.sql
 # 0057 gives the worker its identity and asserts, by reading the catalog, that
 # it reads ten tables, writes two and reaches nothing outside semantic_private.
 apply_twice 0057_semantic_worker_role.sql
+# 0058 adds what the worker's own triggers need — inserting one observation
+# fires six security-invoker triggers that run as the worker, not the owner.
+apply_twice 0058_worker_trigger_grants.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

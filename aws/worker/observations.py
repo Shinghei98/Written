@@ -100,10 +100,16 @@ select r.id, r.ingestion_run_id, r.connector_source_code, r.source_code,
        coalesce((s.action_weights ->> split_part(i.scope_key, ':', 3))::float8, 0.0)
          as action_weight
   from semantic_private.raw_source_records r
+  -- **On the record id alone, and never on the run.** A run item says "this
+  -- run saw this item"; the raw record says "this run first captured it". They
+  -- are usually different runs — the first Apple Music distillation stored
+  -- 1,225 rows and every later one re-affirmed them as duplicates, keeping the
+  -- original `ingestion_run_id` on the record while writing items under its
+  -- own. Joining on the run matched exactly nothing, and returned zero rows
+  -- rather than an error.
   join semantic_private.ingestion_run_items i
-    on i.ingestion_run_id = r.ingestion_run_id
-   and i.source_item_hmac = r.source_item_hmac
-   and i.raw_source_record_id = r.id
+    on i.raw_source_record_id = r.id
+   and i.user_id = r.user_id
   join semantic_private.sources s on s.source_code = r.source_code
   left join semantic_private.observations o
     on o.user_id = r.user_id

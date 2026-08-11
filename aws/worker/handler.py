@@ -78,14 +78,68 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
     from psycopg.rows import dict_row
 
     user_id = job.payload["user_id"]
-    with psycopg.connect(database_url(), row_factory=dict_row) as connection:
-        counts = project_user(connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN)
+    try:
+        with psycopg.connect(database_url(), row_factory=dict_row) as connection:
+            counts = project_user(connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN)
+    except Exception as error:
+        # **The queue is forbidden from carrying this, so the log has to.**
+        # `SemanticWorker` catches a handler exception and records the stable
+        # code `handler_error` and nothing else — right for a durable row that
+        # must never hold plaintext, and it left the first real failure with no
+        # explanation anywhere. Same shape as the ingestion endpoint's 401,
+        # which said nothing to the caller *or* the operator.
+        #
+        # **Type, sqlstate and constraint name only — never `str(error)`.** A
+        # database error quotes the offending value, and the offending value
+        # here is somebody's decrypted library. §12 is explicit that no
+        # plaintext may reach logs.
+        diagnostic = {"error_type": type(error).__name__}
+        sqlstate = getattr(error, "sqlstate", None)
+        if sqlstate:
+            diagnostic["sqlstate"] = sqlstate
+        diag = getattr(error, "diag", None)
+        for field in ("constraint_name", "table_name", "column_name"):
+            value = getattr(diag, field, None) if diag else None
+            if value:
+                diagnostic[field] = value
+        # **The one sqlstate whose message is safe to log.** `42501` is
+        # "permission denied for <object>": it names a relation, a function or a
+        # schema and never quotes a row, so it cannot carry a decrypted title
+        # the way a constraint violation or a type error can. Without it the
+        # diagnostic said `InsufficientPrivilege` and nothing else, which is
+        # true and useless — it took two rounds of guessing which grant was
+        # missing before this was worth adding.
+        if sqlstate == "42501" and diag is not None:
+            message = getattr(diag, "message_primary", None)
+            if message:
+                diagnostic["denied"] = message[:200]
+        frame = error.__traceback__
+        while frame and frame.tb_next:
+            frame = frame.tb_next
+        if frame:
+            diagnostic["at"] = (
+                f"{os.path.basename(frame.tb_frame.f_code.co_filename)}"
+                f":{frame.tb_lineno}"
+            )
+        print(json.dumps({"handler_failed": diagnostic}))
+        raise
 
-    # Returned, so it lands in `worker_jobs.result` where an operator can read
-    # it. Integers only — the one place a decrypted title could escape into a
-    # durable row is here, and §12 is explicit that no plaintext may reach a
-    # queue payload.
-    return {"projected": counts, "input_revision": job.payload.get("input_revision")}
+    # **The result is a closed vocabulary, not free-form JSON**, and the first
+    # version of this returned `{"projected": {…}, "input_revision": …}` and was
+    # refused by `guard_worker_job_contract_v03`. That refusal is the contract
+    # working: `worker_job_result_is_safe_v03` allows at most sixteen keys, each
+    # drawn from a fixed set of id, count, boolean and status names, and nothing
+    # else — which is §12's "no plaintext in queue payloads" enforced
+    # structurally rather than by anyone remembering. A handler that could put
+    # arbitrary strings in a durable row is a handler that could put a decrypted
+    # calendar title there.
+    return {
+        "status": "succeeded",
+        "item_count": counts["read"],
+        "created_count": counts["written"],
+        "skipped_count": counts["skipped_no_payload"],
+        "changed": counts["written"] > 0,
+    }
 
 
 def handler(event, context):  # noqa: ANN001 - Lambda signature
