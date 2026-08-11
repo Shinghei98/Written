@@ -110,6 +110,29 @@ is.
 Confirmed on the device afterwards — a fourth run opened a new ingestion run and
 a new key and stored **no new row**.
 
+## The fingerprint is over content, not encoding — learned the expensive way
+
+`record_fingerprint` used to be taken over the canonicalised envelope, so
+`schema_version` and the payload's *shape* were part of a record's identity.
+Moving the payload from Swift's synthesised `{"music":{"_0":…}}` to
+`{"kind":…,"value":…}` therefore changed every fingerprint in the vault, and
+**1,227 rows became 2,441 without a byte of anybody's library changing** — the
+append-only model behaving exactly as designed, over a difference that was not
+a difference.
+
+`fingerprintContent` unwraps the discriminator and drops `schema_version`,
+`lifecycle_state` and `legacy_correlation_id`, so both wire forms hash
+identically and a future encoding change churns nothing. At 1,225 rows the
+lesson was cheap; at fifty thousand it would not have been.
+
+**One near-miss worth keeping.** The first version of that unwrapper took
+`Object.keys(payload)[0]` for any shape it did not recognise, which silently
+dropped every other field — `{title}` and `{title, playCount}` reduced to the
+same value and hashed the same, so a genuinely changed record would have been
+skipped as a duplicate and lost. It only unwraps a shape it recognises now and
+hashes anything else whole. An older test caught it; the new behaviour has its
+own.
+
 ## If tokens start failing with 401
 
 `SUPABASE_ISSUER` is set to `https://fwnezkbesjoazlpaflbq.supabase.co/auth/v1`

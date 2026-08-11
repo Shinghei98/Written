@@ -1874,6 +1874,15 @@ Three things the schema decided rather than us:
 The first semantic evidence this system has produced, across all nine music data
 types, with `user/apple_music_subscription` absent because it carries no action.
 
+**And the fingerprint no longer depends on the encoding, which is the actual
+fix.** `fingerprintContent` unwraps the payload's discriminator and drops
+`schema_version`, so both wire forms hash identically and the next encoding
+change churns nothing. The near-miss inside that change is the part to remember:
+its first version reduced any unrecognised payload shape to its first key, so
+`{title}` and `{title, playCount}` hashed the same — a changed record skipped as
+a duplicate and lost, which is the worst failure this function has. It unwraps
+only shapes it recognises now and hashes anything else whole.
+
 **It doubled the vault, and that was the price of the v2 wire form.**
 `record_fingerprint` is computed over the payload, so changing the payload's
 encoding changed every fingerprint and the whole library re-stored as new rows —

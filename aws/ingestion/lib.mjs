@@ -125,6 +125,63 @@ export function sourceItemHmac(key, { userId, sourceCode, providerItemId }) {
     .digest("hex");
 }
 
+/**
+ * The part of an envelope that is *content*, in a form that does not depend on
+ * how the envelope was encoded.
+ *
+ * **This exists because the fingerprint was coupled to the wire format, and
+ * that cost a full re-store.** Hashing the canonicalised envelope meant
+ * `schema_version` and the payload's shape were part of the record's identity —
+ * so moving from Swift's synthesised `{"music":{"_0":…}}` to
+ * `{"kind":…,"value":…}` changed every fingerprint in the vault, and 1,227 rows
+ * became 2,441 without a single byte of anybody's library having changed. At
+ * 1,225 rows that was cheap. At fifty thousand it would not be, and the next
+ * encoding change would have done it again.
+ *
+ * So: the discriminator is unwrapped and the fields are hashed directly, and
+ * `schema_version` is not an input at all. Both wire forms produce the same
+ * object, which is the property the test asserts.
+ *
+ * `lifecycle_state` and `legacy_correlation_id` are dropped for the same
+ * reason — the first is always `active` from a client and is a storage concept,
+ * the second is a shadow-phase crutch that will be removed and would churn the
+ * vault on its way out.
+ */
+export function fingerprintContent(envelope) {
+  const payload = envelope?.typed_payload ?? {};
+  let kind = null;
+  let value = null;
+  // **Unwrap only a shape we recognise; otherwise hash the payload whole.**
+  // The first version of this took `Object.keys(payload)[0]` for anything
+  // unfamiliar, which silently dropped every other field — so `{title}` and
+  // `{title, playCount}` reduced to the same value and hashed identically. A
+  // changed record that hashes the same is skipped as a duplicate and lost,
+  // which is the worst failure this function has. An older test caught it.
+  const keys = Object.keys(payload);
+  const v2 = typeof payload.kind === "string" && "value" in payload;
+  const v1 = keys.length === 1
+    && payload[keys[0]] !== null
+    && typeof payload[keys[0]] === "object"
+    && "_0" in payload[keys[0]];
+
+  if (v2) {
+    kind = payload.kind;
+    value = payload.value;
+  } else if (v1) {
+    kind = keys[0];
+    value = payload[keys[0]]._0;
+  } else {
+    value = payload;
+  }
+  return {
+    action_type: envelope?.action_type ?? null,
+    unweighted_action_type: envelope?.unweighted_action_type ?? null,
+    provider_revision: envelope?.provider_revision ?? null,
+    payload_kind: kind,
+    payload: value ?? null,
+  };
+}
+
 // Which *version* of the item this is.
 //
 // Includes the payload, so a changed observation is a new row rather than a
@@ -248,6 +305,12 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
   const sealed = { ...rest, typed_payload: typedPayload ?? null };
   delete sealed.consent_purpose; // derived, never the caller's
 
+  // **Over the content, and in a form independent of how it was encoded.**
+  // `fingerprintContent` unwraps the payload's discriminator and drops
+  // `schema_version`, so a change to the wire form churns nothing. The previous
+  // version hashed the canonicalised envelope and cost a full re-store when the
+  // payload encoding changed.
+  //
   // **The fingerprint is taken over the content, never over the capture.**
   // `observed_at` is stamped at distillation and `ingestion_id` is minted per
   // run, so both differ on every pass — leave them in and re-distilling an
@@ -271,7 +334,8 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
     occurred_at: occurredAt,
     source_item_hmac: sourceItemHmac(hmacKey, { userId, sourceCode, providerItemId }),
     record_fingerprint: recordFingerprint(hmacKey, {
-      userId, sourceCode, dataType, providerItemId, occurredAt, payload: content,
+      userId, sourceCode, dataType, providerItemId, occurredAt,
+      payload: fingerprintContent(sealed),
     }),
     encrypted_payload_b64: encryptPayload(dek, canonicalize(sealed)),
     consent_purpose: consentPurposeFor(sourceCode),

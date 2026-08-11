@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, InvalidEnvelope, keyVersionFor,
+  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, InvalidEnvelope, keyVersionFor,
   normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
 } from "../lib.mjs";
 
@@ -245,4 +245,46 @@ test("only describable rows become evidence", () => {
   // Absent and empty are the same thing to a resolver, and the private sources
   // are held to 1 KB — a limit worth respecting everywhere.
   assert.ok(!("genres" in fields) && !("album" in fields));
+});
+
+test("the same song encoded two ways has one fingerprint", () => {
+  // **The property that cost a full re-store to learn.** The fingerprint used
+  // to be taken over the canonicalised envelope, so `schema_version` and the
+  // payload's shape were part of a record's identity — and moving from Swift's
+  // synthesised `{"music":{"_0":…}}` to `{"kind":…,"value":…}` turned 1,227
+  // vault rows into 2,441 without a byte of anybody's library changing.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const song = { title: "Partita No. 2", composer: "J.S. Bach" };
+  const common = {
+    record_source_code: "apple_music", data_type: "library_song",
+    action_type: "library_song", provider_item_id: "i.1",
+  };
+  const v1 = toRecordRow(
+    { ...common, schema_version: "written-source-envelope-v1",
+      typed_payload: { music: { _0: song } } }, 0, ctx);
+  const v2 = toRecordRow(
+    { ...common, schema_version: "written-source-envelope-v2",
+      typed_payload: { kind: "music", value: song } }, 0, ctx);
+  assert.equal(v1.record_fingerprint, v2.record_fingerprint);
+
+  // And a real content change is still a different record.
+  const changed = toRecordRow(
+    { ...common, schema_version: "written-source-envelope-v2",
+      typed_payload: { kind: "music", value: { ...song, playCount: 9 } } }, 0, ctx);
+  assert.notEqual(v2.record_fingerprint, changed.record_fingerprint);
+});
+
+test("an unrecognised payload shape is hashed whole, never reduced", () => {
+  // The failure this guards against is silent and unrecoverable: a payload
+  // shape the unwrapper does not know, reduced to one of its fields, makes two
+  // genuinely different records hash the same — and the second is skipped as a
+  // duplicate and lost.
+  const a = fingerprintContent({ typed_payload: { title: "A" } });
+  const b = fingerprintContent({ typed_payload: { title: "A", playCount: 9 } });
+  assert.notDeepEqual(a, b);
+  assert.deepEqual(a.payload, { title: "A" }, "hashed whole, not reduced");
+
+  // Two keys is not v1 either, even if one of them looks like a case.
+  const two = fingerprintContent({ typed_payload: { music: { _0: { t: 1 } }, extra: 2 } });
+  assert.deepEqual(two.payload, { music: { _0: { t: 1 } }, extra: 2 });
 });
