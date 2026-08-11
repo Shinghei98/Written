@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "8c4011fada73150c2f4a019bacb6f43155c97196282b59829dc38096c2a12bf3",
-        "reason": "signOutLocalState now clears PendingEnvelopeStore alongside PendingPhotoStore. A queued batch holds calendar titles and workout records for an account no longer signed in on this device; AccountScope already keys the directory, so this is a second line rather than the only one. Supersedes the earlier accepted digest for the Health push path."
+        "sha256": "b1544372b882467c905303afdf8d7085acea5cdfd1a491684ed4aca07b1b5b7a",
+        "reason": "Phase 1 dual-write. `sync` now also calls `dualWriteToVault`, which derives typed envelopes and submits them on its own detached task at .background priority — never sharing a task or `syncFailure` with the legacy push, so a shadow problem cannot be reported as a lost distillation. It applies `SyncService.isLocalOnly` before deriving, because a second upload path is exactly how `health/biological_sex` never leaves the device stops being true without anyone deciding to break it. Inert while AppConfig.semanticIngestionEnabled is false. Supersedes the sign-out entry."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",

@@ -1768,6 +1768,32 @@ Three decisions in it worth knowing:
   treating it as permanent would throw away a distillation because somebody
   reopened the app after an hour.
 
+**Dual-write is wired and inert.** `DistillViewModel.sync` calls
+`dualWriteToVault`, which derives envelopes and submits them on **its own**
+detached task at `.background` — never sharing a task or `syncFailure` with the
+legacy push, since a slow endpoint must not delay the real outcome and a shadow
+problem must not be reported as a lost distillation.
+
+**It applies `SyncService.isLocalOnly` before deriving anything**, and that is
+the single most important line in it: `health/biological_sex` never leaves the
+device, which is a promise in `PrivacyInfo.xcprivacy` and on the website, and a
+second upload path is precisely how such a promise stops being true without
+anybody deciding to break it. The rule is *asked for* rather than reimplemented,
+because refusing to send and refusing to forget are one decision made in one
+place.
+
+**Refusals are counted, never swallowed.** A `data_type` nobody has mapped would
+otherwise show up as a batch quietly smaller than the distillation it came from
+— the hardest kind of gap to notice, because the numbers still look plausible.
+
+**Coverage measured against every row production has ever held: 6,148 of 6,148
+derive**, none unmapped. 6,082 carry an action the server weighs, 61 are
+structurally not acts (40 + 2 calendar containers, 4 subscription-state rows, 15
+`user` profile facts) and 5 are `location/place`, which the server gives no
+weight by its own decision. The comparison itself is **printed, not stored** —
+there is no consumer yet, and giving it a table would be building Phase 2 early
+in a codebase whose standing defect is results nobody reads.
+
 **`-probe-ingest 1` is what settles the last premise**, in the manner of
 `-probe-isrc`: only a signed-in device holds a Supabase access token, and only a
 real token exercises the Lambda's issuer check, its KMS calls and

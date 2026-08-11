@@ -1144,7 +1144,113 @@ final class DistillViewModel: ObservableObject {
             await MainActor.run { self?.syncFailure = outcome }
         }
 
+        dualWriteToVault(source: source, records: records)
         publishDiscoveryCard()
+    }
+
+    /// The v0.3.1 half of the same distillation — Phase 1's dual-write.
+    ///
+    /// **Its own task, and deliberately not the one above.** The legacy push is
+    /// what the product depends on; this is on shadow and reads nothing back.
+    /// Sharing a task would let a slow endpoint delay `syncFailure`, and
+    /// sharing `syncFailure` would report a shadow problem as a lost
+    /// distillation. `.background` rather than `.utility` for the same reason:
+    /// it must never compete with the path that matters.
+    ///
+    /// Does nothing at all while `AppConfig.semanticIngestionEnabled` is false,
+    /// which is its shipping state.
+    private func dualWriteToVault(source: String, records: [DistilledRecord]) {
+        guard AppConfig.semanticIngestionEnabled else { return }
+
+        // **The same rows are withheld here as at the legacy wire, and this is
+        // not a detail.** `health/biological_sex` never leaves the device —
+        // that is a promise in `PrivacyInfo.xcprivacy` and on the website, and
+        // a second upload path is exactly how such a promise stops being true
+        // without anybody deciding to break it. `SyncService.isLocalOnly` is
+        // the one place that decision lives, so it is asked rather than
+        // reimplemented.
+        let sendable = records.filter { !SyncService.isLocalOnly($0) }
+        let withheld = records.count - sendable.count
+
+        // One ingestion id per run, which is what makes the run atomic on the
+        // server: `finalize_ingestion_run_v031` decides membership and coverage
+        // from the set of rows sharing it.
+        let ingestionID = UUID()
+
+        Task.detached(priority: .background) {
+            guard let connector = SemanticSource.forAppSource(source) else {
+                Self.reportCoverage(
+                    source: source, ingestionID: ingestionID, legacy: records.count,
+                    withheld: withheld, refusals: ["unknown connector source": records.count],
+                    summary: nil
+                )
+                return
+            }
+
+            var envelopes: [SourceEnvelope] = []
+            var refusals: [String: Int] = [:]
+            for record in sendable {
+                switch SourceEnvelope.derive(
+                    from: record, ingestionID: ingestionID, connectorSource: connector
+                ) {
+                case .success(let envelope):
+                    envelopes.append(envelope)
+                case .failure(let refusal):
+                    // **Counted, never swallowed.** A `data_type` nobody has
+                    // mapped would otherwise show up as a batch that is quietly
+                    // smaller than the distillation it came from, which is the
+                    // hardest kind of gap to notice — the numbers still look
+                    // plausible.
+                    refusals[refusal.label, default: 0] += 1
+                }
+            }
+
+            let summary = await SemanticIngestionService.shared.submit(
+                envelopes, connector: connector, ingestionID: ingestionID
+            )
+            Self.reportCoverage(
+                source: source, ingestionID: ingestionID, legacy: records.count,
+                withheld: withheld, refusals: refusals, summary: summary
+            )
+        }
+    }
+
+    /// §8's Phase 1 asks to "compare record/source/action coverage" between the
+    /// two paths. This is that comparison, and it is printed rather than stored.
+    ///
+    /// **There is deliberately no consumer yet.** The comparison is a human
+    /// reading two numbers during shadow; giving it a table, a published
+    /// property or a surface would be building Phase 2 early, and this codebase
+    /// has a standing defect of results nobody reads. Phase 2 is where it earns
+    /// somewhere durable to live.
+    /// `nonisolated` because it reads nothing on the view model — the whole
+    /// point of dual-write is that it runs off the main actor and touches no
+    /// state the UI depends on. Hopping to the main actor to print a line would
+    /// put shadow work on the thread drawing the plant.
+    private nonisolated static func reportCoverage(
+        source: String,
+        ingestionID: UUID,
+        legacy: Int,
+        withheld: Int,
+        refusals: [String: Int],
+        summary: SemanticIngestionService.Summary?
+    ) {
+        #if DEBUG
+        var line = "[vault] \(source) run \(ingestionID.uuidString.prefix(8)) "
+            + "legacy=\(legacy) withheld=\(withheld)"
+        if let summary {
+            line += " received=\(summary.received) stored=\(summary.stored)"
+                + " duplicates=\(summary.duplicates)"
+                + " batches(sent/kept/dropped)="
+                + "\(summary.batchesSent)/\(summary.batchesKept)/\(summary.batchesDropped)"
+            if let failure = summary.firstFailure { line += " failure=\(failure)" }
+        }
+        if !refusals.isEmpty {
+            line += " refused=" + refusals.sorted { $0.key < $1.key }
+                .map { "\($0.key)×\($0.value)" }.joined(separator: ",")
+        }
+        print(line)
+        #endif
     }
 
     /// Puts this person into the pool other people are shown from.

@@ -119,6 +119,18 @@ extension SourceEnvelope {
         /// `SemanticSource.actionsByDataType` has no entry and nobody has
         /// decided what it means.
         case unmappedDataType(source: SemanticSource, dataType: String)
+
+        /// Short and stable, for counting refusals by kind during shadow.
+        /// **Names the source and type rather than the row**, because the
+        /// interesting question is which *kind* of thing this build cannot
+        /// describe — one refusal and nine hundred are the same defect.
+        var label: String {
+            switch self {
+            case .unknownSource(let code): return "unknown source: \(code)"
+            case .unmappedDataType(let source, let dataType):
+                return "unmapped: \(source.rawValue)/\(dataType)"
+            }
+        }
     }
 
     /// Build one from a `DistilledRecord`.
