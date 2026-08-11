@@ -505,6 +505,7 @@ WORK_PARENT: dict[str, str] = {
     "Re: Zero -Starting Life in Another World-": "Re:Zero",
     "Overlord II": "Overlord",
     "Overlord III": "Overlord",
+    "Overlord IV": "Overlord",
 }
 
 WORK_BY_ALBUM: dict[str, str] = {
@@ -536,6 +537,36 @@ WORK_BY_ALBUM: dict[str, str] = {
 WORK_NOT_A_WORK: frozenset[str] = frozenset({
     "Anime Music Collection Piano Solo Vol.2",
 })
+
+# **A compilation is about many works, so it is not one.** Caught by shape rather
+# than by name, because the list would never be complete: the first pass had one
+# entry and let through `Anime Covers Songs`, `Anime Remixes`,
+# `The Greatest Italian Pieces` and `Yumi Matsuzawa AnimeSong Cover Album` —
+# each of which became a "work" that no song was written for.
+COMPILATION_MARKERS: tuple[str, ...] = (
+    "collection", "covers", "cover album", "remixes", "greatest",
+    "anthology", "the best", "best of", "compilation", "selection",
+    "symphonic celebration", "music from",
+)
+
+# **Titles of one work in different languages, and different depths.** The name
+# rules solved this for people and it applies just as much to works: this library
+# carries `Re:Zero`, `Re: Zero -Starting Life in Another World-` and
+# `Re:ゼロから始める異世界生活`, which are one anime and were three concepts.
+# Everything here maps to the form already used elsewhere in the same library, so
+# rule 6 merges them.
+WORK_ALIASES: dict[str, str] = {
+    "Re: Zero -Starting Life in Another World-": "Re:Zero",
+    "Re:ゼロから始める異世界生活": "Re:Zero",
+    "オーバーロードIII": "Overlord III",
+    "オーバーロードIV": "Overlord IV",
+    "進撃の巨人": "Attack on Titan",
+    "シュタインズ・ゲート": "Steins;Gate",
+    "陰の実力者になりたくて!": "The Eminence in Shadow",
+    "転生したらスライムだった件 第2期":
+        "That Time I Got Reincarnated as a Slime",
+    "Higurashino Nakukoroni Gou": "Higurashi: When They Cry - Gou",
+}
 
 # The genres that say a row is media music. A row with one of these and no
 # identifiable work keeps the genre and gains no work — `genre:anime` is true

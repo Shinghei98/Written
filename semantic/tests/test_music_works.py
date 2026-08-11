@@ -75,8 +75,10 @@ def test_a_stated_work_beats_every_rule(works):
     ("Footloose: The Musical (Original Broadway Cast Recording)", "Footloose: The Musical"),
     # The year and everything after it is an edition qualifier, not the work.
     ("Musical Jekyll & Hyde 2021 Korean Cast Recording Vol.1", "Musical Jekyll & Hyde"),
+    # Canonicalised: this library also carries `Re:Zero` and
+    # `Re:ゼロから始める異世界生活`, and the three are one anime.
     ('Tv Series "Re: Zero -Starting Life in Another World-" 3rd Season (Original Soundtrack)',
-     "Re: Zero -Starting Life in Another World-"),
+     "Re:Zero"),
 ])
 def test_decoration_is_stripped_from_a_soundtrack_album(works, album, expected):
     assert works.work_from_album(album) == expected
@@ -98,14 +100,14 @@ def test_one_musical_is_one_concept_however_it_is_written(works):
 
 
 @pytest.mark.parametrize("title,expected", [
-    ("TVアニメ「オーバーロードIII」オープニングテーマ「VORACITY」 - EP", "オーバーロードIII"),
+    ("TVアニメ「オーバーロードIII」オープニングテーマ「VORACITY」 - EP", "Overlord III"),
     ("TVアニメ『シュタインズ・ゲート』EDテーママキシシングル「刻司ル十二ノ盟約」 - EP",
-     "シュタインズ・ゲート"),
-    ("劇場版「進撃の巨人」前編~紅蓮の弓矢~エンディングテーマ YAMANAIAME", "進撃の巨人"),
+     "Steins;Gate"),
+    ("劇場版「進撃の巨人」前編~紅蓮の弓矢~エンディングテーマ YAMANAIAME", "Attack on Titan"),
     ("Netsuretsu! Anison Spirits the BEST - Cover Music Selection - "
      "TV Anime Series Overlord II - Single", "Overlord II"),
     ("TV Animation Higurashino Nakukoroni Gou Theme Song - Single",
-     "Higurashino Nakukoroni Gou"),
+     "Higurashi: When They Cry - Gou"),
 ])
 def test_japanese_states_the_series_as_explicitly_as_english(works, title, expected):
     """`TVアニメ「X」` is the same statement as `From "X"`, and the **first**
@@ -119,6 +121,35 @@ def test_an_album_row_carries_its_name_in_the_title(works):
     and half the soundtracks in a real library arrive that way. Without this they
     resolve to nothing while looking perfectly handled."""
     assert works.work_for("Wicked: The Soundtrack", "", ["Soundtrack"]) == "Wicked"
+
+
+def test_one_anime_is_one_concept_in_any_language(works):
+    """The name rules solved this for people, and it applies to works.
+
+    This library carries `Re:Zero`, `Re: Zero -Starting Life in Another World-`
+    and `Re:ゼロから始める異世界生活` — one anime that was three concepts until
+    every mechanism's output went through `canonical_work`. The last path to
+    forget was the `Tv Series "…"` branch, which returned early."""
+    forms = [
+        works.work_for('TVアニメ「Re:ゼロから始める異世界生活」2nd season', "", ["Anime"]),
+        works.work_for('Tv Series "Re: Zero -Starting Life in Another World-" '
+                       '3rd Season (Original Soundtrack)', "", ["Anime"]),
+    ]
+    assert forms == ["Re:Zero", "Re:Zero"]
+
+
+@pytest.mark.parametrize("album", [
+    "Anime Covers Songs, Vol. 1",
+    "Anime Remixes",
+    "The Greatest Italian Pieces",
+    "Yumi Matsuzawa AnimeSong Cover Album",
+    "A Symphonic Celebration (Music from the Studio Ghibli Films of Hayao Miyazaki)",
+])
+def test_a_compilation_is_never_a_work(works, album):
+    """**Caught by shape, because a list of names is never complete.** The first
+    pass had one entry and let all of these through, each becoming a "work" that
+    no song was ever written for."""
+    assert works.work_for("x", album, ["Anime", "Soundtrack"]) is None
 
 
 def test_an_album_that_is_only_decoration_yields_nothing(works):

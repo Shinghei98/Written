@@ -21,6 +21,7 @@ from music_dictionary import (
     ARTIST_ERA,
     JUNK_EXACT,
     JUNK_SUBSTRINGS,
+    COMPILATION_MARKERS,
     NEVER_SPLIT,
     SPLIT_SEPARATORS,
     TRANSLITERATED,
@@ -38,6 +39,7 @@ from music_dictionary import (
     WORK_FROM_PATTERN,
     WORK_JP_PATTERN,
     WORK_NOT_A_WORK,
+    WORK_ALIASES,
     WORK_PARENT,
     WORK_SERIES_PATTERN,
     WORK_TRAILING_PATTERN,
@@ -68,7 +70,7 @@ def stated_work(title: str, album: str) -> str | None:
                 found = re.sub(r"\s-\s(Single|EP)$", "", found, flags=re.IGNORECASE)
                 found = found.strip(" 　-–—:")
                 if found:
-                    return found
+                    return canonical_work(found)
     return None
 
 
@@ -87,6 +89,9 @@ def work_from_album(album: str) -> str | None:
         return None
     if album in WORK_NOT_A_WORK:
         return None
+    lowered = album.casefold()
+    if any(marker in lowered for marker in COMPILATION_MARKERS):
+        return None
 
     # **A single or an EP is never a work.** It is a release of a song, and
     # stripping its decoration yields the song's own name — so `Saihate - Single`
@@ -102,7 +107,9 @@ def work_from_album(album: str) -> str | None:
     if series:
         # No `strip("-")`: the quotes already delimit it, and `Re: Zero
         # -Starting Life in Another World-` ends in one that belongs to the name.
-        return series.group(1).strip()
+        # Canonicalised like every other branch — that long form and `Re:Zero`
+        # are one anime, and this early return was the one path that forgot.
+        return canonical_work(series.group(1).strip())
 
     cleaned = album
     for decoration in WORK_DECORATIONS:
@@ -116,13 +123,31 @@ def work_from_album(album: str) -> str | None:
     # prevent. Everything from a standalone year onward goes.
     cleaned = re.sub(r"\s(?:19|20)\d{2}\b.*$", "", cleaned)
     # Left-over separators from the middle of a stripped name.
-    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -:,()")
-    return cleaned or None
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    # **Only strip a bracket that has lost its partner.** Blindly stripping `()`
+    # from the ends truncated `A Symphonic Celebration (Music from the Studio
+    # Ghibli Films of Hayao Miyazaki)` to an unbalanced string — a work whose
+    # name was visibly cut off.
+    cleaned = cleaned.strip(" -:,")
+    if cleaned.count("(") != cleaned.count(")"):
+        cleaned = cleaned.strip("()").strip(" -:,")
+    return canonical_work(cleaned) if cleaned else None
+
+
+def canonical_work(work: str) -> str:
+    """One work, one name — whatever language or depth the string used.
+
+    The same rule as for people: `Re:ゼロから始める異世界生活` and `Re:Zero` are one
+    anime, and this library carries both. Applied to every mechanism's output, so
+    the merge happens once rather than at each call site.
+    """
+    return WORK_ALIASES.get((work or "").strip(), (work or "").strip())
 
 
 def named_work(album: str) -> str | None:
     """Mechanism 4 — an album somebody recognised and wrote down."""
-    return WORK_BY_ALBUM.get(album)
+    named = WORK_BY_ALBUM.get(album)
+    return canonical_work(named) if named else None
 
 
 def artist_work(performer: str) -> str | None:
@@ -137,7 +162,8 @@ def artist_work(performer: str) -> str | None:
     ASCA, fripSide, ReoNa and OxT work across series, and filing them under one
     would be the Hopkins error with a band instead of a person.
     """
-    return ARTIST_WORK.get((performer or "").strip())
+    named = ARTIST_WORK.get((performer or "").strip())
+    return canonical_work(named) if named else None
 
 
 def work_parents(work: str) -> list[str]:
