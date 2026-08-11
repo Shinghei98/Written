@@ -69,6 +69,25 @@ actor SemanticIngestionService {
     /// A scope that was asked for and came back with nothing, because the
     /// endpoint behind it failed. It has no records, so without this it would
     /// leave no trace and the run would merely look smaller.
+    /// What the device believed it was sending, recorded beside what actually
+    /// landed. **Phase 1's "compare record/source/action coverage", and it has
+    /// to come from here** — only the client knows how many rows the same
+    /// distillation gave the legacy path, how many envelopes it could build, or
+    /// what it could not describe. The server knows only what arrived.
+    struct Coverage: Encodable, Equatable, Sendable {
+        let legacyRecords: Int
+        let envelopes: Int
+        let withheldLocalOnly: Int
+        let refused: [String: Int]
+
+        private enum CodingKeys: String, CodingKey {
+            case legacyRecords = "legacy_records"
+            case envelopes
+            case withheldLocalOnly = "withheld_local_only"
+            case refused
+        }
+    }
+
     struct TruncatedScope: Encodable, Equatable, Sendable {
         let dataType: String
         let actionType: String
@@ -84,7 +103,8 @@ actor SemanticIngestionService {
         _ envelopes: [SourceEnvelope],
         connector: SemanticSource,
         ingestionID: UUID,
-        truncated: [TruncatedScope] = []
+        truncated: [TruncatedScope] = [],
+        coverage: Coverage? = nil
     ) async -> Summary {
         guard AppConfig.semanticIngestionEnabled, !envelopes.isEmpty else { return Summary() }
 
@@ -109,7 +129,7 @@ actor SemanticIngestionService {
                 // Sent with every batch, like the rest of the manifest: the
                 // server merges scopes with `do nothing`, so repeating is free
                 // and a batch that lands alone still declares them.
-                truncated: truncated, using: encoder
+                truncated: truncated, coverage: coverage, using: encoder
             ) else { continue }
             PendingEnvelopeStore.stage(body, ingestionID: ingestionID, sequence: index)
         }
@@ -123,6 +143,7 @@ actor SemanticIngestionService {
         ingestionID: UUID,
         isFinal: Bool,
         truncated: [TruncatedScope] = [],
+        coverage: Coverage? = nil,
         using encoder: JSONEncoder
     ) -> Data? {
         guard let records = try? encoder.encode(envelopes) else { return nil }
@@ -140,7 +161,8 @@ actor SemanticIngestionService {
             inputHash: inputHash,
             records: envelopes,
             isFinal: isFinal,
-            truncated: truncated
+            truncated: truncated,
+            coverage: coverage
         )
         return try? encoder.encode(payload)
     }
@@ -153,6 +175,7 @@ actor SemanticIngestionService {
         let records: [SourceEnvelope]
         let isFinal: Bool
         let truncated: [TruncatedScope]
+        let coverage: Coverage?
 
         private enum CodingKeys: String, CodingKey {
             case ingestionID = "ingestion_id"
@@ -162,6 +185,7 @@ actor SemanticIngestionService {
             case records
             case isFinal = "final"
             case truncated
+            case coverage
         }
     }
 
@@ -349,7 +373,7 @@ extension SemanticIngestionService {
         encoder.dateEncodingStrategy = .iso8601
         guard let body = encode(
             [envelope], connector: .user, ingestionID: ingestionID,
-            isFinal: true, using: encoder
+            isFinal: true, coverage: nil, using: encoder
         ) else {
             return "could not encode the envelope"
         }

@@ -243,7 +243,8 @@ async function ingest(rows, context) {
     const { rows: result } = await client.query(
       `select semantic_private.ingest_source_records_v031(
          $1::uuid, $2::uuid, $3::text, $4::text, $5::text,
-         $6::text, $7::text, $8::text, $9::jsonb, $10::jsonb, $11::boolean) as receipt`,
+         $6::text, $7::text, $8::text, $9::jsonb, $10::jsonb, $11::boolean,
+         $12::jsonb) as receipt`,
       // **Built in `lib.mjs` so a test can run it.** This call had a
       // `ReferenceError` in it — reaching for `body`, a local of `handler` —
       // and every ingestion returned 500 until a real request found it.
@@ -349,6 +350,11 @@ export async function handler(event) {
       truncated: (Array.isArray(body.truncated) ? body.truncated : []).map((scope) => ({
         ...scope, source_code: connectorSource,
       })),
+      // The device's own account of the run — how many legacy rows the same
+      // distillation produced, how many envelopes it could build, what it
+      // withheld and what it could not describe. Only the client knows any of
+      // it, and until now it had nowhere to put it.
+      coverage: body.coverage && typeof body.coverage === "object" ? body.coverage : null,
     });
 
     return json(200, receipt);

@@ -428,5 +428,9 @@ export function ingestArguments(context, rows, vaultKeyArn) {
     JSON.stringify(scopeManifest(rows, context.truncated ?? [])),
     JSON.stringify(rows),
     context.final === true,
+    // What the device believed it was sending. Passed through untouched: it is
+    // the client's own account of a run and the server has no business
+    // improving it — a disagreement between the two halves is the whole point.
+    context.coverage ? JSON.stringify(context.coverage) : null,
   ];
 }

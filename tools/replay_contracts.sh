@@ -191,6 +191,9 @@ apply_twice 0060_observation_projection_must_be_an_object.sql
 # 0061 gives the app a door to record fitness consent, without which HealthKit
 # capture is refused by design. Asserts anon cannot reach either function.
 apply_twice 0061_fitness_purpose_grant.sql
+# 0062 gives the shadow comparison a durable home in ingestion_runs.metrics,
+# written while the run is still running because a terminal run is immutable.
+apply_twice 0062_run_coverage_metrics.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

@@ -327,14 +327,22 @@ test("the database call's arguments build without touching a database", () => {
     wrappedDekB64: "AAA=", final: true,
   }, rows, "arn:aws:kms:us-east-1:1:key/x");
 
-  assert.equal(args.length, 11, "the function takes eleven arguments, in order");
+  assert.equal(args.length, 12, "the function takes twelve arguments, in order");
   assert.equal(args[0], USER);
   assert.equal(args[10], true, "final");
+  assert.equal(args[11], null, "no coverage sent is null, not an empty object");
   assert.equal(JSON.parse(args[8]).length, 1, "one scope from one row");
   assert.equal(JSON.parse(args[9]).length, 1, "one record");
 
   // Absent `truncated` must not throw — the common case is no shortfall.
   assert.doesNotThrow(() => ingestArguments({ userId: USER }, [], "arn"));
+
+  // The device's own account of the run travels untouched: a disagreement
+  // between what it believed it sent and what landed is the whole point of a
+  // shadow phase, so the server must not tidy either half.
+  const withCoverage = ingestArguments(
+    { userId: USER, coverage: { legacy_records: 1332, envelopes: 1214 } }, [], "arn");
+  assert.deepEqual(JSON.parse(withCoverage[11]), { legacy_records: 1332, envelopes: 1214 });
 });
 
 test("a row with no projection carries no observation fields at all", () => {

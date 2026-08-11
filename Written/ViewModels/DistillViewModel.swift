@@ -1339,9 +1339,28 @@ final class DistillViewModel: ObservableObject {
                 return .init(dataType: $0, actionType: action.rawValue)
             }
 
+            // **The comparison Phase 1 asks for, sent where it can be kept.**
+            // Only the device knows how many rows the same distillation gave
+            // the legacy path, how many envelopes it could build, what it
+            // withheld at the wire, or what it could not describe; the server
+            // knows only what arrived. `ingestion_runs.metrics` holds both
+            // halves side by side, and a disagreement between them is the whole
+            // point of running a shadow at all.
+            //
+            // This was a `print` in a DEBUG build until now, which is not a
+            // record — and it cost twice: once when a short run could not be
+            // told apart from dropped batches, and once when every request was
+            // failing while the device queued them quietly.
+            let coverage = SemanticIngestionService.Coverage(
+                legacyRecords: records.count,
+                envelopes: envelopes.count,
+                withheldLocalOnly: withheld,
+                refused: refusals
+            )
+
             let summary = await SemanticIngestionService.shared.submit(
                 envelopes, connector: connector, ingestionID: ingestionID,
-                truncated: truncated
+                truncated: truncated, coverage: coverage
             )
             Self.reportCoverage(
                 source: source, ingestionID: ingestionID, legacy: records.count,
