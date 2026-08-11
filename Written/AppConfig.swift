@@ -148,6 +148,30 @@ enum AppConfig {
         // grant before building anything, and declining costs nothing: Health
         // still connects and distils, and only the encrypted copy is withheld.
         "health",
+
+        // The rest, and none of them needs anything HealthKit needed: no
+        // source-specific guard on `raw_source_records` exists except
+        // HealthKit's, every connector/record pair is an identity row already
+        // in the matrix, and every data type is mapped.
+        "apple_podcasts",
+        "music_library",
+        "location",
+
+        // **`user` produces no scopes at all**, because every one of its data
+        // types is `notAnAction` — a bio, an occupation, a flirt level are
+        // stated rather than observed. So a `user` run captures its rows and
+        // finalizes nothing, which is exactly the shape `0056` exists for: a
+        // run with nothing promotable keeps what it caught rather than rolling
+        // it back.
+        "user",
+
+        // **Spotify is deliberately absent.** Its Developer Terms IV.2.1.a
+        // forbid "ingesting Spotify Content into a machine learning or AI
+        // model", and IV.2.5 closes the consent route in its own words — even
+        // if a user consents. The vault is the front of that pipeline, so this
+        // is the same position YouTube is in and not a matter of scope. It is
+        // still offered as a *source* for the collection prototype; what it may
+        // not do is feed the semantic system.
     ]
 
     /// Whether the vault path does anything at all this build.
