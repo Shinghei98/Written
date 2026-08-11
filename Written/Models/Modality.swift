@@ -120,16 +120,17 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         //
         // Apple Music first: it is the one the product depends on, and the
         // picker draws these in order.
-        // ARCHIVED-SPOTIFY — `"spotify"` removed for the App Store build.
+        // ARCHIVED-SPOTIFY — **lifted for the data-collection prototype.**
+        // Spotify is offered alongside Apple Music so test users' listening can
+        // be inspected together, and comes out again before the real launch.
         //
-        // **Lifting it needs two edits, not one**, and the second is easy to
-        // miss: `AppShell` runs `purgeArchivedSources()` on every launch, which
-        // deletes Spotify rows locally *and* calls `deleteSource` on the server.
-        // With the source live that wipes the rows the moment they are
-        // distilled. Its terms would also need answering — they forbid a
-        // third-party database holding Spotify Content, which is what
-        // `SyncService.localOnlySources` is for.
-        case .music: return ["apple_music"]
+        // **It took two edits, not one**, and the second is the one to
+        // remember when this is archived again: `AppShell` ran
+        // `purgeArchivedSources()` on every launch, which deleted Spotify rows
+        // locally *and* called `deleteSource` on the server. With the source
+        // live that wiped the rows the moment they were distilled. That task is
+        // suspended; restoring the archive means restoring it too.
+        case .music: return ["apple_music", "spotify"]
         // ARCHIVED-YOUTUBE — `"youtube"` removed for the App Store build.
         //
         // **Lift it again to record Google's OAuth verification video**, which

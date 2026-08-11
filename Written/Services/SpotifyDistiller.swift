@@ -20,14 +20,7 @@ struct SpotifyDistiller {
             itemsKey: ["items"]
         )
         records += topArtists.enumerated().map { index, artist in
-            record(
-                dataType: "top_artist",
-                itemID: artist["id"] as? String ?? "",
-                name: artist["name"] as? String ?? "",
-                creator: artist["name"] as? String ?? "",
-                detail: "rank=\(index + 1)",
-                extra: "genres=\((artist["genres"] as? [String] ?? []).joined(separator: "|"))"
-            )
+            artistRecord(artist, dataType: "top_artist", detail: "rank=\(index + 1)")
         }
 
         // 2. Top tracks.
@@ -64,14 +57,7 @@ struct SpotifyDistiller {
             itemsKey: ["artists", "items"]
         )
         records += followed.map { artist in
-            record(
-                dataType: "followed_artist",
-                itemID: artist["id"] as? String ?? "",
-                name: artist["name"] as? String ?? "",
-                creator: artist["name"] as? String ?? "",
-                detail: "",
-                extra: "genres=\((artist["genres"] as? [String] ?? []).joined(separator: "|"))"
-            )
+            artistRecord(artist, dataType: "followed_artist", detail: "")
         }
 
         // 5. Playlists, then the tracks inside each.
@@ -156,10 +142,33 @@ struct SpotifyDistiller {
         detail: String,
         extraSuffix: String = ""
     ) -> DistilledRecord {
-        let artists = (track["artists"] as? [[String: Any]] ?? [])
+        let names = (track["artists"] as? [[String: Any]] ?? [])
             .compactMap { $0["name"] as? String }
-            .joined(separator: "|")
+        // Every credit, because a feature spot is still an association and
+        // `MusicHighlights.creditedArtists` splits this back apart.
+        let artists = names.joined(separator: "|")
+
         var extra = "album=\(albumName(of: track))"
+        // **The subject is the first credit, never the joined string.**
+        // `Ontology.storedSubject` falls back to `creator` when no `subject=` is
+        // stamped, and `creator` here is pipe-joined — so an unstamped Spotify
+        // row produced the subject `Drake|Future|Tems`, which then became a
+        // discovery-card term, a ban value and a Memories chip, and could never
+        // match an artwork lookup keyed on a real name.
+        //
+        // Spotify tracks carry no composer, so the classical rule cannot fire:
+        // `musicSubject` is still the one implementation of that rule and is
+        // called rather than reimplemented, but on this source it always
+        // resolves to the performer. A Bach partita from Spotify is filed under
+        // whoever played it — which is exactly what the rule exists to prevent
+        // and cannot be helped without a field Spotify does not return.
+        let subject = Ontology.musicSubject(
+            genres: [], composer: nil, performer: names.first ?? ""
+        )
+        if !subject.isEmpty { extra += ";subject=\(subject)" }
+        // Written for the semantic export adapter, which drops every Spotify row
+        // that carries no resource type. Nothing in the app reads it today.
+        extra += ";resource_type=track"
         if !extraSuffix.isEmpty { extra += ";\(extraSuffix)" }
 
         return record(
@@ -167,6 +176,35 @@ struct SpotifyDistiller {
             itemID: track["id"] as? String ?? "",
             name: track["name"] as? String ?? "",
             creator: artists,
+            detail: detail,
+            extra: extra
+        )
+    }
+
+    /// An artist row — `top_artist` or `followed_artist`.
+    ///
+    /// `creator` is a single name here rather than the pipe-joined credit list a
+    /// track carries, so `subject=` and `creator` agree; it is stamped anyway so
+    /// the value is stated rather than inferred from a fallback.
+    private func artistRecord(
+        _ artist: [String: Any],
+        dataType: String,
+        detail: String
+    ) -> DistilledRecord {
+        let name = artist["name"] as? String ?? ""
+        let genres = (artist["genres"] as? [String] ?? [])
+        var extra = "genres=\(genres.joined(separator: "|"))"
+        // The rule, not a copy of it — even though on an artist row it can only
+        // resolve to the performer, since Spotify returns no composer anywhere.
+        let subject = Ontology.musicSubject(genres: genres, composer: nil, performer: name)
+        if !subject.isEmpty { extra += ";subject=\(subject)" }
+        extra += ";resource_type=artist"
+
+        return record(
+            dataType: dataType,
+            itemID: artist["id"] as? String ?? "",
+            name: name,
+            creator: name,
             detail: detail,
             extra: extra
         )

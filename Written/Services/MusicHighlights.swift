@@ -31,11 +31,26 @@ enum MusicHighlights {
     /// `AppleMusicDistiller` has never written, so it answered `[]` for every
     /// real library and `discovery_cards.top_subjects` was empty for reasons
     /// nobody had found.
+    ///
+    /// **`top_track` is Spotify's, and leaving it out made Spotify's best
+    /// signal invisible.** Of the six types `SpotifyDistiller` emits only
+    /// `recently_played` and `playlist_item` overlapped Apple Music's, so a
+    /// Spotify library counted for almost nothing — while `top_track` carries
+    /// an explicit `rank=N`, which is a stronger statement about listening than
+    /// anything Apple Music returns. Named for what it is: a *top* track is not
+    /// a *saved* one, and renaming it to match Apple's vocabulary would file a
+    /// different fact under the same word.
     static let songTypes: Set<String> = [
-        "library_song", "heavy_rotation", "playlist_item", "recently_played"
+        "library_song", "heavy_rotation", "playlist_item", "recently_played",
+        "top_track"
     ]
 
-    private static let artistTypes: Set<String> = ["library_artist"]
+    /// Rows that are about an artist rather than a song, used for cover art and
+    /// nothing else. `top_artist` and `followed_artist` are Spotify's, and were
+    /// absent for the same reason `top_track` was.
+    private static let artistTypes: Set<String> = [
+        "library_artist", "top_artist", "followed_artist"
+    ]
 
     /// Artists ranked by how many of their songs appear, most first.
     ///
@@ -270,6 +285,28 @@ enum MusicHighlights {
     /// worse on this evidence: CLAUDE.md's own measurement found the sixteen
     /// non-cloud rows on that library were Apple Music downloads that merely read
     /// as local, so the flag cannot be trusted to tell owned music from streamed.
+    ///
+    /// **The collapse is scoped to one library read twice, not to two services.**
+    /// It was written for `apple_music` against `music_library` — the same Apple
+    /// metadata arriving by two routes, which is why matching on title and artist
+    /// works there. Spotify is a different library with different metadata, and
+    /// letting the key reach across would have been wrong in both directions at
+    /// once: `AppleMusicDistiller` writes a single artist name while
+    /// `SpotifyDistiller` pipe-joins every credit, so a single-artist track would
+    /// collapse and discard the Spotify row, while a featured one — `Drake`
+    /// against `Drake|Future|Kyla` — would not, and would count twice.
+    /// Spelling-dependent, silent, and different for every track.
+    ///
+    /// So the key carries a *group* rather than a source: sources that read the
+    /// same library share one, and anything else stands on its own. For the
+    /// collection prototype that is also the answer we want — Apple Music and
+    /// Spotify are meant to be legible side by side rather than merged into a
+    /// figure that hides which service it came from.
+    private static func dedupeGroup(for source: String) -> String {
+        // One Apple library, two readers. Everything else is itself.
+        ["apple_music", "music_library"].contains(source) ? "apple" : source
+    }
+
     static func deduplicatedSongs(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seen: Set<String> = []
         var songs: [DistilledRecord] = []
@@ -278,14 +315,15 @@ enum MusicHighlights {
             // Struck off by the user. The row is still in the data, carrying the
             // note that says so; it just stops counting toward anything.
             && !record.isRemovedByUser {
+            let group = dedupeGroup(for: record.source)
             let title = record.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let artist = record.creator.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             // A row with neither is not a song anybody can name; fall back to its
             // id so it is at least counted once rather than collapsing every
             // untitled row into one.
             let key = title.isEmpty && artist.isEmpty
-                ? "\(record.source)|\(record.itemID)"
-                : "\(title)|\(artist)"
+                ? "\(group)|\(record.source)|\(record.itemID)"
+                : "\(group)|\(title)|\(artist)"
             if seen.insert(key).inserted { songs.append(record) }
         }
         return songs

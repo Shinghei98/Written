@@ -68,8 +68,11 @@ Music, measured below.
 
 Scope comes from `written_api.xlsx` (the source of truth for what each platform
 exposes; consult it before adding a source). **`grep -rn "ARCHIVED-"` is what
-actually ships** — three of the sources below are held back for the App Store
-build, one is impossible, and one is unresolved.
+actually ships** — two of the sources below are held back for the App Store
+build, one is impossible, and one is unresolved. **Spotify is a third case: its
+`ARCHIVED-SPOTIFY` markers are in place but lifted**, because the
+data-collection prototype offers it and the real launch will not. So a marker
+means "held back or on its way back", and only the code around it says which.
 
 - **YouTube** (`YouTubeDistiller`) — **ARCHIVED.** Subscriptions, liked videos,
   playlists and playlist contents. Watch history is **not** reachable: the API
@@ -108,9 +111,26 @@ build, one is impossible, and one is unresolved.
   page's own evidence**: those sixteen non-cloud rows were streamed tracks that
   read as local, so the flag cannot tell owned music from downloaded.
 
-- **Spotify** — **ARCHIVED, and removal was a condition of shipping.** The
-  reasons are not the ones this entry gave for a year, which is what reading the
-  clauses in full rather than a summary of them corrected:
+- **Spotify** — **live again for the data-collection prototype, and still
+  removed before the real launch.** It is offered alongside Apple Music so test
+  users' listening can be inspected together; the five-user development cap is
+  survivable for a coordinated group and is not survivable for a beta, which is
+  what the rest of this entry is about.
+
+  **Two edits turned it on and both must be reversed to turn it off**, which is
+  the thing to remember rather than either one alone: the string in
+  `Modality.sources`, and `AppShell`'s `.task { viewModel.purgeArchivedSources() }`,
+  now commented out. That task deletes Spotify rows from memory, from the
+  on-disk cache and from Postgres — `distilled_records` and `source_connections`
+  both — on every launch. Left running with the source live it wipes each
+  distillation moments after it lands, and because the purge and the upload are
+  independent detached tasks it would not even fail the same way twice.
+
+  Turning it on also fixed something that was quietly broken: `applyingBans`
+  gates artist bans on `Modality.music.recordSources`, so while Spotify was
+  archived a struck-off artist came back on every Spotify row.
+
+  The clause reading below is unchanged and is why it comes out again:
 
   - **The storage rule is a limit, not a prohibition.** **IV.3.1.a**: *"you may
     not store, aggregate or create compilations or databases of Spotify Content,
@@ -137,9 +157,32 @@ build, one is impossible, and one is unresolved.
   Five is survivable for a coordinated group, rotated by hand; it is not
   survivable for a beta, where the sixth person logs in successfully and is then
   refused, which reads as the app being broken. That is the same judgement that
-  archived YouTube. `purgeArchivedSources` exists because rows already existed,
-  and **lifting the source needs it suspended too** — otherwise it deletes the
-  rows locally and on the server the moment they are distilled.
+  archived YouTube.
+
+  **Its rows are not shaped like Apple Music's, and three of the differences had
+  to be answered before the two could be read side by side.** Of the six
+  `data_type`s `SpotifyDistiller` emits, only `recently_played` and
+  `playlist_item` overlapped — so `top_track`, which carries an explicit
+  `rank=N` and is the strongest listening signal either source returns, counted
+  for nothing until it joined `MusicHighlights.songTypes`; `top_artist` and
+  `followed_artist` joined `artistTypes` for the same reason. Spotify stamps no
+  `subject=`, and its `creator` is **pipe-joined across every credit**, so
+  `Ontology.storedSubject`'s fallback produced the subject `Drake|Future|Tems`
+  — a discovery-card term and a ban value that no artwork lookup could ever
+  match. It stamps the first credit now, through `Ontology.musicSubject` rather
+  than a second copy of the rule, though on this source that rule can only ever
+  return the performer: Spotify returns no composer, so a Bach partita is filed
+  under whoever played it.
+
+  **And `MusicHighlights.deduplicatedSongs` now collapses by *group*, not by
+  source.** Its key was written for one Apple library read twice — `apple_music`
+  against `music_library`, the same metadata by two routes — and letting it
+  reach across to Spotify would have been wrong in both directions at once. A
+  single-artist track matches and the Spotify row is discarded; a featured one,
+  `Drake` against `Drake|Future|Kyla`, does not and counts twice. Spelling-
+  dependent, silent, and different per track. The Apple pair still collapses;
+  anything else stands on its own, which is also what an inspection prototype
+  wants.
 
 - **Apple Podcasts** (`PodcastDistiller`) — `MPMediaQuery.podcasts()`, one
   `MPMediaLibrary` permission, no login, same framework and same
@@ -2045,10 +2088,13 @@ deleted**; `grep -rn "ARCHIVED-"` is the whole inventory. Two shapes:
 
 - **A source** leaves `Modality.sources`. Its distiller, `OAuthProvider` case,
   `AppConfig` scopes and every read path stay compiled, so restoring it is an
-  edit rather than a rewrite. Side effect: `recordSources` derives from
-  `sources`, so `Modality.owning(source:)` answers nil for an archived source
-  and its rows belong to no branch — harmless with no rows, which is why
-  Spotify needed `purgeArchivedSources` and Google Calendar did not.
+  edit rather than a rewrite — proven by Spotify, which went back in one string
+  with nothing to rebuild. Side effect: `recordSources` derives from `sources`,
+  so `Modality.owning(source:)` answers nil for an archived source and its rows
+  belong to no branch — harmless with no rows, which is why Spotify needed
+  `purgeArchivedSources` and Google Calendar did not. **Less harmless than it
+  reads, though**: `applyingBans` gates on `recordSources` too, so an archived
+  source with rows silently stops honouring the ban list.
 - **A whole target** is **un-embedded**, not deleted and not `FALSEPREDICATE`'d.
   It still builds and signs; it is simply not copied into the app. A
   `FALSEPREDICATE` activation rule would still ship the bytes and still demand

@@ -193,14 +193,20 @@ struct AppShell: View {
             // same route — collected two screens before a view model exists.
             viewModel.adoptStoredIdentity()
         }
-        // ARCHIVED-SPOTIFY. Its terms forbid a third-party database holding
-        // Spotify Content, and beta testers have rows in one — so archiving the
-        // source is not enough on its own. See `purgeArchivedSources`.
+        // ARCHIVED-SPOTIFY — **suspended, because Spotify is offered again for
+        // the data-collection prototype.** This is the edit that decides
+        // whether any of it survives: `purgeArchivedSources` drops every
+        // Spotify row from memory and the on-disk cache *and* calls
+        // `SyncService.deleteSource("spotify")`, which DELETEs from
+        // `distilled_records` and `source_connections` under the user's own
+        // token. Left running with the source live, it wipes each distillation
+        // moments after it lands — and the two are detached tasks racing, so it
+        // would not even fail consistently.
         //
-        // **This has to be suspended if Spotify is ever offered again**, or it
-        // deletes the rows the moment they are distilled, locally and on the
-        // server both.
-        .task { viewModel.purgeArchivedSources() }
+        // **Restore this line the day Spotify is archived again**, together
+        // with the string in `Modality.sources`. Neither edit is any use alone.
+        //
+        // .task { viewModel.purgeArchivedSources() }
         // **The grid starts empty on every launch**, because `photos` is state
         // on `RootView` and nothing ever read the account's own back. So the
         // pictures were in the bucket, on the discovery card, and absent from
