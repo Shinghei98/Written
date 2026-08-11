@@ -62,6 +62,31 @@ extension SemanticSource {
     static func forAppSource(_ appSourceCode: String) -> SemanticSource? {
         allCases.first { $0.appSourceCode == appSourceCode }
     }
+
+    /// The `data_type` the semantic schema knows this row by.
+    ///
+    /// **`event` against `calendar_event`, and it is the same seam as
+    /// `appSourceCode`.** `CalendarDistiller` has written `event` since it was
+    /// added; the contract calls a calendar row `calendar_event` and says so in
+    /// two places that must agree —
+    /// `private_observation_projection_is_valid_v03` demands it of the
+    /// observation, and `guard_ingestion_run_item_v031` demands that the raw
+    /// record, the scope manifest and the observation all carry the *same*
+    /// data type. So an observation cannot hold a vocabulary of its own; the
+    /// whole row has to speak the schema's language, and renaming the
+    /// distiller's would rewrite the legacy path for a name only the vault
+    /// cares about.
+    ///
+    /// One translation, in one place, pinned by a test — for the reason
+    /// `appSourceCode` gives.
+    func semanticDataType(for appDataType: String) -> String {
+        switch (self, appDataType) {
+        case (.appleCalendar, "event"), (.googleCalendar, "event"):
+            return "calendar_event"
+        default:
+            return appDataType
+        }
+    }
 }
 
 // MARK: - Actions
@@ -87,7 +112,15 @@ enum SemanticAction: String, Codable, Sendable {
     case followed
     case saved
     case booked
-    case enteredByUser = "entered_by_user"
+    /// **Not `entered_by_user`, which the schema knows but the Calendar
+    /// projection refuses.** `private_observation_projection_is_valid_v03`
+    /// allows a calendar observation only `scheduled` or `booked`, and
+    /// `guard_ingestion_run_item_v031` requires the observation's action to
+    /// equal its scope's — so `entered_by_user` can be captured and can never
+    /// become evidence. The distinction it carried is kept: `booked` is still
+    /// what a ticketing site wrote in, and `scheduled` is everything a person
+    /// put there themselves.
+    case scheduled
     case workout
     case activityDay = "activity_day"
     case activityHour = "activity_hour"
@@ -123,8 +156,8 @@ enum NonActionReason: String, Codable, Sendable {
 enum ActionMapping: Equatable, Sendable {
     /// Every action this pair can produce. More than one when the act is
     /// decided by the *row* rather than by its kind — a calendar event is
-    /// `booked` or `entered_by_user` depending on whether a ticketing site
-    /// wrote it in.
+    /// `booked` or `scheduled` depending on whether a ticketing site wrote it
+    /// in.
     case actions([SemanticAction])
 
     /// A real behavioural signal the server has no weight for yet. Carried in
@@ -206,11 +239,11 @@ extension SemanticSource {
             "podcast_episode": .actions([.saved]),
         ],
         .appleCalendar: [
-            "event": .actions([.booked, .enteredByUser]),
+            "event": .actions([.booked, .scheduled]),
             "calendar": .notAnAction(.container),
         ],
         .googleCalendar: [
-            "event": .actions([.booked, .enteredByUser]),
+            "event": .actions([.booked, .scheduled]),
             "calendar": .notAnAction(.container),
         ],
         .healthKit: [
@@ -268,7 +301,7 @@ extension SemanticSource {
             if candidates.contains(.booked), record.extraValue("booked") == "1" {
                 return .booked
             }
-            if candidates.contains(.enteredByUser) { return .enteredByUser }
+            if candidates.contains(.scheduled) { return .scheduled }
             return candidates.first
         case .unweighted, .notAnAction, .none:
             return nil

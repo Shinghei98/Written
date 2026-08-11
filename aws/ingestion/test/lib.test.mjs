@@ -388,10 +388,13 @@ test("calendarEventsFor sends only calendar rows, keyed by fingerprint", () => {
   assert.equal(events[0].payload.title, "Ticket: Hamilton");
 });
 
-test("a candidate gets the contract's vocabulary, not the record's", () => {
+test("a candidate gets the projection fields, and the weight the constraint pins", () => {
+  // The row already says `calendar_event` — the device sends it that way,
+  // because the run-item guard requires record, scope and observation to agree.
   const rows = [{
     record_source_code: "apple_calendar", record_fingerprint: "b",
-    data_type: "event", action_type: "booked", occurred_at: "2026-09-02T19:00:00.000Z",
+    data_type: "calendar_event", action_type: "booked",
+    occurred_at: "2026-09-02T19:00:00.000Z",
   }];
   const applied = applyCalendarProjections(rows, {
     b: {
@@ -405,27 +408,32 @@ test("a candidate gets the contract's vocabulary, not the record's", () => {
   });
   assert.equal(applied, 1);
   const row = rows[0];
-  // The record stays an `event`; the observation is a `calendar_event`.
-  assert.equal(row.data_type, "event");
-  assert.equal(row.observation_data_type, "calendar_event");
-  assert.equal(row.observation_action_type, "booked");
+  assert.equal(row.data_type, "calendar_event");
+  // **Not overridden.** `guard_ingestion_run_item_v031` requires the
+  // observation's data type and action to equal the scope's, so a projection
+  // that renamed either would be refused after the rows were already encrypted.
+  assert.equal(row.observation_data_type, undefined);
+  assert.equal(row.observation_action_type, undefined);
+  // The one genuine divergence: `sources` weighs `scheduled` 0.9 and the
+  // Calendar projection is pinned at exactly zero.
   assert.equal(row.observation_action_weight, 0);
   assert.equal(row.observation_kind, "sanitized_classification");
   assert.equal(row.privacy_class, "private_calendar_sanitized");
   assert.equal(row.content_lineage_hmac, "f".repeat(64));
 });
 
-test("entered_by_user becomes scheduled, which is what the constraint allows", () => {
+test("an excluded row still gets a weight of zero", () => {
   const rows = [{
     record_source_code: "apple_calendar", record_fingerprint: "b",
-    action_type: "entered_by_user", occurred_at: "2026-09-02T19:00:00.000Z",
+    action_type: "scheduled", occurred_at: "2026-09-02T19:00:00.000Z",
   }];
   applyCalendarProjections(rows, {
     b: { classification_state: "excluded", normalized_payload: {
       schema_version: "calendar-v03", record_kind: "calendar_classification",
       classification_state: "excluded" } },
   });
-  assert.equal(rows[0].observation_action_type, "scheduled");
+  assert.equal(rows[0].observation_action_weight, 0);
+  assert.equal(rows[0].content_lineage_hmac, null);
 });
 
 test("a candidate with no capture time is downgraded to review", () => {

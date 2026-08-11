@@ -97,6 +97,24 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         """The one non-identity translation, pinned so it cannot be tidied away
         by someone who notices the switch has a single case."""
         self.assertEqual(self.data["app_source_codes"]["health"], "healthkit")
+
+    def test_a_calendar_row_is_renamed_for_the_schema(self):
+        """`event` against `calendar_event`, the second translation seam.
+
+        **It cannot be corrected downstream, which is why it is pinned here.**
+        `guard_ingestion_run_item_v031` requires the raw record, the scope
+        manifest and the observation to carry the *same* `data_type`, and
+        `private_observation_projection_is_valid_v03` demands `calendar_event`
+        of the observation — so the whole row has to say it from the device
+        onward. An attempt to let the projection rename it was refused by the
+        database after the payloads were already encrypted.
+        """
+        mapped = self.data["semantic_data_types"]
+        self.assertEqual(mapped["appleCalendar/event"], "calendar_event")
+        self.assertEqual(mapped["googleCalendar/event"], "calendar_event")
+        # Nothing else is translated: a second entry here is a second place for
+        # the two vocabularies to drift.
+        self.assertEqual(len(mapped), 2)
         self.assertNotIn("health", self.data["sources"])
 
     def test_mapped_sources_are_all_declared(self) -> None:
@@ -124,9 +142,19 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         )
 
     def test_calendar_events_can_be_either_act(self) -> None:
-        """A calendar event is `booked` or `entered_by_user` depending on the
-        row, and that distinction is the reason the source exists — a booking a
-        ticketing site wrote in cost money and a Saturday.
+        """A calendar event is `booked` or `scheduled` depending on the row, and
+        that distinction is the reason the source exists — a booking a ticketing
+        site wrote in cost money and a Saturday.
+
+        **`scheduled`, not `entered_by_user`, and the schema chose it rather
+        than us.** `sources.action_weights` knows both, but
+        `private_observation_projection_is_valid_v03` allows a calendar
+        observation only `scheduled` or `booked`, and
+        `guard_ingestion_run_item_v031` requires the observation's action to
+        equal its scope's. So `entered_by_user` could be captured and could
+        never become evidence — the rows would land and describe nothing, which
+        is the failure mode hardest to notice. The distinction it carried is
+        intact under the new name.
 
         Pinned on both calendars, since Google Calendar returning through a
         different distiller is exactly the kind of place one of a pair gets
@@ -135,7 +163,7 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         for source in ("apple_calendar", "google_calendar"):
             kind, actions = self.mapping[source]["event"]
             self.assertEqual(kind, "actions")
-            self.assertEqual(sorted(actions), ["booked", "entered_by_user"])
+            self.assertEqual(sorted(actions), ["booked", "scheduled"])
 
     def test_biological_sex_is_never_an_action(self) -> None:
         """It is a protected characteristic, it never leaves the device, and

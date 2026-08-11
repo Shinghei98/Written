@@ -336,12 +336,15 @@ export function calendarEventsFor(envelopes, rows) {
 /**
  * Merge the classifier's verdicts onto the rows they belong to.
  *
- * **The observation's vocabulary is not the record's**, which `0064` exists for:
- * a captured Calendar row is an `event` with action `booked` or
- * `entered_by_user`, while the observation it supports must be a
- * `calendar_event` with action `booked` or `scheduled` and a weight of exactly
- * zero. Both are named here rather than derived, because the mapping is a
- * statement about the contract rather than a transformation of the data.
+ * **Only the weight is overridden, and that took two attempts to learn.** The
+ * first version also renamed the observation's `data_type` and `action_type`,
+ * on the theory that evidence may speak a different language from capture. It
+ * may not: `guard_ingestion_run_item_v031` requires the raw record, the scope
+ * manifest and the observation to carry the *same* data type and action, so the
+ * whole row has to say `calendar_event` from the device onward — which is what
+ * `SemanticSource.semanticDataType` now does. The weight is the one genuine
+ * divergence: `sources` gives `scheduled` 0.9 while the Calendar projection is
+ * pinned at exactly 0.0, and no renaming can reconcile those.
  *
  * A row whose capture carries no `occurred_at` is downgraded to `review` even
  * when the classifier called it a candidate: the constraint requires a time for
@@ -370,8 +373,6 @@ export function applyCalendarProjections(rows, decisions) {
     row.observation_kind = "sanitized_classification";
     row.payload_schema_version = "calendar-v03";
     row.privacy_class = "private_calendar_sanitized";
-    row.observation_data_type = "calendar_event";
-    row.observation_action_type = row.action_type === "booked" ? "booked" : "scheduled";
     row.observation_action_weight = 0;
     row.content_lineage_hmac = lineage;
     applied += 1;

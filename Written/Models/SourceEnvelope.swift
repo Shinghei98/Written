@@ -194,7 +194,12 @@ extension SourceEnvelope {
                 ingestionID: ingestionID,
                 connectorSource: connectorSource,
                 recordSource: recordSource,
-                dataType: record.dataType,
+                // The schema's name for this kind of row, which differs from the
+                // distiller's only for calendars. See `semanticDataType`: the
+                // raw record, the scope manifest and the observation must all
+                // carry the same one, so this cannot be corrected later in the
+                // pipeline.
+                dataType: recordSource.semanticDataType(for: record.dataType),
                 action: action,
                 unweightedAction: unweighted,
                 providerItemID: record.itemID,

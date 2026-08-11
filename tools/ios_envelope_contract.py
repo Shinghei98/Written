@@ -192,6 +192,30 @@ def distiller_data_types(repo: pathlib.Path) -> dict[str, set[str]]:
     return found
 
 
+def semantic_data_types(text: str) -> dict[str, str]:
+    """`SemanticSource.semanticDataType`, as `{"source/app_type": schema_type}`.
+
+    The second translation seam, beside `appSourceCode`. It exists because the
+    run-item guard requires the raw record, the scope manifest and the
+    observation to carry the same `data_type` — so a calendar row has to say
+    `calendar_event` from the device onward, and the distiller's `event` cannot
+    be corrected downstream.
+    """
+    body = re.search(
+        r"func semanticDataType\(for appDataType: String\) -> String \{(.*?)\n    \}",
+        text, re.S,
+    )
+    if not body:
+        raise ValueError("semanticDataType not found")
+    mapped: dict[str, str] = {}
+    case_pattern = r'case ((?:\(\.\w+, "[a-z_]+"\),?\s*)+):\s*\n\s*return "([a-z_]+)"'
+    pair_pattern = r'\(\.(\w+), "([a-z_]+)"\)'
+    for cases, result in re.findall(case_pattern, body.group(1)):
+        for source, app_type in re.findall(pair_pattern, cases):
+            mapped[f"{source}/{app_type}"] = result
+    return mapped
+
+
 def distiller_source_codes(repo: pathlib.Path) -> set[str]:
     """Every `source:` string literal the shipping app writes."""
     codes: set[str] = set()
@@ -209,6 +233,7 @@ def load(repo: pathlib.Path) -> dict:
         "sources": sorted(enum_cases(text, "SemanticSource").values()),
         "actions": sorted(enum_cases(text, "SemanticAction").values()),
         "app_source_codes": app_source_codes(text),
+        "semantic_data_types": semantic_data_types(text),
         "mapping": parse_mapping(text),
         "distiller_data_types": {
             name: sorted(types)

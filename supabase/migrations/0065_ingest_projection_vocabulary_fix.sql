@@ -1,0 +1,397 @@
+-- 0065 — 0064 overloaded the function instead of replacing it.
+--
+-- **This repository already had this lesson written down and I walked into it
+-- anyway**: *"`create or replace function` does not replace a function whose
+-- signature changed — it overloads it."* `0062` added `p_coverage`, so the live
+-- function takes twelve arguments; `0064` was written against `0060`'s
+-- eleven-argument body and therefore created a *second* function beside it.
+-- `pg_proc` answered two rows, the endpoint kept calling the twelve-argument
+-- one, and every new field was silently ignored.
+--
+-- The failure was not silent, which is the one good thing about it: the old
+-- body wrote the observation with `data_type = 'event'`, the scope's action and
+-- no content lineage, and `guard_private_observation_projection_v03` refused it
+-- by name. Because the insert shares the run's transaction, the whole
+-- distillation returned 500 — capture and all.
+--
+-- This file is `0062`'s body with `0064`'s four fields applied to it, generated
+-- from that file rather than retyped, and it drops the orphan first.
+
+begin;
+
+-- The eleven-argument orphan `0064` created. Named in full, because that is the
+-- only way to drop one of an overloaded pair.
+drop function if exists semantic_private.ingest_source_records_v031(
+  uuid, uuid, text, text, text, text, text, text, jsonb, jsonb, boolean
+);
+
+create or replace function semantic_private.ingest_source_records_v031(
+  p_user_id uuid,
+  p_ingestion_run_id uuid,
+  p_connector_source_code text,
+  p_connector_version text,
+  p_input_hash text,
+  p_key_version text,
+  p_wrapped_dek_b64 text,
+  p_kms_key_arn text,
+  p_scopes jsonb,
+  p_records jsonb,
+  p_final boolean,
+  p_coverage jsonb default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  existing_user uuid;
+  existing_connector text;
+  existing_status text;
+  existing_dek bytea;
+  incoming_dek bytea;
+  received integer;
+  stored integer;
+  items integer := 0;
+  scopes integer := 0;
+  observed integer := 0;
+  scopes_on_run integer := 0;
+  key_recorded boolean := false;
+  finalized boolean := false;
+  receipt jsonb;
+  server_metrics jsonb;
+begin
+  if p_user_id is null or p_ingestion_run_id is null then
+    raise exception 'user and ingestion run are required'
+      using errcode = 'null_value_not_allowed';
+  end if;
+  if jsonb_typeof(p_records) is distinct from 'array' then
+    raise exception 'records must be a json array, got %', jsonb_typeof(p_records)
+      using errcode = 'invalid_parameter_value';
+  end if;
+  if p_scopes is not null and jsonb_typeof(p_scopes) is distinct from 'array' then
+    raise exception 'scopes must be a json array, got %', jsonb_typeof(p_scopes)
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  insert into semantic_private.ingestion_runs (
+    id, user_id, source_code, connector_source_code,
+    connector_version, input_hash, status, run_kind
+  )
+  values (
+    p_ingestion_run_id, p_user_id, p_connector_source_code, p_connector_source_code,
+    p_connector_version, p_input_hash, 'running', 'connector'
+  )
+  on conflict (id) do nothing;
+
+  select r.user_id, r.connector_source_code, r.status
+    into existing_user, existing_connector, existing_status
+    from semantic_private.ingestion_runs r
+   where r.id = p_ingestion_run_id;
+
+  if existing_user is distinct from p_user_id
+     or existing_connector is distinct from p_connector_source_code then
+    raise exception 'ingestion run % belongs to a different user or connector',
+      p_ingestion_run_id
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if existing_status is distinct from 'running' then
+    raise exception 'ingestion run % is % and cannot accept records',
+      p_ingestion_run_id, existing_status
+      using errcode = 'object_not_in_prerequisite_state';
+  end if;
+
+  if p_scopes is not null then
+    with incoming_scopes as (
+      select
+        element ->> 'scope_key' as scope_key,
+        element ->> 'source_code' as source_code,
+        element ->> 'data_type' as data_type,
+        element ->> 'action_type' as action_type,
+        element ->> 'snapshot_mode' as snapshot_mode,
+        element ->> 'completeness' as completeness,
+        (element ->> 'expected_item_count')::integer as expected_item_count,
+        (element ->> 'window_start')::timestamptz as window_start,
+        (element ->> 'window_end')::timestamptz as window_end
+      from jsonb_array_elements(p_scopes) as element
+    ), written as (
+      insert into semantic_private.ingestion_run_scopes (
+        ingestion_run_id, user_id, source_code, connector_source_code, scope_key,
+        data_type, action_type, snapshot_mode, completeness,
+        expected_item_count, window_start, window_end
+      )
+      select
+        p_ingestion_run_id, p_user_id, incoming_scopes.source_code,
+        p_connector_source_code, incoming_scopes.scope_key,
+        incoming_scopes.data_type, incoming_scopes.action_type,
+        incoming_scopes.snapshot_mode, incoming_scopes.completeness,
+        incoming_scopes.expected_item_count,
+        incoming_scopes.window_start, incoming_scopes.window_end
+      from incoming_scopes
+      on conflict (ingestion_run_id, scope_key) do nothing
+      returning 1
+    )
+    select count(*) into scopes from written;
+  end if;
+
+  select count(*) into received from jsonb_array_elements(p_records);
+
+  if received > 0
+     and (p_key_version is null or p_wrapped_dek_b64 is null or p_kms_key_arn is null) then
+    raise exception 'a non-empty batch must carry its wrapped data key'
+      using errcode = 'null_value_not_allowed';
+  end if;
+
+  if received > 0 then
+    incoming_dek := pg_catalog.decode(p_wrapped_dek_b64, 'base64');
+
+    select k.wrapped_dek into existing_dek
+      from semantic_private.user_encryption_keys k
+     where k.user_id = p_user_id and k.key_version = p_key_version;
+
+    if existing_dek is not null and existing_dek is distinct from incoming_dek then
+      raise exception
+        'key version % already names a different wrapped key for this user',
+        p_key_version
+        using errcode = 'unique_violation';
+    end if;
+  end if;
+
+  -- **`create temporary table if not exists` keeps the table a warm connection
+  -- already has**, which was safe while the shape never changed and is not now.
+  -- A pooled backend that served an earlier call holds the thirteen-column
+  -- version while this body's insert names seventeen, so the first call on a
+  -- reused connection fails on a shape mismatch that no redeploy fixes and that
+  -- vanishes whenever the pooler hands out a fresh backend. Dropping first makes
+  -- the definition this function's, every time.
+  drop table if exists incoming_batch;
+  create temporary table incoming_batch (
+    source_code text,
+    data_type text,
+    scope_key text,
+    occurred_at timestamptz,
+    source_item_hmac text,
+    record_fingerprint text,
+    encrypted_payload bytea,
+    consent_purpose text,
+    retention_policy_version text,
+    normalized_payload jsonb,
+    observation_kind text,
+    payload_schema_version text,
+    privacy_class text,
+    -- Added here. Null means "as the record and its scope say", which is what
+    -- every source but Calendar sends.
+    observation_data_type text,
+    observation_action_type text,
+    observation_action_weight double precision,
+    content_lineage_hmac text
+  ) on commit drop;
+
+  insert into incoming_batch
+  select
+    element ->> 'record_source_code',
+    element ->> 'data_type',
+    element ->> 'scope_key',
+    (element ->> 'occurred_at')::timestamptz,
+    element ->> 'source_item_hmac',
+    element ->> 'record_fingerprint',
+    pg_catalog.decode(element ->> 'encrypted_payload_b64', 'base64'),
+    element ->> 'consent_purpose',
+    element ->> 'retention_policy_version',
+    element -> 'normalized_payload',
+    element ->> 'observation_kind',
+    element ->> 'payload_schema_version',
+    element ->> 'privacy_class',
+    element ->> 'observation_data_type',
+    element ->> 'observation_action_type',
+    (element ->> 'observation_action_weight')::float8,
+    element ->> 'content_lineage_hmac'
+  from jsonb_array_elements(p_records) as element;
+
+  with inserted as (
+    insert into semantic_private.raw_source_records (
+      user_id, ingestion_run_id, connector_source_code, source_code, data_type,
+      occurred_at, source_item_hmac, record_fingerprint,
+      encryption_key_version, encrypted_payload,
+      consent_purpose, retention_policy_version, lifecycle_state
+    )
+    select
+      p_user_id, p_ingestion_run_id, p_connector_source_code, b.source_code,
+      b.data_type, b.occurred_at, b.source_item_hmac,
+      b.record_fingerprint, p_key_version,
+      b.encrypted_payload, b.consent_purpose,
+      b.retention_policy_version, 'active'
+    from incoming_batch b
+    on conflict (user_id, source_code, record_fingerprint)
+      where lifecycle_state = 'active'
+      do nothing
+    returning 1
+  )
+  select count(*) into stored from inserted;
+
+  if stored > 0 then
+    if not exists (
+      select 1 from semantic_private.user_encryption_keys k
+       where k.user_id = p_user_id and k.key_version = p_key_version
+    ) then
+      update semantic_private.user_encryption_keys
+         set retired_at = pg_catalog.now()
+       where user_id = p_user_id and retired_at is null;
+
+      insert into semantic_private.user_encryption_keys (
+        user_id, key_version, wrapped_dek, kms_key_arn
+      )
+      values (p_user_id, p_key_version, incoming_dek, p_kms_key_arn);
+      key_recorded := true;
+    end if;
+  end if;
+
+  with written as (
+    insert into semantic_private.observations (
+      user_id, ingestion_run_id, connector_source_code, source_code, data_type,
+      observation_kind, action_type, occurred_at,
+      source_item_hmac, record_fingerprint, content_lineage_hmac,
+      payload_schema_version, normalized_payload,
+      field_quality, action_weight, privacy_class,
+      allow_external_resolution, lifecycle_state, provenance_tier
+    )
+    select
+      p_user_id, p_ingestion_run_id, p_connector_source_code, b.source_code,
+      -- **The projection's vocabulary where it states one**, the record's
+      -- otherwise. A Calendar observation is a `calendar_event` classification
+      -- while the row it came from is an `event`, and its action must be
+      -- `scheduled` or `booked` where the scope may say `entered_by_user`.
+      -- Every other source sends none of these and behaves exactly as before.
+      coalesce(b.observation_data_type, b.data_type), b.observation_kind,
+      coalesce(
+        b.observation_action_type,
+        pg_catalog.split_part(b.scope_key, ':', 3)
+      ),
+      b.occurred_at,
+      b.source_item_hmac, b.record_fingerprint, b.content_lineage_hmac,
+      b.payload_schema_version, b.normalized_payload,
+      1.0,
+      -- Calendar's constraint pins this at exactly zero while `sources` gives
+      -- `scheduled` 0.9, so the projection has to be able to say so.
+      coalesce(
+        b.observation_action_weight,
+        (s.action_weights ->> pg_catalog.split_part(b.scope_key, ':', 3))::float8,
+        0.0
+      ),
+      b.privacy_class,
+      false, 'active', 'typed'
+    from incoming_batch b
+    join semantic_private.sources s on s.source_code = b.source_code
+    where b.scope_key is not null
+      -- **`jsonb_typeof`, not `is not null`.** A caller that sends no
+      -- projection sends JSON `null`, and `element -> 'normalized_payload'`
+      -- makes that `'null'::jsonb` — a non-NULL value that sails through an
+      -- `is not null` test and then fails the closed-projection check, taking
+      -- the whole run's capture down with it. This also stops trusting the
+      -- caller's shape: a string, a number or an array now writes no
+      -- observation rather than a malformed one.
+      and jsonb_typeof(b.normalized_payload) = 'object'
+      and b.observation_kind is not null
+      and b.payload_schema_version is not null
+      and b.privacy_class is not null
+    on conflict (user_id, source_code, record_fingerprint) do nothing
+    returning 1
+  )
+  select count(*) into observed from written;
+
+  with written as (
+    insert into semantic_private.ingestion_run_items (
+      ingestion_run_id, user_id, source_code, scope_key,
+      source_item_hmac, record_fingerprint, item_state,
+      raw_source_record_id, observation_id, occurred_at
+    )
+    select
+      p_ingestion_run_id, p_user_id, b.source_code, b.scope_key,
+      b.source_item_hmac, b.record_fingerprint, 'present',
+      r.id, o.id, b.occurred_at
+    from incoming_batch b
+    join semantic_private.raw_source_records r
+      on r.user_id = p_user_id
+     and r.source_code = b.source_code
+     and r.record_fingerprint = b.record_fingerprint
+     and r.lifecycle_state = 'active'
+    left join semantic_private.observations o
+      on o.user_id = p_user_id
+     and o.source_code = b.source_code
+     and o.record_fingerprint = b.record_fingerprint
+    where b.scope_key is not null
+    on conflict (ingestion_run_id, scope_key, source_item_hmac) do nothing
+    returning 1
+  )
+  select count(*) into items from written;
+
+  -- **Before the finalizer, because after it the row is immutable.** Server
+  -- counts accumulate across batches; the client half is whatever the device
+  -- last said, which is the same value on every batch of a run.
+  select coalesce(r.metrics -> 'server', '{}'::jsonb) into server_metrics
+    from semantic_private.ingestion_runs r
+   where r.id = p_ingestion_run_id;
+
+  update semantic_private.ingestion_runs
+     set metrics = coalesce(metrics, '{}'::jsonb)
+       || jsonb_build_object(
+            'server', jsonb_build_object(
+              'received', coalesce((server_metrics ->> 'received')::integer, 0) + received,
+              'stored', coalesce((server_metrics ->> 'stored')::integer, 0) + stored,
+              'duplicates', coalesce((server_metrics ->> 'duplicates')::integer, 0)
+                            + (received - stored),
+              'observations', coalesce((server_metrics ->> 'observations')::integer, 0) + observed,
+              'items', coalesce((server_metrics ->> 'items')::integer, 0) + items,
+              'batches', coalesce((server_metrics ->> 'batches')::integer, 0) + 1
+            ))
+       || case when p_coverage is null then '{}'::jsonb
+               else jsonb_build_object('client', p_coverage) end
+   where id = p_ingestion_run_id;
+
+  if p_final then
+    select count(*) into scopes_on_run
+      from semantic_private.ingestion_run_scopes
+     where ingestion_run_id = p_ingestion_run_id;
+
+    if scopes_on_run > 0 then
+      receipt := semantic_private.finalize_ingestion_run_v031(p_ingestion_run_id);
+      finalized := true;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ingestion_run_id', p_ingestion_run_id,
+    'received', received,
+    'stored', stored,
+    'duplicates', received - stored,
+    'scopes_declared', scopes,
+    'items_recorded', items,
+    'observations_written', observed,
+    'key_version', case when stored > 0 then p_key_version end,
+    'key_recorded', key_recorded,
+    'finalized', finalized,
+    'finalization_receipt', receipt
+  );
+end
+$$;
+
+-- **One function of this name, asserted.** This is the check `0064` needed and
+-- did not have: an overload is invisible until something calls the signature
+-- you did not change, and by then the symptom is three layers away from the
+-- cause.
+do $$
+declare
+  overloads integer;
+begin
+  select count(*) into overloads
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'semantic_private'
+     and p.proname = 'ingest_source_records_v031';
+  if overloads <> 1 then
+    raise exception 'ingest_source_records_v031 has % definitions, expected 1', overloads;
+  end if;
+end
+$$;
+
+commit;
