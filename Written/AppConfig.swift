@@ -115,7 +115,32 @@ enum AppConfig {
     ///
     /// The endpoint itself is proven — a real device envelope round-tripped on
     /// 2026-08-11, and a second identical one stored nothing.
-    static let semanticIngestionSources: Set<String> = ["apple_music"]
+    /// **HealthKit is absent and cannot simply be added.**
+    /// `guard_raw_healthkit_grant` refuses an active HealthKit row unless
+    /// `semantic_private.healthkit_use_grants` holds an active grant for that
+    /// person, and there are none — the schema is fail-closed on purpose. With
+    /// the source enabled today every HealthKit batch would be refused, and
+    /// `SemanticIngestionService` drops a permanent refusal, so the data would
+    /// disappear quietly. A grant is a recorded consent decision with its own
+    /// `consent_version`; writing one without asking anybody would be
+    /// fabricating consent, which is the exact thing that guard prevents.
+    static let semanticIngestionSources: Set<String> = [
+        "apple_music",
+        // **The two sources the encrypted vault exists for.** Their payloads
+        // are whole calendar events — titles, locations, organisers — which is
+        // why they are encrypted at rest and why `consent_purpose` derives to
+        // `calendar_distillation` rather than the general one.
+        //
+        // They contribute **zero evidence**: the endpoint sends no
+        // `normalized_payload` for them, because
+        // `private_observation_projection_is_valid_v03` demands a sanitised
+        // shape that is a classifier's output rather than a transcription, and
+        // §7 permits only the current Calendar classifier over Calendar rows.
+        // Captured broadly, promoted not at all — which is §10's Calendar gate
+        // rather than a limitation.
+        "apple_calendar",
+        "google_calendar",
+    ]
 
     /// Whether the vault path does anything at all this build.
     static var semanticIngestionEnabled: Bool { !semanticIngestionSources.isEmpty }
