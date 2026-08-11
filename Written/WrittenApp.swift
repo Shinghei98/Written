@@ -43,7 +43,7 @@ struct WrittenApp: App {
             // and both look exactly like a survey that found nothing.
             RootView()
                 .modifier(MediaSurveyAlert())
-                .modifier(ComposerProbeAlert())
+                .modifier(ProbeAlert())
                 .dynamicTypeSize(...Self.largestSupportedText)
 #else
             RootView().dynamicTypeSize(...Self.largestSupportedText)
@@ -84,28 +84,35 @@ private struct MediaSurveyAlert: ViewModifier {
 /// MusicKit will mint a developer token. Hung off a screen's `onAppear` it may
 /// never fire; reported through a banner it may never be read. Both look
 /// exactly like a lookup that found nothing.
-private struct ComposerProbeAlert: ViewModifier {
-    @State private var outcome: String?
+private struct ProbeAlert: ViewModifier {
+    /// The title *and* the presentation state in one value, so the two cannot
+    /// disagree — the shape `BirthdayConfirmCard` takes with `confirming: Date?`.
+    ///
+    /// **Two probes share this modifier and the first version shared its title
+    /// too**, so the vault probe announced its result as "Composer probe".
+    /// Caught by running it. A diagnostic naming the wrong subsystem sends
+    /// whoever reads it to the wrong file, which is worse than no title.
+    @State private var result: (title: String, detail: String)?
 
     func body(content: Content) -> some View {
         content
             .task {
                 guard let isrc = DebugLaunch.probeISRC,
                       DebugLaunch.firesOnce("probe-isrc") else { return }
-                outcome = await ComposerService.shared.probe(isrc: isrc)
+                result = ("Composer probe", await ComposerService.shared.probe(isrc: isrc))
             }
             .task {
                 guard DebugLaunch.probesIngestion,
                       DebugLaunch.firesOnce("probe-ingest") else { return }
-                outcome = await SemanticIngestionService.shared.probe()
+                result = ("Vault ingestion probe", await SemanticIngestionService.shared.probe())
             }
             .alert(
-                "Composer probe",
-                isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })
+                result?.title ?? "",
+                isPresented: Binding(get: { result != nil }, set: { if !$0 { result = nil } })
             ) {
-                Button("OK", role: .cancel) { outcome = nil }
+                Button("OK", role: .cancel) { result = nil }
             } message: {
-                Text(outcome ?? "")
+                Text(result?.detail ?? "")
             }
     }
 }

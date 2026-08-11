@@ -1795,7 +1795,12 @@ there is no consumer yet, and giving it a table would be building Phase 2 early
 in a codebase whose standing defect is results nobody reads.
 
 **`-probe-ingest 1` is what settles the last premise**, in the manner of
-`-probe-isrc`: only a signed-in device holds a Supabase access token, and only a
+`-probe-isrc` — and **the simulator cannot settle it**, which is worth knowing
+before trying. Run there it correctly answers *no access token: you're signed
+out*: a simulator holds no session, Sign in with Apple needs a device, and phone
+sign-up needs an OTP. That exercises the flag, the wiring and the failure
+message, and nothing past them. The endpoint needs a signed-in device or the
+demo account's test OTP. only a signed-in device holds a Supabase access token, and only a
 real token exercises the Lambda's issuer check, its KMS calls and
 `ingest_source_records_v031` together. It writes a real encrypted row into the
 prober's own vault, which is the point — a probe that avoided writing would
@@ -2451,9 +2456,13 @@ this file is in `git log -p CLAUDE.md`.
   `device_tokens` row so far reads `sandbox`; a TestFlight build mints a
   **production** token against a different host. Confirm a row reading
   `production`, then send one message and check the face still arrives.
-- **The plant's position is unverified.** `(858, 1626)` at stage 2 is the check
-  that has caught every layout regression here, and CoreSimulator has been
-  unusable since 2026-07-29 — several changes have shipped on arithmetic alone.
+- **The plant's position is unverified**, and the reason given for it has
+  expired. `(858, 1626)` at stage 2 is the check that has caught every layout
+  regression here, and it went unrun because CoreSimulator was unusable from
+  2026-07-29 — several changes shipped on arithmetic alone. **CoreSimulator
+  works again**: an iPhone 17 booted, installed and screenshotted on 2026-08-11
+  while running `-probe-ingest`. So this is now simply a check nobody has run,
+  which is a smaller thing than it was and a much easier one to close.
 - **App Store privacy labels are not filled in.** The manifest declares eleven
   data types — it gained `PhoneNumber`, `PhotosorVideos` and
   `EmailsOrTextMessages` on 2026-08-05 — and the questionnaire still says
