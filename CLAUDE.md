@@ -563,10 +563,11 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
     nothing else — and without it such a person's Health would read as never
     connected.
 
-    **Revisit at Phase 1.** The v0.3.1 contract wants HealthKit transfer gated
-    on a recorded `fitness_connection` purpose grant, and
-    `semantic_private.healthkit_use_grants` exists to hold one; nothing in Swift
-    writes it yet. This is the legacy path the typed envelopes replace.
+    **The gate exists now, and it is the vault's rather than this path's.**
+    `FitnessPurposeGrantService` records a `fitness_connection` grant through
+    `public.record_fitness_grant` (`0061`), and the encrypted copy is withheld
+    without one. This legacy push is not gated on it and does not need to be:
+    it predates the contract and is what the typed envelopes replace.
 
     The volume argument that was once given for discarding these rows was never
     real, and that part stands: the distiller sums samples into day and hour
@@ -1617,8 +1618,8 @@ hand over weeks never proved they build a schema from nothing. Done once against
 an empty project, the chain applied cleanly — and produced the measurement that
 corrected this paragraph.
 
-**`0042`–`0049` are applied to production as of 2026-08-10, and the migration
-head is `0049`.** The ledger exists now: `supabase_migrations` was absent
+**The migration head is `0065` as of 2026-08-11, and everything through it is
+applied to production.** The ledger exists now: `supabase_migrations` was absent
 entirely — not empty, *absent* — because every migration had been applied by
 hand, so `supabase db push` would have tried `0001` against a full database.
 `supabase migration repair --status applied 0001 … 0041` came first, and
@@ -1630,8 +1631,12 @@ ledger work — and the checks came back right: RLS on with no policy, no client
 role reaching it, zero rows, and the `private` ACL fingerprint identical either
 side of the push.
 
-Nothing about the product changed: all seven feature flags are seeded off,
-nothing in Swift reads the new schemas, and the legacy path is untouched. The
+Nothing about the product changed *at that deploy*: all seven feature flags
+were seeded off, nothing in Swift read the new schemas, and the legacy path was
+untouched. That is still true of the product surfaces — the legacy path still
+draws every screen — but Swift now writes to the vault and records a fitness
+grant, so read this paragraph as the record of one deploy rather than as the
+current state. The
 check that mattered came back exactly right — the app's `private` schema ACL
 fingerprint is byte-identical either side of the deploy, and `anon`,
 `authenticated` and `service_role` still have no usage on it.
@@ -1780,9 +1785,11 @@ Three decisions in it worth knowing:
   treating it as permanent would throw away a distillation because somebody
   reopened the app after an hour.
 
-**Dual-write is on for Apple Music and nothing else**, and the first real run
-landed 2026-08-11: **1,225 rows in three batches**, 1.07 MB of AES-GCM
-ciphertext, one ingestion run, three wrapped keys (one per call, one active).
+**Dual-write is on for every source but YouTube and Spotify**, both of which
+are excluded on licensing grounds rather than readiness — III.E.4.h and IV.2.1.a
+forbid what the semantic stage is for. Apple Music went first, on 2026-08-11:
+**1,225 rows in three batches**, 1.07 MB of AES-GCM ciphertext, one ingestion
+run, three wrapped keys (one per call, one active).
 
 **Per source rather than per build** — `AppConfig.semanticIngestionSources`.
 Turning it on everywhere at once throws away the only thing shadow running is
@@ -1929,18 +1936,16 @@ record is a new row, and the encoding changed even though the content did not.
 Paid once, at 1,225 rows, which is the cheapest it was ever going to be. The v1
 rows carry no observations and are history.
 
-**Calendar dual-writes now, and describes nothing.** 109 rows — 101 events, 8
-calendars — under `calendar_distillation`, with the event count matching the
-legacy path **exactly**. Zero observations, deliberately: §7 permits only the
-current Calendar classifier over Calendar rows and it does not exist, so the
-endpoint sends no projection and titles sit encrypted and inert. The eight
-`calendar` rows promote to nothing at all, being containers rather than acts,
-and `event` produced *two* scopes — `booked` and `entered_by_user` — which is
-the per-row refinement working, and the reason the Calendar source exists.
+**Calendar dual-writes, and since Phase 2 it describes something.** 109 rows —
+101 events, 8 calendars — under `calendar_distillation`, with the event count
+matching the legacy path **exactly**. The eight `calendar` rows promote to
+nothing at all, being containers rather than acts, and `event` produces *two*
+scopes — `booked` and `scheduled` — which is the per-row refinement working, and
+the reason the Calendar source exists.
 
 **HealthKit dual-writes now, behind a consent somebody actually gave.** 390
 rows — 366 `activity_day`, 24 `activity_hour` — under `fitness_connection`,
-matching the legacy path exactly, with **zero observations**. The 24 is the
+matching the legacy path exactly. The 24 is the
 design in a number: an hour bucket for the whole year rather than 8,760 rows,
 because the question is which hours somebody moves in. No `workout` rows, which
 is the already-recorded absence rather than a loss — no test device has an Apple
@@ -2012,14 +2017,19 @@ attempt limits, contract validation and fail-closed unhandled-job behaviour
 already tested. Writing a second queue in another language would have meant the
 thing in production was not the thing the tests cover.
 
-**It projects music and refuses the rest, deliberately.**
-`private_observation_projection_is_valid_v03` waves through every source except
-Calendar and HealthKit, where it demands a sanitised shape — `calendar-v03`,
-`sanitized_classification`, `action_weight = 0`, under 1 KB with a
-`classification_state`. That shape is the *output of a classifier* this worker
-does not implement, and §7 permits only the current Calendar classifier over
-Calendar rows. Satisfying the constraint without the classifier would be
-inventing evidence.
+**It builds the HealthKit coverage snapshot, and it no longer writes
+observations at all.** `project_user` was removed from the handler in Phase 2,
+which is the second half of `0059`: `guard_observation_ingestion_run` takes a
+`for key share` lock on the run, needing `update` on `ingestion_runs` on top of
+`select` — and a worker that could update a run could mark somebody's capture
+complete. The privilege was the visible half; the real one is that an
+observation belongs to the run that captured it, and a worker running minutes
+later has no running run of its own. It failed every invocation with `42501` and
+took the whole job down with it, which is how it blocked the fitness snapshot
+sitting behind it. **~1,224 music rows captured before `0059` still have no
+observation**, all behind a single run left `running` from before finalization
+existed — the zombie-run problem rather than a projection one, and reviving that
+call would have written their evidence into a run that will never finalize.
 
 **Two packaging traps, both paid for.** `typing_extensions` must be named
 explicitly — psycopg 3 needs it below Python 3.13 and pip drops it under
@@ -2064,7 +2074,8 @@ all its data types are `notAnAction`. `0056` finalizes only when the run has a
 scope and otherwise leaves it `running` and inert. **Capture must not depend on
 promotion**, which is the governing rule read the right way round.
 
-**Dual-write is wired and inert for every other source.** `DistillViewModel.sync` calls
+**Dual-write runs on its own detached task, and that is the safety property.**
+`DistillViewModel.sync` calls
 `dualWriteToVault`, which derives envelopes and submits them on **its own**
 detached task at `.background` — never sharing a task or `syncFailure` with the
 legacy push, since a slow endpoint must not delay the real outcome and a shadow
@@ -2126,17 +2137,23 @@ malformed ARN is refused, and **deleting the account cascades the keys to zero**
 which is crypto-erasure with nothing to remember to call. It ships no behaviour
 and nothing writes it yet.
 
-**The later numbers are reserved rather than contiguous, and they have shifted
-five times.** The plan allocated three: a bridge, then server projections, then
-cutover. Five of the numbers behind them went to real work — `0049` to
-capturing `public.rls_auto_enable()`, a Supabase dashboard event trigger that
-existed in production and in no file; `0050` to the key registry above; `0051`
-to aligning that registry's `key_version` vocabulary with `0046`'s, which it got
-wrong by one character; `0052` to the ingestion identity; and `0053` to binding the
-wrapped data key to the rows it protects. So **server projections are `0054` and
-cutover is `0055`**, and that is exactly what §5 permits: never *reuse* a number, but
-skipping one is fine, and if product work needs a migration first they shift
-again.
+**The plan's three reserved numbers were overtaken entirely, and stopped being
+worth tracking.** It allocated a bridge, then server projections, then cutover;
+sixteen migrations of real work have landed since, so **projections and cutover
+have no number yet and should simply take the next free one.** §5 permits it:
+never *reuse* a number, skipping one is fine. What `0049`–`0065` actually went
+to is the record worth having:
+
+| | |
+|---|---|
+| `0049` | `public.rls_auto_enable()`, a Supabase dashboard event trigger that existed in production and in no file |
+| `0050`–`0051` | the wrapped-key registry, and aligning its `key_version` vocabulary with `0046`'s |
+| `0052`–`0054` | the ingestion identity; binding the data key to the rows it protects; writing it only when something was stored |
+| `0055`–`0056` | scopes, run items and finalization — and making finalization conditional, so capture cannot be rolled back by promotion |
+| `0057`–`0059` | the worker identity, its grants, and moving projection into ingestion |
+| `0060`–`0062` | a JSON `null` is not a SQL NULL; the fitness purpose grant; run coverage metrics |
+| `0063` | worker grants for the fitness snapshot |
+| `0064`–`0065` | the Calendar projection vocabulary, and the two mistakes it took to get right |
 
 **That one character is worth keeping.** `0050` admitted a colon in
 `key_version`; `raw_source_records.encryption_key_version`, which *names* that
@@ -2185,6 +2202,122 @@ record source.
 service_role`, and **`on all tables` binds at execution time, not going
 forward** — so every table `0048` adds gets no grant unless `0048` grants it
 explicitly.
+
+### Phase 2, which is about half done
+
+§8 asks for four things: backfill under §7, run every source classifier and the
+worker, compare old display terms against new assertions for diagnostics, and
+**review every Calendar/HealthKit promotion plus a stratified sample of
+abstentions** — that last one is a person reading output and is not
+self-certifiable. Measured 2026-08-11: **2,518 observations, and every table
+downstream of them is zero** — `observation_mappings`, `concept_scores`,
+`user_assertions`, `assertion_evidence`. The two source classifiers exist; the
+resolution and scoring half of the worker has never run.
+
+**Music resolution is blocked on content, not on code.** `ontology.concepts`
+holds 45 rows — 19 `activity:*`, 13 `hub:*`, 5 `routine:*` and a few identity
+and place seeds — and **not one of them is musical**, so resolving the 2,417
+music observations would abstain on essentially all of them. Concepts have to be
+authored before a resolver is worth running.
+
+**HealthKit classifies, and correctly produces nothing.** `fitness.py` in the
+worker runs the vendored `ingest_healthkit_rows` and records what it found in
+`fitness_feature_snapshots`: 390 accepted, **0 rejected**, 366 activity days, 24
+hours, no workouts, coverage `aggregate_only`. Zero habit candidates is what §10
+requires of aggregate-only HealthKit, because every `activity:*` and
+`routine:*_workouts` concept is derived from *typed workout sessions* and no
+test device has an Apple Watch. Recording the abstention as a row is what makes
+it reviewable rather than merely absent. `rejected = 0` is the load-bearing
+number: `_parse_activity_day` refuses a row it recovered nothing from, so 366
+days surviving is what proves the adapter's keys were read rather than silently
+absent.
+
+**`first_move` never reached the vault, and it was provable without decrypting
+anything.** `HealthKitDistiller` writes `first_move=06:00` and `FitnessPayload`
+read it with `extraInt` — `Int("06:00")` is nil, on all 366 days. The chronotype
+signal, dropped at the envelope boundary with nothing saying so, because
+`"%02d:00"` always emits a colon and `Int.init` always refuses one. `extraHour`
+parses it now and `activity_hour.share` was added beside it. **A typed field
+reading a string shape it cannot parse is the *two columns that accept the same
+words* defect one level down**, and the check worth repeating is the one that
+found nothing else: every other numeric extra is written as a plain integer.
+
+**The classifier must read `current_source_items`, never `raw_source_records`.**
+Nothing supersedes a prior revision — a row whose payload changed is captured
+beside the old one and both stay `active` — and `ingest_healthkit_rows`
+quarantines **both** sides of a lineage whose record fingerprints disagree,
+having no trustworthy revision order in the legacy row shape. So the `first_move`
+fix would have taken coverage from 390 to zero on the next distill, reading as
+HealthKit having stopped working. Same rule as reading through the `summary_*`
+views rather than the tables, one layer down.
+
+#### Calendar: the classifier runs in its own Lambda
+
+**Observations may only be appended to a still-`running` run** and `run_kind`
+allows only `connector` and `legacy_backfill`, so there is no reprocessing run a
+worker could open: classification has to happen at ingestion time, where the
+plaintext is. Ingestion is 823 lines of JavaScript and
+`written_ontology.calendar_semantics` is 1,283 lines of Python, so
+`written-semantic-calendar-classifier` holds the vendored classifier and
+ingestion invokes it synchronously. §7 permits only *the current Calendar
+classifier* over Calendar rows, and a port would not be it — the same argument
+that vendored the worker's queue.
+
+**Titles go in and do not come back.** The package's own contract is that the
+private title *"participates only in the HMAC lineage and is not returned"*, and
+the stored payload is at most four keys: schema version, record kind,
+`classification_state`, and an `artifact_type` from a closed set. A test asserts
+no fragment of a title, address, organiser or email domain survives into it. The
+classifier's IAM role holds `kms:GenerateMac` on the lineage key and **nothing
+else** — no database, no `Decrypt`, no `GenerateDataKey` — and its lineage signer
+is salted per user, because `content_lineage_hmac` is a column that exists to be
+joined on and an unsalted digest would be a cross-account correlation handle.
+**A classifier failure must never fail a distillation**: the rows are captured
+either way and `CALENDAR_CLASSIFIER_ARN` unset is a deliberate off switch.
+
+**101 events, 101 observations, 5 candidates** — 4 `travel_itinerary`, 1
+`public_ticket`, each with a lineage; 96 excluded with none. The 68
+`excluded_unknown` is the allowlist working rather than a gap: an event is
+excluded unless positively recognised as a booking or an itinerary.
+
+**The whole row speaks the schema's language, and that was learned twice.**
+`0064` was written against `0060`'s eleven-argument body after `0062` had added
+a twelfth, so `create or replace` **overloaded** rather than replaced — a lesson
+this file already carried. Worse, its premise was wrong:
+`guard_ingestion_run_item_v031` requires
+
+    raw_row.data_type           = scope_row.data_type
+    observation_row.data_type   = scope_row.data_type
+    observation_row.action_type = scope_row.action_type
+
+so an observation cannot hold a vocabulary of its own. A calendar row has to say
+`calendar_event` **from the device onward**, which is why the fix lives in
+`SemanticSource.semanticDataType` — the second translation seam beside
+`appSourceCode`, and pinned by the same test, which also asserts nothing else is
+translated. **`entered_by_user` became `scheduled` on the same evidence**: the
+projection allows a calendar observation only `scheduled` or `booked`, so the old
+action could be captured and could never become evidence — rows that land
+successfully and describe nothing. The distinction it carried is intact under the
+new name. Only `action_weight` still diverges, and no renaming reconciles it:
+`sources` weighs `scheduled` 0.9 while the projection is pinned at exactly 0.0.
+
+**Flights need the canonical title and bookings do not.** `_FLIGHT_TITLE_RE`
+matches `FLIGHT to Los Angeles (UA 1103)` and nothing else — "Flight to Los
+Angeles" is `excluded_unknown`, and the space is load-bearing since
+`[A-Z0-9]{2,3}` is greedy and `(UA1103)` parses as carrier `UA1`. Reading the
+pattern says what it accepts, not what a calendar contains: four real flights
+matched. The booking path is far broader, recognising Eventbrite, Ticketmaster,
+a dining reservation and a hotel stay, largely off the verified vendor host in
+the `url=` extra the app already captures.
+
+**Renaming a `data_type` re-stores every row and orphans its current items.**
+`data_type` is part of the fingerprint, so the 101 events stored again as new
+rows and `current_source_items` holds **202** for `apple_calendar` — the old
+`event` items still `present` beside the new `calendar_event` ones. They carry
+no observations and no scope the device still sends, and a `partial` scope
+licenses no expiry, so nothing removes them. Inert history, the same class as
+the v1 payload rows, and it will read as double counting to anyone coming to
+that table cold.
 
 ### The dynamic profile
 
@@ -2759,6 +2892,29 @@ this file is in `git log -p CLAUDE.md`.
   works again**: an iPhone 17 booted, installed and screenshotted on 2026-08-11
   while running `-probe-ingest`. So this is now simply a check nobody has run,
   which is a smaller thing than it was and a much easier one to close.
+- **Nobody has reviewed a Calendar promotion, and §10 requires it.** Five
+  candidates exist — 4 `travel_itinerary`, 1 `public_ticket` — plus 96
+  exclusions to sample. The gate is a person reading output, so it cannot be
+  closed by any amount of testing, and it should happen while the number is
+  five rather than after a beta.
+- **Nothing has resolved an observation to a concept.** 2,518 observations and
+  zero rows in `observation_mappings`, `concept_scores` and `user_assertions`.
+  For music that is blocked on **`ontology.concepts` having no musical
+  concepts** — 45 rows, all `activity`, `hub`, `routine`, identity and place —
+  so a resolver run today would abstain on 2,417 of them. Authoring concepts
+  comes before running one.
+- **Whether HealthKit habit candidates are within the grant is unanswered.**
+  The consent says *keep and use my activity to describe me to myself*, with all
+  four booleans false; the next HealthKit unit computes fitness *assertions*.
+  Keeping them off every surface is what the booleans do — whether computing
+  them at all is inside what was agreed is a different question, and moot until
+  a device records workouts.
+- **Eight ingestion runs are stuck `running`** from before finalization
+  existed, and one of them holds ~1,224 music rows that will never get an
+  observation: evidence belongs to the run that captured it, and that run will
+  never finalize. Deciding what to do with a zombie run is the prerequisite for
+  making `input_hash` content-based, which is the other half of
+  `ingestion_run_live_identity_idx` being able to fire at all.
 - **App Store privacy labels are not filled in.** The manifest declares eleven
   data types — it gained `PhoneNumber`, `PhotosorVideos` and
   `EmailsOrTextMessages` on 2026-08-05 — and the questionnaire still says
