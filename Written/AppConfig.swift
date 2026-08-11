@@ -140,6 +140,14 @@ enum AppConfig {
         // rather than a limitation.
         "apple_calendar",
         "google_calendar",
+        // **Only safe because `FitnessPurposePrimer` runs first.**
+        // `guard_raw_healthkit_grant` refuses an active HealthKit row without a
+        // recorded `fitness_connection` grant, and a refusal is permanent to
+        // `SemanticIngestionService`, which drops it — so an ungranted account
+        // would lose its rows quietly. `dualWriteToVault` therefore checks the
+        // grant before building anything, and declining costs nothing: Health
+        // still connects and distils, and only the encrypted copy is withheld.
+        "health",
     ]
 
     /// Whether the vault path does anything at all this build.

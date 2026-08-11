@@ -318,6 +318,10 @@ final class DistillViewModel: ObservableObject {
         // a second line rather than the only one.
         PendingEnvelopeStore.clear()
 
+        // The next person on this phone must be asked rather than inherit an
+        // answer — a consent decision is the last thing to carry across.
+        FitnessPurposeGrantService.clear()
+
         clearInMemoryState()
     }
 
@@ -1255,6 +1259,19 @@ final class DistillViewModel: ObservableObject {
         // a diagnosis.
         guard AppConfig.semanticIngestionSources.contains(source) else { return }
 
+        // **HealthKit needs a recorded purpose grant and the vault refuses it
+        // without one.** A refused batch is permanent to
+        // `SemanticIngestionService`, which drops it — so sending without a
+        // grant would lose the rows rather than defer them. Asking first is the
+        // difference between not sending and losing.
+        let needsFitnessGrant = source == "health"
+
+        // Everything that does not depend on the answer is done before it, so
+        // the common case pays nothing for HealthKit's extra question.
+        let sendable = records.filter { !SyncService.isLocalOnly($0) }
+        let withheld = records.count - sendable.count
+        let ingestionID = UUID()
+
         // **The same rows are withheld here as at the legacy wire, and this is
         // not a detail.** `health/biological_sex` never leaves the device —
         // that is a promise in `PrivacyInfo.xcprivacy` and on the website, and
@@ -1262,15 +1279,26 @@ final class DistillViewModel: ObservableObject {
         // without anybody deciding to break it. `SyncService.isLocalOnly` is
         // the one place that decision lives, so it is asked rather than
         // reimplemented.
-        let sendable = records.filter { !SyncService.isLocalOnly($0) }
-        let withheld = records.count - sendable.count
-
-        // One ingestion id per run, which is what makes the run atomic on the
-        // server: `finalize_ingestion_run_v031` decides membership and coverage
-        // from the set of rows sharing it.
-        let ingestionID = UUID()
-
         Task.detached(priority: .background) {
+            if needsFitnessGrant {
+                // `??` cannot hold an `await` on its right-hand side — it is
+                // an autoclosure — so the fallback is spelled out. The cached
+                // answer first, the server only when this device has never
+                // asked.
+                var granted = await FitnessPurposeGrantService.shared.isGranted
+                if granted == nil {
+                    granted = await FitnessPurposeGrantService.shared.refresh()
+                }
+                guard granted == true else {
+                    Self.reportCoverage(
+                        source: source, ingestionID: ingestionID, legacy: records.count,
+                        withheld: withheld, refusals: ["no fitness purpose grant": records.count],
+                        summary: nil
+                    )
+                    return
+                }
+            }
+
             guard let connector = SemanticSource.forAppSource(source) else {
                 Self.reportCoverage(
                     source: source, ingestionID: ingestionID, legacy: records.count,

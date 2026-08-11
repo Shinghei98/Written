@@ -614,6 +614,32 @@ struct GrowProfileView: View {
         //
         // A sheet swiped away without a choice leaves `chosenSource` nil and
         // starts nothing, which is what should happen anyway.
+        // **Distilling starts on dismissal, never inside the button.**
+        // HealthKit's sheet is a remote view hosted by another process and it
+        // gives up rather than reporting a refusal if anything else owns the
+        // screen — so our sheet has to be gone first, and `onDismiss` is the
+        // only thing that knows when that is. A guessed delay is what this
+        // pattern exists instead of.
+        //
+        // Declining reaches here too, and that is deliberate: Health still
+        // connects and still distils, and only the encrypted copy is withheld.
+        .sheet(isPresented: $isAskingFitnessPurpose, onDismiss: {
+            viewModel.distill(source: "health")
+        }) {
+            FitnessPurposePrimer(
+                onAgree: {
+                    Task {
+                        // Recorded before the sheet goes, so the distillation
+                        // that follows finds the grant already in place. A
+                        // failure here leaves it ungranted rather than
+                        // half-granted: the vault simply gets nothing.
+                        _ = await FitnessPurposeGrantService.shared.record()
+                        isAskingFitnessPurpose = false
+                    }
+                },
+                onDecline: { isAskingFitnessPurpose = false }
+            )
+        }
         .sheet(item: $pickedModality, onDismiss: startChosenSource) { modality in
             // Built once so the detent and the content agree on how many rows
             // there are — asking the sheet for 280pt regardless left a
@@ -1449,10 +1475,35 @@ struct GrowProfileView: View {
     /// when the picker opened, which is deliberately earlier than this — by the
     /// time a distillation starts, the only thing left to go on is
     /// `nextModality`, and that is the wrong answer for a re-distill.
+    /// Whether the fitness-purpose sheet is up. Its own flag rather than a
+    /// value, because unlike `pickedModality` there is nothing to carry — the
+    /// only source that asks this question is Health.
+    @State private var isAskingFitnessPurpose = false
+
     private func startChosenSource() {
         guard let source = chosenSource else { return }
         chosenSource = nil
-        viewModel.distill(source: source)
+
+        // **Health is asked what its data is *for* before iOS is asked whether
+        // it may be read.** Two different questions: HealthKit's sheet grants
+        // access, and the vault refuses a HealthKit row without a recorded
+        // `fitness_connection` purpose grant on top of it.
+        //
+        // Only where the vault is actually enabled for Health, and only once —
+        // asking somebody who already agreed is asking them to doubt it.
+        guard source == "health",
+              AppConfig.semanticIngestionSources.contains("health")
+        else {
+            viewModel.distill(source: source)
+            return
+        }
+        Task {
+            if await FitnessPurposeGrantService.shared.isGranted == true {
+                viewModel.distill(source: source)
+            } else {
+                isAskingFitnessPurpose = true
+            }
+        }
     }
 
     private func connect(_ modality: Modality) {

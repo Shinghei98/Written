@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "c0d594f3c54733513d8639248582ae15bea1b03ae2486676146a478b63d0caba",
-        "reason": "A partial Apple Music distillation now says so. AppleMusicDistiller returns a Report carrying which endpoints failed and what they cost; the status becomes .partial(count:missing:) rather than .done, shortfallMessage names the missing types in words, and dualWriteToVault declares a truncated scope for each so a lost data type leaves a trace in the vault instead of the run merely looking smaller. Measured cause: nine best-effort endpoints where `(try? await task) ?? []` made a failure indistinguishable from an empty library. Supersedes the per-source dual-write entry."
+        "sha256": "18d35c700edbe97e3ee34452c4d573b4a8494b5f1936760ab68ed7c394a19e73",
+        "reason": "HealthKit dual-write is gated on a recorded fitness purpose grant. guard_raw_healthkit_grant refuses an active HealthKit row without one, and a refusal is permanent to SemanticIngestionService, which drops it — so sending ungranted would lose the rows rather than defer them. dualWriteToVault asks first and skips Health if the answer is no or unknown, and signOutLocalState clears the cached answer so the next person on the phone is asked rather than inheriting one. Also carries the Calendar/partial-distillation work."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
@@ -148,12 +148,17 @@
     },
     {
       "sequence": 61,
-      "suggested_name": "0061_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0061_fitness_purpose_grant.sql",
+      "role": "fitness_consent_grant_rpc"
     },
     {
       "sequence": 62,
-      "suggested_name": "0062_semantic_cutover.sql",
+      "suggested_name": "0062_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 63,
+      "suggested_name": "0063_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -212,8 +217,9 @@
     57,
     58,
     59,
-    60
+    60,
+    61
   ],
-  "application_migrations_authored_next": 61,
+  "application_migrations_authored_next": 62,
   "application_migrations_reserved_note": "50-57 carry the encrypted-vault path end to end: key registry, vocabulary alignment, the ingestion identity and its wrapped-key binding, key-write ordering, the run lifecycle, the finalize guard, and the worker identity that reads the vault back. 58 (server projections) is due in phase server_owned_discovery_and_profiles and 59 (cutover) in legacy_semantic_retirement. The pair has shifted nine times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 59 is irreversible and must not exist on disk before a minimum supported client version does."
 }

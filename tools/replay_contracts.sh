@@ -188,6 +188,9 @@ apply_twice 0059_ingestion_writes_observations.sql
 # 0060: a JSON null is not a SQL NULL. Guarding on  let an absent
 # projection through as 'null'::jsonb and failed the closed-projection check.
 apply_twice 0060_observation_projection_must_be_an_object.sql
+# 0061 gives the app a door to record fitness consent, without which HealthKit
+# capture is refused by design. Asserts anon cannot reach either function.
+apply_twice 0061_fitness_purpose_grant.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than
