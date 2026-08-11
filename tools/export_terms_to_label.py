@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -62,6 +63,31 @@ def env_key() -> str:
             "It bypasses row level security entirely, so it lives in your shell "
             "for the length of this run and nowhere else — not in the repo, not "
             "in the app, not in a file."
+        )
+    # **A shape check, because the server's answer for a mangled key and for a
+    # wrong one is the same `401 Invalid API key`.** Omitting the space in
+    # `SUPABASE_SECRET_KEY='…'python3.14 tools/…` makes zsh read the whole word
+    # as one assignment, so the interpreter's name lands on the end of the key
+    # and the script runs anyway via its shebang. That reads as a bad key and
+    # sends you to the dashboard to rotate a key that was fine.
+    #
+    # Never prints the key or any part of it: it is the one thing here that must
+    # not reach a terminal, a log or a transcript.
+    # A new-style key is base64url — letters, digits, `_` and `-`, and **no
+    # dot**. That is what catches the concatenation: `python3.14` brings one.
+    # Legacy JWTs are the exception, being three dot-separated segments.
+    looks_like_key = (
+        re.fullmatch(r"(sb_secret_|sbp_)[A-Za-z0-9_\-]+", key)
+        or re.fullmatch(r"eyJ[A-Za-z0-9_\-]*\.[A-Za-z0-9_\-]*\.[A-Za-z0-9_\-]*", key)
+    )
+    if not looks_like_key:
+        sys.exit(
+            "SUPABASE_SECRET_KEY does not look like a Supabase key.\n\n"
+            "A common cause is a missing space:\n"
+            "    SUPABASE_SECRET_KEY='sb_secret_…'python3.14 tools/…   <- wrong\n"
+            "    SUPABASE_SECRET_KEY='sb_secret_…' python3.14 tools/…  <- right\n\n"
+            "Without the space zsh folds the interpreter's name onto the end of "
+            "the key, and the server calls the result invalid."
         )
     return key
 
