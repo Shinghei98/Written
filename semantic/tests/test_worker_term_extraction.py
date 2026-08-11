@@ -38,8 +38,14 @@ def resolve():
     path = os.path.join(worker, "resolve.py")
     if not os.path.exists(path):
         pytest.skip("worker resolver not present")
-    if worker not in sys.path:
-        sys.path.insert(0, worker)
+    # **`tools/` too.** `build.sh` copies the music dictionary in beside the
+    # handler so the bundle is flat, and `resolve` imports it by bare module
+    # name; in the repository the two live in different directories, so the test
+    # has to reproduce the bundle's layout rather than the checkout's.
+    tools = os.path.join(REPOSITORY, "tools")
+    for directory in (worker, tools):
+        if directory not in sys.path:
+            sys.path.insert(0, directory)
     spec = importlib.util.spec_from_file_location("written_worker_resolve", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -206,3 +212,70 @@ def test_no_term_may_leave_the_device_boundary(resolve):
     for term in resolve.terms_for(SONG, "library_song"):
         assert term.safe_for_online is False
         assert term.safe_for_global_mining is False
+
+
+# --- the dictionary, applied ------------------------------------------------
+#
+# `terms_for` reads a stored projection; the dictionary decides what the strings
+# in it *mean*. These assert the two together, because each is fine alone and
+# the join is where a library quietly resolves to nothing.
+
+def test_a_compound_credit_becomes_several_people(resolve):
+    """`Berlin Philharmonic & Claudio Abbado` is two artists. Judging the whole
+    string files it under neither, and half this library's credits are
+    compound."""
+    terms = resolve.terms_for(
+        {"title": "x", "primary_performer": "Berlin Philharmonic & Claudio Abbado"},
+        "library_song")
+    assert [t.text for t in terms if t.role == "creator"] \
+        == ["Berlin Philharmonic", "Claudio Abbado"]
+
+
+def test_a_transliterated_name_returns_to_its_own_language(resolve):
+    """`尚・西貝流士` is a Chinese rendering of a Finnish name, and `Jean Sibelius`
+    is also in this library — without this they are two composers."""
+    terms = resolve.terms_for(
+        {"title": "x", "primary_performer": "尚・西貝流士"}, "library_song")
+    assert [t.text for t in terms if t.role == "creator"] == ["Jean Sibelius"]
+
+
+def test_a_native_name_is_left_alone(resolve):
+    """`久石讓` is Joe Hisaishi's name. Japanese *is* its language."""
+    terms = resolve.terms_for(
+        {"title": "x", "primary_performer": "久石讓"}, "library_song")
+    assert [t.text for t in terms if t.role == "creator"] == ["久石讓"]
+
+
+def test_an_editorial_account_is_not_an_artist(resolve):
+    """`Apple Music 古典樂` credits a curated playlist, not a person."""
+    terms = resolve.terms_for(
+        {"title": "x", "primary_performer": "Apple Music 古典樂"}, "library_song")
+    assert [t for t in terms if t.role == "creator"] == []
+
+
+def test_genres_arrive_in_english_whatever_they_were_written_in(resolve):
+    """The single most load-bearing translation: this library carries `Classical`
+    1,126 times and `古典樂` 314, and they must be one concept."""
+    terms = resolve.terms_for(
+        {"title": "x", "genres": ["古典樂", "Classical", "巴洛克音樂"]}, "library_song")
+    assert [t.text for t in terms if t.role == "genre"] == ["Classical", "Baroque Era"]
+
+
+def test_a_work_carries_its_franchise(resolve):
+    """Named once, both available — somebody with an Ave Mujica song is evidence
+    for BanG Dream! too."""
+    terms = resolve.terms_for(
+        {"title": "KiLLKiSS", "genres": ["Anime"]}, "library_song",
+        work="BanG Dream! Ave Mujica")
+    assert [t.text for t in terms if t.role == "source_work"] \
+        == ["BanG Dream! Ave Mujica", "BanG Dream!"]
+
+
+def test_an_era_arrives_computed_rather_than_read_off_the_row(resolve):
+    """A row cannot decide its era. Every Hikaru Utada row is dated 2024 by the
+    tour album it came from, so a per-row decade would say 2020s — which is why
+    `library_facts` computes it per artist and passes it in."""
+    terms = resolve.terms_for(
+        {"title": "First Love", "genres": ["J-Pop"]}, "library_song",
+        eras=("era:1990s", "era:2000s"))
+    assert sorted(t.text for t in terms if t.role == "era") == ["1990s", "2000s"]

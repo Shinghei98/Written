@@ -41,6 +41,15 @@ from written_ontology.models import (
 )
 from written_ontology.normalize import normalize_text
 from written_ontology.graph import OntologyGraph
+
+from music_works import (
+    artist_eras,
+    english_genre,
+    normalized_song_key,
+    people_in,
+    propagate,
+    work_parents,
+)
 from written_ontology.recency import (
     DEFAULT_RECENCY_POLICY,
     RecencyPolicyError,
@@ -189,7 +198,8 @@ def _term(text: str, role: str, source_field: str, type_hint: str | None) -> Ter
     )
 
 
-def terms_for(payload: dict[str, Any], action: str) -> tuple[Term, ...]:
+def terms_for(payload: dict[str, Any], action: str,
+              work: str | None = None, eras: tuple[str, ...] = ()) -> tuple[Term, ...]:
     """The terms one music observation supports.
 
     Roles and type hints mirror `export_adapter._music_observation`, which is the
@@ -216,44 +226,116 @@ def terms_for(payload: dict[str, Any], action: str) -> tuple[Term, ...]:
             "creator" if title_is_creator else "work",
         ))
 
+    # **Split before judging, and judge each part.** `Berlin Philharmonic &
+    # Claudio Abbado` is two people; judging the whole string files it under
+    # neither. `people_in` also drops Apple's editorial accounts and puts each
+    # name in its own language — `尚・西貝流士` is Jean Sibelius, `久石讓` is not
+    # translated because Japanese *is* his language.
     seen_creators = {normalize_text(title)} if title_is_creator else set()
-    performers = [_text(payload.get("primary_performer"))]
+    credits = [_text(payload.get("primary_performer"))]
     credited = payload.get("credited_artists")
     if isinstance(credited, list):
-        performers.extend(_text(item) for item in credited)
-    for performer in performers:
-        if not performer or normalize_text(performer) in seen_creators:
-            continue
-        seen_creators.add(normalize_text(performer))
-        terms.append(_term(performer, "creator", "primary_performer", "creator"))
+        credits.extend(_text(item) for item in credited)
+    for credit in credits:
+        for performer in people_in(credit):
+            if normalize_text(performer) in seen_creators:
+                continue
+            seen_creators.add(normalize_text(performer))
+            terms.append(_term(performer, "creator", "primary_performer", "creator"))
 
     composer = _text(payload.get("composer"))
     if composer:
         # **Kept apart from the performer, which is the whole reason this field
         # is carried.** The "artist" of a Bach partita is whoever played it, and
         # a library that is 1,440 classical rows is unreadable without the
-        # distinction.
-        terms.append(_term(composer, "composer", "composer", "creator"))
+        # distinction. Split too: `Dean Pitchford & Tom Snow` wrote it together.
+        for person in people_in(composer):
+            terms.append(_term(person, "composer", "composer", "creator"))
 
     album = _text(payload.get("album"))
     if album and normalize_text(album) != normalize_text(title):
         terms.append(_term(album, "album", "album", "work"))
 
+    # **Always English.** `古典樂` and `Classical` are one genre; leaving them as
+    # written would make a Chinese-labelled library resolve to different concepts
+    # than an English-labelled one, and this library carries both.
     genres = payload.get("genres")
     if isinstance(genres, list):
+        seen_genres: set[str] = set()
         for genre in genres:
-            text = _text(genre)
-            if text:
+            text = english_genre(_text(genre))
+            if text and text not in seen_genres:
+                seen_genres.add(text)
                 terms.append(_term(text, "genre", "genres", "genre"))
+
+    # The work a song was written for, and the franchise above it. Stated by
+    # Apple or recognised by a person — never guessed from a title.
+    # **`source_work`, not `work`** — a song title already uses that role, and a
+    # reviewer seeing two `work` terms on one row could not tell the song from
+    # the anime it was written for.
+    if work:
+        for name in [work, *work_parents(work)]:
+            terms.append(_term(name, "source_work", "work", "work"))
+
+    # **An era is an artist-level fact and arrives computed.** A row cannot
+    # decide it alone: every Hikaru Utada row says 2024 because they came from a
+    # 2024 tour album, and a per-row decade would file her under the 2020s.
+    for era in eras:
+        terms.append(_term(era.removeprefix("era:"), "era", "era", "topic"))
 
     return tuple(terms)
 
 
-def observation_from_row(row: dict[str, Any], source: dict[str, Any]) -> Observation | None:
+def library_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
+    """The two things a single row cannot decide: its work and its era.
+
+    **Both are properties of a set of rows.** A work propagates between releases
+    of the same song — `Resister (Special Edition)` names none while
+    `Resister (From "Sword Art Online: Alicization")` does — and an era is an
+    artist-level fact, because every Hikaru Utada row is dated 2024 by the tour
+    album they came from.
+
+    Returns `song key -> work` and `performer -> eras`.
+    """
+    flat: list[dict[str, Any]] = []
+    for row in rows:
+        payload = row.get("normalized_payload")
+        if not isinstance(payload, dict):
+            continue
+        flat.append({
+            "title": payload.get("title") or "",
+            "album": payload.get("album") or "",
+            "performer": payload.get("primary_performer") or "",
+            "genres": [english_genre(g) for g in (payload.get("genres") or [])],
+            "released": payload.get("release_date") or "",
+        })
+
+    works = propagate(flat)
+
+    by_performer: dict[str, list[dict[str, Any]]] = {}
+    for item in flat:
+        by_performer.setdefault(item["performer"], []).append(item)
+    eras = {
+        performer: tuple(sorted(artist_eras(performer, items)))
+        for performer, items in by_performer.items()
+        if performer
+    }
+    return works, eras
+
+
+def observation_from_row(row: dict[str, Any], source: dict[str, Any],
+                         works: dict[str, str] | None = None,
+                         eras: dict[str, tuple[str, ...]] | None = None) -> Observation | None:
     payload = row["normalized_payload"]
     if not isinstance(payload, dict):
         return None
-    terms = terms_for(payload, row["action_type"])
+    performer = payload.get("primary_performer") or ""
+    key = normalized_song_key(payload.get("title") or "", performer)
+    terms = terms_for(
+        payload, row["action_type"],
+        work=(works or {}).get(key),
+        eras=(eras or {}).get(performer, ()),
+    )
     if not terms:
         return None
     return Observation(
@@ -460,11 +542,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
 
     run_id, as_of = run["id"], run["started_at"]
 
+    # Computed once over the whole set, because neither is decidable per row.
+    works, eras = library_facts(rows)
+
     for row in rows:
         source = sources.get(row["source_code"])
         if source is None:
             continue
-        observation = observation_from_row(row, source)
+        observation = observation_from_row(row, source, works, eras)
         if observation is None:
             counts["no_terms"] += 1
             continue

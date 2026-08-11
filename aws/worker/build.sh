@@ -29,6 +29,12 @@ trap 'rm -rf "$STAGE"' EXIT
 # this is the project's "verify in the archive, never in the build settings"
 # lesson in another language.
 cp "$HERE"/*.py "$STAGE/"
+
+# **The music dictionary, from `tools/` rather than a copy here.** It is edited
+# by hand — transliterations, works, era exceptions — and two copies would drift
+# the moment somebody names an artist in one of them. `music_works` imports
+# `music_dictionary` by module name, so both must land flat beside the handler.
+cp "$ROOT/tools/music_dictionary.py" "$ROOT/tools/music_works.py" "$STAGE/"
 cp "$ROOT/aws/ingestion/supabase-ca.pem" "$STAGE/"
 
 # The vendored package itself — the queue, the worker loop and the job
@@ -51,7 +57,8 @@ python3 -m pip install --quiet --target "$STAGE" \
 # as a runtime ImportError minutes later, wrapped in whatever the importing
 # library chose to say about it. Checking the staged tree costs nothing and
 # names the thing that is actually absent.
-for module in psycopg psycopg_binary cryptography typing_extensions written_ontology; do
+for module in psycopg psycopg_binary cryptography typing_extensions \
+              written_ontology music_dictionary music_works; do
   [ -e "$STAGE/$module" ] || [ -e "$STAGE/$module.py" ] || {
     echo "missing from the bundle: $module" >&2; exit 1; }
 done

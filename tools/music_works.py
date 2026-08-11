@@ -19,6 +19,11 @@ import unicodedata
 
 from music_dictionary import (
     ARTIST_ERA,
+    JUNK_EXACT,
+    JUNK_SUBSTRINGS,
+    NEVER_SPLIT,
+    SPLIT_SEPARATORS,
+    TRANSLITERATED,
     ARTIST_WORK,
     CLASSICAL_ERAS,
     COMPILATION_MIN_ALBUM,
@@ -328,3 +333,66 @@ def artist_eras(performer: str, rows: list[dict]) -> set[str]:
             if decade:
                 eras.add(decade)
     return eras
+
+
+# ---------------------------------------------------------------------------
+# Names — rules 1, 2 and 4 applied together
+#
+# The order is the whole of it: split first, then judge each part. Judging the
+# whole string would file `Berlin Philharmonic & Claudio Abbado` under neither
+# name, and splitting after transliteration would need every compound spelled out
+# in the table.
+
+
+def is_junk(name: str) -> bool:
+    """Apple's editorial accounts, personal playlists and "Various Artists".
+
+    A substring test, because the shape is `<somebody>的 Apple Music` as well as
+    `Apple Music 古典樂` — a personal playlist credited as though it were an
+    artist.
+    """
+    text = (name or "").strip()
+    if not text:
+        return True
+    if text in JUNK_EXACT:
+        return True
+    return any(fragment in text for fragment in JUNK_SUBSTRINGS)
+
+
+def split_credits(credit: str) -> list[str]:
+    """One credit string into the people in it.
+
+    **Never on `・` or `·`.** Those join the parts of one transliterated name —
+    `尼科洛・帕格尼尼` is Paganini — and 98 names in this library contain one, so
+    splitting there invents people who do not exist. The separators that do split
+    are `&`, `,` and `、`, the last of which was missing until a Japanese
+    voice-actor credit stayed welded into a single "artist".
+    """
+    parts = [credit or ""]
+    for separator in SPLIT_SEPARATORS:
+        parts = [piece for part in parts for piece in part.split(separator)]
+    return [part.strip() for part in parts if part.strip()]
+
+
+def resolve_name(name: str) -> str | None:
+    """One person, in their own language, or `None` for junk.
+
+    `尚・西貝流士` becomes `Jean Sibelius` because Chinese is not that name's
+    language; `久石讓` stays, because it is. Anything not recognised stays as
+    written — an unmerged duplicate is the acceptable failure, and a confidently
+    wrong name is not.
+    """
+    text = (name or "").strip()
+    if is_junk(text):
+        return None
+    return TRANSLITERATED.get(text, text)
+
+
+def people_in(credit: str) -> list[str]:
+    """Every person a credit names, split, de-junked and in their own language."""
+    seen: list[str] = []
+    for part in split_credits(credit):
+        person = resolve_name(part)
+        if person and person not in seen:
+            seen.append(person)
+    return seen
