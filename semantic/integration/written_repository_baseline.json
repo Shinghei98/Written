@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "b1544372b882467c905303afdf8d7085acea5cdfd1a491684ed4aca07b1b5b7a",
-        "reason": "Phase 1 dual-write. `sync` now also calls `dualWriteToVault`, which derives typed envelopes and submits them on its own detached task at .background priority — never sharing a task or `syncFailure` with the legacy push, so a shadow problem cannot be reported as a lost distillation. It applies `SyncService.isLocalOnly` before deriving, because a second upload path is exactly how `health/biological_sex` never leaves the device stops being true without anyone deciding to break it. Inert while AppConfig.semanticIngestionEnabled is false. Supersedes the sign-out entry."
+        "sha256": "8edc8818bd40929a79d5cc198272066778dc83b6fab938ebe7f6c05bf8cf52a7",
+        "reason": "Dual-write is gated per source now (AppConfig.semanticIngestionSources) rather than by one build-wide boolean, and Apple Music is the only member. Turning it on everywhere at once throws away what shadow running is for: a disagreement found in one source is a diagnosis, in nine it is a shrug. Everything else about dualWriteToVault is unchanged — its own detached task, SyncService.isLocalOnly applied before deriving, refusals counted by kind. Supersedes the previous dual-write entry."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
@@ -109,12 +109,17 @@
     },
     {
       "sequence": 54,
-      "suggested_name": "0054_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0054_key_only_when_something_stored.sql",
+      "role": "ingestion_key_write_ordering"
     },
     {
       "sequence": 55,
-      "suggested_name": "0055_semantic_cutover.sql",
+      "suggested_name": "0055_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 56,
+      "suggested_name": "0056_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -166,8 +171,9 @@
     50,
     51,
     52,
-    53
+    53,
+    54
   ],
-  "application_migrations_authored_next": 54,
-  "application_migrations_reserved_note": "50 is the KMS key registry, 51 aligns its key-version vocabulary with 0046's, 52 gives the ingestion endpoint an identity that can call one function and read nothing, and 53 binds the wrapped data key to the rows it protects in that one call. 54 (server projections) is due in phase server_owned_discovery_and_profiles and 55 (cutover) in legacy_semantic_retirement. The pair has shifted five times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 55 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 55,
+  "application_migrations_reserved_note": "50-54 are the KMS key registry, its vocabulary alignment, the ingestion identity, the wrapped-key binding, and the ordering that stops a pure-duplicate batch recording a key. 55 (server projections) is due in phase server_owned_discovery_and_profiles and 56 (cutover) in legacy_semantic_retirement. The pair has shifted six times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 56 is irreversible and must not exist on disk before a minimum supported client version does."
 }

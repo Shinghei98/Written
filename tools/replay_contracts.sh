@@ -164,6 +164,9 @@ apply_twice 0052_semantic_ingestor_role.sql
 # same thing: one callable function, no readable tables. A `drop` that missed or
 # a `create` that overloaded both surface here as a count of two.
 apply_twice 0053_ingest_with_wrapped_key.sql
+# 0054 reorders the key write behind the row write so a pure-duplicate batch
+# records nothing. Same signature, so a plain replace — no drop needed.
+apply_twice 0054_key_only_when_something_stored.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

@@ -1804,6 +1804,27 @@ Apple Music run; it is in the vault as `user` evidence with connector
 `apple_music`, which was structurally impossible before `0048` and needed
 `0052`'s matrix row to be allowed at all.
 
+**Two more findings from the second run, both the same shape: a value that
+changes every pass makes a check vacuous.**
+
+- **A pure-duplicate batch was still recording a key.** Re-sending the
+  unchanged 1,225 rows stored nothing and wrote three more wrapped keys; four of
+  nine protected nothing. `0053` accepted that trade on the grounds it would be
+  rare, and it is not — key rows would grow with how often somebody distils
+  rather than with what they have. `0054` writes the key *after* the rows and
+  only if any survived the conflict, which is free because the function is one
+  transaction and there is no foreign key demanding the key exist first.
+- **`ingestion_run_live_identity_idx` can never fire**, and that one is
+  recorded rather than fixed. It is a unique index on
+  `(user_id, source_code, input_hash, connector_version)` over live runs — the
+  contract's guard against opening a second run for the same input. Our
+  `input_hash` is a SHA-256 over the *encoded records*, which carry `observed_at`
+  and `ingestion_id`, so it differs every run and the index has nothing to
+  catch. **Making it content-based is not a safe fix on its own**: runs are
+  never finalized, so a live run lingers forever and a content-identical
+  re-distill would then be blocked rather than deduplicated. Both halves belong
+  to Phase 2, together.
+
 **The run is left `running` and nothing finalizes it.**
 `finalize_ingestion_run_v031` decides membership, coverage and tombstones, and
 calling it is Phase 2 work — a run finalized before its batches are all in would
