@@ -266,3 +266,49 @@ pseudo-role, and revoking it from one named role does nothing while revoking it
 from `PUBLIC` would break `anon` and `authenticated`. Schema usage grants
 nothing on its own — the count of *readable tables* is the property that
 matters, and it is 0.
+
+### How the endpoint will actually reach Postgres
+
+Measured 2026-08-10, and the first line is the one that constrains everything
+else:
+
+    dig db.fwnezkbesjoazlpaflbq.supabase.co A     -> (nothing)
+    dig db.fwnezkbesjoazlpaflbq.supabase.co AAAA  -> 2600:1f18:45ac:6d00:…
+
+**The direct connection has no A record at all.** Lambda's egress is IPv4, so
+the direct host is not merely discouraged, it is unreachable — the shared pooler
+is the only route that does not cost money. (The IPv4 add-on is the paid
+alternative.)
+
+Project region is `us-east-1`, the same as the KMS keys. Both pooler fleets
+resolve and are IPv4:
+
+    aws-0-us-east-1.pooler.supabase.com -> 44.216.29.125, 44.208.221.186, 52.45.94.125
+    aws-1-us-east-1.pooler.supabase.com -> 18.214.78.123, 18.213.155.45, 3.227.209.82
+
+Which fleet this project is on is not derivable from DNS — Supavisor resolves
+the tenant from the username at authentication time, so both hosts answer for
+everybody. **Dashboard → Connect** names the right one.
+
+**Port 6543, transaction mode**, which Supabase's own documentation names for
+"serverless and edge functions". One consequence for whoever writes the Lambda:
+*transaction mode does not support prepared statements*, so the Postgres driver
+must have them turned off or every call fails in a way that looks like a syntax
+problem.
+
+**An open premise, and it should be settled before the Lambda is written.**
+Supabase documents the pooler username only as `postgres.PROJECT_REF` and says
+nothing about custom roles. If Supavisor will not accept
+`semantic_ingestor.fwnezkbesjoazlpaflbq`, `0052`'s design does not work from AWS
+and the fallbacks are session mode on 5432, the paid IPv4 add-on, or reversing
+the hosting decision to an edge function — see `semantic/docs/KMS_DESIGN.md`,
+which records why that was the close second.
+
+### A restore brings this role back mute
+
+Supabase's own restore guidance is explicit that custom roles with `LOGIN` have
+their passwords excluded from a dump, and must be set again by hand afterwards.
+So a restored project has `semantic_ingestor` present, correctly privileged, and
+unable to connect — which will look like a broken endpoint rather than a missing
+password. The fix is the same `alter role … login password` step, and the
+password is in AWS Secrets Manager under `written/semantic-ingestor`.
