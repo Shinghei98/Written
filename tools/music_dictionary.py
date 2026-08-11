@@ -99,9 +99,15 @@ GENRE_TRANSLATIONS: dict[str, str] = {
 # Japanese or Korean name stays as it is, because that *is* the name.
 #
 # **This is the only table here that is knowledge rather than a rule**, so it is
-# the only one worth reading through. Entries marked `REVIEW` are ones I am not
-# confident about; leaving one wrong costs a duplicate concept, not a wrong
-# claim about anybody.
+# the only one worth reading through — and the one place a mistake is not cheap.
+#
+# **Only transliterate what you know.** `安東尼鶴健士` is Anthony Hopkins, who
+# composed the track it credits; I read `安東尼` as "Anthony", reached for a
+# famous classical composer beginning "Anton", and filed it under Dvořák. That
+# is not a duplicate concept — it attributes one person's music to another, a
+# false claim about two people at once. Anything not recognised with confidence
+# stays in `NATIVE_NAMES` untranslated, where the worst case is a concept that
+# fails to merge with its Latin spelling.
 
 TRANSLITERATED: dict[str, str] = {
     # Composers
@@ -111,7 +117,10 @@ TRANSLITERATED: dict[str, str] = {
     "維托德 · 盧托斯瓦夫斯基": "Witold Lutosławski",
     "馬克斯・布魯赫": "Max Bruch",
     "尚-菲利普・拉摩": "Jean-Philippe Rameau",
-    "安東尼鶴健士": "Antonín Dvořák",  # REVIEW — unusual rendering
+    # The actor, who also composes: this credits "Tara" from *Life is a Dream*,
+    # with the Philharmonia and Dudamel. 安東尼 is Anthony and 鶴健士 is Hopkins
+    # — reading only the first half is how this was once filed under Dvořák.
+    "安東尼鶴健士": "Anthony Hopkins",
     # Conductors and soloists
     "古斯塔沃 · 杜達美": "Gustavo Dudamel",
     "帕布羅・艾拉斯-卡薩多": "Pablo Heras-Casado",
@@ -138,7 +147,6 @@ TRANSLITERATED: dict[str, str] = {
     "邁可・提爾森・湯瑪斯": "Michael Tilson Thomas",
     "麥可辛 · 凡格羅夫": "Maxim Vengerov",
     "伊塔瑪 · 葛蘭": "Itamar Golan",
-    "伊麗莎白 · 德拉格爾": "Elisabeth Leonskaja",  # REVIEW
     "克里斯提安 · 特茲拉夫": "Christian Tetzlaff",
     "吉爾 ‧ 夏漢": "Gil Shaham",
     "喬凡尼・安東尼尼": "Giovanni Antonini",
@@ -149,19 +157,17 @@ TRANSLITERATED: dict[str, str] = {
     "尼爾森 · 蓋爾納": "Nelson Goerner",
     "山繆 · 桑德斯": "Samuel Sanders",
     "恩利科 · 奧諾弗里": "Enrico Onofri",
-    "恩碧歐・荷姆欣": "Emilie Hörnström",  # REVIEW
     "泰奧蒂・朗格洛瓦・迪・斯瓦": "Théotime Langlois de Swarte",
     "海飛茲": "Jascha Heifetz",
     "漢斯 · 克納佩次布許": "Hans Knappertsbusch",
-    "烏莉歐絲特": "Alena Baeva",  # REVIEW — likely a surname fragment
+    # A surname-only credit for the same person as 艾琳娜・烏莉歐絲特, who is
+    # in this library under her full name. Rule 6 merges them.
+    "烏莉歐絲特": "Elena Urioste",
     "艾琳娜・烏莉歐絲特": "Elena Urioste",
     "珍妮佛・約翰遜・坎諾": "Jennifer Johnson Cano",
     "瑞秋 · 波潔": "Rachel Podger",
     "米希卡・拉什狄・莫嫚": "Mishka Rushdie Momen",
-    "緯查 · 巴頓 · 派爾": "Vikram Barton Pyle",  # REVIEW
     "羅倫佐・維奧帝": "Lorenzo Viotti",
-    "葛倫・索爾徹": "Glenn Dicterow",  # REVIEW
-    "蘿拉・費兒-肯": "Laura Feher-Kahn",  # REVIEW
     "西蒙 · 黛娜史坦": "Simone Dinnerstein",
     "詹姆斯・艾尼斯": "James Ehnes",
     "詹姆斯・李汶": "James Levine",
@@ -188,19 +194,14 @@ TRANSLITERATED: dict[str, str] = {
     "基里爾 · 格斯坦": "Kirill Gerstein",
     "埃絲特・阿布拉米": "Esther Abrami",
     "大衛 · 弗萊": "David Fray",
-    "安・梅耶": "Anne Akiko Meyers",  # REVIEW
     "安德里斯・尼爾森斯": "Andris Nelsons",
-    "尤妮克・坦齊爾": "Yuniko Tanzil",  # REVIEW
     "尼爾斯 · 艾瑞克 · 斯帕夫": "Nils-Erik Sparf",
     "弗朗茲 · 魏瑟-莫斯特": "Franz Welser-Möst",
     "戈特弗里德 · 馮 · 德 · 戈爾茲": "Gottfried von der Goltz",
     "拉斐爾 · 帕亞雷": "Rafael Payare",
     "拉斐爾 · 庫利貝克": "Rafael Kubelík",
-    "提姆・奧霍夫": "Tim Ovens",  # REVIEW
-    "斯諾里・霍格利森": "Snorri Sigfús Birgisson",  # REVIEW
     "曼弗雷德 · 霍內克": "Manfred Honeck",
     "朱利安・昆汀": "Julien Quentin",
-    "格裡高利・阿什": "Gregory Ash",  # REVIEW
     "泰迪 · 帕帕費拉米": "Tedi Papavrami",
     "科林・柯里": "Colin Currie",
     "米凱萊・史波蒂": "Michele Spotti",
@@ -212,15 +213,10 @@ TRANSLITERATED: dict[str, str] = {
     "芳斯瓦 · 澤維爾 · 羅斯": "François-Xavier Roth",
     "艾莉莎・薇勒絲坦": "Alisa Weilerstein",
     "艾薩克・史坦": "Isaac Stern",
-    "阿爾貝托 · 伊瑞德": "Alberto Iriarte",  # REVIEW
     "雅各 · 胡薩": "Jakub Hrůša",
     "馬漢・埃斯法哈尼": "Mahan Esfahani",
     "馬蒂亞斯 · 奇許奈瑞特": "Matthias Kirschnereit",
     "馬里奧 · 霍森": "Mario Hossen",
-    "馬達拉斯": "Gergely Madaras",  # REVIEW
-    "史塔亞": "Staier",  # REVIEW — likely Andreas Staier
-    "亞森": "Jansen",  # REVIEW — likely Janine Jansen
-    "JB當凱爾": "Jean-Baptiste Doulcet",  # REVIEW
     # Ensembles and orchestras
     "佛萊堡巴洛克管弦樂團": "Freiburger Barockorchester",
     "蘇格蘭室內管弦樂團": "Scottish Chamber Orchestra",
@@ -243,9 +239,6 @@ TRANSLITERATED: dict[str, str] = {
     "克里夫蘭管弦樂團": "Cleveland Orchestra",
     "匹茲堡交響樂團": "Pittsburgh Symphony Orchestra",
     "勞騰樂集": "Lautten Compagney",
-    "協力歌手合唱團": "Accentus",  # REVIEW
-    "嘉碧妲古樂團": "Capella Gabetta",  # REVIEW
-    "島嶼古樂團": "Isola Baroque",  # REVIEW
     "巴塞爾室內樂團": "Kammerorchester Basel",
     "布列頓小交響樂團": "Britten Sinfonia",
     "布胥三重奏": "Busch Trio",
@@ -280,6 +273,31 @@ NATIVE_NAMES: frozenset[str] = frozenset({
     "류정한", "강욱진", "김민구(NiNE)", "김키위", "서정아", "신쿵", "심은지",
     "용배", "이기", "이동혁", "허윤진", "구조(153/Joombas)", "김도연", "전동석",
     "任奫燦", "朴秀藝", "金本索里", "金鈺兒",
+    # **Kept because I could not identify them, not because they are native.**
+    # Each is plainly a Chinese rendering of a Western name, but I could not read
+    # it back with confidence — and the alternative is inventing one. See the
+    # note on rule 4: an unmerged duplicate is the acceptable failure, a
+    # confidently wrong name is not. Moving one of these into `TRANSLITERATED`
+    # is a real improvement whenever somebody recognises it.
+    "伊麗莎白 · 德拉格爾",
+    "恩碧歐・荷姆欣",
+    "緯查 · 巴頓 · 派爾",
+    "葛倫・索爾徹",
+    "蘿拉・費兒-肯",
+    "安・梅耶",
+    "尤妮克・坦齊爾",
+    "提姆・奧霍夫",
+    "斯諾里・霍格利森",
+    "格裡高利・阿什",
+    "阿爾貝托 · 伊瑞德",
+    "馬達拉斯",
+    "史塔亞",
+    "亞森",
+    "JB當凱爾",
+    "協力歌手合唱團",
+    "嘉碧妲古樂團",
+    "島嶼古樂團",
+
     # Chinese and Taiwanese
     "蕭敬騰", "王羽佳", "昊轩京剧-吴昊", "岳勳", "冯沛琳", "吉克雋逸",
     "周深", "孫悅", "張遠", "房東的貓", "李垂誼", "王健", "王家珍", "芝麻Mochi",
