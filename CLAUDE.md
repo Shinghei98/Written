@@ -1870,6 +1870,25 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
+**The vault has been read back, and that is the premise nothing else could
+substitute for.** 1,227 payloads had been encrypted and not one decrypted: if
+the crypto were wrong the vault would be garbage and nothing anywhere would say
+so. Measured 2026-08-11 — KMS unwrapped the data key **with the encryption
+context**, which is what proves the per-user binding rather than merely the
+cipher; AES-GCM decrypted; the envelope parsed.
+
+**And the first row ever read back showed a defect.** Swift's synthesised
+`Codable` for an enum puts the associated value under `_0`, a *compiler*
+detail, and that was the wire form in the vault. Three reasons it matters more
+here than it looks: the reader is Python and would have to know a Swift
+convention to find the payload; **the vault is append-only and the ingestion
+identity has no `Decrypt`**, so a row's encoding can never be rewritten; and if
+Swift changed that convention, old rows would silently stop matching new code.
+`SourcePayload` now encodes `{"kind": …, "value": …}` by hand and
+`schema_version` is `written-source-envelope-v2` — **v1 rows exist forever and a
+reader must handle both**, which is exactly what that field is for and its first
+real use. Confirmed on a fresh vault row: `kind`/`value` present, `_0` absent.
+
 **Proven on a real distillation.** Apple Music finalized with 9 scopes, 9
 heads, 1,224 run items, 1,224 `current_source_items` and one worker job — and
 the number that matters is 1,224 against 1,225 captured. Every action-bearing

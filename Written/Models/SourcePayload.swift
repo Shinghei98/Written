@@ -43,6 +43,82 @@ enum SourcePayload: Codable, Equatable, Sendable {
     case untyped(UntypedPayload)
 }
 
+// MARK: - The wire form
+
+/// **Written out by hand, because the synthesised one leaks the compiler into
+/// the contract.** Swift encodes an enum's associated value under a key it
+/// invents — `{"music": {"_0": {…}}}` — and `_0` is a synthesis detail, not a
+/// field name. The first row ever decrypted out of the vault had it.
+///
+/// Three reasons that is worse here than it looks:
+///
+/// - The reader is **Python**, and it would have to know a Swift compiler
+///   convention to find the payload at all.
+/// - The vault is **append-only and the ingestion identity has no `Decrypt`**,
+///   so a row's encoding can never be rewritten. Whatever shape is stored is
+///   the shape that has to be readable forever.
+/// - If Swift ever changed that convention, old rows would silently stop
+///   matching new code, with nothing to notice it.
+///
+/// `{"kind": "music", "value": {…}}` instead: explicit, stable, and legible to
+/// anything that can read JSON. `schema_version` on the envelope is what tells
+/// a reader which of the two it is holding — that field exists for exactly this
+/// and this is its first use.
+extension SourcePayload {
+
+    private enum CodingKeys: String, CodingKey { case kind, value }
+
+    /// The discriminator, as its own type so a new case cannot be added to the
+    /// enum without deciding what it is called on the wire.
+    private enum Kind: String, Codable {
+        case music, podcast, calendar, fitness, video, place, profile, untyped
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .music(let payload):
+            try container.encode(Kind.music, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .podcast(let payload):
+            try container.encode(Kind.podcast, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .calendar(let payload):
+            try container.encode(Kind.calendar, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .fitness(let payload):
+            try container.encode(Kind.fitness, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .video(let payload):
+            try container.encode(Kind.video, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .place(let payload):
+            try container.encode(Kind.place, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .profile(let payload):
+            try container.encode(Kind.profile, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        case .untyped(let payload):
+            try container.encode(Kind.untyped, forKey: .kind)
+            try container.encode(payload, forKey: .value)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .music: self = .music(try container.decode(MusicPayload.self, forKey: .value))
+        case .podcast: self = .podcast(try container.decode(PodcastPayload.self, forKey: .value))
+        case .calendar: self = .calendar(try container.decode(CalendarPayload.self, forKey: .value))
+        case .fitness: self = .fitness(try container.decode(FitnessPayload.self, forKey: .value))
+        case .video: self = .video(try container.decode(VideoPayload.self, forKey: .value))
+        case .place: self = .place(try container.decode(PlacePayload.self, forKey: .value))
+        case .profile: self = .profile(try container.decode(ProfilePayload.self, forKey: .value))
+        case .untyped: self = .untyped(try container.decode(UntypedPayload.self, forKey: .value))
+        }
+    }
+}
+
 // MARK: - Music
 
 /// Apple Music, the on-device music library, and Spotify.

@@ -16,7 +16,13 @@ struct SourceEnvelope: Codable, Equatable, Sendable {
     /// written by an old build stays readable by whatever reads it later —
     /// which is the same lesson `ChatStore`'s `written-chat-v2-` prefix records:
     /// an optional that decodes to nil is a value, not a gap.
-    static let currentSchemaVersion = "written-source-envelope-v1"
+    /// **v2 changes the payload's wire form**, nothing else. v1 encoded an
+    /// enum case's associated value under Swift's synthesised `_0` key; v2 is
+    /// `{"kind": …, "value": …}`. The vault is append-only and the ingestion
+    /// identity cannot decrypt, so **v1 rows exist forever and a reader must
+    /// handle both** — which is precisely what this field is for, and this is
+    /// its first use.
+    static let currentSchemaVersion = "written-source-envelope-v2"
 
     var schemaVersion: String = SourceEnvelope.currentSchemaVersion
 
