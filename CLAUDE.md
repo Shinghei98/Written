@@ -1645,14 +1645,36 @@ a routine deletion request, the other erases every user at once. And **the
 ingestion identity gets encrypt-only while the worker gets decrypt**, so the
 thing exposed to the internet can write into the vault and cannot read it back.
 
-**Ingestion runs on AWS too**, which was the open sub-decision and is settled: a
-Deno function on Supabase would need a long-lived AWS access key in its
-environment to reach KMS, and this project has lost four keys, every one a
-standing secret somewhere it did not need to be. On AWS the Lambda assumes its
-role and there is no credential at all. The cost is verifying Supabase tokens
-ourselves, which is smaller than it sounds — the project publishes a JWKS
-(confirmed live, one `ES256` key), so any JOSE library verifies an access token
-against a public key **with no shared secret**, and the user id is its `sub`.
+**Ingestion runs on AWS, and the argument that got it there was half wrong.**
+The recorded reasoning was that a Deno function on Supabase needs a long-lived
+AWS key in its environment while a Lambda assumes a role and needs no credential
+at all. The first half holds; the second does not. **A Lambda cannot reach
+`semantic_private` either** — RLS is on with no policy and `authenticated` has
+no usage on the schema — so a write needs a Postgres credential. Hosting on AWS
+does not remove the standing secret, it changes which one it is, and the two are
+not equivalent: a leaked encrypt-only KMS key writes rubbish into the vault and
+decrypts nothing, while a leaked `service_role` key reads and writes every table
+in the project. On that reading the edge function was the *safer* host.
+
+**`0052` is what makes AWS right rather than merely chosen.** The endpoint gets
+`semantic_ingestor`, a Postgres role that can call exactly one `security
+definer` function and holds no table privileges — 0 readable tables, 1 callable
+function, verified in production. Leaked, it writes vault rows and reads none of
+them back. Its password is set by hand and lives in AWS Secrets Manager, for the
+reason `private.push_config` is filled in by hand.
+
+Two traps in that migration, both paid for. **`revoke ... on schema public` from
+one role does nothing**: usage there belongs to the `PUBLIC` pseudo-role, and
+revoking it from `PUBLIC` would take it from `anon` and `authenticated` too. The
+property that matters is the *table* count, not the schema flag. And the
+`security definer` function is what avoids adding `semantic_private`'s first RLS
+policies — a posture of "RLS on, no policy, everywhere" states in one sentence
+and a posture with two exceptions does not.
+
+The cost of AWS is verifying Supabase tokens ourselves, which is smaller than it
+sounds — the project publishes a JWKS (confirmed live, one `ES256` key), so any
+JOSE library verifies an access token against a public key **with no shared
+secret**, and the user id is its `sub`.
 
 **Phase 1 has started, and its first half ships no behaviour either.** Four
 new files under `Written/Models/` — `SemanticSource`, `SourceEnvelope`,
@@ -1705,13 +1727,14 @@ which is crypto-erasure with nothing to remember to call. It ships no behaviour
 and nothing writes it yet.
 
 **The later numbers are reserved rather than contiguous, and they have shifted
-three times.** The plan allocated three: a bridge, then server projections, then
-cutover. Three of the numbers behind them went to real work — `0049` to
+four times.** The plan allocated three: a bridge, then server projections, then
+cutover. Four of the numbers behind them went to real work — `0049` to
 capturing `public.rls_auto_enable()`, a Supabase dashboard event trigger that
-existed in production and in no file; `0050` to the key registry above; and
-`0051` to aligning that registry's `key_version` vocabulary with `0046`'s, which
-it got wrong by one character. So **server projections are `0052` and cutover is
-`0053`**, and that is exactly what §5 permits: never *reuse* a number, but
+existed in production and in no file; `0050` to the key registry above; `0051`
+to aligning that registry's `key_version` vocabulary with `0046`'s, which it got
+wrong by one character; and `0052` to the ingestion identity. So **server
+projections are `0053` and cutover is `0054`**, and that is exactly what §5
+permits: never *reuse* a number, but
 skipping one is fine, and if product work needs a migration first they shift
 again.
 
@@ -1730,7 +1753,7 @@ the other side and watching it refuse.
 **So the plan's numbers are no longer the app's, and its §-quotes are written in
 the plan's.** §10's gate reads *"existing push/chat/profile behavior remains
 green through 0048"* and §9 says *"do not reverse 0050 in place"* — the first
-still means our `0048`, the second now means our `0053`. Read a number in
+still means our `0048`, the second now means our `0054`. Read a number in
 `WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**, not as a filename;
 `application_migrations` in the baseline manifest carries the mapping, which is
 why each entry has a `role` beside its name.

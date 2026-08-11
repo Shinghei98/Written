@@ -156,6 +156,10 @@ apply_twice 0050_semantic_user_encryption_keys.sql
 # registry and of `raw_source_records` agree. It raises rather than warns, so an
 # apply failure here *is* the test — there is no separate contract file.
 apply_twice 0051_align_encryption_key_version.sql
+# 0052 asserts its own outcome the same way: it reads back what the ingestion
+# role can select and call, and raises if the revokes did not take. An apply
+# failure is the failing assertion.
+apply_twice 0052_semantic_ingestor_role.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than
@@ -219,12 +223,17 @@ echo "########## the app's own private schema ##########"
 # 0042's header prescribes this, and "an adapted grant broadens access" is the
 # integration plan's named deployment-failure condition. Cheap, and the one
 # check that catches a whole class of mistake.
+# `semantic_ingestor` is the fourth name here and the newest: `0052` gives the
+# ingestion endpoint an identity that can call one function and read nothing,
+# and `private` — which holds the push secret and the collaborator list — is the
+# schema it must be furthest from.
 acl=$(docker exec "$CONTAINER" psql -U postgres -tAc "
 select has_schema_privilege('anon','private','usage')
     || ',' || has_schema_privilege('authenticated','private','usage')
-    || ',' || has_schema_privilege('service_role','private','usage');")
-echo "  anon,authenticated,service_role usage on private = $acl"
-if [ "$acl" != "false,false,false" ]; then
+    || ',' || has_schema_privilege('service_role','private','usage')
+    || ',' || has_schema_privilege('semantic_ingestor','private','usage');")
+echo "  anon,authenticated,service_role,semantic_ingestor usage on private = $acl"
+if [ "$acl" != "false,false,false,false" ]; then
   echo "  FAIL  a client role gained access to the app's private schema"
   fail=1; fail_count=$((fail_count + 1))
 else

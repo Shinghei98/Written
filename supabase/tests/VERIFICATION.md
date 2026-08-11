@@ -38,7 +38,7 @@ hosted project's *services* create rather than the database image:
 
 | Lane | What it proves |
 |---|---|
-| **A** | `0001`→`0051` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. Contract 006 passes both before and after `0048`. `0048`–`0051` each apply and replay. |
+| **A** | `0001`→`0052` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. Contract 006 passes both before and after `0048`. `0048`–`0051` each apply and replay. |
 | **B** | Calendar upgrade fixture: `0042`–`0045`, load `fixtures/0046_calendar_upgrade_fixture.sql`, apply+replay `0046`, contract passes. Then `0047` and `0048` on that populated state. |
 | **C** | Surface-fact fixture: `0042`–`0046`, load `fixtures/0047_surface_fact_upgrade_fixture.sql`, apply+replay `0047`, contract passes. Then `0048` on that populated state. |
 
@@ -67,6 +67,31 @@ the state at *its own* migration.
   the failing assertion and there is no separate contract file. Proven to bite
   by perturbing `0046`'s side in a throwaway container — it refused and named
   both patterns.
+
+## The ingestion path, end to end
+
+`0052`'s function is the first thing that writes the vault, and it was run
+rather than read. Against a full chain in a throwaway container, as
+`semantic_ingestor` itself:
+
+- A mixed batch stores both rows, and **their provenance stays distinct**: the
+  subscription row is filed under record source `user` with connector
+  `apple_music`, which was structurally impossible before `0048` and had never
+  been exercised through an actual ingestion call until now.
+- The retry is idempotent — `{"received": 1, "stored": 0, "duplicates": 1}`,
+  inferred from the partial unique index on active rows.
+- A run id belonging to another user is refused, which is what makes a
+  client-minted id safe.
+- An undeclared connector/record pair is still refused by name
+  (`connector spotify may not deliver user records`).
+- **The role cannot read what it just wrote**: `permission denied for table
+  raw_source_records`.
+
+**One of those was a product bug, found by running it.**
+`AppleMusicDistiller` emits a `user` row for subscription state during an Apple
+Music run, and the matrix held identity pairs only — so that record was refused
+at ingestion and would simply never have arrived. `0052` declares the pair with
+its rationale.
 
 ## The iOS envelope vocabulary
 

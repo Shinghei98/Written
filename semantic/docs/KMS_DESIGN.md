@@ -149,14 +149,35 @@ IAM role natively, so `Decrypt` is scoped to it with no credential stored
 anywhere. This also closes Gate 2, which had no answer at all: the project's
 only compute is three Deno edge functions and a static Cloudflare site.
 
-**Ingestion: on AWS too — decided.** API Gateway + Lambda, not a Supabase edge
-function. The edge function was tempting because it can verify the caller's
-Supabase JWT trivially, but a Deno function on Supabase would need a long-lived
-AWS access key in its environment to reach KMS. That does not violate §12 — the
-KEK is still only in AWS and the credential would be encrypt-only — but it is a
-standing secret, and this project has lost four keys, every one a standing
-secret somewhere it did not need to be. On AWS there is no credential at all:
-the Lambda assumes `written-semantic-ingestion` and that is the whole story.
+**Ingestion: on AWS too — decided, but the first version of this paragraph
+was wrong and the correction is the interesting part.**
+
+It argued that a Supabase edge function would need a long-lived AWS key in its
+environment to reach KMS, while on AWS the Lambda assumes a role and there is no
+credential at all. The first half is true. The second half is not: a Lambda
+cannot reach `semantic_private` either, because RLS is on with no policy and
+`authenticated` has no usage on the schema, so a write needs a Postgres
+credential. **Hosting on AWS does not remove the standing secret. It changes
+which one it is.**
+
+That matters because they are not equivalent. A leaked encrypt-only KMS key
+lets somebody write rubbish into the vault and decrypt nothing. A leaked
+`service_role` key reads and writes every table in the project and bypasses RLS
+entirely — the largest credential this project has. Moving *that* into a second
+cloud to avoid a smaller one in the first is a bad trade, and on that reading
+the edge function was the safer host.
+
+**`0052` is what makes AWS the right answer rather than merely the chosen one.**
+The endpoint does not get `service_role`; it gets `semantic_ingestor`, a
+Postgres role that can call exactly one `security definer` function and has no
+table privileges at all. Verified in production: 0 readable tables, 1 callable
+function, no usage on the app's `private` schema. Leaked, it writes vault rows
+for arbitrary users and reads none of them back — a smaller blast radius than
+either alternative had.
+
+Note also what the original argument leaned on and should not have: all four
+keys this project has lost went via chat transcripts, never out of a running
+environment. "Standing secret in an env" was not the failure mode.
 
 The cost is verifying Supabase tokens ourselves, and it is smaller than it
 sounds. The project publishes a JWKS — confirmed live, one EC key, `ES256`,

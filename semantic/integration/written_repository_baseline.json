@@ -95,12 +95,17 @@
     },
     {
       "sequence": 52,
-      "suggested_name": "0052_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0052_semantic_ingestor_role.sql",
+      "role": "ingestion_service_identity"
     },
     {
       "sequence": 53,
-      "suggested_name": "0053_semantic_cutover.sql",
+      "suggested_name": "0053_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 54,
+      "suggested_name": "0054_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -149,8 +154,10 @@
     47,
     48,
     49,
-    50
+    50,
+    51,
+    52
   ],
-  "application_migrations_authored_next": 51,
-  "application_migrations_reserved_note": "50 is the KMS key registry and 51 aligns its key-version vocabulary with 0046's, which 0050 got wrong by one character. 52 (server projections) is due in phase server_owned_discovery_and_profiles and 53 (cutover) in legacy_semantic_retirement. The pair has shifted three times now — the captured platform event trigger, the key registry, then this alignment. The contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 53 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 53,
+  "application_migrations_reserved_note": "50 is the KMS key registry, 51 aligns its key-version vocabulary with 0046's, and 52 gives the ingestion endpoint an identity that can call one function and read nothing. 53 (server projections) is due in phase server_owned_discovery_and_profiles and 54 (cutover) in legacy_semantic_retirement. The pair has shifted four times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 54 is irreversible and must not exist on disk before a minimum supported client version does."
 }

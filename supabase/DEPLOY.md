@@ -31,7 +31,7 @@
 > `PostgREST.swift`.
 >
 > Everything below is the procedure as written beforehand, kept because the
-> reasoning still applies to `0052`/`0053`.
+> reasoning still applies to `0053`/`0054`.
 
 ## Production baseline, captured 2026-08-10 (read-only)
 
@@ -126,12 +126,12 @@ Then run `get_advisors` for security, since DDL landed.
 **No product behaviour.** Nothing in Swift reads `semantic_private`, `ontology`
 or `api`. Every feature flag is seeded off. The legacy path is untouched:
 `append_source_records`, `discovery_cards`, `seed_icebreaker` and
-`match_profile` all keep working exactly as before. **`0052` (server
-projections) and `0053` (cutover) are the ones that change behaviour**, and
-neither is written. Those numbers have shifted three times — `0049` to the
+`match_profile` all keep working exactly as before. **`0053` (server
+projections) and `0054` (cutover) are the ones that change behaviour**, and
+neither is written. Those numbers have shifted four times — `0049` to the
 captured platform trigger, `0050` to the key registry, `0051` to aligning its
-key-version vocabulary — so read a number in the integration plan as a role
-rather than a filename.
+key-version vocabulary, `0052` to the ingestion identity — so read a number in
+the integration plan as a role rather than a filename.
 
 **`0049` is a no-op against production**, where `rls_auto_enable` and
 `ensure_rls` already exist. It is there so a replay matches.
@@ -155,12 +155,12 @@ what does the *verification*, which is exactly the right split.
 
 ## Rollback
 
-`0042`–`0051` are additive: new schemas, no change to any `public` object, no
+`0042`–`0052` are additive: new schemas, no change to any `public` object, no
 data migrated. If something is wrong, `drop schema semantic_private cascade;
 drop schema ontology cascade; drop schema api cascade;` returns the database to
 `0041` — and `0049` should be left in place, since it only captures what
 production already had. This is the last point at which rollback is that easy;
-`0053` is forward-only by contract.
+`0054` is forward-only by contract.
 
 **One caveat that only applies once `0050` is in use**: dropping
 `semantic_private` takes `user_encryption_keys` with it, and **that is a
@@ -227,3 +227,42 @@ table is still empty, and the `private` table-ACL fingerprint is unchanged.
 
 **Free only because the table is empty.** Tightening a constraint stops being
 free the day Phase 1's ingestion Lambda writes the first row.
+
+---
+
+## 0052, applied 2026-08-10
+
+An identity for the ingestion endpoint that can write the vault and read
+nothing. It exists because the reasoning behind hosting ingestion on AWS was
+half wrong: a Lambda cannot reach `semantic_private` any more than an edge
+function can reach KMS, so the choice was never "credential or no credential"
+but *which* credential. `service_role` would have been the largest one this
+project has, sitting in a second cloud.
+
+`semantic_ingestor` gets `usage` on the schema and `execute` on one
+`security definer` function. Verified in production after the push:
+
+| Check | Result |
+|---|---|
+| Role exists / can log in | yes / **no** — the password is set out of band |
+| Readable tables across `semantic_private`, `ontology`, `public`, `private` | **0** |
+| Callable functions in `semantic_private` | **1** |
+| Usage on the app's `private` schema | false |
+| `(apple_music, user)` matrix pair | present |
+| `private` table-ACL fingerprint | unchanged |
+| Vault rows | 0 |
+
+**One step remains and this migration deliberately does not do it.** The role is
+created `nologin` with no password, so until somebody runs
+
+    alter role semantic_ingestor login password '<generated>';
+
+and puts that password in AWS Secrets Manager, it cannot connect at all. A
+secret in a migration is a secret in git.
+
+**A trap worth keeping:** `has_schema_privilege('semantic_ingestor','public','usage')`
+reports **true** and always will. That privilege belongs to the `PUBLIC`
+pseudo-role, and revoking it from one named role does nothing while revoking it
+from `PUBLIC` would break `anon` and `authenticated`. Schema usage grants
+nothing on its own — the count of *readable tables* is the property that
+matters, and it is 0.
