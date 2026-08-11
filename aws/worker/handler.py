@@ -29,6 +29,7 @@ from written_ontology.repository import PostgresJobQueue, WorkerJob
 from written_ontology.worker import SemanticWorker
 
 from fitness import build_fitness_snapshot
+from resolve import resolve_user
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 VAULT_KEY_ARN = os.environ["VAULT_KEY_ARN"]
@@ -68,10 +69,21 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
     """`recompute_user` — the job `finalize_ingestion_run_v031` enqueues.
 
     The payload names the user and the input revision the run produced, plus the
-    four model ids the contract binds a computation to. Only the user is used
-    today. Scoring, resolution and embedding are the models' work and come
-    after, which is why their ids are carried but not honoured — a result
-    stamped with a model that did not run would be worse than no result.
+    ontology version and the three model ids the contract binds a computation to
+    — which is exactly the column list of `semantic_runs`, because this job was
+    designed to open one.
+
+    **The ontology version is read live, not taken from the payload**, and the
+    schema settles it: `guard_semantic_run_contract` refuses a run whose version
+    is not currently `published`, so a job queued before a version change could
+    never open one against the version it names. Exactly one version is published
+    at a time, and `recompute_user` exists so outputs can be rebuilt when it
+    moves. The payload's `ontology_version_id` records what the job was queued
+    with; the run records what it actually used.
+
+    Scoring and embedding still do not run, so their model ids are carried and
+    not honoured: a result stamped with a model that did not run would be worse
+    than no result.
 
     **It no longer calls `project_user`, and that is the second half of `0059`.**
     Writing observations from here could never work: `guard_observation_ingestion
@@ -99,6 +111,16 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
             fitness = build_fitness_snapshot(
                 connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN
             )
+            # **Committed separately, because they are two conclusions about two
+            # sources.** A resolver failure must not roll back a fitness
+            # snapshot that was correctly written — the same shape as the
+            # Calendar rollback that once took a whole run's capture with it.
+            connection.commit()
+            # **No KMS, and no vault.** Resolution reads
+            # `observations.normalized_payload`, which is already the sanitised
+            # projection, so the worker's `Decrypt` stays reserved for
+            # classifiers that genuinely need plaintext.
+            mappings = resolve_user(connection, user_id, job.payload)
     except Exception as error:
         # **The queue is forbidden from carrying this, so the log has to.**
         # `SemanticWorker` catches a handler exception and records the stable
@@ -159,6 +181,9 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
         "changed": fitness["written"] > 0,
         "candidate_count": fitness["candidates"],
         "abstained": bool(fitness.get("abstained")),
+        "mapping_count": mappings["mappings"],
+        **({"semantic_run_id": mappings["semantic_run_id"]}
+           if mappings.get("semantic_run_id") else {}),
     }
     # Absent rather than null when there is no snapshot: the vocabulary types
     # this key as a uuid, and a null would be refused for the whole result.
