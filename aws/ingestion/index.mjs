@@ -262,11 +262,27 @@ async function ingest(rows, context) {
 // ---------------------------------------------------------------------------
 // The handler
 
-const json = (statusCode, body) => ({
-  statusCode,
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
+const json = (statusCode, body) => {
+  // **Every refusal is logged, not only the ones that throw.** A 4xx returned
+  // from the happy path wrote nothing anywhere, so a client whose batch was
+  // rejected left no trace on this side at all — and "did the device send one
+  // batch or send three and have two refused?" became unanswerable from the
+  // server. That is the silent-401 lesson one level over: the caller gets a
+  // bare code, the operator gets the reason.
+  //
+  // Safe to log because these bodies are *our* messages — "unknown
+  // record_source_code", "at most 500 records per call" — never anything out of
+  // a payload. The one that could carry user data is the 500, which is why that
+  // one still says only "ingestion failed".
+  if (statusCode >= 400) {
+    console.error(`refused ${statusCode}:`, JSON.stringify(body));
+  }
+  return {
+    statusCode,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
+};
 
 export async function handler(event) {
   let dek = null;
