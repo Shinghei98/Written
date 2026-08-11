@@ -139,6 +139,28 @@ of identical content finalizes again with `state_changed: false` and
 refused by name**, rolling the whole transaction back — which is §10's "failed
 runs change no current source state", seen rather than assumed.
 
+## The shadow comparison, on a real run
+
+`ingestion_runs.metrics` after an Apple Calendar distillation, 2026-08-11 —
+Phase 1's last bullet, exercised rather than merely built:
+
+```json
+{"client": {"legacy_records": 109, "envelopes": 109,
+            "withheld_local_only": 0, "refused": {}},
+ "server": {"received": 109, "stored": 0, "duplicates": 109,
+            "items": 101, "observations": 0, "batches": 1}}
+```
+
+**Every number is explicable and the two halves agree.** 109 legacy rows became
+109 envelopes with nothing refused and nothing withheld; all 109 arrived and all
+were unchanged duplicates; 101 items because the eight `calendar` containers
+carry no scope; zero observations because Calendar describes nothing by design.
+
+The value is that a *disagreement* would be as legible as this agreement. Both
+failures that motivated it — a run that carried four data types instead of nine,
+and a `ReferenceError` that silently 500'd every request — would have been one
+query rather than an afternoon.
+
 ## HealthKit, once somebody consented
 
 A real Lifestyle connection on 2026-08-11, through `FitnessPurposePrimer` and
