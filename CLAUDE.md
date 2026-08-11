@@ -1768,7 +1768,48 @@ Three decisions in it worth knowing:
   treating it as permanent would throw away a distillation because somebody
   reopened the app after an hour.
 
-**Dual-write is wired and inert.** `DistillViewModel.sync` calls
+**Dual-write is on for Apple Music and nothing else**, and the first real run
+landed 2026-08-11: **1,225 rows in three batches**, 1.07 MB of AES-GCM
+ciphertext, one ingestion run, three wrapped keys (one per call, one active).
+
+**Per source rather than per build** — `AppConfig.semanticIngestionSources`.
+Turning it on everywhere at once throws away the only thing shadow running is
+for: a disagreement found in one source is a diagnosis, and in nine it is a
+shrug. `music_library` is deliberately excluded even though it emits the same
+`library_song` rows, because on a subscriber's phone both sources return the
+same library and the comparison wants one of them.
+
+**Eight of ten data types matched the legacy count exactly.** The two that did
+not are both the comparison's fault rather than the pipeline's, and getting them
+wrong twice is worth recording:
+
+- **`distilled_records` is append-only across every run**, so comparing against
+  the table counted history. Read through `summary_*`, which is this file's own
+  standing rule.
+- **The summary view is a *union of items across runs*, not a snapshot.**
+  `recommendation` reads 266 there against 171 in the vault because Apple
+  returns a different set daily and the union keeps them all; the one
+  `apple_music/apple_music_subscription` row is a historical item from a build
+  that filed it under `apple_music`, where the distiller now writes `user`.
+- **And the legacy path stores only *changes*** — `append_source_records`' trigger
+  drops rows identical to the newest version — so this run wrote 118 legacy rows
+  against the vault's 1,225 first-sight rows. Neither number is wrong and they
+  are not comparable. **The comparison that means something is the *second*
+  distillation**, where the vault should store roughly the delta the legacy path
+  does, its fingerprint idempotency doing the same job as that trigger.
+
+**`0048`'s provenance fix ran on real data for the first time.**
+`AppleMusicDistiller` emits the subscription state as a `user` record during an
+Apple Music run; it is in the vault as `user` evidence with connector
+`apple_music`, which was structurally impossible before `0048` and needed
+`0052`'s matrix row to be allowed at all.
+
+**The run is left `running` and nothing finalizes it.**
+`finalize_ingestion_run_v031` decides membership, coverage and tombstones, and
+calling it is Phase 2 work — a run finalized before its batches are all in would
+decide coverage from a partial set.
+
+**Dual-write is wired and inert for every other source.** `DistillViewModel.sync` calls
 `dualWriteToVault`, which derives envelopes and submits them on **its own**
 detached task at `.background` — never sharing a task or `syncFailure` with the
 legacy push, since a slow endpoint must not delay the real outcome and a shadow

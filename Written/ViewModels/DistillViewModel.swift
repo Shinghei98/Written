@@ -1160,7 +1160,11 @@ final class DistillViewModel: ObservableObject {
     /// Does nothing at all while `AppConfig.semanticIngestionEnabled` is false,
     /// which is its shipping state.
     private func dualWriteToVault(source: String, records: [DistilledRecord]) {
-        guard AppConfig.semanticIngestionEnabled else { return }
+        // Per source, not per build. See `AppConfig.semanticIngestionSources`:
+        // shadow running compares one source's two paths against each other,
+        // and a disagreement found across nine at once is a shrug rather than
+        // a diagnosis.
+        guard AppConfig.semanticIngestionSources.contains(source) else { return }
 
         // **The same rows are withheld here as at the legacy wire, and this is
         // not a detail.** `health/biological_sex` never leaves the device —

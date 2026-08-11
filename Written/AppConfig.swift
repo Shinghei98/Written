@@ -91,19 +91,34 @@ enum AppConfig {
 
     // MARK: The private semantic vault (v0.3.1, Phase 1)
 
-    /// **The dual-write switch, and it is off.**
+    /// **Which sources dual-write to the vault. Apple Music, and nothing else.**
     ///
     /// Phase 1 of the v0.3.1 integration writes each distillation twice: the
     /// legacy path through `SyncService`, which the product depends on, and the
     /// typed envelope through `SemanticIngestionService`, which nothing reads
-    /// yet. With this `false` the second one does nothing at all — no queue, no
+    /// yet. A source absent from this set does nothing at all — no queue, no
     /// request, no cost.
     ///
-    /// It stays off until the endpoint has been exercised with a real access
-    /// token from a device, because the one environment variable on the Lambda
-    /// that has never been checked against a real token is the issuer, and a
-    /// wrong one refuses every request identically.
-    static let semanticIngestionEnabled = false
+    /// **A set rather than a switch, because turning it on everywhere at once
+    /// throws away the only thing shadow running is for.** Apple Music is the
+    /// right first source: it is the largest real library (~2,540 rows, six
+    /// batches), it exercises batching and the retry queue properly, and its
+    /// legacy row count is a number to compare the receipt against. A source
+    /// whose rows disagree between the two paths is exactly what this phase
+    /// exists to find, and finding it in one source is a diagnosis while
+    /// finding it in nine is a shrug.
+    ///
+    /// Note `music_library` is deliberately *not* here even though it emits the
+    /// same `library_song` rows: on a subscriber's phone both sources return
+    /// the same library, and the comparison wants one of them, not the
+    /// doubling that cost `MusicHighlights.deduplicatedSongs` a rewrite.
+    ///
+    /// The endpoint itself is proven — a real device envelope round-tripped on
+    /// 2026-08-11, and a second identical one stored nothing.
+    static let semanticIngestionSources: Set<String> = ["apple_music"]
+
+    /// Whether the vault path does anything at all this build.
+    static var semanticIngestionEnabled: Bool { !semanticIngestionSources.isEmpty }
 
     /// `aws/ingestion` — API Gateway in front of the Lambda. Not a secret: it
     /// authenticates every request against the caller's Supabase access token,
