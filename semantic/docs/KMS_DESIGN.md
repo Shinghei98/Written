@@ -1,9 +1,49 @@
 # Envelope encryption for the raw vault — AWS KMS
 
-**Status: provider selected, design drafted, nothing built.** This is the
-document §12 of `WRITTEN_REPOSITORY_INTEGRATION.md` asks for — *"before Phase 1,
-select and document an envelope-encryption design"* — and it is a prerequisite
-of Phase 1 rather than a detail of it.
+**Status: keys and roles exist; nothing uses them yet.** This is the document
+§12 of `WRITTEN_REPOSITORY_INTEGRATION.md` asks for — *"before Phase 1, select
+and document an envelope-encryption design"* — and it is a prerequisite of
+Phase 1 rather than a detail of it.
+
+## What exists, as of 2026-08-10
+
+Account `616040526027`, region `us-east-1` (matching the Supabase project, so
+the Lambda↔Postgres hop stays in-region).
+
+| | |
+|---|---|
+| `alias/written-raw-vault` | `arn:aws:kms:us-east-1:616040526027:key/206aa3c6-4674-4dac-a02a-22d95fb64e81` — symmetric, **automatic rotation on** |
+| `alias/written-lineage-hmac` | `arn:aws:kms:us-east-1:616040526027:key/74a0c1a1-51c9-492d-bd60-e81ec4457e02` — `HMAC_256`, `GENERATE_VERIFY_MAC`. **HMAC keys cannot auto-rotate**; rotation here is manual and versioned. |
+| `written-semantic-ingestion` | Lambda role. `GenerateDataKey`, `Encrypt`, `GenerateMac`. **No `Decrypt`.** |
+| `written-semantic-worker` | Lambda role. `Decrypt`, `GenerateMac`, `VerifyMac`. **No `GenerateDataKey`.** |
+
+Both roles carry `AWSLambdaBasicExecutionRole` for logging and nothing else.
+Neither can `ScheduleKeyDeletion` — destroying a key is an outage, not an
+operation either of these should be able to reach.
+
+**Verified by simulation, not by reading the JSON**, and that mattered:
+
+```
+ingestion  GenerateDataKey  allowed        worker  Decrypt          allowed
+ingestion  Encrypt          allowed        worker  GenerateDataKey  implicitDeny
+ingestion  Decrypt          implicitDeny   worker  GenerateMac      allowed
+```
+
+### The trap that cost a round, worth writing down
+
+The first version of both policies used a bare `StringEquals` on
+`kms:EncryptionContextKeys`. Every vault action came back `implicitDeny` and the
+policy JSON looked perfectly correct.
+
+**`kms:EncryptionContextKeys` is multivalued, and a bare operator never matches
+one.** It needs a set operator, and which one is not cosmetic:
+`ForAllValues:StringEquals` is vacuously true for an *empty* context — so it
+would permit exactly the call we are trying to forbid — while
+`ForAnyValue:StringEquals` requires `user_id` to actually be present. It is
+`ForAnyValue`.
+
+Had this shipped it would have denied everything in production, which is the
+lucky failure. The unlucky version is the `ForAllValues` one, which fails open.
 
 The scheme names no vendor. `DECISIONS.md` files *"the selected KMS/HSM
 provider, envelope-key hierarchy, worker-hosting environment, decrypt audit
@@ -137,7 +177,12 @@ it) shares the Lambda or gets its own schedule.
 
 ## Next
 
-1. Settle the ingestion-hosting sub-decision above.
-2. Create the two KMS keys and the two IAM roles.
-3. Write the key-registry migration.
-4. Then Phase 1's envelope and ingestion endpoint, which this unblocks.
+1. ~~Create the two KMS keys and the two IAM roles.~~ **Done** — see above.
+2. **Delete the `written-setup` access key.** It is AdministratorAccess on a
+   laptop, and nothing routine needs it now: both Lambdas use their roles.
+   IAM → Users → `written-setup` → Security credentials → deactivate, then
+   delete. Recreate for an afternoon if more setup is ever needed.
+3. Settle the ingestion-hosting sub-decision above — it decides where the
+   Phase 1 endpoint lives, so it comes before the endpoint is written.
+4. The key-registry migration (`semantic_private.user_encryption_keys`).
+5. Then Phase 1's envelope and ingestion endpoint, which this unblocks.
