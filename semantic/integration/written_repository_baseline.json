@@ -90,12 +90,17 @@
     },
     {
       "sequence": 51,
-      "suggested_name": "0051_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0051_align_encryption_key_version.sql",
+      "role": "key_version_vocabulary_alignment"
     },
     {
       "sequence": 52,
-      "suggested_name": "0052_semantic_cutover.sql",
+      "suggested_name": "0052_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 53,
+      "suggested_name": "0053_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -143,8 +148,9 @@
     46,
     47,
     48,
-    49
+    49,
+    50
   ],
-  "application_migrations_authored_next": 50,
-  "application_migrations_reserved_note": "50 is the KMS key registry, written and passing but not yet applied to production. 51 (server projections) is due in phase server_owned_discovery_and_profiles and 52 (cutover) in legacy_semantic_retirement. They have shifted twice now — once for the captured platform event trigger, once for the key registry. The contract forbids reusing a number, not skipping one. 52 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 51,
+  "application_migrations_reserved_note": "50 is the KMS key registry and 51 aligns its key-version vocabulary with 0046's, which 0050 got wrong by one character. 52 (server projections) is due in phase server_owned_discovery_and_profiles and 53 (cutover) in legacy_semantic_retirement. The pair has shifted three times now — the captured platform event trigger, the key registry, then this alignment. The contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 53 is irreversible and must not exist on disk before a minimum supported client version does."
 }

@@ -1667,18 +1667,32 @@ which is crypto-erasure with nothing to remember to call. It ships no behaviour
 and nothing writes it yet.
 
 **The later numbers are reserved rather than contiguous, and they have shifted
-twice.** The plan allocated three: a bridge, then server projections, then
-cutover. Two of the numbers behind them were spent on real work — `0049` on
+three times.** The plan allocated three: a bridge, then server projections, then
+cutover. Three of the numbers behind them went to real work — `0049` to
 capturing `public.rls_auto_enable()`, a Supabase dashboard event trigger that
-existed in production and in no file, and `0050` on the key registry above — so
-**server projections are `0051` and cutover is `0052`**. That is exactly what §5
-permits: never *reuse* a number, but skipping one is fine, and if product work
-needs a migration first they shift again.
+existed in production and in no file; `0050` to the key registry above; and
+`0051` to aligning that registry's `key_version` vocabulary with `0046`'s, which
+it got wrong by one character. So **server projections are `0052` and cutover is
+`0053`**, and that is exactly what §5 permits: never *reuse* a number, but
+skipping one is fine, and if product work needs a migration first they shift
+again.
+
+**That one character is worth keeping.** `0050` admitted a colon in
+`key_version`; `raw_source_records.encryption_key_version`, which *names* that
+version, does not — so a key could be created, used to encrypt, and then be
+unstorable on the very row obliged to name it, with the refusal arriving at
+ingestion time one service away from the mistake. It is this codebase's own
+*two columns that accept the same words* defect with the sign flipped: two
+columns that must accept the same words accepting different ones. `0046` wins,
+because it is adapted from the contract and `0050` invented something. `0051`
+also **asserts the two patterns match, reading them out of the catalog at
+migration time** rather than trusting its own comment — proven by perturbing
+the other side and watching it refuse.
 
 **So the plan's numbers are no longer the app's, and its §-quotes are written in
 the plan's.** §10's gate reads *"existing push/chat/profile behavior remains
 green through 0048"* and §9 says *"do not reverse 0050 in place"* — the first
-still means our `0048`, the second now means our `0052`. Read a number in
+still means our `0048`, the second now means our `0053`. Read a number in
 `WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**, not as a filename;
 `application_migrations` in the baseline manifest carries the mapping, which is
 why each entry has a `role` beside its name.

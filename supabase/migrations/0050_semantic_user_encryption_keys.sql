@@ -57,6 +57,11 @@ create table if not exists semantic_private.user_encryption_keys (
 
   primary key (user_id, key_version),
 
+  -- **This pattern is wrong and `0051` tightens it.** It admits a colon, which
+  -- `0046`'s `encryption_key_version` does not, so a version could be created
+  -- here and then be unstorable on the row that names it. Left as written
+  -- because this migration is applied to production and the files must keep
+  -- describing what is actually there; the fix is a migration, not an edit.
   constraint user_encryption_keys_version_v031_check
     check (key_version ~ '^[a-z0-9][a-z0-9_.:-]{0,63}$'),
   constraint user_encryption_keys_arn_v031_check

@@ -152,6 +152,10 @@ apply_twice 0047_semantic_current_state_surfaces.sql  && run_contract 0047_curre
 apply_twice 0048_semantic_legacy_bridge.sql
 apply_twice 0049_capture_platform_rls_event_trigger.sql
 apply_twice 0050_semantic_user_encryption_keys.sql
+# 0051 asserts, at migration time, that the key-version vocabularies of the
+# registry and of `raw_source_records` agree. It raises rather than warns, so an
+# apply failure here *is* the test — there is no separate contract file.
+apply_twice 0051_align_encryption_key_version.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

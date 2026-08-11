@@ -31,7 +31,7 @@
 > `PostgREST.swift`.
 >
 > Everything below is the procedure as written beforehand, kept because the
-> reasoning still applies to `0050`/`0051`.
+> reasoning still applies to `0052`/`0053`.
 
 ## Production baseline, captured 2026-08-10 (read-only)
 
@@ -126,11 +126,12 @@ Then run `get_advisors` for security, since DDL landed.
 **No product behaviour.** Nothing in Swift reads `semantic_private`, `ontology`
 or `api`. Every feature flag is seeded off. The legacy path is untouched:
 `append_source_records`, `discovery_cards`, `seed_icebreaker` and
-`match_profile` all keep working exactly as before. **`0051` (server
-projections) and `0052` (cutover) are the ones that change behaviour**, and
-neither is written. Those numbers have shifted twice — `0049` went to the
-captured platform trigger and `0050` to the key registry — so read a number in
-the integration plan as a role rather than a filename.
+`match_profile` all keep working exactly as before. **`0052` (server
+projections) and `0053` (cutover) are the ones that change behaviour**, and
+neither is written. Those numbers have shifted three times — `0049` to the
+captured platform trigger, `0050` to the key registry, `0051` to aligning its
+key-version vocabulary — so read a number in the integration plan as a role
+rather than a filename.
 
 **`0049` is a no-op against production**, where `rls_auto_enable` and
 `ensure_rls` already exist. It is there so a replay matches.
@@ -154,12 +155,12 @@ what does the *verification*, which is exactly the right split.
 
 ## Rollback
 
-`0042`–`0050` are additive: new schemas, no change to any `public` object, no
+`0042`–`0051` are additive: new schemas, no change to any `public` object, no
 data migrated. If something is wrong, `drop schema semantic_private cascade;
 drop schema ontology cascade; drop schema api cascade;` returns the database to
 `0041` — and `0049` should be left in place, since it only captures what
 production already had. This is the last point at which rollback is that easy;
-`0052` is forward-only by contract.
+`0053` is forward-only by contract.
 
 **One caveat that only applies once `0050` is in use**: dropping
 `semantic_private` takes `user_encryption_keys` with it, and **that is a
@@ -192,3 +193,37 @@ nothing to do with the migration, which applied.
 The ACL fingerprint here is computed by a different expression from step 4's, so
 it is not comparable to `80a84bd4…`; it was measured immediately before and
 immediately after the push with the same query, which is the check that matters.
+
+---
+
+## 0051, applied 2026-08-10
+
+`0050` and `0046` disagreed by one character about what a `key_version` may
+contain: the registry admitted a colon, and
+`raw_source_records.encryption_key_version` — the column that *names* that
+version — did not. So a key could have been created, used to encrypt, and then
+been unstorable on the row obliged to name it, with the refusal arriving at
+ingestion time one service away from the cause. Measured against production
+before the fix:
+
+| candidate | registry (0050) | record (0046) |
+|---|---|---|
+| `v1`, `v1.2`, `2026-08-10` | accepted | accepted |
+| `v1:2026` | accepted | **refused** |
+
+`0046` wins — it is adapted from the contract, and `0050` invented something.
+
+**`0051` also asserts the two patterns match**, reading both out of
+`pg_get_constraintdef` at migration time rather than trusting its own comment,
+and raising if they differ. Proven by perturbing `0046`'s side in a throwaway
+container and watching it refuse, naming both patterns:
+
+    ERROR:  key-version vocabularies disagree:
+            registry ^[a-z0-9][a-z0-9_.-]{0,63}$ vs record ^[a-z0-9][a-z0-9_.WRONG-]{0,63}$
+
+Post-push, verified in production: both patterns now read
+`^[a-z0-9][a-z0-9_.-]{0,63}$` and compare equal, `v1:2026` is refused, the
+table is still empty, and the `private` table-ACL fingerprint is unchanged.
+
+**Free only because the table is empty.** Tightening a constraint stops being
+free the day Phase 1's ingestion Lambda writes the first row.

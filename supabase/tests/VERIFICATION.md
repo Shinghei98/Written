@@ -38,7 +38,7 @@ hosted project's *services* create rather than the database image:
 
 | Lane | What it proves |
 |---|---|
-| **A** | `0001`→`0050` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. `0048`, `0049` and `0050` apply and replay. Contract 006 passes both before and after `0048`. |
+| **A** | `0001`→`0051` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. Contract 006 passes both before and after `0048`. `0048`–`0051` each apply and replay. |
 | **B** | Calendar upgrade fixture: `0042`–`0045`, load `fixtures/0046_calendar_upgrade_fixture.sql`, apply+replay `0046`, contract passes. Then `0047` and `0048` on that populated state. |
 | **C** | Surface-fact fixture: `0042`–`0046`, load `fixtures/0047_surface_fact_upgrade_fixture.sql`, apply+replay `0047`, contract passes. Then `0048` on that populated state. |
 
@@ -62,6 +62,11 @@ the state at *its own* migration.
   second works, which is rotation; a malformed KMS ARN is refused; and
   **`delete from auth.users` leaves zero key rows** — crypto-erasure with
   nothing to remember to call.
+- `0051`'s own guard, which is the test: it reads both key-version patterns out
+  of `pg_get_constraintdef` and raises if they differ, so an apply failure *is*
+  the failing assertion and there is no separate contract file. Proven to bite
+  by perturbing `0046`'s side in a throwaway container — it refused and named
+  both patterns.
 
 ## The `private` grants check
 
@@ -95,11 +100,12 @@ between a local replay and production, and it matters the moment a future
 migration adds a `public` table: production will silently enable RLS on it and a
 local replay will not.
 
-Two things follow. It should be **captured in a migration** so the schema is
-reproducible from the repository rather than partly from dashboard state. And
-it is worth knowing it is one of nine `security definer` functions in `public`
-reachable at `/rest/v1/rpc/` by `anon` — pre-existing, unrelated to the semantic
-work, and noted in the plan as its own small migration.
+**It is captured now, as `0049`**, so the schema is reproducible from the
+repository rather than partly from dashboard state — and that migration is a
+no-op against production, where the trigger already exists. Worth knowing it is
+one of nine `security definer` functions in `public` reachable at
+`/rest/v1/rpc/` by `anon`: pre-existing, unrelated to the semantic work, and
+still open.
 
 ## Not covered here
 
@@ -108,6 +114,6 @@ be run **from two independent sessions at READ COMMITTED**. Nothing calls those
 functions yet, so it is Phase 5 work — but it is a release gate.
 `tools/chat_e2e.py` is the pattern to extend.
 
-`0042`–`0049` have since been applied to production; `0050` has not. This file
+`0042`–`0051` have all since been applied to production. This file
 records what the *replay* proves, which is a separate question from what is
 deployed — `supabase/DEPLOY.md` is the record of that.

@@ -89,7 +89,11 @@ plus decrypt permission reads anybody.
 
 `0050_semantic_user_encryption_keys.sql` — **applied to production
 2026-08-10**, and applied-then-replayed by `tools/replay_contracts.sh` on every
-run. Taking `0050` shifts server projections to `0051` and cutover to `0052`.
+run. `0051` follows it, tightening `key_version` to the vocabulary
+`raw_source_records.encryption_key_version` already used: `0050` admitted a
+colon and that column does not, so a version could have been created here and
+been unstorable on the row that names it. Server projections are `0052` and
+cutover `0053`.
 
 ```
 semantic_private.user_encryption_keys
