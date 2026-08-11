@@ -38,3 +38,7 @@ tools/out/
 # `.xcresult` bundles, tens of thousands of files a run. The line above covers a
 # path the script does not use.
 out/
+
+# The ingestion Lambda builds locally; neither the tree nor the zip belongs in git.
+aws/ingestion/node_modules/
+aws/ingestion/dist/
