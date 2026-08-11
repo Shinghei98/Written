@@ -1837,10 +1837,47 @@ changes every pass makes a check vacuous.**
   re-distill would then be blocked rather than deduplicated. Both halves belong
   to Phase 2, together.
 
-**The run is left `running` and nothing finalizes it.**
-`finalize_ingestion_run_v031` decides membership, coverage and tombstones, and
-calling it is Phase 2 work — a run finalized before its batches are all in would
-decide coverage from a partial set.
+**Runs finalize now, and finding out what that needed was the work.** Before
+`0055`, production held 1,227 encrypted rows, seven runs all still `running`,
+and `current_source_items`, `observations` and `ingestion_run_items` all empty:
+capture was built and promotion did not exist, so nothing downstream could tell
+that any row was *currently observed*.
+
+`finalize_ingestion_run_v031` refuses a run with no **scope manifest**, counts
+`ingestion_run_items` per scope, advances `source_state_heads`, updates
+`current_source_items`, mints a revision and enqueues a worker job — and
+`ingest_source_records_v031` wrote neither scopes nor items. `0055` adds both
+and calls the finalizer on the batch the client marks `final`, **from inside**
+rather than by granting it, so `semantic_ingestor` still reaches exactly one
+function and `0052`'s assertion stays honest.
+
+Three things the schema decided rather than us:
+
+- **A scope is `(source, data_type, action)`, because
+  `ingestion_run_scopes.action_type` is `not null`.** So a row with no action
+  belongs to no scope, gets no run item and is never promoted — a `user/bio`, a
+  calendar container, the subscription flag. Captured, encrypted, and not
+  evidence. That is *capture broadly, promote narrowly* falling out of the
+  schema rather than being imposed on it, and it is product-visible.
+- **`partial`, never `complete`.** Only `complete` licenses expiring an item
+  that went missing, and every Apple Music read is capped — so claiming a
+  complete snapshot would be inferring absence from omission, which §10 forbids
+  outright. Seen working: a `complete` scope with a wrong count is refused by
+  name, and the whole transaction rolls back, so a failed run changes no current
+  state.
+- **A duplicate still needs a run item.** The insert is `on conflict do
+  nothing`, so a duplicate returns no id — but the item was *seen* this run, and
+  a head that missed it would read as the item having gone away. Ids are
+  resolved by lookup, not only from `returning`.
+
+**And `0055` could throw away a whole batch, which the first probe after it did.**
+A run of entirely unpromotable rows has no scope, the finalizer refuses that,
+and because finalization shares the insert's transaction **the rollback took the
+captured rows with it** — production went from seven runs to seven and stored
+nothing. Not a probe defect: every `user` distillation has that shape, since
+all its data types are `notAnAction`. `0056` finalizes only when the run has a
+scope and otherwise leaves it `running` and inert. **Capture must not depend on
+promotion**, which is the governing rule read the right way round.
 
 **Dual-write is wired and inert for every other source.** `DistillViewModel.sync` calls
 `dualWriteToVault`, which derives envelopes and submits them on **its own**

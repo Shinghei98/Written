@@ -167,6 +167,14 @@ apply_twice 0053_ingest_with_wrapped_key.sql
 # 0054 reorders the key write behind the row write so a pure-duplicate batch
 # records nothing. Same signature, so a plain replace — no drop needed.
 apply_twice 0054_key_only_when_something_stored.sql
+# 0055 adds the scope manifest, run items and finalization. It changes the
+# parameter list, so it drops before creating; and it reaches
+# finalize_ingestion_run_v031 from *inside* rather than by granting it, which is
+# why the one-callable-function assertion still has to hold.
+apply_twice 0055_ingestion_scopes_items_finalize.sql
+# 0056 makes finalization conditional on the run having a scope, so a run of
+# entirely unpromotable rows keeps what it captured instead of rolling it back.
+apply_twice 0056_finalize_only_with_a_scope.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

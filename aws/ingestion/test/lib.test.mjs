@@ -11,7 +11,7 @@ import { createDecipheriv } from "node:crypto";
 
 import {
   canonicalize, consentPurposeFor, encryptPayload, InvalidEnvelope, keyVersionFor,
-  normalizeSource, recordFingerprint, sourceItemHmac, toRecordRow,
+  normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -183,4 +183,43 @@ test("re-distilling an unchanged item is a duplicate, not a new row", () => {
     { ...base, observed_at: "2026-08-02T22:31:04Z", ingestion_id: "run-2",
       typed_payload: { title: "A", playCount: 9 } }, 0, ctx);
   assert.notEqual(monday.record_fingerprint, changed.record_fingerprint);
+});
+
+test("a scope is (source, data_type, action), and no action means no scope", () => {
+  // `ingestion_run_scopes.action_type` is not null, so a record carrying no
+  // action belongs to no scope, gets no run item, and is never promoted. Still
+  // captured, still encrypted — simply not evidence. Capture broadly, promote
+  // narrowly, falling out of the schema rather than imposed on it.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const song = toRecordRow({ record_source_code: "apple_music", data_type: "library_song",
+    action_type: "library_song", provider_item_id: "i.1", typed_payload: {} }, 0, ctx);
+  assert.equal(song.scope_key, "apple_music:library_song:library_song");
+
+  const bio = toRecordRow({ record_source_code: "user", data_type: "bio",
+    provider_item_id: "bio", typed_payload: {} }, 0, ctx);
+  assert.equal(bio.scope_key, null);
+  assert.equal(bio.action_type, null);
+
+  // An action the server does not weigh yet is still an action.
+  const top = toRecordRow({ record_source_code: "spotify", data_type: "top_track",
+    unweighted_action_type: "top_track", provider_item_id: "t.1", typed_payload: {} }, 0, ctx);
+  assert.equal(top.scope_key, "spotify:top_track:top_track");
+});
+
+test("the manifest is the batch's distinct scopes, always partial", () => {
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const rows = [
+    { record_source_code: "apple_music", data_type: "library_song", action_type: "library_song", provider_item_id: "a", typed_payload: {} },
+    { record_source_code: "apple_music", data_type: "library_song", action_type: "library_song", provider_item_id: "b", typed_payload: {} },
+    { record_source_code: "apple_music", data_type: "rating", action_type: "rating", provider_item_id: "c", typed_payload: {} },
+    { record_source_code: "user", data_type: "bio", provider_item_id: "d", typed_payload: {} },
+  ].map((e, i) => toRecordRow(e, i, ctx));
+
+  const scopes = scopeManifest(rows);
+  assert.equal(scopes.length, 2, "two scopes; the unscoped bio contributes none");
+  // **Never `complete`.** Only complete licenses expiring a missing item, and
+  // every Apple Music read is capped — so complete would be inferring absence
+  // from omission, which §10 forbids outright.
+  assert.ok(scopes.every((s) => s.completeness === "partial"));
+  assert.ok(scopes.every((s) => /^[a-z0-9][a-z0-9_.:-]{0,127}$/.test(s.scope_key)));
 });

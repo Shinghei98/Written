@@ -81,10 +81,18 @@ actor SemanticIngestionService {
         // rather than truncating it, which is the right way round — a request
         // that silently dropped its tail would show up as missing rows with
         // nothing anywhere saying so.
-        for (index, slice) in envelopes.chunked(into: AppConfig.semanticIngestionBatchSize).enumerated() {
-            guard let body = encode(slice, connector: connector, ingestionID: ingestionID, using: encoder) else {
-                continue
-            }
+        // **The last batch carries `final`, and only the client can say which
+        // one that is.** The server finalizes on it: scopes get counted, heads
+        // advance, `current_source_items` updates and a worker job is enqueued.
+        // A run that never sends it is inert rather than broken — its rows sit
+        // in the vault and nothing downstream can see them, which is what every
+        // run did before `0055`.
+        let batches = envelopes.chunked(into: AppConfig.semanticIngestionBatchSize)
+        for (index, slice) in batches.enumerated() {
+            guard let body = encode(
+                slice, connector: connector, ingestionID: ingestionID,
+                isFinal: index == batches.count - 1, using: encoder
+            ) else { continue }
             PendingEnvelopeStore.stage(body, ingestionID: ingestionID, sequence: index)
         }
 
@@ -95,6 +103,7 @@ actor SemanticIngestionService {
         _ envelopes: [SourceEnvelope],
         connector: SemanticSource,
         ingestionID: UUID,
+        isFinal: Bool,
         using encoder: JSONEncoder
     ) -> Data? {
         guard let records = try? encoder.encode(envelopes) else { return nil }
@@ -110,7 +119,8 @@ actor SemanticIngestionService {
             connectorSourceCode: connector.rawValue,
             connectorVersion: Self.connectorVersion,
             inputHash: inputHash,
-            records: envelopes
+            records: envelopes,
+            isFinal: isFinal
         )
         return try? encoder.encode(payload)
     }
@@ -121,6 +131,7 @@ actor SemanticIngestionService {
         let connectorVersion: String
         let inputHash: String
         let records: [SourceEnvelope]
+        let isFinal: Bool
 
         private enum CodingKeys: String, CodingKey {
             case ingestionID = "ingestion_id"
@@ -128,6 +139,7 @@ actor SemanticIngestionService {
             case connectorVersion = "connector_version"
             case inputHash = "input_hash"
             case records
+            case isFinal = "final"
         }
     }
 
@@ -313,7 +325,10 @@ extension SemanticIngestionService {
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let body = encode([envelope], connector: .user, ingestionID: ingestionID, using: encoder) else {
+        guard let body = encode(
+            [envelope], connector: .user, ingestionID: ingestionID,
+            isFinal: true, using: encoder
+        ) else {
             return "could not encode the envelope"
         }
         guard let token = await SupabaseAuth.shared.validAccessToken() else {

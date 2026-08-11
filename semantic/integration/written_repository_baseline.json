@@ -114,12 +114,22 @@
     },
     {
       "sequence": 55,
-      "suggested_name": "0055_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0055_ingestion_scopes_items_finalize.sql",
+      "role": "ingestion_run_lifecycle"
     },
     {
       "sequence": 56,
-      "suggested_name": "0056_semantic_cutover.sql",
+      "suggested_name": "0056_finalize_only_with_a_scope.sql",
+      "role": "ingestion_finalize_guard"
+    },
+    {
+      "sequence": 57,
+      "suggested_name": "0057_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 58,
+      "suggested_name": "0058_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -172,8 +182,10 @@
     51,
     52,
     53,
-    54
+    54,
+    55,
+    56
   ],
-  "application_migrations_authored_next": 55,
-  "application_migrations_reserved_note": "50-54 are the KMS key registry, its vocabulary alignment, the ingestion identity, the wrapped-key binding, and the ordering that stops a pure-duplicate batch recording a key. 55 (server projections) is due in phase server_owned_discovery_and_profiles and 56 (cutover) in legacy_semantic_retirement. The pair has shifted six times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 56 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_authored_next": 57,
+  "application_migrations_reserved_note": "50-56 carry the encrypted-vault ingestion path: key registry, vocabulary alignment, ingestion identity, wrapped-key binding, key-write ordering, the run lifecycle (scopes, run items, finalization) and the guard that keeps an all-unpromotable run's capture. 57 (server projections) is due in phase server_owned_discovery_and_profiles and 58 (cutover) in legacy_semantic_retirement. The pair has shifted eight times; the contract forbids reusing a number, not skipping one, so read a number in WRITTEN_REPOSITORY_INTEGRATION.md as the `role` below rather than as a filename. 58 is irreversible and must not exist on disk before a minimum supported client version does."
 }

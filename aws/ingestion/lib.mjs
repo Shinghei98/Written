@@ -50,6 +50,52 @@ export function consentPurposeFor(sourceCode) {
 
 export const RETENTION_POLICY_VERSION = "written-retention-v1";
 
+// Which head an observation belongs under.
+//
+// **A scope is `(source, data_type, action)` because
+// `ingestion_run_scopes.action_type` is `not null`** — so a record carrying no
+// action belongs to no scope, gets no run item, and is never promoted to
+// current state. It is still captured and still encrypted; it simply is not
+// evidence. `user/bio`, a calendar container, the Apple Music subscription
+// flag. That is the contract's *capture broadly, promote narrowly* falling out
+// of the schema rather than being imposed on it.
+//
+// Derived here rather than sent by the client, so the manifest and the records
+// cannot disagree about which scope a row is in — the one place they could
+// drift apart, and a drifted `scope_key` would be a foreign key violation at
+// best and a miscounted `complete` scope at worst.
+export function scopeKeyFor(sourceCode, dataType, action) {
+  return action ? `${sourceCode}:${dataType}:${action}` : null;
+}
+
+// The scope manifest for one batch.
+//
+// **Each batch declares only its own scopes, and the run's manifest is their
+// union** — `on conflict do nothing` merges them, and the manifest is immutable
+// so re-declaring is harmless. That is what lets a batch retried alone still
+// name the scopes it needs.
+//
+// `partial` throughout, never `complete`. Only `complete` licenses expiring an
+// item that went missing, and every Apple Music read is capped
+// (`maxLibrarySongs`, `maxSongsRated`, `maxPagesPerEndpoint`) — so claiming a
+// complete snapshot would be inferring absence from omission, which is the one
+// thing §10 forbids outright.
+export function scopeManifest(rows) {
+  const scopes = new Map();
+  for (const row of rows) {
+    if (!row.scope_key || scopes.has(row.scope_key)) continue;
+    scopes.set(row.scope_key, {
+      scope_key: row.scope_key,
+      source_code: row.record_source_code,
+      data_type: row.data_type,
+      action_type: row.action_type,
+      snapshot_mode: "full_snapshot",
+      completeness: "partial",
+    });
+  }
+  return [...scopes.values()];
+}
+
 // A JSON form that does not depend on key order.
 //
 // **This is load-bearing rather than tidy.** `record_fingerprint` is computed
@@ -162,9 +208,15 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
   // worth keeping, it is just not part of what the thing is.
   const { observed_at, ingestion_id, ...content } = sealed;
 
+  // The action decides the scope, and `unweighted_action_type` counts: the
+  // server having no weight for `top_track` yet does not stop it being an act.
+  const action = envelope.action_type ?? envelope.unweighted_action_type ?? null;
+
   return {
     record_source_code: sourceCode,
     data_type: dataType,
+    action_type: action,
+    scope_key: scopeKeyFor(sourceCode, dataType, action),
     occurred_at: occurredAt,
     source_item_hmac: sourceItemHmac(hmacKey, { userId, sourceCode, providerItemId }),
     record_fingerprint: recordFingerprint(hmacKey, {
