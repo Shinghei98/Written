@@ -139,6 +139,21 @@ of identical content finalizes again with `state_changed: false` and
 refused by name**, rolling the whole transaction back — which is §10's "failed
 runs change no current source state", seen rather than assumed.
 
+## A partial distillation, and the guard that made it survivable
+
+Two consecutive Apple Music runs on 2026-08-11: **17:01 carried four data types,
+17:08 carried all nine.** Nothing was lost in transit — the endpoint logged zero
+refusals and the Lambda invocation counts match the batch counts exactly (1 and
+3). The distiller returned less, which it can: its endpoints run concurrently
+with one `async let` each, so a failure in the library passes leaves the catalog
+ones intact and the run still reports success.
+
+**Every scope is declared `partial`, and that is the whole reason this was
+survivable.** Declaring `complete` would have let finalization expire five
+entire data types — 714 items — from current state because some fetches failed.
+`current_source_items` still holds all nine types and 1,427 items, and zero
+scopes have ever been declared `complete`.
+
 ## The first semantic evidence, and what it cost
 
 `0059` on a real Apple Music re-distillation, 2026-08-11. **`observations` went

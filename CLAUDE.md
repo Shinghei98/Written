@@ -1870,7 +1870,26 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
-**`observations` is non-zero: 1,212, from a real Apple Music distillation.**
+**An Apple Music distillation is sometimes partial, and reports success either
+way.** Two consecutive runs, measured: 17:01 returned **four** data types —
+`recently_played`, `recommendation`, `library_album`, `library_artist` — and
+17:08 returned all **nine**. Nothing was dropped in transit; the endpoint logged
+zero refusals and the batch counts match exactly. The distiller simply returned
+less. `AppleMusicDistiller.distill` runs its endpoints concurrently with one
+`async let` each, so a failure in the library passes leaves the catalog ones
+intact and the distillation still reports success — a partial result that looks
+exactly like a complete one.
+
+**This is what `completeness = 'partial'` was for, and it earned its keep on the
+first occasion it could have.** Had those scopes been declared `complete`,
+finalizing the 17:01 run would have expired **five entire data types** from
+current state — 714 items, silently, because some fetches failed. Instead
+`current_source_items` still holds all nine types and 1,427 items. §10's
+"partial runs cannot infer absence from omission" is not a formality; it is the
+difference between a bad afternoon for one connector and somebody's library
+disappearing.
+
+**`observations` is non-zero: 2,417, from real Apple Music distillations.**
 The first semantic evidence this system has produced, across all nine music data
 types, with `user/apple_music_subscription` absent because it carries no action.
 
