@@ -3,9 +3,9 @@
 
     SUPABASE_SECRET_KEY=... python3.14 tools/export_terms_to_label.py
 
-**Needs Python 3.11 or newer.** `python3` on macOS is Xcode's 3.9, which has no
-`enum.StrEnum` and so cannot import `written_ontology`. Nothing else here needs
-a modern interpreter.
+Runs on any Python 3.9+. Under Xcode's `python3` it skips the genre prefill and
+says so — `written_ontology` needs `enum.StrEnum`, which arrived in 3.11 — and
+re-running under a newer interpreter fills those blanks in.
 
 **Why by hand.** Resolution maps genres and nothing else — 36 concepts — while
 741 performers, 174 composers, 288 albums and 1,559 titles are extracted, match
@@ -167,19 +167,22 @@ def seeded_genres() -> dict[str, str]:
         from seed_music_concepts import GENRES  # noqa: E402
         from written_ontology.normalize import normalize_text  # noqa: E402
     except ImportError as error:
-        # **`python3` on macOS is Xcode's 3.9, which has no `enum.StrEnum`.**
-        # Everything in this file works there; `written_ontology` does not, and
-        # it is reached only for the genre prefill. Naming the interpreter is
-        # the whole fix, and saying so beats a traceback pointing at
-        # `enum.py` — which reads as a broken package rather than a shell
-        # picking a fifteen-year-old Python off the PATH.
-        sys.exit(
-            f"{error}\n\n"
-            "This needs Python 3.11 or newer — `python3` is probably Xcode's "
-            "3.9. Try:\n\n"
-            "    python3.14 tools/export_terms_to_label.py\n"
-            "    /opt/homebrew/bin/python3 tools/export_terms_to_label.py\n"
+        # **A warning, not an exit.** `python3` on macOS is Xcode's 3.9, which
+        # has no `enum.StrEnum` and so cannot import `written_ontology` at all.
+        # Everything else in this file works there, and the package is reached
+        # only to prefill genres that are already correct — so refusing to run
+        # would withhold 2,865 rows of labelling work over a convenience for
+        # about sixty of them.
+        #
+        # It is self-healing: re-running under a newer interpreter fills the
+        # blanks in, because an empty `concept` is not treated as a label.
+        print(
+            f"warning: no genre prefill ({error}).\n"
+            "         Genres will be blank. For the prefill, re-run with "
+            "python3.14 or /opt/homebrew/bin/python3.",
+            file=sys.stderr,
         )
+        return {}
 
     resolved: dict[str, str] = {}
     for concept_key, label, aliases, _broader in GENRES:
@@ -196,10 +199,18 @@ def main() -> None:
     seeded = seeded_genres()
     key = env_key()
 
+    if seeded:
+        from written_ontology.normalize import normalize_text
+    else:
+        # Without the package, compare the strings as they are. Both sides get
+        # the same treatment, so the prefill stays consistent; it is simply
+        # empty here, since `seeded` is.
+        def normalize_text(value):
+            return value.casefold().strip()
+
     records = fetch_records(key)
     counted = terms(records)
     previous = existing_labels(OUTPUT)
-    from written_ontology.normalize import normalize_text  # noqa: E402
 
     rows = []
     for role, term in counted:
