@@ -139,6 +139,36 @@ of identical content finalizes again with `state_changed: false` and
 refused by name**, rolling the whole transaction back — which is §10's "failed
 runs change no current source state", seen rather than assumed.
 
+## Calendar in the vault, describing nothing
+
+A real Apple Calendar distillation, 2026-08-11, and every number is the designed
+shape rather than an approximation of it:
+
+| | |
+|---|---|
+| Vault rows | 109 — 101 `event`, 8 `calendar` |
+| Legacy events, same run | **101** — exact match |
+| `consent_purpose` | `calendar_distillation`, derived server-side |
+| **Observations** | **0** |
+| Promoted to current state | 101 events; **0 of the 8 calendars** |
+| Scopes | `event:booked` and `event:entered_by_user`, both `partial` |
+
+**Three things that only line up if the design is right.** The event count
+matches the legacy path exactly. The eight `calendar` rows are captured and
+promoted to nothing, because a calendar is a container and structurally not an
+act. And one `data_type` produced *two* scopes — `booked` and
+`entered_by_user` — which is the per-row action refinement working: a booking a
+ticketing site wrote in is a different act from an entry somebody typed, and
+that distinction is the reason the Calendar source exists.
+
+**Zero observations is the point, not a shortfall.** §7 permits only the current
+Calendar classifier over Calendar rows, and it does not exist yet, so the
+endpoint sends no projection at all. Titles, locations and organisers sit
+encrypted in the vault — 519 bytes for the sample — and contribute nothing to
+any surface. That is §10's Calendar gate: *"unknown, work, social/third-party,
+sensitive, generated and cancelled Calendar records can be retained but
+contribute zero evidence."*
+
 ## A partial distillation, and the guard that made it survivable
 
 Two consecutive Apple Music runs on 2026-08-11: **17:01 carried four data types,

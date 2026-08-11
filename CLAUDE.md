@@ -1929,6 +1929,27 @@ record is a new row, and the encoding changed even though the content did not.
 Paid once, at 1,225 rows, which is the cheapest it was ever going to be. The v1
 rows carry no observations and are history.
 
+**Calendar dual-writes now, and describes nothing.** 109 rows — 101 events, 8
+calendars — under `calendar_distillation`, with the event count matching the
+legacy path **exactly**. Zero observations, deliberately: §7 permits only the
+current Calendar classifier over Calendar rows and it does not exist, so the
+endpoint sends no projection and titles sit encrypted and inert. The eight
+`calendar` rows promote to nothing at all, being containers rather than acts,
+and `event` produced *two* scopes — `booked` and `entered_by_user` — which is
+the per-row refinement working, and the reason the Calendar source exists.
+
+**HealthKit is not enabled and must not be until somebody consents.**
+`guard_raw_healthkit_grant` refuses an active HealthKit row unless
+`healthkit_use_grants` holds an active grant, and there are none. Enabling it
+today would have every batch refused and — because
+`SemanticIngestionService` drops a permanent refusal — the data would vanish
+quietly. A grant is a recorded consent decision with its own `consent_version`
+and four booleans gating matching, bio naming, icebreaker naming and controlled
+explanation; writing one unasked would be fabricating consent, which is exactly
+what that fail-closed guard prevents. §4's `FitnessPurposeGrantService` is the
+work that unblocks it, and it is a product decision before it is a technical
+one.
+
 **Evidence is written by ingestion, not by the worker, and the schema is what
 decided that.** `guard_observation_ingestion_run` refuses any observation whose
 run is not still `running`, while `finalize_ingestion_run_v031` enqueues
