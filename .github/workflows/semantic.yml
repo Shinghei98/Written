@@ -19,12 +19,18 @@ on:
   push:
     paths:
       - 'semantic/**'
-      - 'supabase/migrations/0044_semantic_seed.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - 'tools/replay_contracts.sh'
+      - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   pull_request:
     paths:
       - 'semantic/**'
-      - 'supabase/migrations/0044_semantic_seed.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
+      - 'tools/replay_contracts.sh'
+      - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   workflow_dispatch:
 
@@ -54,3 +60,24 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: src
         run: python -m written_ontology.cli demo
+
+  # The SQL half. Separate job because it needs Docker and takes minutes, while
+  # the Python suite is offline and takes seconds — one failing should not
+  # obscure the other, and the Python result should not wait on a container.
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pulled explicitly so a registry hiccup reads as a pull failure rather
+      # than as Postgres never becoming ready.
+      - name: Pull the Supabase Postgres image
+        run: docker pull public.ecr.aws/supabase/postgres:17.6.1.156
+
+      # Replays 0001 -> 0049 from empty three times and runs all eight adapted
+      # contracts at the migration each one gates, plus the two fixture upgrade
+      # lanes and the private-schema grant check. Identical to what runs
+      # locally: the logic is in the script, not in this file.
+      - name: Replay the chain and run the contracts
+        run: ./tools/replay_contracts.sh

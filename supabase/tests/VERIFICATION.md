@@ -3,6 +3,19 @@
 Written 2026-08-10. **Documentation is not a passing test result** — this file
 records executions, and anything not listed here has not happened.
 
+> **This is now reproducible rather than a story about one afternoon.**
+> Everything below was originally run by hand in a throwaway container, which
+> meant the proof evaporated with the container. It lives in
+> `tools/replay_contracts.sh` now, runs in CI on any push touching
+> `supabase/migrations/**` or `supabase/tests/**`, and runs the same way
+> locally:
+>
+> ```bash
+> ./tools/replay_contracts.sh        # needs Docker, a few minutes
+> ```
+>
+> Latest run: **11 passed, 0 failed.**
+
 ## Environment
 
 Supabase Postgres **17.6** (`public.ecr.aws/supabase/postgres:17.6.1.156`) in a
