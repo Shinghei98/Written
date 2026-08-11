@@ -1870,6 +1870,18 @@ Three things the schema decided rather than us:
   a head that missed it would read as the item having gone away. Ids are
   resolved by lookup, not only from `returning`.
 
+**`observations` is non-zero: 1,212, from a real Apple Music distillation.**
+The first semantic evidence this system has produced, across all nine music data
+types, with `user/apple_music_subscription` absent because it carries no action.
+
+**It doubled the vault, and that was the price of the v2 wire form.**
+`record_fingerprint` is computed over the payload, so changing the payload's
+encoding changed every fingerprint and the whole library re-stored as new rows —
+1,227 became 2,441. The append-only model doing exactly what it says: a changed
+record is a new row, and the encoding changed even though the content did not.
+Paid once, at 1,225 rows, which is the cheapest it was ever going to be. The v1
+rows carry no observations and are history.
+
 **Evidence is written by ingestion, not by the worker, and the schema is what
 decided that.** `guard_observation_ingestion_run` refuses any observation whose
 run is not still `running`, while `finalize_ingestion_run_v031` enqueues

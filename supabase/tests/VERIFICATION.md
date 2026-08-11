@@ -139,6 +139,34 @@ of identical content finalizes again with `state_changed: false` and
 refused by name**, rolling the whole transaction back — which is §10's "failed
 runs change no current source state", seen rather than assumed.
 
+## The first semantic evidence, and what it cost
+
+`0059` on a real Apple Music re-distillation, 2026-08-11. **`observations` went
+from 0 to 1,212** — the first evidence this system has produced. All nine music
+data types, `user/apple_music_subscription` correctly absent (no action, so no
+scope, so not evidence), and every one of the 1,212 stamped onto its run item's
+`observation_id`.
+
+**The vault doubled at the same time, and that was predictable rather than
+alarming.** 1,227 rows became 2,441. `record_fingerprint` is computed over the
+payload, and `0059`'s deploy followed the **v2 payload wire form** — so every
+item's fingerprint changed even though its content did not, and the whole
+library re-stored as new rows. The append-only model behaving exactly as
+designed: a changed record is a new row, and the *encoding* changed.
+
+That is the one-time price of fixing `_0`, paid once and cheaply at 1,225 rows.
+The 1,229 v1 rows carry no observations — they were captured before projection
+existed and their fingerprints do not match the v2 ones. They are history, which
+is what the model calls them.
+
+**And `source_item_hmac` does not include `data_type`**, deliberately: it
+identifies the *item*, so one song appearing as `library_song` and again as
+`recently_played` shares a hash — 1,013 distinct items across 1,224 rows. Not a
+collision. `current_source_items` keys on
+`(user, source, scope_key, data_type, action_type, source_item_hmac)`, so the
+same song under two actions is two pieces of current state, which is correct: it
+was in the library *and* it was played.
+
 ## The iOS envelope vocabulary
 
 `Written/Models/SemanticSource.swift` maps every `data_type` the app emits to an
