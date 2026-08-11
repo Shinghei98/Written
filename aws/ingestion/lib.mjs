@@ -80,8 +80,28 @@ export function scopeKeyFor(sourceCode, dataType, action) {
 // (`maxLibrarySongs`, `maxSongsRated`, `maxPagesPerEndpoint`) — so claiming a
 // complete snapshot would be inferring absence from omission, which is the one
 // thing §10 forbids outright.
-export function scopeManifest(rows) {
+export function scopeManifest(rows, truncated = []) {
   const scopes = new Map();
+
+  // **Declared first, and with no rows behind them.** A data type whose
+  // endpoint failed produces nothing, so without this it leaves no trace at all
+  // and the run merely looks smaller. `truncated` says "asked and got nothing",
+  // which is a different fact from "never looked" — and it is the only one a
+  // query can find afterwards. Neither `truncated` nor `partial` licenses
+  // expiry, so this changes what a run records and never what it deletes.
+  for (const scope of truncated) {
+    const key = scopeKeyFor(scope.source_code, scope.data_type, scope.action_type);
+    if (!key || scopes.has(key)) continue;
+    scopes.set(key, {
+      scope_key: key,
+      source_code: scope.source_code,
+      data_type: scope.data_type,
+      action_type: scope.action_type,
+      snapshot_mode: "full_snapshot",
+      completeness: "truncated",
+    });
+  }
+
   for (const row of rows) {
     if (!row.scope_key || scopes.has(row.scope_key)) continue;
     scopes.set(row.scope_key, {

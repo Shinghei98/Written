@@ -248,7 +248,9 @@ async function ingest(rows, context) {
         context.userId, context.ingestionId, context.connectorSource,
         context.connectorVersion, context.inputHash,
         context.keyVersion, context.wrappedDekB64, VAULT_KEY_ARN,
-        JSON.stringify(scopeManifest(rows)),
+        JSON.stringify(scopeManifest(rows, (body.truncated ?? []).map((s) => ({
+          ...s, source_code: connectorSource,
+        })))),
         JSON.stringify(rows),
         context.final,
       ]

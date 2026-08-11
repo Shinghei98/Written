@@ -565,6 +565,59 @@ final class DistillViewModel: ObservableObject {
         return nil
     }
 
+    /// What a modality got, minus what it should have got.
+    ///
+    /// **`failureMessage` cannot carry this, because nothing failed.** A source
+    /// can finish, report a count, grow the plant and still have lost half of
+    /// itself: Apple Music asks nine endpoints best-effort, so three refusals
+    /// cost five data types and the run reports success. Measured on a device —
+    /// one distillation carried four data types, the next carried nine, and
+    /// nothing anywhere marked the difference.
+    ///
+    /// Names what is missing rather than counting it. "Three endpoints failed"
+    /// is not something anybody can act on; "your library songs and playlists
+    /// didn't load" is, and the action is the same button that is already there.
+    func shortfallMessage(for modality: Modality) -> String? {
+        for source in modality.sources {
+            guard case .partial(_, let missing) = status(for: source), !missing.isEmpty else {
+                continue
+            }
+            // `library_playlist` and `playlist_item` both read as "your
+            // playlists", and a sentence that says it twice reads as a bug.
+            var names: [String] = []
+            for name in missing.compactMap(Self.readableDataType) where !names.contains(name) {
+                names.append(name)
+            }
+            guard !names.isEmpty else { continue }
+            return "Some of \(modality.label.lowercased()) didn't load — "
+                + names.joined(separator: ", ")
+                + ". Everything else was saved; try again to fill in the rest."
+        }
+        return nil
+    }
+
+    /// The source's own vocabulary, in words somebody would use.
+    ///
+    /// Deliberately not exhaustive: a `data_type` with no entry is left out of
+    /// the sentence rather than printed raw, because "recently_added didn't
+    /// load" reads as a bug report about the app rather than a fact about
+    /// somebody's music.
+    private static func readableDataType(_ dataType: String) -> String? {
+        switch dataType {
+        case "library_song": return "your songs"
+        case "library_album": return "your albums"
+        case "library_artist": return "your artists"
+        case "library_playlist", "playlist_item": return "your playlists"
+        case "library_music_video": return "your music videos"
+        case "recently_added": return "recently added"
+        case "recently_played": return "recently played"
+        case "heavy_rotation": return "heavy rotation"
+        case "recommendation": return "recommendations"
+        case "rating": return "your likes"
+        default: return nil
+        }
+    }
+
     /// Why this source cannot work *before* it is tried, where that is knowable.
     ///
     /// Only Calendar today, and only because EventKit will report its
@@ -694,11 +747,13 @@ final class DistillViewModel: ObservableObject {
             // to fix.
             var collected = 0
             var failure: String?
+            var missing: [String] = []
 
             do {
-                let newRecords = try await AppleMusicDistiller().distill()
-                replaceRecords(from: "apple_music", with: newRecords)
-                collected += newRecords.count
+                let report = try await AppleMusicDistiller().distill()
+                missing = report.missingDataTypes
+                replaceRecords(from: "apple_music", with: report.records, missing: missing)
+                collected += report.records.count
             } catch {
                 failure = Self.detail(of: error)
             }
@@ -720,7 +775,9 @@ final class DistillViewModel: ObservableObject {
             // Apple monthly. So a subscription is never checked *before*
             // distilling — only afterwards, and only to explain an empty result.
             if collected > 0 {
-                appleMusicStatus = .done(count: collected)
+                appleMusicStatus = missing.isEmpty
+                    ? .done(count: collected)
+                    : .partial(count: collected, missing: missing)
             } else {
                 let reason = await Self.emptyMusicReason()
                 appleMusicStatus = .failed(message: failure ?? reason)
@@ -988,7 +1045,11 @@ final class DistillViewModel: ObservableObject {
         }
     }
 
-    private func replaceRecords(from source: String, with newRecords: [DistilledRecord]) {
+    private func replaceRecords(
+        from source: String,
+        with newRecords: [DistilledRecord],
+        missing: [String] = []
+    ) {
         // **Reaching here is what "connected" means**, and it is deliberately
         // not "left some rows behind". A YouTube account with no likes and no
         // subscriptions distils perfectly and returns nothing; so does a
@@ -1033,7 +1094,7 @@ final class DistillViewModel: ObservableObject {
         // The single point every source's records pass through, so one call here
         // keeps the device copy and the server copy honest about all of them.
         RecordStore.save(records)
-        sync(source: source, records: applied)
+        sync(source: source, records: applied, missing: missing)
     }
 
     /// Pushes the derived health figures on their own.
@@ -1097,7 +1158,7 @@ final class DistillViewModel: ObservableObject {
     /// `semantic_private.healthkit_use_grants` already exists to hold one —
     /// nothing in Swift writes it yet. This path is the legacy one, and it is
     /// what the typed envelopes replace.
-    private func sync(source: String, records: [DistilledRecord]) {
+    private func sync(source: String, records: [DistilledRecord], missing: [String] = []) {
         let chronotype = self.chronotype
         let sports = self.sports
         let hourly = self.hourlyActivity
@@ -1168,7 +1229,7 @@ final class DistillViewModel: ObservableObject {
             await MainActor.run { self?.syncFailure = outcome }
         }
 
-        dualWriteToVault(source: source, records: records)
+        dualWriteToVault(source: source, records: records, missing: missing)
         publishDiscoveryCard()
     }
 
@@ -1183,7 +1244,11 @@ final class DistillViewModel: ObservableObject {
     ///
     /// Does nothing at all while `AppConfig.semanticIngestionEnabled` is false,
     /// which is its shipping state.
-    private func dualWriteToVault(source: String, records: [DistilledRecord]) {
+    private func dualWriteToVault(
+        source: String,
+        records: [DistilledRecord],
+        missing: [String]
+    ) {
         // Per source, not per build. See `AppConfig.semanticIngestionSources`:
         // shadow running compares one source's two paths against each other,
         // and a disagreement found across nine at once is a shrug rather than
@@ -1233,8 +1298,22 @@ final class DistillViewModel: ObservableObject {
                 }
             }
 
+            // **A lost data type has no rows, so it would otherwise leave no
+            // trace at all** — the run would simply look smaller. Declaring the
+            // scope with `truncated` and nothing in it says "asked and got
+            // nothing", which is a different fact from "never looked" and the
+            // only one a query can find later. Both `truncated` and `partial`
+            // refuse expiry, so this changes what the run *records*, never what
+            // it deletes.
+            let truncated: [SemanticIngestionService.TruncatedScope] = missing.compactMap {
+                guard case .actions(let actions) = connector.mapping(for: $0),
+                      let action = actions.first else { return nil }
+                return .init(dataType: $0, actionType: action.rawValue)
+            }
+
             let summary = await SemanticIngestionService.shared.submit(
-                envelopes, connector: connector, ingestionID: ingestionID
+                envelopes, connector: connector, ingestionID: ingestionID,
+                truncated: truncated
             )
             Self.reportCoverage(
                 source: source, ingestionID: ingestionID, legacy: records.count,

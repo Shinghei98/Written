@@ -62,10 +62,34 @@ enum SourceStatus: Equatable {
     case idle
     case running
     case done(count: Int)
+
+    /// It worked, and it did not get everything.
+    ///
+    /// **`done` could not say this, and that is how half a library went
+    /// missing in silence.** Apple Music asks nine endpoints and treats every
+    /// one as best-effort — right, because a library read that fails must not
+    /// take recommendations down with it — so a run that lost five of its nine
+    /// data types finished, reported a count, grew the plant and told nobody.
+    /// Measured on a real device: one distillation carried four data types and
+    /// the next carried nine, with nothing anywhere marking the difference.
+    ///
+    /// `missing` names the data types rather than counting them, because "three
+    /// endpoints failed" is not something anybody can act on and "your library
+    /// songs and playlists did not load" is.
+    case partial(count: Int, missing: [String])
+
     case failed(message: String)
 
     var isRunning: Bool {
         if case .running = self { return true }
         return false
+    }
+
+    /// How many records arrived, whether or not everything did.
+    var count: Int? {
+        switch self {
+        case .done(let count), .partial(let count, _): return count
+        case .idle, .running, .failed: return nil
+        }
     }
 }

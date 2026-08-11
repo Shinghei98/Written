@@ -288,3 +288,26 @@ test("an unrecognised payload shape is hashed whole, never reduced", () => {
   const two = fingerprintContent({ typed_payload: { music: { _0: { t: 1 } }, extra: 2 } });
   assert.deepEqual(two.payload, { music: { _0: { t: 1 } }, extra: 2 });
 });
+
+test("a failed endpoint declares an empty truncated scope", () => {
+  // A data type whose endpoint failed produces no rows, so without this the run
+  // simply looks smaller and nothing records that anything was lost. "Asked and
+  // got nothing" is a different fact from "never looked".
+  const scopes = scopeManifest([], [
+    { source_code: "apple_music", data_type: "library_song", action_type: "library_song" },
+  ]);
+  assert.equal(scopes.length, 1);
+  assert.equal(scopes[0].completeness, "truncated");
+  assert.equal(scopes[0].scope_key, "apple_music:library_song:library_song");
+
+  // A type that both failed and returned rows keeps the truncated reading —
+  // partial data is still short data, and the stronger claim must not win.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const row = toRecordRow({ record_source_code: "apple_music", data_type: "library_song",
+    action_type: "library_song", provider_item_id: "i.1", typed_payload: {} }, 0, ctx);
+  const both = scopeManifest([row], [
+    { source_code: "apple_music", data_type: "library_song", action_type: "library_song" },
+  ]);
+  assert.equal(both.length, 1);
+  assert.equal(both[0].completeness, "truncated");
+});

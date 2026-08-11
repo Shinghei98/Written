@@ -11,6 +11,61 @@ import MusicKit
 /// through MusicKit, which manages the developer and user tokens itself.
 struct AppleMusicDistiller {
 
+    /// One endpoint that was asked and did not answer.
+    ///
+    /// **The point is that a failure and an empty library used to be the same
+    /// value.** Every call here is best-effort — a library read that fails must
+    /// not take recommendations down with it — and the way that was written,
+    /// `(try? await task) ?? []`, threw the error away at the moment it
+    /// happened. So a run that lost five of nine data types looked exactly like
+    /// somebody who owns no music, and said so to nobody.
+    struct Shortfall: Equatable, Sendable {
+        /// The path, shortened to what a person would recognise.
+        let endpoint: String
+        /// Domain and code, in the shape `HealthKitDistiller.Trail` uses: enough
+        /// to tell a timeout from a refusal on a card somebody photographs.
+        let reason: String
+        /// What was lost. More than one where a later pass depends on this call
+        /// — the ratings pass works from the library song ids, and playlist
+        /// items from the playlists, so those two failures cost two types each.
+        let dataTypes: [String]
+    }
+
+    /// What a distillation produced, and what it could not.
+    struct Report {
+        let records: [DistilledRecord]
+        let shortfalls: [Shortfall]
+
+        var isPartial: Bool { !shortfalls.isEmpty }
+        /// Every data type that went missing, for the card and the vault.
+        var missingDataTypes: [String] { shortfalls.flatMap(\.dataTypes).sorted() }
+    }
+
+    /// Collects failures across the concurrent phase. A reference type because
+    /// the awaits below write to it from several places; the same reason
+    /// `HealthKitDistiller.Trail` is one.
+    private final class Shortfalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var found: [Shortfall] = []
+
+        func add(_ endpoint: String, _ error: Error, losing dataTypes: [String]) {
+            let reason: String
+            if let urlError = error as? URLError {
+                reason = "URLError \(urlError.code.rawValue)"
+            } else {
+                let nsError = error as NSError
+                reason = "\(nsError.domain) \(nsError.code)"
+            }
+            lock.lock(); defer { lock.unlock() }
+            found.append(Shortfall(endpoint: endpoint, reason: reason, dataTypes: dataTypes))
+        }
+
+        var all: [Shortfall] {
+            lock.lock(); defer { lock.unlock() }
+            return found.sorted { $0.endpoint < $1.endpoint }
+        }
+    }
+
     enum MusicError: LocalizedError {
         case notAuthorized
 
@@ -21,7 +76,7 @@ struct AppleMusicDistiller {
 
     private static let apiBase = "https://api.music.apple.com"
 
-    func distill() async throws -> [DistilledRecord] {
+    func distill() async throws -> Report {
         let status = await MusicAuthorization.request()
         guard status == .authorized else { throw MusicError.notAuthorized }
 
@@ -36,14 +91,14 @@ struct AppleMusicDistiller {
         // Phase one: everything that depends on nothing. `async let` starts all
         // nine immediately and the awaits below collect them.
         async let songsTask = fetchAllPages(path: "/v1/me/library/songs?limit=100")
-        async let albumsTask = try? fetchAllPages(path: "/v1/me/library/albums?limit=100")
-        async let artistsTask = try? fetchAllPages(path: "/v1/me/library/artists?limit=100")
-        async let videosTask = try? fetchAllPages(path: "/v1/me/library/music-videos?limit=100")
+        async let albumsTask = fetchAllPages(path: "/v1/me/library/albums?limit=100")
+        async let artistsTask = fetchAllPages(path: "/v1/me/library/artists?limit=100")
+        async let videosTask = fetchAllPages(path: "/v1/me/library/music-videos?limit=100")
         async let playlistsTask = fetchAllPages(path: "/v1/me/library/playlists?limit=100")
-        async let recentlyAddedTask = try? fetchAllPages(path: "/v1/me/library/recently-added?limit=25")
-        async let recentlyPlayedTask = try? fetchAllPages(path: "/v1/me/recent/played/tracks?limit=30")
-        async let heavyRotationTask = try? fetchAllPages(path: "/v1/me/history/heavy-rotation?limit=10")
-        async let recommendationsTask = try? fetchAllPages(path: "/v1/me/recommendations?limit=30")
+        async let recentlyAddedTask = fetchAllPages(path: "/v1/me/library/recently-added?limit=25")
+        async let recentlyPlayedTask = fetchAllPages(path: "/v1/me/recent/played/tracks?limit=30")
+        async let heavyRotationTask = fetchAllPages(path: "/v1/me/history/heavy-rotation?limit=10")
+        async let recommendationsTask = fetchAllPages(path: "/v1/me/recommendations?limit=30")
 
         // 1. Library songs (also the id list the ratings pass works from).
         //
@@ -58,28 +113,52 @@ struct AppleMusicDistiller {
         // exactly the case where the remaining calls are worth keeping, so no
         // single endpoint gets to end the run. `MusicError.notAuthorized` above
         // is still fatal, because that one is a real refusal.
-        let songs = (try? await songsTask) ?? []
+        // **Still best-effort, but the reason is kept now.** Nothing here can
+        // end the run — that decision stands and the comment above says why —
+        // and the difference is only that a failure is recorded instead of
+        // being flattened into an empty list.
+        let shortfalls = Shortfalls()
+
+        var songs: [[String: Any]] = []
+        do { songs = try await songsTask } catch {
+            // Two types, because the ratings pass works from these ids.
+            shortfalls.add("library/songs", error, losing: ["library_song", "rating"])
+        }
         let librarySongIDs = songs.compactMap { $0["id"] as? String }
         records += songs.map { makeRecord(dataType: "library_song", resource: $0) }
 
         // 2–4. Library albums, artists, music videos.
-        records += (await albumsTask ?? []).map { makeRecord(dataType: "library_album", resource: $0) }
-        records += (await artistsTask ?? []).map { makeRecord(dataType: "library_artist", resource: $0) }
-        records += (await videosTask ?? []).map { makeRecord(dataType: "library_music_video", resource: $0) }
+        do { records += try await albumsTask.map { makeRecord(dataType: "library_album", resource: $0) } }
+        catch { shortfalls.add("library/albums", error, losing: ["library_album"]) }
+        do { records += try await artistsTask.map { makeRecord(dataType: "library_artist", resource: $0) } }
+        catch { shortfalls.add("library/artists", error, losing: ["library_artist"]) }
+        do { records += try await videosTask.map { makeRecord(dataType: "library_music_video", resource: $0) } }
+        catch { shortfalls.add("library/music-videos", error, losing: ["library_music_video"]) }
 
         // 5. Playlists themselves; their tracks come in phase two.
-        let playlists = (try? await playlistsTask) ?? []
+        var playlists: [[String: Any]] = []
+        do { playlists = try await playlistsTask } catch {
+            // Two types again: the tracks are fetched from these playlists.
+            shortfalls.add("library/playlists", error, losing: ["library_playlist", "playlist_item"])
+        }
         records += playlists.map { makeRecord(dataType: "library_playlist", resource: $0) }
 
         // 6–8. Recently added (max 25 per page), recently played (max 30),
         // heavy rotation — the strongest current-taste signal.
-        records += (await recentlyAddedTask ?? []).map { makeRecord(dataType: "recently_added", resource: $0) }
-        records += (await recentlyPlayedTask ?? []).map { makeRecord(dataType: "recently_played", resource: $0) }
-        records += (await heavyRotationTask ?? []).map { makeRecord(dataType: "heavy_rotation", resource: $0) }
+        do { records += try await recentlyAddedTask.map { makeRecord(dataType: "recently_added", resource: $0) } }
+        catch { shortfalls.add("library/recently-added", error, losing: ["recently_added"]) }
+        do { records += try await recentlyPlayedTask.map { makeRecord(dataType: "recently_played", resource: $0) } }
+        catch { shortfalls.add("recent/played", error, losing: ["recently_played"]) }
+        do { records += try await heavyRotationTask.map { makeRecord(dataType: "heavy_rotation", resource: $0) } }
+        catch { shortfalls.add("history/heavy-rotation", error, losing: ["heavy_rotation"]) }
 
         // 9. Personalized recommendations. No extra requests: the items are
         // already inside `relationships.contents` on what came back.
-        for recommendation in await recommendationsTask ?? [] {
+        var recommendations: [[String: Any]] = []
+        do { recommendations = try await recommendationsTask } catch {
+            shortfalls.add("recommendations", error, losing: ["recommendation"])
+        }
+        for recommendation in recommendations {
             let reason = attribute("title", of: recommendation)
             let contents = ((recommendation["relationships"] as? [String: Any])?["contents"] as? [String: Any])?["data"] as? [[String: Any]] ?? []
             records += contents.map {
@@ -98,7 +177,7 @@ struct AppleMusicDistiller {
 
         records.append(await Self.subscriptionRecord())
 
-        return records
+        return Report(records: records, shortfalls: shortfalls.all)
     }
 
     /// Whether this person actually has an Apple Music subscription.

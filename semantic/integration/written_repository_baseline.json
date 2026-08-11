@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "0ce7b4b732cef4363d68bbdd4a1e9f5e5d6dc003f9812504132f8e5988d0749d",
-        "reason": "A cancelled OAuth sign-in returns the source to .idle rather than .failed, for Spotify, YouTube and Google Calendar alike. Dismissing the sheet is a decision, not a failure, and the second-order effect was worse: failureMessage(for:) returns the first failed source in a modality, so backing out of Spotify made the whole Music card report a failure while Apple Music had just distilled 1,225 rows. Also carries the per-source dual-write gate."
+        "sha256": "c0d594f3c54733513d8639248582ae15bea1b03ae2486676146a478b63d0caba",
+        "reason": "A partial Apple Music distillation now says so. AppleMusicDistiller returns a Report carrying which endpoints failed and what they cost; the status becomes .partial(count:missing:) rather than .done, shortfallMessage names the missing types in words, and dualWriteToVault declares a truncated scope for each so a lost data type leaves a trace in the vault instead of the run merely looking smaller. Measured cause: nine best-effort endpoints where `(try? await task) ?? []` made a failure indistinguishable from an empty library. Supersedes the per-source dual-write entry."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
@@ -33,6 +33,10 @@
       "Written/Services/SyncService.swift": {
         "sha256": "4cb67a9eb1467afc45c0efc39f0223eabd502814c3064103d2f8bceb7a34c2b3",
         "reason": "Header comment corrected, no behaviour change. It claimed `push(source:records:)` refuses health outright; localOnlySources is empty and it does no such thing. The real defect was worse and is already fixed: DistillViewModel.sync never called push for health at all, so distilled_records held zero rows with source='health' for every account that had ever connected it. This is the codebase's own recurring defect — a doc comment describing the opposite of the code — removed at the source rather than left to mislead the next reader."
+      },
+      "Written/Models/DistilledRecord.swift": {
+        "sha256": "2a1556f227c15c90ec8dc29c81a44e662495c0c4f8e3ea3dc50fa631f2299a08",
+        "reason": "SourceStatus gains `.partial(count:missing:)`. `.done` could not express \"worked, and did not get everything\", which is how a distillation that lost five of nine data types reported a count, grew the plant and told nobody. Measured on a device: consecutive runs carried four types and then nine. DistilledRecord itself is unchanged; the enum shares the file."
       }
     }
   },

@@ -66,11 +66,25 @@ actor SemanticIngestionService {
     /// **Written to disk before anything is sent**, so a force-quit mid-upload
     /// leaves the work to retry rather than losing it — `PendingPhotoStore`'s
     /// lesson, which cost a queue that died with the app.
+    /// A scope that was asked for and came back with nothing, because the
+    /// endpoint behind it failed. It has no records, so without this it would
+    /// leave no trace and the run would merely look smaller.
+    struct TruncatedScope: Encodable, Equatable, Sendable {
+        let dataType: String
+        let actionType: String
+
+        private enum CodingKeys: String, CodingKey {
+            case dataType = "data_type"
+            case actionType = "action_type"
+        }
+    }
+
     @discardableResult
     func submit(
         _ envelopes: [SourceEnvelope],
         connector: SemanticSource,
-        ingestionID: UUID
+        ingestionID: UUID,
+        truncated: [TruncatedScope] = []
     ) async -> Summary {
         guard AppConfig.semanticIngestionEnabled, !envelopes.isEmpty else { return Summary() }
 
@@ -91,7 +105,11 @@ actor SemanticIngestionService {
         for (index, slice) in batches.enumerated() {
             guard let body = encode(
                 slice, connector: connector, ingestionID: ingestionID,
-                isFinal: index == batches.count - 1, using: encoder
+                isFinal: index == batches.count - 1,
+                // Sent with every batch, like the rest of the manifest: the
+                // server merges scopes with `do nothing`, so repeating is free
+                // and a batch that lands alone still declares them.
+                truncated: truncated, using: encoder
             ) else { continue }
             PendingEnvelopeStore.stage(body, ingestionID: ingestionID, sequence: index)
         }
@@ -104,6 +122,7 @@ actor SemanticIngestionService {
         connector: SemanticSource,
         ingestionID: UUID,
         isFinal: Bool,
+        truncated: [TruncatedScope] = [],
         using encoder: JSONEncoder
     ) -> Data? {
         guard let records = try? encoder.encode(envelopes) else { return nil }
@@ -120,7 +139,8 @@ actor SemanticIngestionService {
             connectorVersion: Self.connectorVersion,
             inputHash: inputHash,
             records: envelopes,
-            isFinal: isFinal
+            isFinal: isFinal,
+            truncated: truncated
         )
         return try? encoder.encode(payload)
     }
@@ -132,6 +152,7 @@ actor SemanticIngestionService {
         let inputHash: String
         let records: [SourceEnvelope]
         let isFinal: Bool
+        let truncated: [TruncatedScope]
 
         private enum CodingKeys: String, CodingKey {
             case ingestionID = "ingestion_id"
@@ -140,6 +161,7 @@ actor SemanticIngestionService {
             case inputHash = "input_hash"
             case records
             case isFinal = "final"
+            case truncated
         }
     }
 

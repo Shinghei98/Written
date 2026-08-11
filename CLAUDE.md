@@ -1880,6 +1880,25 @@ less. `AppleMusicDistiller.distill` runs its endpoints concurrently with one
 intact and the distillation still reports success — a partial result that looks
 exactly like a complete one.
 
+**The cause is one line, and it was a deliberate fix that was never finished.**
+`distill` fires nine requests concurrently and every one is
+`(try? await task) ?? []` — so **a failed request is indistinguishable from a
+person who owns nothing**, and the error is discarded where it happens. Only
+`MusicAuthorization` can end the run. Best-effort is right: library reads used to
+be mandatory, so one refusal threw away recommendations and heavy rotation too.
+What was missing is that best-effort was never made *visible*.
+
+Three endpoints failing cost five data types, because two feed later work:
+`library/songs` also carries `rating` (which works from its id list), and
+`library/playlists` also carries `playlist_item`. It says so now —
+`AppleMusicDistiller.Report` keeps each failure, `SourceStatus.partial` carries
+it (`.done` could not say "worked, partly"), `shortfallMessage` names the
+missing types in words on the prompt card, and the vault records a **`truncated`
+scope with no items** for each, so a lost data type leaves a trace instead of
+the run merely looking smaller. Why those three failed is still unproven — the
+error was thrown away — but the shape points at throttling rather than a
+permission state, since two library endpoints succeeded while three did not.
+
 **This is what `completeness = 'partial'` was for, and it earned its keep on the
 first occasion it could have.** Had those scopes been declared `complete`,
 finalizing the 17:01 run would have expired **five entire data types** from

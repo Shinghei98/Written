@@ -1147,6 +1147,12 @@ struct GrowProfileView: View {
         _ = permissionTick
         let failure = viewModel.failureMessage(for: next) ?? viewModel.blockedMessage(for: next)
 
+        // **A partial run is not a failure and must not be drawn as one.** It
+        // shares this card's full-width slot — the only place on the garden a
+        // sentence fits — but leaves the headline and the button alone: the ask
+        // is still "connect this", not "that didn't work, go again".
+        let shortfall = failure == nil ? viewModel.shortfallMessage(for: next) : nil
+
         // Tighter than it looks like it needs to be, and deliberately: at 14pt
         // spacing the widest button — "Connect Lifestyle" — squeezed the text
         // column until `minimumScaleFactor` engaged, so that one bar rendered
@@ -1247,9 +1253,9 @@ struct GrowProfileView: View {
             // where it isn't for the connected bars, because a failure is an
             // exception rather than a step of the flow, and reserving the room
             // permanently would cost the plant that height at every stage.
-            if let failure {
+            if let note = failure ?? shortfall {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(failure)
+                    Text(note)
                         .font(.system(size: 13))
                         .foregroundStyle(GardenPalette.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2440,7 +2446,7 @@ struct SourcePickerSheet: View {
 
                 Spacer()
 
-                if case .done(let count) = viewModel.status(for: source) {
+                if let count = viewModel.status(for: source).count {
                     Text("\(count)")
                         .font(.system(size: 14))
                         .foregroundStyle(GardenPalette.muted)
