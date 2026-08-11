@@ -40,17 +40,35 @@ BUILDER_MODEL_ROLE = "fitness_habit_builder"
 # wrong. A year of HealthKit is ~400 rows; if that ever stops being true the
 # answer is a windowed snapshot with the window recorded, not a limit.
 
+# **Through `current_source_items`, never the raw table directly**, which is
+# this codebase's *read through the summary views* rule one layer down.
+#
+# Nothing supersedes a prior revision in `raw_source_records`: a row whose
+# payload changed is captured beside the old one and both stay `active`. Handing
+# the classifier both is not merely redundant — `ingest_healthkit_rows`
+# quarantines *both* sides of a lineage whose record fingerprints disagree,
+# having no trustworthy revision order in the legacy row shape. So a payload
+# change that added one field would take coverage from 390 accepted to zero,
+# silently, and read as HealthKit having stopped working.
+#
+# `current_source_items` is the contract's answer: one row per provider item
+# naming its current revision, and a `lifecycle_state` that also drops what the
+# provider has since deleted. An item absent from the latest snapshot stops
+# feeding the classifier, which is what a tombstone is for.
 SELECT_HEALTHKIT = """
 select r.id,
        r.data_type,
        r.occurred_at,
        r.encryption_key_version,
        r.encrypted_payload
-  from semantic_private.raw_source_records r
- where r.user_id = %(user_id)s
-   and r.source_code = 'healthkit'
+  from semantic_private.current_source_items i
+  join semantic_private.raw_source_records r
+    on r.id = i.current_raw_source_record_id
+ where i.user_id = %(user_id)s
+   and i.source_code = 'healthkit'
+   and i.lifecycle_state = 'present'
    and r.lifecycle_state = 'active'
- order by r.occurred_at nulls last, r.id
+ order by i.occurred_at nulls last, r.id
 """
 
 # **Read at classification time, not at capture time.** A row in the vault was
