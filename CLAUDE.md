@@ -1663,6 +1663,20 @@ function, verified in production. Leaked, it writes vault rows and reads none of
 them back. Its password is set by hand and lives in AWS Secrets Manager, for the
 reason `private.push_config` is filled in by hand.
 
+**Proven by connecting, and the route was the risk.** The direct host
+`db.<ref>.supabase.co` has **no A record at all** — IPv6 only — while Lambda's
+egress is IPv4, so the shared pooler is the only free route, and Supabase
+documents its username as `postgres.PROJECT_REF` while saying nothing about
+custom roles. That was the premise the whole design rested on. Settled
+2026-08-10 on the transaction pooler: `current_user` came back
+`semantic_ingestor`, and reading `raw_source_records` came back **permission
+denied** — which is the success case, and the entire argument for `0052`
+existing rather than handing the endpoint `service_role`. Two smaller things
+fell out: a project's pooler fleet is discoverable with a *deliberately wrong*
+password, since Supavisor resolves the tenant before checking it and the two
+failures otherwise look equally like an outage; and transaction mode does not
+support prepared statements, so the Lambda's driver must have them off.
+
 Two traps in that migration, both paid for. **`revoke ... on schema public` from
 one role does nothing**: usage there belongs to the `PUBLIC` pseudo-role, and
 revoking it from `PUBLIC` would take it from `anon` and `authenticated` too. The

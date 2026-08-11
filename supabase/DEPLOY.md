@@ -291,18 +291,35 @@ the tenant from the username at authentication time, so both hosts answer for
 everybody. **Dashboard → Connect** names the right one.
 
 **Port 6543, transaction mode**, which Supabase's own documentation names for
-"serverless and edge functions". One consequence for whoever writes the Lambda:
+"serverless and edge functions", and which is the port the check above used. One
+consequence for whoever writes the Lambda:
 *transaction mode does not support prepared statements*, so the Postgres driver
 must have them turned off or every call fails in a way that looks like a syntax
 problem.
 
-**An open premise, and it should be settled before the Lambda is written.**
-Supabase documents the pooler username only as `postgres.PROJECT_REF` and says
-nothing about custom roles. If Supavisor will not accept
-`semantic_ingestor.fwnezkbesjoazlpaflbq`, `0052`'s design does not work from AWS
-and the fallbacks are session mode on 5432, the paid IPv4 add-on, or reversing
-the hosting decision to an edge function — see `semantic/docs/KMS_DESIGN.md`,
-which records why that was the close second.
+**The premise is settled: a custom role does work through the pooler.**
+Supabase documents the username only as `postgres.PROJECT_REF` and says nothing
+about custom roles, so this was the open question gating the Lambda — if
+Supavisor refused `semantic_ingestor.fwnezkbesjoazlpaflbq`, `0052`'s design
+would not work from AWS at all. Connected 2026-08-10 on the transaction pooler:
+
+    select current_user;   ->  semantic_ingestor
+    select count(*) from semantic_private.raw_source_records;
+                           ->  ERROR: permission denied for table raw_source_records
+
+Both lines matter. The first is the premise. **The second is the success case** —
+the identity that writes the vault cannot read it back, which is the entire
+argument for `0052` existing instead of handing the endpoint `service_role`.
+
+**Which fleet a project is on can be determined without any credential**, which
+saves a dashboard trip and is worth knowing because the two failure messages
+look equally like an outage. Supavisor resolves the tenant from the username
+*before* checking the password, so a deliberately wrong one discriminates:
+
+    aws-0 ->  FATAL: password authentication failed for user "semantic_ingestor"
+    aws-1 ->  FATAL: (ENOTFOUND) tenant/user semantic_ingestor.… not found
+
+`aws-0-us-east-1.pooler.supabase.com` is this project's.
 
 ### A restore brings this role back mute
 
