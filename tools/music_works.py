@@ -20,6 +20,9 @@ import unicodedata
 from music_dictionary import (
     ARTIST_ERA,
     JUNK_EXACT,
+    MAX_COMPOSERS,
+    NAME_ALIASES,
+    NAME_SUFFIXES,
     JUNK_SUBSTRINGS,
     COMPILATION_MARKERS,
     NEVER_SPLIT,
@@ -397,7 +400,19 @@ def split_credits(credit: str) -> list[str]:
     parts = [credit or ""]
     for separator in SPLIT_SEPARATORS:
         parts = [piece for part in parts for piece in part.split(separator)]
-    return [part.strip() for part in parts if part.strip()]
+
+    # **Rejoin what was never a separate person.** `Dwayne Abernathy, Jr.` splits
+    # into two, and `Jr.` became a concept in its own right; bare numbers arrive
+    # the same way. A fragment like this belongs to the name before it.
+    joined: list[str] = []
+    for part in (p.strip() for p in parts):
+        if not part:
+            continue
+        if joined and (part.casefold() in NAME_SUFFIXES or part.isdigit()):
+            joined[-1] = f"{joined[-1]}, {part}"
+            continue
+        joined.append(part)
+    return joined
 
 
 def resolve_name(name: str) -> str | None:
@@ -411,14 +426,30 @@ def resolve_name(name: str) -> str | None:
     text = (name or "").strip()
     if is_junk(text):
         return None
+    # Spelling variants first, then language. A variant may itself be the
+    # Chinese form of a Western name.
+    text = NAME_ALIASES.get(text, text)
     return TRANSLITERATED.get(text, text)
 
 
-def people_in(credit: str) -> list[str]:
-    """Every person a credit names, split, de-junked and in their own language."""
+def people_in(credit: str, limit: int | None = None) -> list[str]:
+    """Every person a credit names, split, de-junked and in their own language.
+
+    `limit` caps how many are kept — used for composers, where a pop track's
+    credit list runs to seventeen names and only the first few are who the song
+    is *by*. Applied after junk is dropped, so a placeholder does not consume one
+    of the places.
+    """
     seen: list[str] = []
     for part in split_credits(credit):
         person = resolve_name(part)
         if person and person not in seen:
             seen.append(person)
+            if limit is not None and len(seen) >= limit:
+                break
     return seen
+
+
+def composers_in(credit: str) -> list[str]:
+    """The writers a song is by, capped at `MAX_COMPOSERS`."""
+    return people_in(credit, limit=MAX_COMPOSERS)

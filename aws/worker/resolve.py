@@ -44,6 +44,7 @@ from written_ontology.graph import OntologyGraph
 
 from music_works import (
     artist_eras,
+    composers_in,
     english_genre,
     normalized_song_key,
     people_in,
@@ -248,8 +249,10 @@ def terms_for(payload: dict[str, Any], action: str,
         # **Kept apart from the performer, which is the whole reason this field
         # is carried.** The "artist" of a Bach partita is whoever played it, and
         # a library that is 1,440 classical rows is unreadable without the
-        # distinction. Split too: `Dean Pitchford & Tom Snow` wrote it together.
-        for person in people_in(composer):
+        # distinction. Split too: `Dean Pitchford & Tom Snow` wrote it together
+        # — but capped, because a pop track credits seventeen writers and only
+        # the first few are who the song is by.
+        for person in composers_in(composer):
             terms.append(_term(person, "composer", "composer", "creator"))
 
     album = _text(payload.get("album"))

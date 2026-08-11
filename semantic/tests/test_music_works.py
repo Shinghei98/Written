@@ -351,3 +351,52 @@ def test_both_compilation_conditions_are_required(works):
     # Big album, many dates — a long compilation that still dates its tracks.
     assert works.artist_eras("x", rows(60, ["1998", "2005"], 60, ["J-Pop"])) \
         == {"era:1990s", "era:2000s"}
+
+
+# --- credits: splitting, merging, capping ------------------------------------
+
+def test_a_comma_inside_a_name_does_not_make_two_people(works):
+    """`Dwayne Abernathy, Jr.` split into two, one of them `Jr.` — which became
+    a concept. Bare numbers arrived the same way."""
+    assert works.people_in("Dwayne Abernathy, Jr. & Charlie Puth") \
+        == ["Dwayne Abernathy, Jr.", "Charlie Puth"]
+
+
+@pytest.mark.parametrize("placeholder", ["Not Applicable", "ATLUS", "HYBE",
+                                         "Various Artists", "群星"])
+def test_a_placeholder_is_not_a_person(works, placeholder):
+    """Apple's literal `Not Applicable`, a game studio and a label."""
+    assert works.people_in(placeholder) == []
+
+
+@pytest.mark.parametrize("a,b", [
+    ('"Hitman" Bang', '"hitman"bang'),
+    ("Kenzie", "KENZIE"),
+    ("Ben Samama", "Benjamin Samama"),
+    ("Sorana", "Sorana Pacurar"),
+    ('Amanda "Kiddo A.I." Ibanez', 'Amanda "Kiddo" Ibanez'),
+])
+def test_one_person_written_several_ways_is_one_person(works, a, b):
+    """Case and quote style are orthography; a short name against a full one is
+    not, and nothing mechanical can know they are the same writer. Both go
+    through `NAME_ALIASES`, stated rather than guessed."""
+    assert works.resolve_name(a) == works.resolve_name(b)
+
+
+def test_a_credit_list_keeps_only_the_first_three_composers(works):
+    """A K-pop track names seventeen writers. The first are who the song is *by*
+    and the rest are the session — capped rather than thresholded, because a
+    minimum-appearances rule would also drop a genuinely obscure artist somebody
+    has one track by."""
+    seventeen = ('Supreme Boi, Aino Jawo, Caroline Hjelt, Louice Hellström, '
+                 'Matilda Winberg, Pär Almqvist, "Hitman" Bang & HUH YUNJIN')
+    assert works.composers_in(seventeen) == \
+        ["Supreme Boi", "Aino Jawo", "Caroline Hjelt"]
+    # Performers are not capped: a performer list is who is on the record.
+    assert len(works.people_in(seventeen)) == 8
+
+
+def test_the_cap_is_per_song_not_a_blacklist(works):
+    """Somebody cut from one track's credit list still becomes a concept from a
+    track where they are the sole writer."""
+    assert works.composers_in('"Hitman" Bang') == ['"Hitman" Bang']

@@ -46,6 +46,8 @@ from music_dictionary import GENRE_TRANSLATIONS  # noqa: E402
 from music_works import (  # noqa: E402
     artist_eras,
     english_genre,
+    composers_in,
+    people_in,
     propagate,
     resolve_name,
     split_credits,
@@ -114,6 +116,12 @@ def slug(text: str) -> str:
     """
     folded = unicodedata.normalize("NFKD", text.strip().casefold())
     folded = "".join(c for c in folded if not unicodedata.combining(c))
+    # **Quote style must never make two concepts.** `Amanda “Kiddo” Ibanez` and
+    # `Amanda "Kiddo" Ibanez` differ by one curly quote, and `"Hitman" Bang` and
+    # `"hitman"bang` by case and a space. Folding them here merges the key while
+    # rule 6 keeps every spelling as a label.
+    folded = folded.replace("\u2018", "").replace("\u2019", "")
+    folded = folded.replace("\u201c", "").replace("\u201d", "").replace('"', "")
     keyed = re.sub(r"[^a-z0-9぀-ヿ㐀-鿿가-힯]+", "_", folded)
     return keyed.strip("_") or "unnamed"
 
@@ -175,11 +183,10 @@ def build(rows: list[dict]) -> tuple[dict, set]:
     label_of: dict[str, str] = {}
     for item in flat:
         for field in ("performer", "composer"):
-            raw_parts = split_credits(item[field])
-            for raw in raw_parts:
-                person = resolve_name(raw)
-                if not person:
-                    continue
+            # Composers are capped at three; performers are not. A performer
+            # list is who is on the record, and all of them are subjects.
+            names = (composers_in if field == "composer" else people_in)(item[field])
+            for person in names:
                 key = f"creator:{slug(person)}"
                 add(key, "creator", person)
                 # **The source spelling is kept as a label too.** Resolution does
@@ -187,8 +194,10 @@ def build(rows: list[dict]) -> tuple[dict, set]:
                 # matched — but without it the ontology cannot be read on its own:
                 # nobody looking at `creator:jean_sibelius` would see that
                 # `尚・西貝流士` is in this library under that name.
-                if raw != person:
-                    add(key, "creator", raw)
+                if item[field].strip() and item[field].strip() != person:
+                    for raw in split_credits(item[field]):
+                        if resolve_name(raw) == person and raw != person:
+                            add(key, "creator", raw)
                 label_of.setdefault(key, person)
                 rows_of_person[key].append(item)
 

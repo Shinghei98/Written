@@ -319,9 +319,44 @@ JUNK_SUBSTRINGS: tuple[str, ...] = ("Apple Music",)
 JUNK_EXACT: frozenset[str] = frozenset({
     "群星",            # "Various Artists" in Chinese
     "Various Artists",
+    "Vairous Artists",  # Apple's own typo, in this library
     "Unknown Artist",
-    "ATLUS",           # a game studio credited as composer
+    "Not Applicable",   # Apple's literal placeholder for a missing credit
+    "ATLUS",            # a game studio credited as composer
+    "HYBE",             # a label, likewise
 })
+
+# **Fragments that are not people.** Splitting a credit on `, ` breaks the few
+# names that carry a comma of their own: `Dwayne Abernathy, Jr.` became two
+# people, one of them `Jr.`. A fragment matching this rejoins the part before it
+# rather than standing alone as a concept.
+NAME_SUFFIXES: frozenset[str] = frozenset({
+    "jr", "jr.", "sr", "sr.", "ii", "iii", "iv",
+})
+
+# **One person written several ways, all within one language.** Not a
+# transliteration and not fixable by folding case or quotes: `Ben Samama` and
+# `Benjamin Samama` are the same writer under a short and a full name, and
+# `Sorana` is `Sorana Pacurar`. Nothing mechanical can know that, so it is
+# stated — the same shape as `TRANSLITERATED`, and under the same rule: only
+# what is recognised, because a wrong merge attributes one person's work to
+# another.
+NAME_ALIASES: dict[str, str] = {
+    '"hitman"bang': '"Hitman" Bang',
+    "KENZIE": "Kenzie",
+    "Ben Samama": "Benjamin Samama",
+    "Sorana": "Sorana Pacurar",
+    'Amanda "Kiddo A.I." Ibanez': 'Amanda "Kiddo" Ibanez',
+    "Amanda \u201cKiddo\u201d Ibanez": 'Amanda "Kiddo" Ibanez',
+    "Anne Judith Wik(Dsign Music)": "Anne Judith Wik",
+}
+
+# **A credit list is not a list of subjects past the first few.** A K-pop track
+# names seventeen writers; the first are the ones the song is *by* and the rest
+# are the session. Capped rather than thresholded, because a cap acts on the
+# shape of the credit while a minimum-appearances rule would also drop a
+# genuinely obscure artist somebody has one track by.
+MAX_COMPOSERS = 3
 
 
 # ---------------------------------------------------------------------------
