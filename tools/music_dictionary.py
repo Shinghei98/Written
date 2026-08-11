@@ -376,3 +376,94 @@ def decade_of(year: int) -> str | None:
     if not isinstance(year, int) or year < 1950 or year > 2100:
         return None
     return f"era:{year // 10 * 10}s"
+
+
+# ---------------------------------------------------------------------------
+# Works — the film, anime, drama, musical or opera a song was written for
+#
+# **A far stronger signal than genre.** "Likes anime" separates almost nobody;
+# having the *Fate/Zero* opening is a sentence somebody would recognise about
+# themselves. The ontology's own kind vocabulary has `work`, which is why this
+# is not a `media:` prefix — `From "Semiramide"` is in this library too, and an
+# opera and an anime are both works.
+#
+# Four mechanisms, in descending confidence. The first two are rules over what
+# Apple states, the third is free, and only the fourth needs a person.
+
+# 1. `From "X"` — Apple naming the work outright, on the title or the album.
+#    45 rows. The same class of fact as a stated genre: read, not inferred.
+WORK_FROM_PATTERN = r'From "([^"]+)"'
+
+# Japanese states it just as explicitly, in corner brackets. `TVアニメ「X」` is
+# "TV anime X" and `劇場版「X」` is "the film of X" — and the **first** bracket is
+# the series while a later one is the song, so
+# `TVアニメ「オーバーロードIII」オープニングテーマ「VORACITY」` must yield
+# Overlord III and not VORACITY. Anchoring on the prefix is what guarantees that.
+WORK_JP_PATTERN = r"(?:TVアニメーション|TVアニメ|劇場版|アニメ)[「『]([^」』]+)[」』]"
+
+# The same statement in English, on cover-album titles:
+# `… TV Anime Series Fate/Zero 1st Season OP/ED Theme songs Collection`.
+WORK_EN_SERIES_PATTERN = (
+    r"TV\s*(?:Anime|Animation)\s*(?:Series)?\s+"
+    r"(.+?)\s*(?:\d+(?:st|nd|rd|th)\s+Season|Theme|OP/ED|Collection|Opening|$)"
+)
+
+# 2. The album *is* the work, wearing decoration. 144 rows over ~22 albums.
+#    Stripped longest-first, so `: The Soundtrack` is not left as `: The` by a
+#    shorter rule matching first.
+WORK_DECORATIONS: tuple[str, ...] = (
+    "(Original Broadway Cast Recording)",
+    "Original Broadway Cast Recording",
+    "(Original Motion Picture Soundtrack)",
+    "Original Motion Picture Soundtrack",
+    "(Original Soundtrack)",
+    "Original Soundtrack",
+    "(Soundtrack)",
+    ": The Soundtrack",
+    "Cast Recording",
+    "The Soundtrack",
+    "Soundtrack",
+    "- Single",
+    "- EP",
+)
+
+# Trailing volume and part markers, removed after the decorations above.
+WORK_TRAILING_PATTERN = r"[,\s]*(Vol\.?\s*\d+|Part\.?\s*\d+|\d{4})\s*$"
+
+# `Tv Series "X" 3rd Season` — the quoted part is the work.
+WORK_SERIES_PATTERN = r'(?:Tv|TV) Series "([^"]+)"'
+
+# 3. Propagation by (normalized title, primary performer) is not a table: once
+#    the rules above have named a work for one row, every other row with the
+#    same song and artist inherits it. `Resister (Special Edition) - EP` names
+#    no work; `Resister (From "Sword Art Online: Alicization") - Single` is the
+#    same song in the same library.
+
+# 4. The residue: an anime opening released as an artist single carries the
+#    genre and never the work. Ten albums in this library, keyed by album name.
+#
+#    **Only the ones I recognise.** `Saihate` and `TearJerker` are anime songs
+#    whose series I cannot name with confidence, so they are absent and their
+#    rows keep `genre:anime` and no work — which is true, where a guess would
+#    not be. That is the Anthony Hopkins rule applied to works.
+WORK_BY_ALBUM: dict[str, str] = {
+    "oath sign - EP": "Fate/Zero",
+    "only my railgun - EP": "A Certain Scientific Railgun",
+    "ReawakeR (feat. Felix of Stray Kids) - Single": "Solo Leveling",
+    "KiLLKiSS - Single": "BanG Dream! Ave Mujica",
+    "Alea jacta est - EP": "BanG Dream! Ave Mujica",
+    "Haruhikage - From THE FIRST TAKE - Single": "BanG Dream! It's MyGO!!!!!",
+}
+
+# Albums that are compilations rather than one work: several works, or none.
+WORK_NOT_A_WORK: frozenset[str] = frozenset({
+    "Anime Music Collection Piano Solo Vol.2",
+})
+
+# The genres that say a row is media music. A row with one of these and no
+# identifiable work keeps the genre and gains no work — `genre:anime` is true
+# and useful on its own, and inventing a title to fill the column is the one
+# thing this must not do.
+MEDIA_GENRES: frozenset[str] = frozenset({
+    "Soundtrack", "Anime", "Musicals", "Video Game", "TV Soundtrack",
+})

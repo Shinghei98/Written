@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""Finding the work a song was written for.
+
+Four mechanisms over what Apple already states, in descending confidence — see
+`music_dictionary` for the tables. This module is only the reading of them, and
+it is deliberately separate so the rules can be tested without a database.
+
+**The abstention is the important behaviour.** A row whose genre says
+`Anime` and whose album names no series keeps `genre:anime` and gains no work.
+Every other outcome here — a stated `From "…"`, a stripped soundtrack album, a
+propagated sibling, a hand-named album — is something Apple said or somebody
+recognised. Nothing is guessed from a title.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+
+from music_dictionary import (
+    MEDIA_GENRES,
+    WORK_BY_ALBUM,
+    WORK_DECORATIONS,
+    WORK_EN_SERIES_PATTERN,
+    WORK_FROM_PATTERN,
+    WORK_JP_PATTERN,
+    WORK_NOT_A_WORK,
+    WORK_SERIES_PATTERN,
+    WORK_TRAILING_PATTERN,
+)
+
+_FROM = re.compile(WORK_FROM_PATTERN)
+_JP = re.compile(WORK_JP_PATTERN)
+_EN_SERIES = re.compile(WORK_EN_SERIES_PATTERN, re.IGNORECASE)
+_SERIES = re.compile(WORK_SERIES_PATTERN)
+_TRAILING = re.compile(WORK_TRAILING_PATTERN, re.IGNORECASE)
+
+
+def stated_work(title: str, album: str) -> str | None:
+    """Mechanism 1 — `From "X"`, on either field.
+
+    Apple naming the work outright. Checked before everything else because it is
+    the only one that needs no rule about how albums are named: the quotes are
+    the statement.
+    """
+    for text in (title or "", album or ""):
+        for pattern in (_FROM, _JP, _EN_SERIES):
+            match = pattern.search(text)
+            if match:
+                found = match.group(1)
+                # A release suffix can ride along when the pattern's tail
+                # alternative is end-of-string: `TV Anime Series Overlord II -
+                # Single` captured `Overlord II - Single`.
+                found = re.sub(r"\s-\s(Single|EP)$", "", found, flags=re.IGNORECASE)
+                found = found.strip(" 　-–—:")
+                if found:
+                    return found
+    return None
+
+
+def work_from_album(album: str) -> str | None:
+    """Mechanism 2 — the album is the work, wearing decoration.
+
+    `Wicked: The Soundtrack` → `Wicked`. Decorations are stripped longest-first
+    so `: The Soundtrack` is not left as `: The` by a shorter rule matching
+    first, and a trailing `Vol. 2` or `Part.3` goes after them.
+
+    Returns `None` for an album that strips to nothing, which is how
+    `Original Soundtrack` with no title of its own declines to become a work
+    called the empty string.
+    """
+    if not album:
+        return None
+    if album in WORK_NOT_A_WORK:
+        return None
+
+    # **A single or an EP is never a work.** It is a release of a song, and
+    # stripping its decoration yields the song's own name — so `Saihate - Single`
+    # would become a series called *Saihate* and `Resister (Special Edition) -
+    # EP` a series called *Resister (Special Edition*. That is the invention this
+    # whole module is arranged to avoid, and it was live until three tests caught
+    # it at once. An anime single whose series is genuinely named goes through
+    # mechanism 1 or 4, both of which run before this.
+    if re.search(r"\s-\s(Single|EP)$", album, re.IGNORECASE):
+        return None
+
+    series = _SERIES.search(album)
+    if series:
+        # No `strip("-")`: the quotes already delimit it, and `Re: Zero
+        # -Starting Life in Another World-` ends in one that belongs to the name.
+        return series.group(1).strip()
+
+    cleaned = album
+    for decoration in WORK_DECORATIONS:
+        cleaned = cleaned.replace(decoration, " ")
+    cleaned = _TRAILING.sub("", cleaned)
+    # **A year marks an edition, not the work.** `Musical Jekyll & Hyde 2021
+    # Korean Cast Recording` is a 2021 Korean production *of* Jekyll & Hyde, and
+    # keeping the qualifier would leave it unable to merge with the
+    # `From "Musical Jekyll & Hyde"` form that the same library also carries —
+    # two concepts for one musical, which is precisely what rule 6 exists to
+    # prevent. Everything from a standalone year onward goes.
+    cleaned = re.sub(r"\s(?:19|20)\d{2}\b.*$", "", cleaned)
+    # Left-over separators from the middle of a stripped name.
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -:,()")
+    return cleaned or None
+
+
+def named_work(album: str) -> str | None:
+    """Mechanism 4 — an album somebody recognised and wrote down."""
+    return WORK_BY_ALBUM.get(album)
+
+
+def is_media_row(genres: list[str]) -> bool:
+    """Whether Apple says this row is music for something."""
+    return any(genre in MEDIA_GENRES for genre in genres or ())
+
+
+def work_for(title: str, album: str, genres: list[str]) -> str | None:
+    """The work this row belongs to, or `None`.
+
+    **Order is confidence.** A stated `From "…"` beats a hand-named album, which
+    beats stripping the album — because the first two are somebody's statement
+    and the third is a rule about naming conventions.
+
+    The album is only read as a work when Apple's genre says the row is media
+    music. Without that gate `THE BOOK 3 - Single` would become a work, and
+    every ordinary single in the library would name a film that does not exist.
+    """
+    stated = stated_work(title, album)
+    if stated:
+        return stated
+
+    # **An album row carries its name in `title` and has no album of its own.**
+    # `library_album` rows are exactly that shape, and half the soundtracks in a
+    # real library arrive as one: `Wicked: The Soundtrack` with a null album.
+    # Without this they resolve to nothing while looking perfectly handled.
+    as_album = album or title
+
+    named = named_work(as_album)
+    if named:
+        return named
+
+    if is_media_row(genres):
+        return work_from_album(as_album)
+    return None
+
+
+def normalized_song_key(title: str, performer: str) -> str:
+    """The key mechanism 3 propagates along: one song by one artist.
+
+    Casefolded and accent-folded so `Resister` on two differently-decorated
+    albums is one song. Deliberately *not* `normalize_text` from the package —
+    that strips punctuation to spaces, which would merge songs whose titles
+    differ only by it.
+    """
+    def fold(value: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", (value or "").casefold().strip())
+        return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+    # A decoration on the title should not stop two rows being the same song.
+    # Both halves matter: `Resister (From "…") - Single` and `Resister` are one
+    # song, and dropping only the parenthetical leaves the ` - Single` behind —
+    # which is a different key, and the propagation silently finds nothing.
+    cleaned = re.sub(r"\s*\((?:From|Feat\.?|feat\.?)[^)]*\)", "", title or "")
+    cleaned = re.sub(r"\s-\s(Single|EP)$", "", cleaned, flags=re.IGNORECASE)
+    return f"{fold(cleaned)}\x1f{fold(performer)}"
+
+
+def propagate(rows: list[dict]) -> dict[str, str]:
+    """Mechanism 3 — `song key -> work`, learned from the rows that name one.
+
+    Free, and it already pays: `Resister (Special Edition) - EP` names no work
+    while `Resister (From "Sword Art Online: Alicization") - Single` is the same
+    song by the same artist in the same library.
+
+    **First writer wins, and the input is expected in confidence order.** A song
+    that somehow named two works keeps the first; recording both would let one
+    ambiguous row spread its ambiguity across every copy.
+    """
+    learned: dict[str, str] = {}
+    for row in rows:
+        work = work_for(row.get("title", ""), row.get("album", ""), row.get("genres", []))
+        if not work:
+            continue
+        key = normalized_song_key(row.get("title", ""), row.get("performer", ""))
+        learned.setdefault(key, work)
+    return learned
