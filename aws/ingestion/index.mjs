@@ -29,7 +29,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import pg from "pg";
 
-import { keyVersionFor, normalizeSource, scopeManifest, toRecordRow, InvalidEnvelope } from "./lib.mjs";
+import { ingestArguments, keyVersionFor, normalizeSource, toRecordRow, InvalidEnvelope } from "./lib.mjs";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
 const VAULT_KEY_ARN = process.env.VAULT_KEY_ARN;
@@ -244,16 +244,10 @@ async function ingest(rows, context) {
       `select semantic_private.ingest_source_records_v031(
          $1::uuid, $2::uuid, $3::text, $4::text, $5::text,
          $6::text, $7::text, $8::text, $9::jsonb, $10::jsonb, $11::boolean) as receipt`,
-      [
-        context.userId, context.ingestionId, context.connectorSource,
-        context.connectorVersion, context.inputHash,
-        context.keyVersion, context.wrappedDekB64, VAULT_KEY_ARN,
-        JSON.stringify(scopeManifest(rows, (body.truncated ?? []).map((s) => ({
-          ...s, source_code: connectorSource,
-        })))),
-        JSON.stringify(rows),
-        context.final,
-      ]
+      // **Built in `lib.mjs` so a test can run it.** This call had a
+      // `ReferenceError` in it — reaching for `body`, a local of `handler` —
+      // and every ingestion returned 500 until a real request found it.
+      ingestArguments(context, rows, VAULT_KEY_ARN)
     );
     return result[0].receipt;
   } finally {
@@ -349,6 +343,12 @@ export async function handler(event) {
       // nothing downstream can see them, which is what every run did before
       // `0055`.
       final: body.final === true,
+      // Scopes whose endpoint failed, so they carry no rows: declared with the
+      // connector stamped on, since the client sends only the data type and
+      // action it lost.
+      truncated: (Array.isArray(body.truncated) ? body.truncated : []).map((scope) => ({
+        ...scope, source_code: connectorSource,
+      })),
     });
 
     return json(200, receipt);

@@ -384,3 +384,29 @@ export function keyVersionFor(uuid) {
   }
   return version;
 }
+
+/**
+ * The eleven arguments `ingest_source_records_v031` takes, in order.
+ *
+ * **Extracted so it can be tested at all.** The tests here cover pure
+ * transforms and token verification and never executed the database call, so a
+ * `ReferenceError` in it — reaching for `body`, a local of a different
+ * function — was invisible until a real request hit it and every ingestion
+ * returned 500. Nothing about the query is complicated; the point is only that
+ * it now runs somewhere other than production.
+ */
+export function ingestArguments(context, rows, vaultKeyArn) {
+  return [
+    context.userId,
+    context.ingestionId,
+    context.connectorSource,
+    context.connectorVersion,
+    context.inputHash,
+    context.keyVersion,
+    context.wrappedDekB64,
+    vaultKeyArn,
+    JSON.stringify(scopeManifest(rows, context.truncated ?? [])),
+    JSON.stringify(rows),
+    context.final === true,
+  ];
+}

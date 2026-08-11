@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, InvalidEnvelope, keyVersionFor,
+  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor,
   normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow,
 } from "../lib.mjs";
 
@@ -310,4 +310,29 @@ test("a failed endpoint declares an empty truncated scope", () => {
   ]);
   assert.equal(both.length, 1);
   assert.equal(both[0].completeness, "truncated");
+});
+
+test("the database call's arguments build without touching a database", () => {
+  // This exists because a ReferenceError lived in that call — it reached for
+  // `body`, a local of another function — and every ingestion returned 500
+  // until a real request found it. The tests covered pure transforms and token
+  // verification and never executed the query path at all.
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const rows = [toRecordRow({ record_source_code: "apple_music", data_type: "library_song",
+    action_type: "library_song", provider_item_id: "i.1", typed_payload: {} }, 0, ctx)];
+
+  const args = ingestArguments({
+    userId: USER, ingestionId: "run-1", connectorSource: "apple_music",
+    connectorVersion: "ios-1.0", inputHash: "h", keyVersion: "dek-1",
+    wrappedDekB64: "AAA=", final: true,
+  }, rows, "arn:aws:kms:us-east-1:1:key/x");
+
+  assert.equal(args.length, 11, "the function takes eleven arguments, in order");
+  assert.equal(args[0], USER);
+  assert.equal(args[10], true, "final");
+  assert.equal(JSON.parse(args[8]).length, 1, "one scope from one row");
+  assert.equal(JSON.parse(args[9]).length, 1, "one record");
+
+  // Absent `truncated` must not throw — the common case is no shortfall.
+  assert.doesNotThrow(() => ingestArguments({ userId: USER }, [], "arn"));
 });
