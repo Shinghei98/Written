@@ -117,6 +117,18 @@ means "held back or on its way back", and only the code around it says which.
   survivable for a coordinated group and is not survivable for a beta, which is
   what the rest of this entry is about.
 
+  **It is offered in the source picker, so tapping Music shows two choices**,
+  and picking Spotify opens an OAuth sheet — a web login where the Spotify app
+  is not installed. **Backing out of that sheet used to fail the whole Music
+  branch**: `OAuthPKCEService` reports it as `OAuthError.cancelled`,
+  `distillSpotify` drew it as `.failed`, and `failureMessage(for:)` returns the
+  *first* failed source in a modality — so a cancelled Spotify put an error on
+  the Music card while Apple Music had just distilled 1,225 rows successfully.
+  A cancelled sign-in returns the source to `.idle` now, through
+  `DistillViewModel.status(after:)`, which YouTube and Google Calendar share:
+  dismissing a sheet is a decision, and `.idle` is exactly where a source
+  nobody connected belongs.
+
   **Two edits turned it on and both must be reversed to turn it off**, which is
   the thing to remember rather than either one alone: the string in
   `Modality.sources`, and `AppShell`'s `.task { viewModel.purgeArchivedSources() }`,

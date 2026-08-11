@@ -219,12 +219,36 @@ final class DistillViewModel: ObservableObject {
                 replaceRecords(from: "spotify", with: newRecords)
                 spotifyStatus = .done(count: newRecords.count)
             } catch {
-                spotifyStatus = .failed(message: error.localizedDescription)
+                spotifyStatus = Self.status(after: error)
             }
         }
     }
 
     /// Entry point for the tree UI, which thinks in sources rather than methods.
+    /// What a source's status becomes when its distillation threw.
+    ///
+    /// **A cancelled sign-in is a decision, not a failure.**
+    /// `ASWebAuthenticationSession` reports the sheet being dismissed as
+    /// `.canceledLogin` and `OAuthPKCEService` surfaces it as
+    /// `OAuthError.cancelled`. Drawn as `.failed` it puts an error on a card
+    /// because somebody changed their mind — and the second-order effect is
+    /// worse: `failureMessage(for:)` returns the *first* failed source in a
+    /// modality, so backing out of Spotify made the whole **Music** card report
+    /// a failure while Apple Music had just distilled 1,225 rows successfully.
+    /// That is this codebase's "a failure has to be drawn against the branch
+    /// that was attempted" defect, arriving through a source nobody tapped on
+    /// purpose.
+    ///
+    /// Back to `.idle`, which is where a source that was never connected sits —
+    /// because that is exactly what it is.
+    private static func status(after error: Error) -> SourceStatus {
+        if let oauth = error as? OAuthPKCEService.OAuthError,
+           case .cancelled = oauth {
+            return .idle
+        }
+        return .failed(message: error.localizedDescription)
+    }
+
     func distill(source: String) {
         switch source {
         case "youtube": distillYouTube()
@@ -574,7 +598,7 @@ final class DistillViewModel: ObservableObject {
                 replaceRecords(from: "youtube", with: newRecords)
                 youtubeStatus = .done(count: newRecords.count)
             } catch {
-                youtubeStatus = .failed(message: error.localizedDescription)
+                youtubeStatus = Self.status(after: error)
             }
         }
     }
@@ -959,7 +983,7 @@ final class DistillViewModel: ObservableObject {
                 // Closing the browser sheet is not a failure.
                 googleCalendarStatus = .idle
             } catch {
-                googleCalendarStatus = .failed(message: error.localizedDescription)
+                googleCalendarStatus = Self.status(after: error)
             }
         }
     }

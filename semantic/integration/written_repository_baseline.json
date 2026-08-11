@@ -23,8 +23,8 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "8edc8818bd40929a79d5cc198272066778dc83b6fab938ebe7f6c05bf8cf52a7",
-        "reason": "Dual-write is gated per source now (AppConfig.semanticIngestionSources) rather than by one build-wide boolean, and Apple Music is the only member. Turning it on everywhere at once throws away what shadow running is for: a disagreement found in one source is a diagnosis, in nine it is a shrug. Everything else about dualWriteToVault is unchanged — its own detached task, SyncService.isLocalOnly applied before deriving, refusals counted by kind. Supersedes the previous dual-write entry."
+        "sha256": "0ce7b4b732cef4363d68bbdd4a1e9f5e5d6dc003f9812504132f8e5988d0749d",
+        "reason": "A cancelled OAuth sign-in returns the source to .idle rather than .failed, for Spotify, YouTube and Google Calendar alike. Dismissing the sheet is a decision, not a failure, and the second-order effect was worse: failureMessage(for:) returns the first failed source in a modality, so backing out of Spotify made the whole Music card report a failure while Apple Music had just distilled 1,225 rows. Also carries the per-source dual-write gate."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
