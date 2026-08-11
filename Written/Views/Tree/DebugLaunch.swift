@@ -135,6 +135,18 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "probe-isrc")
     }
 
+    /// `-probe-ingest 1` → send one envelope through the real ingestion
+    /// endpoint and show the receipt.
+    ///
+    /// The v0.3.1 vault path is proven in pieces and never once end to end:
+    /// only a signed-in device holds a Supabase access token, and only a real
+    /// token exercises the Lambda's issuer check, its KMS calls and
+    /// `ingest_source_records_v031` together. See
+    /// `SemanticIngestionService.probe()`.
+    static var probesIngestion: Bool {
+        UserDefaults.standard.string(forKey: "probe-ingest") != nil
+    }
+
     /// `-tutorial badge` → open the coach mark that lights the connected badge,
     /// without connecting anything.
     ///

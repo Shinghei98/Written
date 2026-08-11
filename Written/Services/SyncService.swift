@@ -12,12 +12,20 @@ import Foundation
 /// top artists differed in March is a fact about them, and it could not be
 /// recovered once the March rows were gone.
 ///
-/// **Health is not synced through here, and cannot be.** `push(source:records:)`
-/// refuses it outright. Raw workouts, activity days and hourly steps stay on the
-/// device; only the derived chronotype and sport levels travel, through
-/// `pushHealthSignals`. The refusal is in code as well as in the schema — there
-/// is no table those rows could land in — because a guarantee worth making is
-/// worth enforcing twice.
+/// **Health takes the same path as every other source, and this paragraph said
+/// the opposite for months while the code disagreed.** It claimed `push` refused
+/// health outright; `localOnlySources` is empty and `push` does no such thing.
+/// What was true was worse than the claim: `DistillViewModel.sync` never called
+/// `push` for health at all, so `distilled_records` held **zero** rows with
+/// `source='health'` for every account that had ever connected it, while
+/// `source_connections` and `health_signals` both looked healthy. Nothing looked
+/// wrong because the half that failed was the invisible half.
+///
+/// The one row-level exception is real and remains: `health/biological_sex` is
+/// refused at the wire by `localOnlyTypes`, because it is a protected
+/// characteristic, nothing downstream asks for it, and `public.users.sex`
+/// already means the gender somebody *chose*. It is still kept locally and still
+/// in the owner's own export.
 actor SyncService {
 
     static let shared = SyncService()

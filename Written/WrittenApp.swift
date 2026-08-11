@@ -94,6 +94,11 @@ private struct ComposerProbeAlert: ViewModifier {
                       DebugLaunch.firesOnce("probe-isrc") else { return }
                 outcome = await ComposerService.shared.probe(isrc: isrc)
             }
+            .task {
+                guard DebugLaunch.probesIngestion,
+                      DebugLaunch.firesOnce("probe-ingest") else { return }
+                outcome = await SemanticIngestionService.shared.probe()
+            }
             .alert(
                 "Composer probe",
                 isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })

@@ -287,6 +287,13 @@ final class DistillViewModel: ObservableObject {
         // still good; this discards only what a failure left behind.
         PendingPhotoStore.clear()
         pendingPhotos = [:]
+
+        // Same reasoning, and if anything less arguable: a queued batch holds
+        // calendar titles and workout records for an account that is no longer
+        // signed in here. `AccountScope` already keys the directory, so this is
+        // a second line rather than the only one.
+        PendingEnvelopeStore.clear()
+
         clearInMemoryState()
     }
 

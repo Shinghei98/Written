@@ -23,12 +23,16 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "e1dc036a14bd9f26a13b265e31e7ea37743450eda100552e40a49d3f5831f2c2",
-        "reason": "Health now takes the same push path as every other source. It had branched away from SyncService.push and sent only derived figures, so distilled_records held zero rows with source='health' for every account that had ever connected it. localOnlyTypes still withholds health/biological_sex at the wire and apply(_:) still carries it across a hydration. Doc comments corrected in the same file. Superseded an earlier accepted digest for the doc-only fix."
+        "sha256": "8c4011fada73150c2f4a019bacb6f43155c97196282b59829dc38096c2a12bf3",
+        "reason": "signOutLocalState now clears PendingEnvelopeStore alongside PendingPhotoStore. A queued batch holds calendar titles and workout records for an account no longer signed in on this device; AccountScope already keys the directory, so this is a second line rather than the only one. Supersedes the earlier accepted digest for the Health push path."
       },
       "Written/Services/Ontology.swift": {
         "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
         "reason": "A classical recording now yields two terms rather than one: the stamped subject (the composer) and the primary performer, which previously vanished from the Memories card entirely. Term gained `sources`, filled at the five construction sites and unioned on merge, so a chip can say which services back it; the set is built from MusicHighlights.allSongRows rather than the deduplicated set, because dedupe drops the losing row and a term built from survivors would claim one source for a recording present on two. Ontology.subjects is deliberately unchanged — it feeds the discovery card, which other people read, and 0038 exists because performer credits made bad public copy."
+      },
+      "Written/Services/SyncService.swift": {
+        "sha256": "4cb67a9eb1467afc45c0efc39f0223eabd502814c3064103d2f8bceb7a34c2b3",
+        "reason": "Header comment corrected, no behaviour change. It claimed `push(source:records:)` refuses health outright; localOnlySources is empty and it does no such thing. The real defect was worse and is already fixed: DistillViewModel.sync never called push for health at all, so distilled_records held zero rows with source='health' for every account that had ever connected it. This is the codebase's own recurring defect — a doc comment describing the opposite of the code — removed at the source rather than left to mislead the next reader."
       }
     }
   },

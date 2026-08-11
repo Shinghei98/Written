@@ -1745,6 +1745,40 @@ Three things about it are worth knowing without reading the files:
   parsing SQL would be a third copy of the thing under test. Both were proven to
   bite by perturbation rather than assumed.
 
+**The client half is built and switched off.**
+`SemanticIngestionService` batches envelopes to the endpoint;
+`PendingEnvelopeStore` is its durable queue, shaped like `PendingPhotoStore`
+because that queue was memory-only and died with the app.
+`AppConfig.semanticIngestionEnabled` is `false`, so `submit` and `flush` return
+having done nothing at all — no queue, no request, no cost.
+
+Three decisions in it worth knowing:
+
+- **It is independent of `SyncService` in every direction**, which is the
+  safety property rather than tidiness: nothing in it can make a distillation
+  fail, and it neither reads nor writes that actor's `lastError`. A shadow path
+  that can break the live one is not a shadow.
+- **A batch is written to disk before anything is sent**, so a force-quit
+  mid-upload leaves work to retry rather than losing it, and the bytes retried
+  are the bytes that failed.
+- **A permanent refusal is dropped, not retried.** A malformed batch the
+  endpoint will never accept fails identically on every launch, so keeping it
+  means uploading the same rejection forever. **401 is transient**, though,
+  which is the non-obvious half: the token expired, the batch is fine, and
+  treating it as permanent would throw away a distillation because somebody
+  reopened the app after an hour.
+
+**`-probe-ingest 1` is what settles the last premise**, in the manner of
+`-probe-isrc`: only a signed-in device holds a Supabase access token, and only a
+real token exercises the Lambda's issuer check, its KMS calls and
+`ingest_source_records_v031` together. It writes a real encrypted row into the
+prober's own vault, which is the point — a probe that avoided writing would
+leave the write path exactly as unproven. Run it twice: the second receipt
+should read `stored 0, duplicates 1`, which is the fingerprint idempotency
+working. **`SUPABASE_ISSUER` on the Lambda is the one setting never checked
+against a token Supabase actually minted**, and a wrong one refuses every
+request identically.
+
 **`SourcePayload+Legacy.swift` is scaffolding and is meant to be deleted.**
 Deriving a typed payload by re-parsing `key=value;key=value` inherits every bit
 of that string's lossiness — a value containing `;` or `=` was already

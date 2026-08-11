@@ -89,6 +89,38 @@ enum AppConfig {
         "https://www.googleapis.com/auth/calendar.events.readonly",
     ].joined(separator: " ")
 
+    // MARK: The private semantic vault (v0.3.1, Phase 1)
+
+    /// **The dual-write switch, and it is off.**
+    ///
+    /// Phase 1 of the v0.3.1 integration writes each distillation twice: the
+    /// legacy path through `SyncService`, which the product depends on, and the
+    /// typed envelope through `SemanticIngestionService`, which nothing reads
+    /// yet. With this `false` the second one does nothing at all — no queue, no
+    /// request, no cost.
+    ///
+    /// It stays off until the endpoint has been exercised with a real access
+    /// token from a device, because the one environment variable on the Lambda
+    /// that has never been checked against a real token is the issuer, and a
+    /// wrong one refuses every request identically.
+    static let semanticIngestionEnabled = false
+
+    /// `aws/ingestion` — API Gateway in front of the Lambda. Not a secret: it
+    /// authenticates every request against the caller's Supabase access token,
+    /// so knowing the address buys nothing, exactly as the OAuth client ids
+    /// below are committed deliberately.
+    static let semanticIngestionURL = URL(
+        string: "https://c2u0avzqti.execute-api.us-east-1.amazonaws.com/v1/ingest"
+    )
+
+    /// Envelopes per request.
+    ///
+    /// **Must not exceed the endpoint's own ceiling**, which is 500: it refuses
+    /// a larger batch outright rather than truncating it. One real Apple Music
+    /// library is about 2,540 rows, so a full distillation is several requests
+    /// — which is wanted anyway, since API Gateway caps a request at 10 MB.
+    static let semanticIngestionBatchSize = 500
+
     // MARK: Distillation limits (MVP guardrails so a distill finishes quickly)
 
     /// Maximum pages fetched per paginated endpoint (50 items/page for YouTube,
