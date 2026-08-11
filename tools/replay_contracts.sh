@@ -163,6 +163,41 @@ apply_twice 0051_align_encryption_key_version.sql
 run_contract 0047_current_state_and_surface_hardening_contract
 
 echo
+echo "########## the iOS envelope vocabulary ##########"
+# `Written/Models/SemanticSource.swift` maps every `data_type` the app emits to
+# an action, and an action is only real if the source actually weighs it.
+#
+# **This has to be asked of the built schema.** Five migrations touch
+# `action_weights` — 0042, 0044, 0045, 0046, 0048 — so reconstructing the final
+# state by parsing SQL would be a third copy of the thing under test. Lane A has
+# just applied the whole chain, so the answer is sitting in the database.
+#
+# The other half of this check needs no database and lives in
+# `semantic/tests/test_ios_envelope_contract.py`: every data type mapped at all.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  SKIP  python3 not available for the envelope vocabulary check"
+else
+  vocab=$( { python3 "$ROOT/tools/ios_envelope_contract.py" --repo "$ROOT" --emit-sql
+             cat <<'SQL'
+select count(*) || '|' || coalesce(string_agg(
+         format('%s/%s -> %s', a.source_code, a.data_type, a.action_type), ', '
+         ) filter (where s.source_code is null or not (s.action_weights ? a.action_type)), '')
+from ios_envelope_actions a
+left join semantic_private.sources s on s.source_code = a.source_code;
+SQL
+           } | docker exec -i "$CONTAINER" psql -U postgres -tA -v ON_ERROR_STOP=1 2>&1 | tail -1 )
+  total="${vocab%%|*}"
+  unweighed="${vocab#*|}"
+  if [ -n "$unweighed" ]; then
+    echo "  FAIL  the app claims actions the schema does not weigh: $unweighed"
+    fail=1; fail_count=$((fail_count + 1))
+  else
+    echo "  PASS  all $total mapped (source, data_type, action) triples are weighted"
+    pass_count=$((pass_count + 1))
+  fi
+fi
+
+echo
 echo "########## LANE B — Calendar upgrade fixture (gates 0046) ##########"
 reset_schema
 apply_through "0045_z"

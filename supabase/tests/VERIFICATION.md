@@ -14,7 +14,7 @@ records executions, and anything not listed here has not happened.
 > ./tools/replay_contracts.sh        # needs Docker, a few minutes
 > ```
 >
-> Latest run: **11 passed, 0 failed.**
+> Latest run: **12 passed, 0 failed.**
 
 ## Environment
 
@@ -67,6 +67,26 @@ the state at *its own* migration.
   the failing assertion and there is no separate contract file. Proven to bite
   by perturbing `0046`'s side in a throwaway container — it refused and named
   both patterns.
+
+## The iOS envelope vocabulary
+
+`Written/Models/SemanticSource.swift` maps every `data_type` the app emits to an
+action, and an action is only real if that source actually weighs it. **Asked of
+the built schema, not reconstructed**: five migrations touch `action_weights`
+(`0042`, `0044`, `0045`, `0046`, `0048`), so parsing SQL for the final state
+would be a third copy of the thing under test. Lane A has just applied the whole
+chain, so the answer is sitting in the database — 28 `(source, data_type,
+action)` triples, all weighted.
+
+**Proven to bite**, which for a check with no failing case yet is the only way
+to know it works: claiming `episode` for `apple_podcasts/podcast_episode` — an
+action the *`podcast`* source weighs and `apple_podcasts` does not — was refused
+by name. The check is per source, which is the whole point.
+
+The other half needs no database and is
+`semantic/tests/test_ios_envelope_contract.py`: every emitted `data_type` mapped
+at all, every `source:` literal resolving. Also proven by perturbation —
+deleting one mapping entry failed two tests, each naming the file and the type.
 
 ## The `private` grants check
 

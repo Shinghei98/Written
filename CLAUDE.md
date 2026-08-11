@@ -1654,6 +1654,44 @@ ourselves, which is smaller than it sounds — the project publishes a JWKS
 (confirmed live, one `ES256` key), so any JOSE library verifies an access token
 against a public key **with no shared secret**, and the user id is its `sub`.
 
+**Phase 1 has started, and its first half ships no behaviour either.** Four
+new files under `Written/Models/` — `SemanticSource`, `SourceEnvelope`,
+`SourcePayload` and the `+Legacy` adapter — give the typed envelope §4 asks for.
+Nothing constructs or sends one yet; `DistilledRecord` and `SyncService` are
+untouched, because Phase 1 is *dual*-write and this is the half that did not
+exist.
+
+Three things about it are worth knowing without reading the files:
+
+- **`health` against `healthkit` is a real seam.** Every distiller writes
+  `source: "health"`; `semantic_private.sources` calls it `healthkit`. Neither
+  is wrong and renaming either rewrites history in a table that is append-only
+  by design, so the translation lives in exactly one function
+  (`SemanticSource.appSourceCode`) and a test pins it there.
+- **A `data_type` now has to mean something.** `actionsByDataType` maps all 31
+  distinct ones the shipping app can emit onto one of three answers: an action the server
+  weighs, a real signal it does **not** weigh yet, or structurally not an act.
+  Those are three different states and collapsing the middle one into the last
+  is how the list of things still owed a decision disappears. It currently holds
+  five: `heavy_rotation`, `library_music_video`, `top_track`, `top_artist` and
+  `location/place` — and `top_track` is the sharp one, carrying an explicit
+  `rank=N` and being the strongest listening claim either music source returns.
+- **The vocabulary is checked from both ends, because neither end can see the
+  other.** `semantic/tests/test_ios_envelope_contract.py` reads the distillers
+  and fails if a `data_type` is unmapped; `tools/replay_contracts.sh` asks the
+  *built* schema whether each claimed action is one that source actually
+  weighs, since five migrations touch `action_weights` and reconstructing it by
+  parsing SQL would be a third copy of the thing under test. Both were proven to
+  bite by perturbation rather than assumed.
+
+**`SourcePayload+Legacy.swift` is scaffolding and is meant to be deleted.**
+Deriving a typed payload by re-parsing `key=value;key=value` inherits every bit
+of that string's lossiness — a value containing `;` or `=` was already
+unrecoverable before the adapter saw it. The end state is distillers emitting
+`SourcePayload` directly. It exists so dual-write can start without rewriting
+nine distillers first, and so the coverage comparison Phase 1 asks for has two
+paths to compare.
+
 **And the keys have somewhere to live: `0050`.**
 `raw_source_records` has carried `encryption_key_version not null` and
 `encrypted_payload` since `0046` — the envelope pattern assumed and never
