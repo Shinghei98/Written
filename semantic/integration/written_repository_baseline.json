@@ -23,8 +23,12 @@
     "verified_files_sha256_note": "Digests as reviewed at repository.commit. Frozen evidence: do not rewrite them to make a suite green. A file that has knowingly moved since review belongs in accepted_drift_sha256 with a reason.",
     "accepted_drift_sha256": {
       "Written/ViewModels/DistillViewModel.swift": {
-        "sha256": "162e38124207166a1f59251310a9b74c26124a5c449eb4271590cbbe2dce4309",
-        "reason": "Health now takes the same push path as every other source. It had branched away from SyncService.push and sent only derived figures, so distilled_records held zero rows with source='health' for every account that had ever connected it. localOnlyTypes still withholds health/biological_sex at the wire and apply(_:) still carries it across a hydration. Doc comments corrected in the same file."
+        "sha256": "e1dc036a14bd9f26a13b265e31e7ea37743450eda100552e40a49d3f5831f2c2",
+        "reason": "Health now takes the same push path as every other source. It had branched away from SyncService.push and sent only derived figures, so distilled_records held zero rows with source='health' for every account that had ever connected it. localOnlyTypes still withholds health/biological_sex at the wire and apply(_:) still carries it across a hydration. Doc comments corrected in the same file. Superseded an earlier accepted digest for the doc-only fix."
+      },
+      "Written/Services/Ontology.swift": {
+        "sha256": "9559c2b6c485fb1eb4d7cec02ad15cef1433cdf54ced54e421b2673e55c0d91a",
+        "reason": "A classical recording now yields two terms rather than one: the stamped subject (the composer) and the primary performer, which previously vanished from the Memories card entirely. Term gained `sources`, filled at the five construction sites and unioned on merge, so a chip can say which services back it; the set is built from MusicHighlights.allSongRows rather than the deduplicated set, because dedupe drops the losing row and a term built from survivors would claim one source for a recording present on two. Ontology.subjects is deliberately unchanged — it feeds the discovery card, which other people read, and 0038 exists because performer credits made bad public copy."
       }
     }
   },
@@ -81,12 +85,17 @@
     },
     {
       "sequence": 50,
-      "suggested_name": "0050_semantic_server_projections.sql",
-      "role": "application_surface_rpcs"
+      "suggested_name": "0050_semantic_user_encryption_keys.sql",
+      "role": "kms_key_registry"
     },
     {
       "sequence": 51,
-      "suggested_name": "0051_semantic_cutover.sql",
+      "suggested_name": "0051_semantic_server_projections.sql",
+      "role": "application_surface_rpcs"
+    },
+    {
+      "sequence": 52,
+      "suggested_name": "0052_semantic_cutover.sql",
       "role": "legacy_semantic_retirement"
     }
   ],
@@ -137,5 +146,5 @@
     49
   ],
   "application_migrations_authored_next": 50,
-  "application_migrations_reserved_note": "50 (server projections) is due in phase server_owned_discovery_and_profiles and 51 (cutover) in legacy_semantic_retirement. They shifted up by one when 0049 was spent capturing a platform event trigger that existed in production and in no file. The contract forbids reusing a number, not skipping one. 51 is irreversible and must not exist on disk before a minimum supported client version does."
+  "application_migrations_reserved_note": "50 is the KMS key registry, written and passing but not yet applied to production. 51 (server projections) is due in phase server_owned_discovery_and_profiles and 52 (cutover) in legacy_semantic_retirement. They have shifted twice now — once for the captured platform event trigger, once for the key registry. The contract forbids reusing a number, not skipping one. 52 is irreversible and must not exist on disk before a minimum supported client version does."
 }

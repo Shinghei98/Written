@@ -1612,7 +1612,9 @@ hand, so `supabase db push` would have tried `0001` against a full database.
 `supabase migration repair --status applied 0001 … 0041` came first, and
 `0042`–`0049` were deliberately left unrepaired because they genuinely had not
 been applied. **From now on `db push` is the deployment mechanism**, and
-`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers.
+`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers. `0050` is
+written and replaying green and is **not** applied; it can go whenever, since it
+ships no behaviour and nothing writes it.
 
 Nothing about the product changed: all seven feature flags are seeded off,
 nothing in Swift reads the new schemas, and the legacy path is untouched. The
@@ -1622,9 +1624,9 @@ fingerprint is byte-identical either side of the deploy, and `anon`,
 
 **`0042` and `0043` ship no product behaviour.** Phase 0 installs the schema and
 proves it upgrades cleanly. `004`–`006` become `0045`–`0047`, and the bridge,
-projection and cutover migrations `0048`–`0050` are app-specific. Nothing is
-read by Swift until Phase 3 at the earliest, and §12's KMS design is a
-prerequisite of Phase 1 rather than a detail of it.
+projection and cutover migrations are app-specific. Nothing is read by Swift
+until Phase 3 at the earliest, and §12's KMS design is a prerequisite of Phase 1
+rather than a detail of it.
 
 **That KMS decision is made: AWS**, and it is written up in
 `semantic/docs/KMS_DESIGN.md`. The scheme names no vendor — `DECISIONS.md` files
@@ -1640,28 +1642,54 @@ erasure means deleting the user's wrapped-key row, never the KMS key** — one i
 a routine deletion request, the other erases every user at once. And **the
 ingestion identity gets encrypt-only while the worker gets decrypt**, so the
 thing exposed to the internet can write into the vault and cannot read it back.
-One sub-decision is open: whether ingestion runs on Supabase, which needs a
-standing AWS credential in an edge function's environment, or on AWS, which does
-not. Recommended on AWS, and it must be settled before Phase 1 builds the
-endpoint, since it decides where the endpoint lives.
 
-**Only `0048` is being written now, and the later numbers are reserved rather
-than contiguous.** `0049` was then spent on something real — capturing
-`public.rls_auto_enable()`, a Supabase dashboard event trigger that existed in
-production and in no file — so **server projections are `0050` and cutover is
-`0051`**. That shift is exactly what §5 permits: never *reuse* a number, but
-skipping one is fine. Projections belong to Phase 4 and cutover to Phase 6. Three reasons, and the third is the one that bites:
-§10's own gate reads *"existing push/chat/profile behavior remains green through
-0048"*, so `0048` **is** the additive boundary; `0049` must match a
-`SemanticSurfaceService` that does not exist and its acceptance gate — two
-adversarial users against real assertions — is unrunnable before Phase 2; and
-`0050` is irreversible by contract (§9: *"do not reverse 0050 in place"*) while
-**this project has no migration ledger at all** — `supabase_migrations` is not
-an empty schema, it is an absent one — so a routine `supabase db push` after
-linking would apply it and break `DiscoveryCardService`, `DiscoveryService`,
-`MatchProfileService` and `ChatService` for every installed build. §5 requires
-never *reusing* a number, not contiguity: if product work needs a migration
-first, it takes `0049` and the pair shifts.
+**Ingestion runs on AWS too**, which was the open sub-decision and is settled: a
+Deno function on Supabase would need a long-lived AWS access key in its
+environment to reach KMS, and this project has lost four keys, every one a
+standing secret somewhere it did not need to be. On AWS the Lambda assumes its
+role and there is no credential at all. The cost is verifying Supabase tokens
+ourselves, which is smaller than it sounds — the project publishes a JWKS
+(confirmed live, one `ES256` key), so any JOSE library verifies an access token
+against a public key **with no shared secret**, and the user id is its `sub`.
+
+**And the keys have somewhere to live: `0050`.**
+`raw_source_records` has carried `encryption_key_version not null` and
+`encrypted_payload` since `0046` — the envelope pattern assumed and never
+completed, with nowhere to put the wrapped key the version names.
+`semantic_private.user_encryption_keys` is that place, `service_role` only with
+RLS on and no policy, one live key per person by partial unique index. Its
+behaviour is verified against a real chain rather than read off the DDL: a
+second *active* key is refused, retire-then-insert works and is rotation, a
+malformed ARN is refused, and **deleting the account cascades the keys to zero**,
+which is crypto-erasure with nothing to remember to call. It ships no behaviour
+and nothing writes it yet.
+
+**The later numbers are reserved rather than contiguous, and they have shifted
+twice.** The plan allocated three: a bridge, then server projections, then
+cutover. Two of the numbers behind them were spent on real work — `0049` on
+capturing `public.rls_auto_enable()`, a Supabase dashboard event trigger that
+existed in production and in no file, and `0050` on the key registry above — so
+**server projections are `0051` and cutover is `0052`**. That is exactly what §5
+permits: never *reuse* a number, but skipping one is fine, and if product work
+needs a migration first they shift again.
+
+**So the plan's numbers are no longer the app's, and its §-quotes are written in
+the plan's.** §10's gate reads *"existing push/chat/profile behavior remains
+green through 0048"* and §9 says *"do not reverse 0050 in place"* — the first
+still means our `0048`, the second now means our `0052`. Read a number in
+`WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**, not as a filename;
+`application_migrations` in the baseline manifest carries the mapping, which is
+why each entry has a `role` beside its name.
+
+Projections belong to Phase 4 and cutover to Phase 6, for three reasons, and the
+third is the one that bites: `0048` **is** the additive boundary by §10's gate;
+projections must match a `SemanticSurfaceService` that does not exist and their
+acceptance gate — two adversarial users against real assertions — is unrunnable
+before Phase 2; and cutover is irreversible by contract while **this project has
+no migration ledger at all** — `supabase_migrations` is not an empty schema, it
+is an absent one — so a routine `supabase db push` after linking would apply it
+and break `DiscoveryCardService`, `DiscoveryService`, `MatchProfileService` and
+`ChatService` for every installed build.
 
 **What `0048` has to carry, and the reason it is not bookkeeping:**
 `0042`–`0047` reference `auth.users` 31 times and legacy `public.*` tables zero

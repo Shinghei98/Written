@@ -151,6 +151,7 @@ apply_twice 0046_semantic_private_ingestion_fitness.sql && run_contract 0046_pri
 apply_twice 0047_semantic_current_state_surfaces.sql  && run_contract 0047_current_state_and_surface_hardening_contract
 apply_twice 0048_semantic_legacy_bridge.sql
 apply_twice 0049_capture_platform_rls_event_trigger.sql
+apply_twice 0050_semantic_user_encryption_keys.sql
 # Again, with the bridge and the captured event trigger in place: 0048 rewrites
 # `finalize_ingestion_run_v031`, which is the function this contract is built
 # around, so "0048 broke nothing" is a claim worth re-testing rather than

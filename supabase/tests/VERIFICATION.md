@@ -38,7 +38,7 @@ hosted project's *services* create rather than the database image:
 
 | Lane | What it proves |
 |---|---|
-| **A** | `0001`→`0048` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. `0048` applies and replays. Contract 006 passes both before and after `0048`. |
+| **A** | `0001`→`0050` from empty. Every semantic migration applied **and immediately replayed**. All six contracts pass in staged order. `0048`, `0049` and `0050` apply and replay. Contract 006 passes both before and after `0048`. |
 | **B** | Calendar upgrade fixture: `0042`–`0045`, load `fixtures/0046_calendar_upgrade_fixture.sql`, apply+replay `0046`, contract passes. Then `0047` and `0048` on that populated state. |
 | **C** | Surface-fact fixture: `0042`–`0046`, load `fixtures/0047_surface_fact_upgrade_fixture.sql`, apply+replay `0047`, contract passes. Then `0048` on that populated state. |
 
@@ -57,6 +57,11 @@ the state at *its own* migration.
 - A legacy backfill cannot assert a complete full snapshot.
 - The emergency kill switch takes an enabled flag from true to false.
 - **Zero** source-coupled run foreign keys remain in `semantic_private`.
+- `0050`'s key registry, against a real chain: a second *active* key for one user
+  is refused by the partial unique index; retiring the first then admitting a
+  second works, which is rotation; a malformed KMS ARN is refused; and
+  **`delete from auth.users` leaves zero key rows** — crypto-erasure with
+  nothing to remember to call.
 
 ## The `private` grants check
 
@@ -103,4 +108,6 @@ be run **from two independent sessions at READ COMMITTED**. Nothing calls those
 functions yet, so it is Phase 5 work — but it is a release gate.
 `tools/chat_e2e.py` is the pattern to extend.
 
-Nothing here has been applied to the production project.
+`0042`–`0049` have since been applied to production; `0050` has not. This file
+records what the *replay* proves, which is a separate question from what is
+deployed — `supabase/DEPLOY.md` is the record of that.

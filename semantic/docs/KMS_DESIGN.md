@@ -87,9 +87,9 @@ plus decrypt permission reads anybody.
 
 ### Where the wrapped key lives
 
-There is no key registry in the schema today, so Phase 1 needs one — a small
-migration, and the next free number (currently `0050`, which shifts server
-projections and cutover up by one again):
+`0050_semantic_user_encryption_keys.sql` — **written and passing**, applied and
+replayed by `tools/replay_contracts.sh`, not yet on production. Taking `0050`
+shifts server projections to `0051` and cutover to `0052`.
 
 ```
 semantic_private.user_encryption_keys
@@ -104,6 +104,12 @@ semantic_private.user_encryption_keys
 RLS on, no policy, `service_role` only — the posture every other
 `semantic_private` table already has. The wrapped blob is safe at rest by
 construction: it is unusable without a `kms:Decrypt` call that AWS logs.
+
+Behaviour verified against a real chain rather than read off the DDL: a second
+*active* key for one user is refused by the partial unique index; retiring the
+first then admitting a second works, which is rotation; a malformed ARN is
+refused; and **deleting the account cascades the keys to zero** — crypto-erasure
+with nothing to remember to call.
 
 ## §12's six requirements, answered
 
@@ -139,19 +145,22 @@ IAM role natively, so `Decrypt` is scoped to it with no credential stored
 anywhere. This also closes Gate 2, which had no answer at all: the project's
 only compute is three Deno edge functions and a static Cloudflare site.
 
-**Ingestion: one open sub-decision.** The natural home is a Supabase edge
-function, because it can verify the caller's Supabase JWT trivially. But a Deno
-function on Supabase needs a long-lived AWS access key in its environment to
-call KMS. That does not violate §12 — the *KEK* is still only in AWS, and the
-credential grants encrypt-only — but it is a standing secret, which is the
-category this project has already lost four keys from.
+**Ingestion: on AWS too — decided.** API Gateway + Lambda, not a Supabase edge
+function. The edge function was tempting because it can verify the caller's
+Supabase JWT trivially, but a Deno function on Supabase would need a long-lived
+AWS access key in its environment to reach KMS. That does not violate §12 — the
+KEK is still only in AWS and the credential would be encrypt-only — but it is a
+standing secret, and this project has lost four keys, every one a standing
+secret somewhere it did not need to be. On AWS there is no credential at all:
+the Lambda assumes `written-semantic-ingestion` and that is the whole story.
 
-The alternative is API Gateway + Lambda for ingestion too: no stored credential,
-IAM all the way, at the cost of verifying Supabase JWTs ourselves against the
-project's JWKS, which is ordinary work rather than novel. **Recommendation: put
-ingestion on AWS as well**, so no AWS credential exists outside AWS. Decide
-before Phase 1 builds the endpoint, because it determines where the endpoint
-lives.
+The cost is verifying Supabase tokens ourselves, and it is smaller than it
+sounds. The project publishes a JWKS — confirmed live, one EC key, `ES256`,
+`use: sig` — at
+`https://fwnezkbesjoazlpaflbq.supabase.co/auth/v1/.well-known/jwks.json`, so any
+standard JOSE library verifies an access token against a public key with **no
+shared secret**. The user id is the token's `sub`, which is what the endpoint
+needs and what §4 means by "derives the user from the access token".
 
 ## Cost
 
@@ -182,7 +191,10 @@ it) shares the Lambda or gets its own schedule.
    laptop, and nothing routine needs it now: both Lambdas use their roles.
    IAM → Users → `written-setup` → Security credentials → deactivate, then
    delete. Recreate for an afternoon if more setup is ever needed.
-3. Settle the ingestion-hosting sub-decision above — it decides where the
-   Phase 1 endpoint lives, so it comes before the endpoint is written.
-4. The key-registry migration (`semantic_private.user_encryption_keys`).
-5. Then Phase 1's envelope and ingestion endpoint, which this unblocks.
+3. ~~Settle the ingestion-hosting sub-decision.~~ **Done — AWS.**
+4. ~~The key-registry migration.~~ **Done — `0050`, passing, not yet applied to
+   production.**
+5. Apply `0050` to production, which is safe whenever: it ships no behaviour and
+   nothing writes it.
+6. Then Phase 1 — the typed envelope in Swift, and the API Gateway + Lambda
+   ingestion endpoint this unblocks.
