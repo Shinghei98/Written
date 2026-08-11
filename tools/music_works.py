@@ -18,6 +18,7 @@ import re
 import unicodedata
 
 from music_dictionary import (
+    ARTIST_WORK,
     MEDIA_GENRES,
     WORK_BY_ALBUM,
     WORK_DECORATIONS,
@@ -25,6 +26,7 @@ from music_dictionary import (
     WORK_FROM_PATTERN,
     WORK_JP_PATTERN,
     WORK_NOT_A_WORK,
+    WORK_PARENT,
     WORK_SERIES_PATTERN,
     WORK_TRAILING_PATTERN,
 )
@@ -111,12 +113,46 @@ def named_work(album: str) -> str | None:
     return WORK_BY_ALBUM.get(album)
 
 
+def artist_work(performer: str) -> str | None:
+    """Mechanism 5 — an artist who exists only inside one work.
+
+    A fictional band from an anime records nothing else, so this is a fact about
+    the artist rather than about any release: `Ave Mujica` covers two albums here
+    and will cover the next without an edit. Stronger and shorter than listing
+    releases.
+
+    Real artists who merely sing many anime themes are absent by design — LiSA,
+    ASCA, fripSide, ReoNa and OxT work across series, and filing them under one
+    would be the Hopkins error with a band instead of a person.
+    """
+    return ARTIST_WORK.get((performer or "").strip())
+
+
+def work_parents(work: str) -> list[str]:
+    """The franchise chain above a work, nearest first.
+
+    *Bleach: Thousand-Year Blood War* is a series within *Bleach*, and somebody
+    who has one is evidence for both — so only the specific one has to be named
+    and the rest follows. Cycle-guarded, because a table edited by hand can
+    always name its own ancestor.
+    """
+    chain: list[str] = []
+    seen = {work}
+    parent = WORK_PARENT.get(work)
+    while parent and parent not in seen:
+        chain.append(parent)
+        seen.add(parent)
+        parent = WORK_PARENT.get(parent)
+    return chain
+
+
 def is_media_row(genres: list[str]) -> bool:
     """Whether Apple says this row is music for something."""
     return any(genre in MEDIA_GENRES for genre in genres or ())
 
 
-def work_for(title: str, album: str, genres: list[str]) -> str | None:
+def work_for(title: str, album: str, genres: list[str],
+             performer: str = "") -> str | None:
     """The work this row belongs to, or `None`.
 
     **Order is confidence.** A stated `From "…"` beats a hand-named album, which
@@ -130,6 +166,11 @@ def work_for(title: str, album: str, genres: list[str]) -> str | None:
     stated = stated_work(title, album)
     if stated:
         return stated
+
+    # An in-universe band settles it whatever the release is called.
+    by_artist = artist_work(performer)
+    if by_artist:
+        return by_artist
 
     # **An album row carries its name in `title` and has no album of its own.**
     # `library_album` rows are exactly that shape, and half the soundtracks in a
@@ -180,7 +221,8 @@ def propagate(rows: list[dict]) -> dict[str, str]:
     """
     learned: dict[str, str] = {}
     for row in rows:
-        work = work_for(row.get("title", ""), row.get("album", ""), row.get("genres", []))
+        work = work_for(row.get("title", ""), row.get("album", ""),
+                        row.get("genres", []), row.get("performer", ""))
         if not work:
             continue
         key = normalized_song_key(row.get("title", ""), row.get("performer", ""))

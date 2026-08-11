@@ -143,12 +143,47 @@ def test_an_ordinary_single_names_no_work(works):
 
 
 def test_an_anime_single_with_no_named_series_abstains(works):
-    """`Saihate - Single` is anime music whose series is not in the data and not
-    in the dictionary. It keeps its genre and gains no work.
+    """`Blood teller - EP` is anime music whose series is not in the data and
+    not in the dictionary. It keeps its genre and gains no work.
 
     This is the case the whole design is arranged around: a plausible title is
-    available — the song's own name — and taking it would be inventing."""
-    assert works.work_for("Saihate", "Saihate - Single", ["Anime"]) is None
+    available — the song's own name — and taking it would be inventing.
+
+    It used to use `Saihate`, which the library's owner then identified as a
+    *Bleach: Thousand-Year Blood War* ending. That is the right way for an
+    abstention to end: somebody names it, and the test moves to something still
+    genuinely unknown rather than the dictionary staying empty to keep a test
+    passing."""
+    assert works.work_for("Blood teller", "Blood teller - EP", ["Anime"],
+                          "Faylan") is None
+
+
+def test_an_in_universe_band_settles_it_whatever_the_release(works):
+    """A fictional band from an anime records nothing else, so this is a fact
+    about the artist. `Ave Mujica` covers two releases here and will cover the
+    next without an edit."""
+    assert works.work_for("KiLLKiSS", "KiLLKiSS - Single", ["Anime"], "Ave Mujica") \
+        == "BanG Dream! Ave Mujica"
+    assert works.work_for("Alea jacta est", "Alea jacta est - EP", ["Anime"],
+                          "Ave Mujica") == "BanG Dream! Ave Mujica"
+
+
+def test_a_real_artist_is_not_bound_to_one_series(works):
+    """LiSA sings for many series, so no artist rule fires and each release is
+    named on its own. Binding her to one would be the Hopkins error with a band
+    instead of a person."""
+    assert works.artist_work("LiSA") is None
+    assert works.work_for("Oath Sign", "oath sign - EP", ["Anime"], "LiSA") == "Fate/Zero"
+    assert works.work_for("Gurenge", "Gurenge - EP", ["Anime"], "LiSA") \
+        == "Demon Slayer: Kimetsu no Yaiba"
+
+
+def test_a_series_carries_its_franchise(works):
+    """Named once, both available: somebody with the Bleach: TYBW ending is
+    evidence for Bleach as well, which is how the library's owner described it."""
+    assert works.work_parents("Bleach: Thousand-Year Blood War") == ["Bleach"]
+    assert works.work_parents("BanG Dream! Ave Mujica") == ["BanG Dream!"]
+    assert works.work_parents("Wicked") == []
 
 
 # --- mechanism 4: recognised by a person ------------------------------------

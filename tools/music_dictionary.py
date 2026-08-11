@@ -446,6 +446,39 @@ WORK_SERIES_PATTERN = r'(?:Tv|TV) Series "([^"]+)"'
 #    whose series I cannot name with confidence, so they are absent and their
 #    rows keep `genre:anime` and no work — which is true, where a guess would
 #    not be. That is the Anthony Hopkins rule applied to works.
+# **Some artists exist only inside one work**, and that is a fact about the
+# artist rather than about any release: a fictional band from an anime records
+# nothing else, so every song it ever appears on belongs to that work. Stronger
+# and shorter than listing albums — `Ave Mujica` covers two releases here and
+# will cover the next one without an edit.
+#
+# Real artists who happen to sing many anime themes are **not** in this table:
+# LiSA, ASCA, fripSide, ReoNa, OxT and MYTH & ROID work across series, and
+# filing them under one would be the Hopkins error with a band instead of a
+# person.
+ARTIST_WORK: dict[str, str] = {
+    "Ave Mujica": "BanG Dream! Ave Mujica",
+    "CRYCHIC": "BanG Dream! It's MyGO!!!!!",
+    "MyGO!!!!!": "BanG Dream! It's MyGO!!!!!",
+    "夢限大みゅーたいぷ": "BanG Dream!",
+    "MOB CHOIR": "Mob Psycho 100",
+    "PHANTAZM(FES CV.Yui Sakakibara)": "Steins;Gate",
+}
+
+# A series belongs to a franchise, and a person who likes one likes the other —
+# so both are worth having and only the specific one needs naming. Same shape as
+# the genre tree `0066` built: `broader`, curated, not transitive for inference.
+WORK_PARENT: dict[str, str] = {
+    "BanG Dream! Ave Mujica": "BanG Dream!",
+    "BanG Dream! It's MyGO!!!!!": "BanG Dream!",
+    "Bleach: Thousand-Year Blood War": "Bleach",
+    "Sword Art Online: Alicization": "Sword Art Online",
+    "Sword Art Online II": "Sword Art Online",
+    "Re: Zero -Starting Life in Another World-": "Re:Zero",
+    "Overlord II": "Overlord",
+    "Overlord III": "Overlord",
+}
+
 WORK_BY_ALBUM: dict[str, str] = {
     "oath sign - EP": "Fate/Zero",
     "only my railgun - EP": "A Certain Scientific Railgun",
@@ -453,6 +486,22 @@ WORK_BY_ALBUM: dict[str, str] = {
     "KiLLKiSS - Single": "BanG Dream! Ave Mujica",
     "Alea jacta est - EP": "BanG Dream! Ave Mujica",
     "Haruhikage - From THE FIRST TAKE - Single": "BanG Dream! It's MyGO!!!!!",
+    # Named by the person whose library this is. SennaRin's "Saihate" is a
+    # *Bleach: Thousand-Year Blood War* ending — which I could have identified
+    # and did not, having over-corrected after filing Anthony Hopkins under
+    # Dvořák. Abstaining on everything uncertain is no better calibrated than
+    # inventing; it just fails quietly instead of loudly.
+    "Saihate - Single": "Bleach: Thousand-Year Blood War",
+    # Named with the same confidence, rather than abstaining out of caution.
+    "Gurenge - EP": "Demon Slayer: Kimetsu no Yaiba",
+    "ANIMA (Special Edition) - EP": "Sword Art Online: Alicization",
+    "Strike the Blood - EP": "Strike the Blood",
+    "Sorawa Takaku Kazewa Utau - EP": "Aldnoah.Zero",
+    "Takt - EP": "takt op.Destiny",
+    # These two state the series in the title itself; listing them is simpler
+    # than a rule for two rows.
+    "Savior of Song (Arpeggio of Blue Steel Ver.) - Single": "Arpeggio of Blue Steel",
+    "Nurarihyon no Mago - Sennen Makyo - Opening - Single": "Nurarihyon no Mago",
 }
 
 # Albums that are compilations rather than one work: several works, or none.
