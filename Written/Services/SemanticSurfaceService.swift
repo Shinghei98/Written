@@ -179,6 +179,71 @@ actor SemanticSurfaceService {
         }
     }
 
+    #if DEBUG
+    /// `-probe-surface` → read the owner's assertions through the real RPCs and
+    /// say what came back.
+    ///
+    /// ```
+    /// xcrun simctl launch <device> com.written.datingapp -probe-surface 1
+    /// ```
+    ///
+    /// **The one link nobody can exercise without a signed-in device.** Each
+    /// piece of Phase 3's read path has been checked on its own — `authenticated`
+    /// has usage on `api` and execute on all seven functions, the schema is
+    /// exposed (confirmed by a request that resolved only with
+    /// `Content-Profile: api`), and `0103` proves the flag gates the guard. None
+    /// of that proves a token Supabase actually minted reaches
+    /// `api.list_assertions` and comes back with *this person's* rows. A
+    /// simulator holds no session, so run it there and it correctly reports
+    /// being signed out — which exercises the wiring and nothing past it.
+    ///
+    /// **It reads and never writes.** Confirm and suppress are somebody's own
+    /// answers about themselves, and a probe that recorded one to test a
+    /// network call would be putting words in their mouth. That is the
+    /// difference from `-probe-ingest`, which must write because the write path
+    /// is what it exists to prove.
+    ///
+    /// It deliberately does *not* bypass the flags. The interesting failure
+    /// here is a surface that is off, and a probe that reached around the guard
+    /// would prove a path the app never takes.
+    func probe() async -> String {
+        guard AppConfig.semanticSurfacesEnabled else {
+            return "AppConfig.semanticSurfacesEnabled is false: this build never asks."
+        }
+
+        let flags = await enabledSurfaces()
+        var lines = ["flags on: " + (flags.isEmpty ? "none" : flags.sorted().joined(separator: ", "))]
+        if let failure = lastError {
+            lines.append("feature_flags failed: \(failure)")
+        }
+
+        guard let found = await assertions() else {
+            return (lines + ["list_assertions: could not ask — \(lastError ?? "no reason given")"])
+                .joined(separator: "\n")
+        }
+
+        if found.isEmpty {
+            lines.append(
+                flags.contains("memories_reads")
+                    ? "list_assertions: reached, and returned nothing."
+                    : "list_assertions: the server declined — memories_reads is off, "
+                      + "which is the surface guard working."
+            )
+            return lines.joined(separator: "\n")
+        }
+
+        let confirmed = found.filter(\.isConfirmed).count
+        let suppressed = found.filter(\.isSuppressed).count
+        lines.append("\(found.count) assertion(s), \(confirmed) confirmed, \(suppressed) suppressed")
+        for assertion in found.prefix(5) {
+            let strength = assertion.strength.map { String(format: "%.3f", $0) } ?? "—"
+            lines.append("  \(assertion.label) · \(strength) · \(assertion.displayState)")
+        }
+        if found.count > 5 { lines.append("  … and \(found.count - 5) more") }
+        return lines.joined(separator: "\n")
+    }
+    #endif
+
     private static func assertion(from row: [String: Any]) -> Assertion? {
         guard let idText = row["assertion_id"] as? String,
               let id = UUID(uuidString: idText),

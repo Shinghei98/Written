@@ -147,6 +147,24 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "probe-ingest") != nil
     }
 
+    /// `-probe-surface 1` → read the owner's own assertions through the `api`
+    /// RPCs and show what came back.
+    ///
+    /// **The same argument as `-probe-ingest`, at the other end of the pipe.**
+    /// Every part of Phase 3's read path has been checked separately — the
+    /// grants, the exposed schema, the flag guard, the client — and the one
+    /// thing none of them proves is that a real signed-in token reaches
+    /// `api.list_assertions` and gets this person's assertions back. The
+    /// simulator holds no session, so a probe there answers only that the
+    /// wiring compiles.
+    ///
+    /// It reads and never writes: confirm and suppress are the person's own
+    /// answers about themselves, and a probe that recorded one would be putting
+    /// words in their mouth to test a network call.
+    static var probesSurface: Bool {
+        UserDefaults.standard.string(forKey: "probe-surface") != nil
+    }
+
     /// `-tutorial badge` → open the coach mark that lights the connected badge,
     /// without connecting anything.
     ///

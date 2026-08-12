@@ -106,6 +106,11 @@ private struct ProbeAlert: ViewModifier {
                       DebugLaunch.firesOnce("probe-ingest") else { return }
                 result = ("Vault ingestion probe", await SemanticIngestionService.shared.probe())
             }
+            .task {
+                guard DebugLaunch.probesSurface,
+                      DebugLaunch.firesOnce("probe-surface") else { return }
+                result = ("Assertion surface probe", await SemanticSurfaceService.shared.probe())
+            }
             .alert(
                 result?.title ?? "",
                 isPresented: Binding(get: { result != nil }, set: { if !$0 { result = nil } })
