@@ -8,7 +8,21 @@
   // empty in the dashboard — nothing here is built — and the deploy command as
   // its default `npx wrangler deploy`.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "written-site",
+
+  // **`written`, and the name is the whole deployment.** This said
+  // `written-site` and `written-stl.com` is a custom domain on a Worker called
+  // `written` — so `npx wrangler deploy` created a *second* Worker and
+  // published to it, reporting success, uploading every asset, and changing
+  // nothing anybody can reach. The apex went on serving the previous copy,
+  // with our own `_headers` CSP on it, which is what made it look like a cache
+  // problem rather than a wrong target. Purging the cache changed nothing
+  // because nothing was stale.
+  //
+  // Check it against the account rather than against this file if it is ever
+  // in doubt:
+  //
+  //     GET /accounts/{id}/workers/domains  ->  written-stl.com -> written
+  "name": "written",
   "compatibility_date": "2026-08-04",
 
   "assets": {
