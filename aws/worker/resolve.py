@@ -11,12 +11,20 @@ album and genres. So resolution runs on evidence rather than on plaintext, and
 the worker's `Decrypt` stays reserved for classifiers that genuinely need raw
 rows.
 
-**Music only, and three separate mechanisms agree on that.**
-`ObservationMapper._source_projection_is_valid` refuses Calendar outright and
-demands an exact fitness-candidate shape for HealthKit;
+**Music and YouTube, and Calendar and HealthKit remain refused by three separate
+mechanisms.** `ObservationMapper._source_projection_is_valid` refuses Calendar
+outright and demands an exact fitness-candidate shape for HealthKit;
 `guard_calendar_observation_mapping` says the same thing again in the database;
 and §7 permits only the current Calendar classifier over Calendar rows. Nothing
 here bypasses any of them.
+
+**YouTube is the second independence group, which is why it is here at all.**
+`apple_music`, `music_library` and `spotify` all carry the group `music` by
+design — three streaming services agreeing that somebody played a song is one
+witness — so no music source can ever be the second, and `motif_rules` requires
+two as a check constraint. Its two mapping kinds are gated differently:
+`provider_topic` needs no approval and `uploader_tag` is licensed by `0078`,
+read off the *run's* policy row rather than the approval.
 
 **Unresolved terms are emitted anyway, and that is the point of emitting them.**
 Artists, works and composers resolve to nothing today, because the ontology holds
@@ -62,9 +70,49 @@ from written_ontology.recency import (
 
 # The `recency` domain each source belongs to, which is the policy's own
 # vocabulary rather than ours.
-RECENCY_DOMAIN = "music"
+#
+# **Per source, and it was a constant.** `DEFAULT_RECENCY_POLICY` registers
+# YouTube's curves under `video` — `register("video", ("youtube",),
+# ("subscription",), ENDURING_FOLLOW)` — while a hardcoded `"music"` would find
+# no rule for a YouTube row, raise `RecencyPolicyError`, and drop every one of
+# them as `unweighted_action`. Counted rather than silent, but the count would
+# have read as "YouTube supports no terms" rather than "asked the wrong
+# question".
+RECENCY_DOMAIN_BY_SOURCE = {
+    "apple_music": "music",
+    "music_library": "music",
+    "spotify": "music",
+    "youtube": "video",
+}
+
+
+def recency_domain(source_code: str) -> str:
+    """The policy domain for a source, refusing to guess for an unknown one.
+
+    A default of `"music"` here would put the next source's rows on music's
+    decay curve silently, which is worse than a source that resolves nothing:
+    a wrong weight is indistinguishable from a right one downstream.
+    """
+    domain = RECENCY_DOMAIN_BY_SOURCE.get(source_code)
+    if domain is None:
+        raise RecencyPolicyError(f"no recency domain for source {source_code!r}")
+    return domain
 
 MUSIC_SOURCES = ("apple_music", "music_library", "spotify")
+YOUTUBE_SOURCE = "youtube"
+
+# **Read from `0078`'s resolver model rather than chosen here.** Its parameters
+# record `min_tag_length`, `whole_tag_only` and `substring_matching: false`, and
+# the reason the bound exists is measured: `creator:yg` matched in the corpus,
+# YG Entertainment is a label rather than an artist, and a two-character tag
+# matches noise in any library. Duplicated as a constant only so a failure to
+# load the model is not a silently permissive default.
+MIN_TAG_LENGTH = 3
+
+# Every source this resolver reads. YouTube joins music rather than
+# replacing it: independence is per source, and a concept reaching both
+# groups is the only thing that can ever satisfy a motif rule.
+RESOLVED_SOURCES = MUSIC_SOURCES + (YOUTUBE_SOURCE,)
 
 # One batch per invocation. Kept well above the ~1,300 currently-present music
 # observations so a run is one pass, and bounded so a large library cannot make a
@@ -385,19 +433,87 @@ def library_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str,
     return works, eras
 
 
+def youtube_terms_for(payload: dict[str, Any],
+                      allow_uploader_tags: bool) -> tuple[Term, ...]:
+    """The terms one YouTube observation supports.
+
+    Two kinds, and they carry different permissions and different type rules.
+
+    **`provider_topic` passes no `type_hint`, deliberately.** The hint exists to
+    stop a *fuzzy* match landing on a concept of the wrong kind — it is what
+    threw away 321 song titles that had matched `work` concepts. These are not
+    fuzzy: each of the twenty is a mapping hand-authored in
+    `tools/youtube_topics.py`, so the target was chosen rather than guessed and
+    there is nothing left to check. Passing `topic` would actively break it —
+    the hint permits only `{topic, genre, culture, cuisine}`, while six of the
+    twenty resolve to `hub:*` and `medium:television`, which would be rejected on
+    type after resolving correctly.
+
+    **`uploader_tag` passes `creator`, equally deliberately.** A tag is the
+    uploader's free text, so the guard is worth having: it is what stops the tag
+    `music` reaching `hub:music`, and it means a tag can only ever become
+    evidence about a creator.
+
+    **Topics arrive as Wikipedia slugs and the underscores must go.** `0076`
+    stored `normalized_label` as `topic.replace('_', ' ').lower()` — `music of
+    asia` — so a term still carrying `Music_of_Asia` normalizes to something the
+    alias map has never heard of and resolves to nothing at all, silently.
+    """
+    terms: list[Term] = []
+
+    for topic in payload.get("topics") or []:
+        text = str(topic).replace("_", " ").strip()
+        if text:
+            terms.append(_term(text, "provider_topic", "topics", None))
+
+    # **Gated on the run's own policy, not on the approval.** A run opened
+    # before `0078`'s determination existed is legitimately denied, and reading
+    # the approval directly would grant it retroactively.
+    if allow_uploader_tags:
+        for tag in payload.get("tags") or []:
+            text = str(tag).strip()
+            # Whole tags only, and never a substring — recognising `physics` is
+            # translation, matching `phys` inside a title is a guess wearing the
+            # same clothes. `resolve_alias` compares whole normalized labels, so
+            # the only thing needed here is the length floor.
+            if len(text) >= MIN_TAG_LENGTH:
+                terms.append(_term(text, "uploader_tag", "tags", "creator"))
+
+    return tuple(terms)
+
+
+# The `youtube_semantic_kind` each term role becomes. `observation_mappings`
+# constrains the column to five values and `0078` licenses exactly one of the
+# gated ones; a role absent from this map stamps nothing and is refused by
+# `guard_youtube_mapping_fusion`.
+YOUTUBE_KIND_BY_ROLE = {
+    "provider_topic": "provider_topic",
+    "uploader_tag": "uploader_tag",
+}
+
+
 def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          works: dict[str, str] | None = None,
-                         eras: dict[str, tuple[str, ...]] | None = None) -> Observation | None:
+                         eras: dict[str, tuple[str, ...]] | None = None,
+                         allow_uploader_tags: bool = False) -> Observation | None:
     payload = row["normalized_payload"]
     if not isinstance(payload, dict):
         return None
-    performer = payload.get("primary_performer") or ""
-    key = normalized_song_key(payload.get("title") or "", performer)
-    terms = terms_for(
-        payload, row["action_type"],
-        work=(works or {}).get(key),
-        eras=(eras or {}).get(performer, ()),
-    )
+
+    # **YouTube takes its own branch rather than a wider `terms_for`.** Its
+    # projection shares no field with music's — it has no title, no performer
+    # and no genres, by design — so widening the music reader would mean a
+    # function whose every line tests which source it is looking at.
+    if row["source_code"] == YOUTUBE_SOURCE:
+        terms = youtube_terms_for(payload, allow_uploader_tags)
+    else:
+        performer = payload.get("primary_performer") or ""
+        key = normalized_song_key(payload.get("title") or "", performer)
+        terms = terms_for(
+            payload, row["action_type"],
+            work=(works or {}).get(key),
+            eras=(eras or {}).get(performer, ()),
+        )
     if not terms:
         return None
     return Observation(
@@ -490,12 +606,18 @@ insert into semantic_private.observation_mappings (
   semantic_run_id, observation_id, user_id, ontology_version_id, concept_id,
   mapping_method, mapping_state, confidence, candidate_rank, score_margin,
   feature_snapshot, evidence_path, evidence_weight, cross_source_fusion_allowed,
+  youtube_semantic_kind,
   recency_weight, recency_quality, recency_policy_version, recency_rule_id,
   recency_status, recency_timestamp_quality, recency_as_of
 ) values (
   %(run)s, %(observation)s, %(user_id)s, %(version)s, %(concept)s,
   %(method)s, %(state)s, %(confidence)s, %(rank)s, %(margin)s,
   '{}'::jsonb, %(evidence_path)s::jsonb, %(evidence_weight)s, false,
+  -- Null for every non-YouTube mapping, which is what the column's check
+  -- allows and what `guard_youtube_mapping_fusion` expects. Stamped only
+  -- where the source is YouTube, so a mapping can always be traced to the
+  -- permission that licensed it.
+  %(youtube_kind)s,
   %(recency_weight)s, %(recency_quality)s, %(recency_policy)s, %(recency_rule)s,
   %(recency_status)s, %(recency_quality_label)s, %(as_of)s
 )
@@ -514,6 +636,13 @@ RECORD_METRICS = """
 update semantic_private.semantic_runs
    set metrics = %(metrics)s::jsonb
  where id = %(run)s and user_id = %(user_id)s and status = 'running'
+"""
+
+SELECT_RUN_POLICY = """
+select allow_uploader_tags, allow_channel_identity, allow_role_resolution,
+       allow_title_tags, policy_version
+  from semantic_private.youtube_run_policies
+ where semantic_run_id = %(run)s
 """
 
 FINALIZE_RUN = "select semantic_private.finalize_semantic_run(%(run)s) as finalized"
@@ -550,14 +679,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         cursor.execute(
             "select source_code, evidence_channel, independence_group"
             "  from semantic_private.sources where source_code = any(%(sources)s)",
-            {"sources": list(MUSIC_SOURCES)},
+            {"sources": list(RESOLVED_SOURCES)},
         )
         sources = {row["source_code"]: row for row in cursor.fetchall()}
 
     with connection.cursor() as cursor:
         cursor.execute(SELECT_OBSERVATIONS, {
             "user_id": user_id,
-            "sources": list(MUSIC_SOURCES),
+            "sources": list(RESOLVED_SOURCES),
             "limit": MAX_OBSERVATIONS,
         })
         rows = cursor.fetchall()
@@ -604,6 +733,19 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
 
     run_id, as_of = run["id"], run["started_at"]
 
+    # **The run's own policy, not the approval.** `initialize_youtube_run_policy`
+    # writes this row from the active approval as the run is created, so a run
+    # opened before `0078`'s determination existed carries `deny-all-v1` and is
+    # legitimately refused. Reading the approval directly here would grant it
+    # retroactively, which is the difference between a permission and a fact
+    # about when something happened.
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_RUN_POLICY, {"run": run_id})
+        policy = cursor.fetchone()
+    allow_uploader_tags = bool(policy and policy["allow_uploader_tags"])
+    counts["youtube_policy"] = policy["policy_version"] if policy else "missing"
+    counts["allow_uploader_tags"] = allow_uploader_tags
+
     # Computed once over the whole set, because neither is decidable per row.
     works, eras = library_facts(rows)
 
@@ -611,7 +753,8 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         source = sources.get(row["source_code"])
         if source is None:
             continue
-        observation = observation_from_row(row, source, works, eras)
+        observation = observation_from_row(
+            row, source, works, eras, allow_uploader_tags=allow_uploader_tags)
         if observation is None:
             counts["no_terms"] += 1
             continue
@@ -619,7 +762,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
 
         try:
             recency = DEFAULT_RECENCY_POLICY.evaluate(
-                domain=RECENCY_DOMAIN,
+                domain=recency_domain(observation.source),
                 source=observation.source,
                 action=observation.action,
                 occurred_at=observation.occurred_at,
@@ -691,6 +834,10 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                     "recency_status": str(recency.temporal_status),
                     "recency_quality_label": str(recency.timestamp_quality),
                     "as_of": as_of,
+                    "youtube_kind": (
+                        YOUTUBE_KIND_BY_ROLE.get(candidate.term.role)
+                        if observation.source == YOUTUBE_SOURCE else None
+                    ),
                 })
             counts["mappings"] += 1
             if str(candidate.state) == "accepted":

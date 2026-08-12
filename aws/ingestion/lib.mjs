@@ -239,7 +239,112 @@ export function encryptPayload(dek, plaintextUtf8) {
 // classifier*, not a transcription of the payload. §7 permits only the current
 // Calendar classifier over Calendar rows. Their rows are captured and encrypted
 // and contribute zero evidence, which is what §10's Calendar gate asks for.
-const PROJECTABLE = new Set(["apple_music", "music_library", "spotify"]);
+const PROJECTABLE = new Set([
+  "apple_music", "music_library", "spotify", "youtube",
+]);
+
+/**
+ * The observation metadata each projectable source declares.
+ *
+ * **Was three hardcoded strings, and music's.** `projection()` stamped
+ * `catalog_item` / `music-v03` / `public_catalog` on whatever it was given, which
+ * was correct while only music was projectable and would have filed every
+ * YouTube row under music's vocabulary the moment one arrived —
+ * `private_observation_projection_is_valid_v03` refuses that by name, so it
+ * would have failed loudly rather than silently, but a table is what stops the
+ * next source needing to notice.
+ */
+const PROJECTION_SHAPE = {
+  apple_music: {
+    observation_kind: "catalog_item",
+    payload_schema_version: "music-v03",
+    privacy_class: "public_catalog",
+  },
+  music_library: {
+    observation_kind: "catalog_item",
+    payload_schema_version: "music-v03",
+    privacy_class: "public_catalog",
+  },
+  spotify: {
+    observation_kind: "catalog_item",
+    payload_schema_version: "music-v03",
+    privacy_class: "public_catalog",
+  },
+  youtube: {
+    observation_kind: "provider_labels",
+    payload_schema_version: "youtube-v03",
+    privacy_class: "public_catalog",
+  },
+};
+
+/** Mirrors `0082`'s pattern: a Wikipedia slug, and nothing with a space in it. */
+const YOUTUBE_TOPIC = /^[A-Za-z0-9_()'.\-]{1,80}$/;
+
+/**
+ * Control characters, which `0082` refuses in a tag via `[[:cntrl:]]`.
+ *
+ * **Spelled out as escapes on purpose.** The first attempt at this was
+ * `/[\x20-\x2d]/` written with literal bytes, which reads as "control
+ * characters" and is a range from *space* to *hyphen* — it would have dropped
+ * `le sserafim` and every other multi-word tag, which are the tags this whole
+ * path exists to carry. A class nobody can misread is worth the two extra
+ * characters.
+ */
+// eslint-disable-next-line no-control-regex
+const YOUTUBE_CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * What a YouTube row says about *what it is*, with everything it says about
+ * *what it is called* left behind.
+ *
+ * **The omissions are the feature.** `title`, `channelTitle`, `description` and
+ * `playlistTitle` are on the payload and are deliberately never copied: they are
+ * "video titles, creator names, descriptions" under III.E.4 and must be deleted
+ * or refreshed within 30 days, and `guard_observation_immutable` freezes
+ * `normalized_payload` — so a title landing here could never be removed. The
+ * encrypted `raw_source_records` row keeps the whole payload and expires on
+ * schedule; this keeps only what may persist.
+ *
+ * **Filtered to what the server will accept, rather than sent hopefully.**
+ * `0082` bounds tags at twelve of sixty characters and topics to a slug pattern.
+ * A row the guard refuses fails the insert, so the contract is honoured here
+ * too — and the counts of what was dropped are returned so a silently smaller
+ * projection is not mistaken for a smaller library.
+ */
+function youtubeLabels(value) {
+  const fields = {};
+
+  const topics = (Array.isArray(value.topics) ? value.topics : [])
+    .filter((t) => typeof t === "string" && YOUTUBE_TOPIC.test(t))
+    .slice(0, 24);
+  if (topics.length) fields.topics = topics;
+
+  const tags = (Array.isArray(value.tags) ? value.tags : [])
+    .filter((t) => typeof t === "string" && t.length >= 1 && t.length <= 60
+                   && !YOUTUBE_CONTROL.test(t))
+    .slice(0, 12);
+  if (tags.length) fields.tags = tags;
+
+  if (typeof value.categoryID === "string" && /^[0-9]{1,3}$/.test(value.categoryID)) {
+    fields.category_id = value.categoryID;
+  }
+  if (typeof value.channelID === "string" && /^[A-Za-z0-9_-]{3,128}$/.test(value.channelID)) {
+    fields.channel_id = value.channelID;
+  }
+  if (typeof value.subscriberCount === "string"
+      && /^[0-9]{1,15}$/.test(value.subscriberCount)) {
+    fields.subscriber_count = value.subscriberCount;
+  }
+
+  // A projection with no label describes nothing, and an observation that
+  // describes nothing is not evidence. An id alone does not count — it
+  // identifies without saying anything, which is `0082`'s rule too.
+  if (!fields.topics && !fields.tags && !fields.category_id) return null;
+
+  fields.schema_version = "youtube-v03";
+  fields.record_kind = "youtube_labels";
+  return fields;
+}
 
 /**
  * What a music row says, with the capture stripped out.
@@ -254,6 +359,16 @@ const PROJECTABLE = new Set(["apple_music", "music_library", "spotify"]);
  */
 export function normalizedPayload(sourceCode, payload) {
   if (!PROJECTABLE.has(sourceCode)) return null;
+
+  // **YouTube projects labels, never text**, so it takes a different branch
+  // rather than a wider version of the music one. Keeping them apart is what
+  // makes the omission of `title` visible in the code instead of implied by a
+  // field list somebody has to check.
+  if (sourceCode === "youtube") {
+    const video = payload?.kind === "video" ? payload.value : null;
+    return video ? youtubeLabels(video) : null;
+  }
+
   const value = payload?.kind === "music" ? payload.value : null;
   if (!value) return null;
 
@@ -296,12 +411,14 @@ export function normalizedPayload(sourceCode, payload) {
 function projection(sourceCode, typedPayload) {
   const fields = normalizedPayload(sourceCode, typedPayload);
   if (!fields) return {};
-  return {
-    normalized_payload: fields,
-    observation_kind: "catalog_item",
-    payload_schema_version: "music-v03",
-    privacy_class: "public_catalog",
-  };
+  const shape = PROJECTION_SHAPE[sourceCode];
+  // A source may not be projectable without declaring what its observation is.
+  // `normalizedPayload` already refused anything outside `PROJECTABLE`, so this
+  // can only fire if the two lists drift — and a row stamped with music's
+  // vocabulary because a shape was missing is exactly the silent kind of wrong
+  // this endpoint has produced before.
+  if (!shape) return {};
+  return { normalized_payload: fields, ...shape };
 }
 
 export const CALENDAR_SOURCES = new Set(["apple_calendar", "google_calendar"]);

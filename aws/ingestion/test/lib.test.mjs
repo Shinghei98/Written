@@ -465,3 +465,90 @@ test("a row the classifier said nothing about is left alone", () => {
   assert.equal(applyCalendarProjections(rows, {}), 0);
   assert.equal(rows[0].normalized_payload, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// YouTube: what the projection must never carry
+// ---------------------------------------------------------------------------
+
+const YT = {
+  kind: "video",
+  value: {
+    title: "Matthaus-Passion, BWV 244: Nr.1 Kommt, ihr Toechter",
+    channelTitle: "Raphael Pichon",
+    channelID: "UCabc-123_XYZ",
+    description: "Recorded live at the Philharmonie de Paris",
+    playlistTitle: "Bach favourites",
+    topics: ["Music", "Classical_music"],
+    tags: ["bach", "st matthew passion"],
+    categoryID: "10",
+    subscriberCount: "1230000",
+  },
+};
+
+test("the YouTube projection carries labels and never text", () => {
+  const fields = normalizedPayload("youtube", YT);
+
+  // The whole point. Every one of these is "video titles, creator names,
+  // descriptions" under III.E.4, must be deleted or refreshed within 30 days,
+  // and lands in a column `guard_observation_immutable` freezes — so a title
+  // reaching here could never be removed.
+  for (const forbidden of ["title", "channel_title", "channelTitle",
+                           "description", "playlist_title", "playlistTitle"]) {
+    assert.ok(!(forbidden in fields), `${forbidden} must not be projected`);
+  }
+
+  assert.deepEqual(fields.topics, ["Music", "Classical_music"]);
+  assert.deepEqual(fields.tags, ["bach", "st matthew passion"]);
+  assert.equal(fields.category_id, "10");
+  assert.equal(fields.channel_id, "UCabc-123_XYZ");
+  assert.equal(fields.subscriber_count, "1230000");
+  assert.equal(fields.schema_version, "youtube-v03");
+  assert.equal(fields.record_kind, "youtube_labels");
+
+  // Closed by subtraction server-side, so the client must send nothing else:
+  // `0082` refuses the row outright if it does, which fails the insert.
+  assert.deepEqual(Object.keys(fields).sort(), [
+    "category_id", "channel_id", "record_kind", "schema_version",
+    "subscriber_count", "tags", "topics",
+  ]);
+});
+
+test("a topic that is really a title is dropped, not projected", () => {
+  // The server pattern has no space in it; the client filters to match rather
+  // than sending a row the guard will refuse and failing the whole batch.
+  const fields = normalizedPayload("youtube", {
+    kind: "video",
+    value: { topics: ["LE SSERAFIM Stage Mix 4K", "Music"], tags: [] },
+  });
+  assert.deepEqual(fields.topics, ["Music"]);
+});
+
+test("a multi-word tag survives, a control character does not", () => {
+  // `le sserafim` is the tag the whole uploader_tag path exists to carry, and
+  // the first control-character class written here was a space-to-hyphen range
+  // that would have dropped it along with every other multi-word tag.
+  const fields = normalizedPayload("youtube", {
+    kind: "video",
+    value: { topics: ["Music"], tags: ["le sserafim", "kpop\u0007stage"] },
+  });
+  assert.deepEqual(fields.tags, ["le sserafim"]);
+});
+
+test("a YouTube row with no label at all is not an observation", () => {
+  // An identifier says nothing on its own. `0082` requires one of topics, tags
+  // or category_id, and a row carrying only a channel id describes nothing.
+  assert.equal(normalizedPayload("youtube", {
+    kind: "video",
+    value: { channelID: "UCabc123", subscriberCount: "5", topics: [], tags: [] },
+  }), null);
+});
+
+test("a YouTube row is stamped with YouTube's vocabulary, not music's", () => {
+  const ctx = { userId: USER, hmacKey: KEY, dek: DEK };
+  const row = toRecordRow({ record_source_code: "youtube", data_type: "subscription",
+    action_type: "subscription", provider_item_id: "UCabc-123_XYZ",
+    typed_payload: YT }, 0, ctx);
+  assert.equal(row.observation_kind, "provider_labels");
+  assert.equal(row.payload_schema_version, "youtube-v03");
+  assert.equal(row.privacy_class, "public_catalog");
+});
