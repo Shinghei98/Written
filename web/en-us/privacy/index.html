@@ -111,6 +111,11 @@
         to write anything back.
       </p>
       <ul>
+        <li><strong>YouTube</strong> — the channels you subscribe to, the videos
+          you have liked, and the playlists you made, with the labels YouTube
+          returns alongside them. Not your watch history: the API does not
+          expose it. Titles and channel names are deleted after 30 days, and
+          nothing from YouTube is ever shown to another user.</li>
         <li><strong>Google Calendar</strong> — the names of your calendars, and
           the events in them: title, date, location, organiser and any booking
           link. Calendars of birthdays and public holidays are left out.</li>
@@ -162,10 +167,12 @@
         artist, a kind of music — appear on the card other people see.
       </p>
       <p>
-        <strong>Nothing here comes from YouTube.</strong> Written no longer
-        connects to a YouTube account. If you connected one during the beta,
-        nothing read from it was ever shown to another user, and what was read
-        is deleted automatically 30 days after it arrived.
+        <strong>Nothing on the card another person sees comes from YouTube.</strong>
+        If you connect a YouTube account, what is read from it informs what
+        <em>you</em> are shown about yourself and is never shown to anybody
+        else — not on your card, not in a shared line, not in a chat opener. It
+        is also deleted automatically 30 days after it arrives, whether or not
+        anybody asks.
       </p>
 
       <!-- ------------------------------------------------------------------
@@ -176,9 +183,9 @@
       <h2 id="google-user-data">Google user data, scope by scope</h2>
 
       <p>
-        Written asks Google for three things and no others. Each is set out here
-        with what it is called for, what is kept, and why a narrower scope would
-        not do.
+        Written asks Google for four things and no others, and only for the
+        ones you connect. Each is set out here with what it is called for, what
+        is kept, and why a narrower scope would not do.
       </p>
 
       <div class="doc-table">
@@ -208,6 +215,18 @@
               <td>Those fields per event, one row per repeating series rather
                 than per occurrence.</td>
               <td>While your account exists.</td>
+            </tr>
+            <tr>
+              <td><code>youtube.readonly</code></td>
+              <td>Reads the channels you subscribe to, the videos you have
+                liked, and the playlists you made. Watch history is not
+                included — the API does not expose it.</td>
+              <td>Video and channel titles, and the labels YouTube returns with
+                them: its own topic categories, the category a video is filed
+                under, the uploader's tags, and a channel's subscriber count.</td>
+              <td><strong>30 days</strong> for titles, channel names and
+                playlist contents. Counts and worked-out subjects outlive
+                them.</td>
             </tr>
             <tr>
               <td><code>openid email profile</code></td>
@@ -243,13 +262,24 @@
 
       <h3>YouTube</h3>
       <p>
-        <strong>Written no longer connects to a YouTube account.</strong> The
-        integration is not offered, and no new YouTube data is collected.
+        <strong>Connecting YouTube is optional and reads only what is listed
+        above.</strong> Subscriptions, liked videos and your own playlists —
+        never your watch history, which the API does not expose and Written does
+        not attempt to reconstruct.
       </p>
       <p>
-        Written still uses YouTube API Services in one place: videos other
-        people share into Written play here through YouTube's own embedded
-        player. By using Written you also agree to the
+        <strong>What Written does with it is deliberately narrow.</strong> The
+        subject of a video is taken from the labels YouTube itself returns —
+        its own topic categories, the category a video is filed under, and the
+        tags the uploader wrote. Written does not read a title or a channel name
+        and decide for itself what a video is about. That is a rule YouTube sets
+        for every developer, and it is why a channel YouTube has not labelled
+        stays unlabelled here rather than being guessed at.
+      </p>
+      <p>
+        Written also uses YouTube API Services in one place unconnected to your
+        account: videos other people share into Written play here through
+        YouTube's own embedded player. By using Written you also agree to the
         <a href="https://www.youtube.com/t/terms" rel="noopener" target="_blank">YouTube
         Terms of Service</a>, and Google's own handling of your data is
         described in the
@@ -257,12 +287,17 @@
         Privacy Policy</a>.
       </p>
       <p>
-        <strong>If you connected YouTube during the beta</strong>, titles,
-        channel names and playlist contents are held for no more than 30
-        calendar days. That is not a promise to act on a request: a job runs
-        once a day and removes them on that schedule whether or not anybody
-        asks, whether or not you are still signed in, and whether or not you
-        ever open the app again.
+        <strong>Titles, channel names and playlist contents are held for no
+        more than 30 calendar days.</strong> That is not a promise to act on a
+        request: a job runs once a day and removes them on that schedule whether
+        or not anybody asks, whether or not you are still signed in, and whether
+        or not you ever open the app again. It covers every place Written keeps
+        them, including the encrypted copy.
+      </p>
+      <p>
+        What outlives those 30 days is what YouTube's rules allow to: counts,
+        and the subjects Written worked out while the data was there. A subject
+        derived from YouTube is still never shown to another user.
       </p>
       <p>
         <em>Settings &rarr; Disconnect all</em> ends every connection, deletes
@@ -402,9 +437,10 @@
           </thead>
           <tbody>
             <tr>
-              <td>YouTube data read during the beta</td>
-              <td>30 calendar days, deleted by an automatic daily job. No new
-                YouTube data is collected.</td>
+              <td>YouTube titles, channel names and playlist contents</td>
+              <td>30 calendar days, deleted by an automatic daily job — in every
+                place we hold them, including the encrypted copy. Counts and the
+                subjects worked out from them outlive that.</td>
             </tr>
             <tr>
               <td>Your biological sex, as reported by Apple Health</td>
