@@ -262,7 +262,8 @@ extension VideoPayload {
             topics: record.extraList("topics"),
             tags: record.extraList("tags"),
             categoryID: record.extraValue("category_id"),
-            playlistTitle: record.extraValue("playlist")
+            playlistTitle: record.extraValue("playlist"),
+            subscriberCount: record.extraValue("subscriber_count")
         )
     }
 }

@@ -102,7 +102,7 @@ struct YouTubeDistiller {
         // videos already carried theirs; subscriptions arrived unlabelled and
         // were being classified by name.
         let subscribedIDs = subscriptions.compactMap { $0.snippet?.resourceId?.channelId }
-        let channelTopics = await channelTopics(token: token, channelIDs: subscribedIDs)
+        let channelFacts = await channelFacts(token: token, channelIDs: subscribedIDs)
 
         records += subscriptions.map { item in
             let channelID = item.snippet?.resourceId?.channelId ?? item.id ?? ""
@@ -111,7 +111,17 @@ struct YouTubeDistiller {
             // optionals, and this one was already close to the edge.
             let subscribedAt = "subscribed_at=\(item.snippet?.publishedAt ?? "")"
             let artwork: String? = item.snippet?.thumbnails?.url.map { "artwork=\($0)" }
-            let topics: String? = channelTopics[channelID].map { "topics=" + $0.joined(separator: "|") }
+            let facts = channelFacts[channelID]
+            let topics: String? = facts.map(\.topics).flatMap {
+                $0.isEmpty ? nil : "topics=" + $0.joined(separator: "|")
+            }
+            // **Why a size is worth keeping at all.** It is what tells an
+            // official artist channel from somebody's repost account without
+            // deciding what *kind* of channel it is — which is `channel_role`,
+            // is "the type of a channel" in III.E.4.h's own words, and is not
+            // ours to compute. A published number compared against a threshold
+            // is read; a label applied to a channel is inferred.
+            let subscribers: String? = facts?.subscriberCount.map { "subscriber_count=\($0)" }
             return record(
                 dataType: "subscription",
                 itemID: channelID,
@@ -120,7 +130,11 @@ struct YouTubeDistiller {
                 detail: snippetPrefix(item.snippet?.description),
                 // The channel's own avatar, which is what a subscription's
                 // thumbnails are.
-                extra: joined([subscribedAt, artwork, topics])
+                // Annotated `[String?]` rather than inferred. The list gained a
+                // fourth element and the note above is explicit that it was
+                // already close to the type checker's limit; naming the element
+                // type leaves it nothing to solve.
+                extra: joined([subscribedAt, artwork, topics, subscribers] as [String?])
             )
         }
 
@@ -203,10 +217,33 @@ struct YouTubeDistiller {
 
     // MARK: - Helpers
 
-    /// YouTube's own topic categories for a set of channels, keyed by channel id.
+    /// What one `channels.list` call answers about a channel.
+    ///
+    /// **Two facts from one request rather than two requests.** The call was
+    /// already being made for `topicDetails`; `statistics` is another `part` on
+    /// it, which costs no extra quota unit and is exactly the "extra `part=` on
+    /// a request already being made" the extraction rule licenses by name.
+    struct ChannelFacts {
+        let topics: [String]
+        /// **A statistic, and that word is load-bearing.** III.E.4 permits
+        /// storing Analytics data, Reporting data and *statistics* beyond 30
+        /// calendar days, where titles and channel names must be refreshed or
+        /// deleted. A subscriber count is a statistic by that clause's own
+        /// example, so unlike everything else this distiller keeps about a
+        /// channel, it is not on the thirty-day clock.
+        ///
+        /// Kept as YouTube sends it — a string — because it arrives as one and
+        /// because a count that overflows an `Int` on some future channel should
+        /// fail at whoever parses it rather than here.
+        let subscriberCount: String?
+    }
+
+    /// YouTube's own topics and subscriber count for a set of channels.
     ///
     /// `channels.list` takes up to 50 ids per call and costs 1 unit each, so a
-    /// 200-channel subscription list is 4 units on top of a ~185-unit distill.
+    /// 200-channel subscription list is 4 units on top of a ~185-unit distill —
+    /// and asking for `statistics` alongside `topicDetails` adds no unit at all,
+    /// because quota is charged per call rather than per part.
     ///
     /// **Failure is silent on purpose, and this is the one place in this file
     /// where that is right.** A channel with no topics simply goes unlabelled;
@@ -215,14 +252,14 @@ struct YouTubeDistiller {
     /// a missing entry and an empty entry identically — both mean "YouTube did
     /// not say", which is a different thing from "we decided not to look".
     /// Nothing downstream guesses in either case.
-    private func channelTopics(token: String, channelIDs: [String]) async -> [String: [String]] {
-        var topics: [String: [String]] = [:]
+    private func channelFacts(token: String, channelIDs: [String]) async -> [String: ChannelFacts] {
+        var facts: [String: ChannelFacts] = [:]
 
         for batch in stride(from: 0, to: channelIDs.count, by: 50) {
             let ids = Array(channelIDs[batch..<min(batch + 50, channelIDs.count)])
             guard var components = URLComponents(string: "\(Self.baseURL)/channels") else { continue }
             components.queryItems = [
-                URLQueryItem(name: "part", value: "topicDetails"),
+                URLQueryItem(name: "part", value: "topicDetails,statistics"),
                 URLQueryItem(name: "id", value: ids.joined(separator: ",")),
                 URLQueryItem(name: "maxResults", value: "50")
             ]
@@ -237,16 +274,23 @@ struct YouTubeDistiller {
             else { continue }
 
             for item in page.items {
-                guard let id = item.id,
-                      let categories = item.topicDetails?.topicCategories
-                else { continue }
+                guard let id = item.id else { continue }
                 // Wikipedia URLs in, the topic itself out — same shape the liked
                 // videos already store, so one parser serves both.
-                let names = categories.compactMap { URL(string: $0)?.lastPathComponent }
-                if !names.isEmpty { topics[id] = names }
+                let names = (item.topicDetails?.topicCategories ?? [])
+                    .compactMap { URL(string: $0)?.lastPathComponent }
+                let subscribers = item.statistics?.subscriberCount
+                // **Recorded when either fact is present, not only when both
+                // are.** The guard used to require `topicCategories` and skip
+                // the channel otherwise; keeping that would have thrown away the
+                // subscriber count for every untagged channel — which is 8 of
+                // 146 on a real account, and precisely the channels a size
+                // threshold exists to judge.
+                guard !names.isEmpty || subscribers != nil else { continue }
+                facts[id] = ChannelFacts(topics: names, subscriberCount: subscribers)
             }
         }
-        return topics
+        return facts
     }
 
     private func fetchAllPages(

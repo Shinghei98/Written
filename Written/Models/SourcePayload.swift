@@ -307,6 +307,20 @@ struct VideoPayload: Codable, Equatable, Sendable {
     var tags: [String]
     var categoryID: String?
     var playlistTitle: String?
+    /// `statistics.subscriberCount` on the channel, for subscription rows.
+    ///
+    /// **The only field here that is not on the thirty-day clock.** III.E.4
+    /// permits storing Analytics data, Reporting data and *statistics* beyond 30
+    /// calendar days, while titles, channel names and descriptions must be
+    /// refreshed or deleted — so this is the one thing a channel row may keep,
+    /// and it is why it is worth carrying separately rather than folded into a
+    /// description.
+    ///
+    /// A string because YouTube sends one. Comparing it against a threshold is
+    /// reading a published number; deciding from it that a channel *is* an
+    /// official account or a repost account is `channel_role`, which is "the
+    /// type of a channel" in III.E.4.h's own words and is not computed here.
+    var subscriberCount: String?
 }
 
 // MARK: - Place and profile
