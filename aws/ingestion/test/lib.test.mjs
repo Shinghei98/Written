@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections,
+  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, projectionDiagnostic, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -551,4 +551,57 @@ test("a YouTube row is stamped with YouTube's vocabulary, not music's", () => {
   assert.equal(row.observation_kind, "provider_labels");
   assert.equal(row.payload_schema_version, "youtube-v03");
   assert.equal(row.privacy_class, "public_catalog");
+});
+
+test("the projection diagnostic reports shapes and never content", () => {
+  const rows = [
+    { record_source_code: "apple_calendar", data_type: "calendar_event",
+      action_type: "booked", observation_kind: "sanitized_classification",
+      privacy_class: "private_calendar_sanitized",
+      payload_schema_version: "calendar-v03",
+      occurred_at: "2026-08-01T00:00:00Z", content_lineage_hmac: "a".repeat(64),
+      observation_action_weight: 0,
+      normalized_payload: { schema_version: "calendar-v03",
+        record_kind: "calendar_classification",
+        classification_state: "candidate", artifact_type: "public_ticket" } },
+    // Same shape, different content — must collapse into the first.
+    { record_source_code: "apple_calendar", data_type: "calendar_event",
+      action_type: "booked", observation_kind: "sanitized_classification",
+      privacy_class: "private_calendar_sanitized",
+      payload_schema_version: "calendar-v03",
+      occurred_at: "2026-09-09T00:00:00Z", content_lineage_hmac: "b".repeat(64),
+      observation_action_weight: 0,
+      normalized_payload: { schema_version: "calendar-v03",
+        record_kind: "calendar_classification",
+        classification_state: "candidate", artifact_type: "public_ticket" } },
+    // A row with no projection is not an observation and is not reported.
+    { record_source_code: "apple_calendar", data_type: "calendar", action_type: null },
+  ];
+
+  const out = projectionDiagnostic(rows);
+  assert.equal(out.length, 1, "identical shapes collapse");
+  assert.equal(out[0].count, 2);
+  assert.deepEqual(out[0].payload_keys,
+    ["artifact_type", "classification_state", "record_kind", "schema_version"]);
+  assert.equal(out[0].occurred_at, "present");
+  assert.equal(out[0].content_lineage_hmac, "present");
+
+  // The whole safety property: no value from any field appears in the output.
+  const text = JSON.stringify(out);
+  for (const secret of ["public_ticket".length && "2026-09-09", "a".repeat(64)]) {
+    assert.ok(!text.includes(secret), `leaked ${secret}`);
+  }
+});
+
+test("a differing shape is reported separately", () => {
+  const base = { record_source_code: "apple_calendar", data_type: "calendar_event",
+    action_type: "booked", observation_kind: "sanitized_classification",
+    privacy_class: "private_calendar_sanitized",
+    payload_schema_version: "calendar-v03", occurred_at: null,
+    content_lineage_hmac: null, observation_action_weight: 0,
+    normalized_payload: { schema_version: "calendar-v03",
+      record_kind: "calendar_classification", classification_state: "excluded" } };
+  const out = projectionDiagnostic([base, { ...base, action_type: "scheduled" }]);
+  assert.equal(out.length, 2, "a different action is a different shape");
+  assert.deepEqual(out.map((o) => o.action).sort(), ["booked", "scheduled"]);
 });

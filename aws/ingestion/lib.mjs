@@ -497,6 +497,49 @@ export function applyCalendarProjections(rows, decisions) {
   return applied;
 }
 
+/**
+ * What a projection-rejected batch looked like, with no content in it.
+ *
+ * **`private observations require an exact closed projection` names no row.**
+ * It is raised by a trigger, so the 500 that reaches the operator says only
+ * "ingestion failed" and the batch retries forever — one Calendar batch has
+ * been retrying since 2026-08-11 17:33, starving every later source out of the
+ * queue, and nothing anywhere said which row or why.
+ *
+ * **Field names and shapes only, never a value.** §12 forbids plaintext in
+ * logs, so this reports the payload's *keys* rather than its contents, and
+ * reduces every other field to the thing the validator actually tests —
+ * whether a lineage is present, whether a time is present, what the action is.
+ * That is enough to identify which of `private_observation_projection_is_valid_v03`'s
+ * clauses refused a row, which is the whole question.
+ *
+ * Deduplicated by shape: 109 calendar rows produce two or three distinct
+ * shapes, and printing 109 near-identical lines would bury the odd one out.
+ */
+export function projectionDiagnostic(rows) {
+  const shapes = new Map();
+  for (const row of rows) {
+    if (!row.normalized_payload) continue;
+    const shape = {
+      source: row.record_source_code,
+      data_type: row.data_type,
+      action: row.action_type,
+      observation_kind: row.observation_kind,
+      privacy_class: row.privacy_class,
+      schema_version: row.payload_schema_version,
+      payload_keys: Object.keys(row.normalized_payload).sort(),
+      // The validator tests presence, so presence is what is reported.
+      occurred_at: row.occurred_at ? "present" : "absent",
+      content_lineage_hmac: row.content_lineage_hmac ? "present" : "absent",
+      action_weight: row.observation_action_weight ?? null,
+      payload_bytes: JSON.stringify(row.normalized_payload).length,
+    };
+    const key = JSON.stringify(shape);
+    shapes.set(key, (shapes.get(key) ?? 0) + 1);
+  }
+  return [...shapes].map(([shape, count]) => ({ count, ...JSON.parse(shape) }));
+}
+
 export class InvalidEnvelope extends Error {
   constructor(index, message) {
     super(`records[${index}]: ${message}`);

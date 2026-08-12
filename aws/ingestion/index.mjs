@@ -32,7 +32,7 @@ import pg from "pg";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import {
   applyCalendarProjections, calendarEventsFor, ingestArguments, keyVersionFor,
-  normalizeSource, toRecordRow, InvalidEnvelope,
+  normalizeSource, toRecordRow, InvalidEnvelope, projectionDiagnostic,
 } from "./lib.mjs";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
@@ -343,6 +343,11 @@ const json = (statusCode, body) => {
 
 export async function handler(event) {
   let dek = null;
+  // Hoisted beside `dek` and for the same reason: `let` is block-scoped, so
+  // declared inside the `try` it is invisible to the `catch` — which is
+  // where the projection diagnostic needs it. The first version declared it
+  // in the try and threw `ReferenceError` from inside the error handler.
+  let rows;
   try {
     const method = event?.requestContext?.http?.method;
     if (method !== "POST") return json(405, { error: "POST only" });
@@ -381,7 +386,6 @@ export async function handler(event) {
     const generated = await dataKeyFor(userId);
     dek = generated.dek;
 
-    let rows;
     try {
       rows = records.map((envelope, index) =>
         toRecordRow(envelope, index, { userId, hmacKey, dek })
@@ -439,6 +443,53 @@ export async function handler(event) {
     }
     if (error?.status === 400) return json(400, { error: error.message });
     console.error("ingestion failed", error);
+    // **The one 500 that can say something useful about itself.**
+    // `private observations require an exact closed projection` is raised by a
+    // trigger and names no row, so the operator got a bare 500 and the client —
+    // which treats 500 as transient — retried the same doomed batch forever. One
+    // Calendar batch did exactly that from 2026-08-11 17:33, starving every
+    // later source out of the queue with nothing anywhere saying why.
+    //
+    // Shapes only: field names, payload *keys*, and presence rather than value.
+    // §12 forbids plaintext in logs, and the point here is which clause of
+    // `private_observation_projection_is_valid_v03` refused a row — a question
+    // no content is needed to answer.
+    // **A projection refusal is a 400, not a 500, and that distinction is what
+    // unblocked the queue.** The database raises it because the *client* sent a
+    // shape the contract forbids — a `data_type` of `event` where the
+    // projection demands `calendar_event`, an action of `entered_by_user` where
+    // it allows only `scheduled` or `booked`. That is a bad request by every
+    // reading, and returning 500 said the opposite: `SemanticIngestionService`
+    // drops a permanent refusal and retries a transient one, so a batch the
+    // database will *always* reject was re-sent on every distillation.
+    //
+    // One Calendar batch staged by a build predating `semanticDataType` did
+    // exactly that from 2026-08-11 17:33 — five rounds over thirteen hours,
+    // each identical, sitting at the head of a FIFO queue and starving every
+    // YouTube envelope behind it. Nothing could see it: the queue drains only
+    // when new work arrives, and this actor deliberately shares no error state
+    // with the rest of the app.
+    //
+    // Narrow on purpose. Not every `P0001` is the caller's fault — plenty of
+    // guards in this schema are about server state — so this matches the one
+    // message that is unambiguously about the payload's shape.
+    if (error?.code === "P0001" && /closed projection/.test(error?.message ?? "")) {
+      try {
+        console.error("projection refused:",
+          JSON.stringify(projectionDiagnostic(rows ?? [])));
+      } catch (diagnosticError) {
+        // A diagnostic must never be the reason a request fails differently
+        // than it would have.
+        // Name *and* message: the first version logged only the name, so a
+        // plain `ReferenceError` from a scoping mistake said nothing about
+        // which name was missing. This file's own comments call that out for
+        // the 401 and the 500; a diagnostic that cannot explain its own
+        // failure is the same defect one level in.
+        console.error("projection diagnostic failed:",
+          diagnosticError?.name, diagnosticError?.message);
+      }
+      return json(400, { error: "invalid observation projection" });
+    }
     return json(500, { error: "ingestion failed" });
   } finally {
     // The plaintext key is the one thing here that must not outlive the call.
