@@ -102,18 +102,27 @@ NEVER_ASSERTED_KINDS = frozenset({"hub"})
 # it, and an album is one work and a dozen artists. Judging both at 0.35 asks a
 # cast recording to be as well evidenced as a composer.
 #
-# Measured on the owner's library, with their reading of the result: *"Footloose
-# is real"*, at 0.266 on seven mappings, against `work:re_zero` at 0.047 on one,
-# which they rejected outright. Any bar between those satisfies both, so it goes
-# **below** the pair Footloose and BanG Dream! (0.237, six mappings) rather than
-# between them: one mapping apart is not a difference this scale can resolve,
-# and splitting them would be fitting a constant to a single data point. 0.20 is
-# a total weight of about 1.5, which on these actions is five or six songs from
-# the same work.
+# **Set from the owner's judgement on their own rows, which is the only thing
+# that could set it.** They were asked about three works and answered all three:
+# *"Footloose is real"* (0.266, seven mappings), *"do not include Re:Zero"*
+# (0.047, one), and — shown the result of the first cut — *"BanG Dream
+# shouldn't be there"* (0.237, six).
 #
-# It excludes the four-mapping cluster — Bleach, Thousand-Year Blood War, MyGO —
-# which is where a franchise starts looking like one soundtrack somebody played.
-ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.20}
+# It went in at 0.20 first, deliberately below both Footloose and BanG Dream!,
+# on the grounds that seven mappings against six is not a difference this scale
+# can resolve and that splitting them would be fitting a constant to a single
+# data point. That was right as far as it went: what was missing was a label on
+# the second row, not a finer threshold. With both judged, 0.25 separates two
+# *labelled* points rather than guessing between two unlabelled ones.
+#
+# 0.25 is a total weight of 2.0 — on these actions, five or six songs from the
+# same work. It excludes the four-mapping cluster (Bleach, Thousand-Year Blood
+# War, MyGO), where a franchise starts looking like one soundtrack somebody
+# played, and `work:re_zero` at 0.047 by a wide margin.
+#
+# **One library and one reviewer, so this is a judgement rather than a
+# measurement.** The next library is what would make it either.
+ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.25}
 
 # **A bare decade, which is a different argument from the hub above.**
 #
