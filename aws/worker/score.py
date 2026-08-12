@@ -203,6 +203,43 @@ set machine_state = %(state)s, updated_at = now()
 where id = %(id)s and user_id = %(user_id)s
 """
 
+# **For a long time the comment above described something the code could not do.**
+# The eligibility test sat *before* the lookup — `if state != "eligible":
+# continue` — so `UPDATE_ASSERTION` was only ever reached with `state`
+# `eligible`, and an assertion that stopped clearing the bar simply kept
+# standing. Found by changing the scorer so hubs assert nothing, deploying it,
+# re-scoring, and watching `hub:music`, `hub:film_video` and
+# `hub:ideas_learning` come back `eligible` from a run that had not touched
+# them. The scorer could add a claim and could not withdraw one.
+#
+# Two ways a claim stops holding, and they need two statements because the
+# second concept never reaches the loop at all:
+#
+#   - **Scored and no longer eligible** — the strength fell, or the kind is one
+#     that is never asserted. Demoted inside the loop.
+#   - **Not scored at all** — the ontology dropped the concept, a ban removed
+#     every mapping, the source was disconnected. There is no iteration to hang
+#     a demotion on, so it is a sweep after the loop.
+#
+# **`assertion_origin = 'inferred'` on both.** A declared assertion is something
+# a person said about themselves, and a scorer that could retire one would let
+# an absence of evidence overrule a statement.
+DEMOTE_ASSERTION = """
+update semantic_private.user_assertions
+set machine_state = 'inactive', updated_at = now()
+where user_id = %(user_id)s and predicate_key = %(predicate)s
+  and concept_id = %(concept)s
+  and assertion_origin = 'inferred' and machine_state <> 'inactive'
+"""
+
+DEMOTE_UNSCORED_ASSERTIONS = """
+update semantic_private.user_assertions
+set machine_state = 'inactive', updated_at = now()
+where user_id = %(user_id)s and predicate_key = %(predicate)s
+  and assertion_origin = 'inferred' and machine_state <> 'inactive'
+  and not (concept_id = any(%(scored)s::uuid[]))
+"""
+
 INSERT_SCORE_VERSION = """
 insert into semantic_private.assertion_score_versions (
   assertion_id, user_id, semantic_run_id, ontology_version_id,
@@ -274,7 +311,9 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     """
     counts: dict[str, Any] = {
         "scored": 0, "eligible": 0, "candidate": 0, "evidence_rows": 0,
+        "demoted": 0,
     }
+    scored_concepts: list[str] = []
 
     with connection.cursor() as cursor:
         cursor.execute(RUN_POLICY_VERSION, {"run": run_id, "user_id": user_id})
@@ -334,6 +373,7 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                 "policy": policy_version, "as_of": as_of,
             })
         counts["scored"] += 1
+        scored_concepts.append(concept_id)
 
         kind = label.get("concept_kind")
         if kind in NEVER_ASSERTED_KINDS:
@@ -345,7 +385,15 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             state = "eligible" if strength >= ELIGIBLE_STRENGTH else "candidate"
         counts[state] += 1
         if state != "eligible":
-            # Scored and inspectable, asserting nothing. Promote narrowly.
+            # Scored and inspectable, asserting nothing. Promote narrowly — and
+            # withdraw anything this concept was asserting before, since it no
+            # longer clears the bar it once cleared.
+            with connection.cursor() as cursor:
+                cursor.execute(DEMOTE_ASSERTION, {
+                    "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                    "concept": concept_id,
+                })
+                counts["demoted"] += cursor.rowcount
             continue
 
         with connection.cursor() as cursor:
@@ -429,5 +477,20 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             with connection.cursor() as cursor:
                 cursor.executemany(INSERT_EVIDENCE, evidence_rows)
             counts["evidence_rows"] += len(evidence_rows)
+
+    # **The sweep, and its guard is the whole of its safety.** A run that scored
+    # nothing has learned nothing, and running this against an empty
+    # `scored_concepts` would retire every claim the person has — a failed
+    # resolver, a disconnected source or an empty ontology version would read as
+    # somebody who likes nothing. `score_user` already returns early when a run
+    # mapped nothing at all (that path never reaches here); this covers the
+    # other shape, where the loop ran and produced no scores.
+    if scored_concepts:
+        with connection.cursor() as cursor:
+            cursor.execute(DEMOTE_UNSCORED_ASSERTIONS, {
+                "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                "scored": scored_concepts,
+            })
+            counts["demoted"] += cursor.rowcount
 
     return counts
