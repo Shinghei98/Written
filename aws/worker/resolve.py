@@ -259,24 +259,31 @@ def _is_classical(payload: dict[str, Any]) -> bool:
     return False
 
 
-# **What a classical performer's credit is worth, and why it is not 1.0.**
-# Measured on the owner's own library and confirmed by the owner: of 81
-# assertions, 58 were creators and roughly 28 of those were performers —
-# Pichon, Pygmalion, Gardiner, the Monteverdi Choir, the Berlin Philharmonic —
-# ranking at 0.5 to 0.92, above Mozart, Beethoven and Vivaldi. His reading:
-# *"I do not recognise any of these groups; I care about a piece."*
+# **How many albums a classical performer must appear on to be a preference.**
 #
-# **Reduced rather than dropped.** Somebody who seeks out Gardiner recordings is
-# saying something, and it is not nothing; it is just not what a listener would
-# say they listen to. At 0.3 a heavily-recorded ensemble can still surface, and
-# it can no longer outrank the composer of the work it is playing.
+# A flat weight was tried first and could not work. `strength` saturates as
+# `w/(w+6)`, and that curve is almost flat where these concepts sit, so cutting
+# the input by 70% moved Pichon from 0.92 to 0.85 — still above Mozart at 0.73.
+# The problem was never the size of the number; it was that row count is the
+# wrong question.
 #
-# **And this could not have been done first.** Down-weighting performers before
-# `classical_composer` existed would have emptied the classical profile rather
-# than corrected it — Bach was 0.089 then, because Apple returns no composer for
-# the St Matthew Passion and the credit was all there was. He is 0.95 now, which
-# is what makes the reduction safe.
-CLASSICAL_PERFORMER_WEIGHT = 0.3
+# Measured: Pichon and Pygmalion have the most rows in the library (276) and one
+# album — the St Matthew Passion counted once per movement. Perlman has 47 rows
+# across six albums, Hadelich 97 across three, the Berlin Philharmonic 100
+# across thirteen. One album means the performer came with a recording; several
+# means they were chosen more than once, which is a choice.
+#
+# **The criterion is breadth in this library, not fame.** A legendary soloist
+# with one album here gets one album's worth of consideration, which as a claim
+# about taste is none — and that avoids needing an external "is this person
+# famous" oracle, the same trap the YouTube channel-role work refused.
+CLASSICAL_PERFORMER_MIN_ALBUMS = 2
+
+# What a performer below that threshold is worth. Not zero: the term still has
+# to exist for term mining. Low enough that the largest such credit in a real
+# library — 276 rows of one recording — lands at 0.19 against the 0.35 an
+# assertion needs.
+INCIDENTAL_PERFORMER_WEIGHT = 0.02
 
 
 def _term(text: str, role: str, source_field: str, type_hint: str | None,
@@ -300,7 +307,8 @@ def _term(text: str, role: str, source_field: str, type_hint: str | None,
 
 
 def terms_for(payload: dict[str, Any], action: str,
-              work: str | None = None, eras: tuple[str, ...] = ()) -> tuple[Term, ...]:
+              work: str | None = None, eras: tuple[str, ...] = (),
+              breadth: dict[str, int] | None = None) -> tuple[Term, ...]:
     """The terms one music observation supports.
 
     Roles and type hints mirror `export_adapter._music_observation`, which is the
@@ -315,6 +323,7 @@ def terms_for(payload: dict[str, Any], action: str,
     supports no terms rather than as a bug.
     """
     terms: list[Term] = []
+    breadth = breadth or {}
 
     title = _text(payload.get("title"))
     album_text = _text(payload.get("album"))
@@ -358,9 +367,27 @@ def terms_for(payload: dict[str, Any], action: str,
             if normalize_text(performer) in seen_creators:
                 continue
             seen_creators.add(normalize_text(performer))
+            # **A one-album classical performer is emitted and weighed at
+            # almost nothing, rather than dropped.**
+            #
+            # Dropping it was the first attempt and three tests caught what it
+            # cost: this file's own docstring says unresolved terms are built
+            # *deliberately*, because they are `EmergentTermMiner`'s input and
+            # "dropping them would be dropping the ontology's growth path". A
+            # `continue` here silently removed that for every classical
+            # performer in the library.
+            #
+            # The weight is chosen against the eligibility bar rather than
+            # picked. Pichon carries ~69 units of evidence across 276 rows of
+            # one recording; at 0.02 that is 1.4, which saturates to 0.19 —
+            # under the 0.35 an assertion needs. At 0.05 it is 0.365 and still
+            # clears it, which is why 0.3 did nothing.
+            incidental = (classical
+                          and breadth.get(normalize_text(performer), 0)
+                              < CLASSICAL_PERFORMER_MIN_ALBUMS)
             terms.append(_term(
                 performer, "creator", "primary_performer", "creator",
-                weight=CLASSICAL_PERFORMER_WEIGHT if classical else 1.0))
+                weight=INCIDENTAL_PERFORMER_WEIGHT if incidental else 1.0))
 
     composer = _text(payload.get("composer"))
     # **Apple states a composer on 8% of a classical library and a performer on
@@ -421,8 +448,10 @@ def terms_for(payload: dict[str, Any], action: str,
     return tuple(terms)
 
 
-def library_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
-    """The two things a single row cannot decide: its work and its era.
+def library_facts(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, tuple[str, ...]], dict[str, int]]:
+    """The three things a single row cannot decide: work, era, and breadth.
 
     **Both are properties of a set of rows.** A work propagates between releases
     of the same song — `Resister (Special Edition)` names none while
@@ -430,7 +459,8 @@ def library_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str,
     artist-level fact, because every Hikaru Utada row is dated 2024 by the tour
     album they came from.
 
-    Returns `song key -> work` and `performer -> eras`.
+    Returns `song key -> work`, `performer -> eras`, and
+    `normalized person -> distinct album count`.
     """
     flat: list[dict[str, Any]] = []
     for row in rows:
@@ -455,7 +485,27 @@ def library_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str,
         for performer, items in by_performer.items()
         if performer
     }
-    return works, eras
+
+    # **How many distinct albums each person appears on**, which is the third
+    # thing a single row cannot decide and the reason this function already
+    # exists. Keyed per *person* rather than per credit string, because the
+    # question is about Perlman rather than about
+    # `Itzhak Perlman, Berlin Philharmonic & Daniel Barenboim`.
+    #
+    # Measured on the real library, this separates a performer somebody sought
+    # out from one who happened to be on a recording — and row count does the
+    # opposite. Pichon and Pygmalion have the *most* rows of anyone (276) and
+    # one album: the St Matthew Passion, counted once per movement. Perlman has
+    # a sixth as many rows across six albums.
+    albums_by_person: dict[str, set[str]] = {}
+    for item in flat:
+        if not item["album"]:
+            continue
+        for person in people_in(item["performer"]):
+            albums_by_person.setdefault(normalize_text(person), set()).add(item["album"])
+    breadth = {person: len(albums) for person, albums in albums_by_person.items()}
+
+    return works, eras, breadth
 
 
 def youtube_terms_for(payload: dict[str, Any],
@@ -550,7 +600,8 @@ def exact_terms_only(observation: Observation, graph: OntologyGraph) -> Observat
 def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          works: dict[str, str] | None = None,
                          eras: dict[str, tuple[str, ...]] | None = None,
-                         allow_uploader_tags: bool = False) -> Observation | None:
+                         allow_uploader_tags: bool = False,
+                         breadth: dict[str, int] | None = None) -> Observation | None:
     payload = row["normalized_payload"]
     if not isinstance(payload, dict):
         return None
@@ -568,6 +619,7 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
             payload, row["action_type"],
             work=(works or {}).get(key),
             eras=(eras or {}).get(performer, ()),
+            breadth=breadth,
         )
     if not terms:
         return None
@@ -813,14 +865,15 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     mapping_rows: list[dict[str, Any]] = []
 
     # Computed once over the whole set, because neither is decidable per row.
-    works, eras = library_facts(rows)
+    works, eras, breadth = library_facts(rows)
 
     for row in rows:
         source = sources.get(row["source_code"])
         if source is None:
             continue
         observation = observation_from_row(
-            row, source, works, eras, allow_uploader_tags=allow_uploader_tags)
+            row, source, works, eras, allow_uploader_tags=allow_uploader_tags,
+            breadth=breadth)
         if observation is not None:
             before = len(observation.terms)
             observation = exact_terms_only(observation, graph)
