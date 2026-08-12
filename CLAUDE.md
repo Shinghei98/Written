@@ -2714,7 +2714,121 @@ against a real library is unmeasured; **the Memories page below is what will
 measure it**, being the first screen that puts a domain heading over a named
 thing where anybody can see it is wrong.
 
+### Phase 3: Memories draws assertions, and the legacy cards stay beside it
+
+**Built 2026-08-12, and the server half already existed.** `0048` had shipped
+the whole narrow-RPC surface §8 asks for — `api.list_assertions`,
+`confirm_assertion`, `add_assertion`, `suppress_assertion`, `restore_assertion`
+and `record_assertion_exposure`, every one `security definer` and scoped to
+`auth.uid()` with no parameter for whose. Phase 3 was pointing the app at them.
+
+**The difference from the legacy cards below is what a row *is*.** There a row
+is a string a source produced, filed under a domain `Ontology.classify` guessed
+at by substring, and striking one off goes through `BanList.Kind`, which removes
+**every row whose name matches** — so banning an artist also bans a YouTube
+channel called the same thing. Here a row is a concept with an id, and
+`suppress_assertion` names one assertion. The contract forbids a title ban
+becoming a concept-level negative; this is what makes that true rather than
+intended. Both are on screen at once deliberately: §8 cuts Memories over while
+discovery, the bio and the icebreaker stay legacy, so the two readings can be
+compared.
+
+**Two switches, and they are not redundant.**
+`AppConfig.semanticSurfacesEnabled` decides whether the app asks;
+`memories_reads` decides whether the server answers and is §9's rollback
+contract, throwable without a release. `0102` is what made the flags decide
+anything at all — they had existed since `0048` with **zero callers**, and
+`emergency_privacy_kill_switch` described itself as a master stop and stopped
+nothing.
+
+**The `api` schema had to be exposed by hand**, which no migration can do:
+Settings → API → Exposed schemas. Until it was, every RPC answered `PGRST202`
+naming **`public.list_assertions`** — which reads as a missing function rather
+than an unexposed schema. Found with one request from outside the app, before
+any Swift was written, precisely so it would not be diagnosed from inside it.
+`PostgREST.callFunction` sends both `Content-Profile` and `Accept-Profile`,
+because an RPC is a POST that reads and setting one sends half the calls to
+`public`.
+
+**Three defects, all the same shape, and each hid the next.** The recurring one
+this file names — *a call that can fail, a result nobody reads*:
+
+- A **required exposure passed as `NSNull`**. `suppress_assertion` ends with
+  *"matching assertion exposure is required"*: an answer must name the exposure
+  it answers, so "I disagree" refers to a particular label at a particular rank
+  computed by a particular score version. `record_assertion_exposure` was never
+  called at all.
+- The exposure then **requested and unparseable**. A `uuid`-returning function
+  answers `"a1b2-…"`, a top-level JSON fragment, which `JSONSerialization`
+  refuses by default — so the id read as nothing and the answer never ran. The
+  request had succeeded; only the reading of it had not.
+- **Both invisible**, because the failure was stored on the service and drawn
+  nowhere. A refused removal looked exactly like an accepted one: the row
+  vanished optimistically, returned on the next load, and nothing said why.
+
+Every confirm and suppress failed from the moment they were written until the
+owner tapped remove and asked whether it had stuck. **A probe proved the reads
+and nothing proved the writes**, and the surface was called "behaving" on the
+strength of the half that could be seen.
+
+**`-probe-surface 1` is the read half's proof** and needs a device: a simulator
+holds no session, so it correctly answers *"could not ask"* there. It reads and
+never writes, unlike `-probe-ingest` — confirm and suppress are somebody's own
+answers about themselves, and a probe that recorded one to test a network call
+would be putting words in their mouth.
+
+**What the page shows is `concept_kind`, and the owner drew the line.** *"These
+blanket terms serve internal processing, but serve no purpose for user edit —
+the terms shown should be well defined enough to strike off or understand,
+either artists like Shiina Ringo or ABBA, or franchises like Re:Zero and
+Footloose."* So `0108` filters `list_assertions` to `creator`, `work` and
+`activity`, and the page went from 65 rows to 36.
+
+**It filters one page and nothing else, which is worth stating because `0108`'s
+own comment overstates it.** That comment says suppressing a blanket term
+*"would quietly change how everything else is weighed"*. It would not:
+`assertion_preferences` is read by the six `api` functions and two Calendar
+guards, and **the scorer never reads it**, so a suppression removes a row from
+one page and does nothing else. The migration is left as the record of what was
+deployed — `supabase_migrations.schema_migrations` stores each migration's
+statements, and editing an applied file is the `ARCHIVED-YOUTUBE` drift one
+layer down — so the correction lives here. **The argument that survives is the
+owner's own and needed no help**: *"1990s English-language"* is not a
+well-defined thing a person can strike off or understand.
+
+The 13 genres and 16 scenes/spheres remain asserted, scored and evidenced, and
+are what Phase 4's server-owned discovery will match on. `sphere:korean` at
+0.927 is in `user_assertions` untouched.
+
+**An allowlist, so a new kind is withheld until somebody decides it belongs** —
+the Calendar classifier's shape, and for the same reason: an internal kind
+appearing on somebody's profile is worse than a nameable one being missed,
+because only the first is invisible to whoever added it. **A user's own term
+always survives it**, having no concept and therefore no kind, which is why the
+rule is written as *a user term or an allowed kind* and why addition needed no
+server change.
+
+**Restore can only be an undo, and that is a gap rather than a design.**
+`restore_assertion` takes three arguments where its siblings take four — no
+exposure, correctly, since a suppressed assertion is filtered out of
+`list_assertions` and was never on screen. But **nothing returns suppressed
+assertions at all**, so a person cannot see what they have hidden in order to
+press anything on it: a row hidden today cannot be recovered tomorrow.
+
+**The work bar is 0.25 and is a judgement, not a measurement.** A creator
+accumulates across everything they touch — Bach is on 417 mappings — while a
+work is attested only by the songs belonging to it, so the same strength means
+more evidence. Set from the owner's reading of three of their own: Footloose in
+at 0.266, BanG Dream! out at 0.237, Re:Zero out at 0.047. It went in at 0.20
+first, deliberately below both of the first two, on the grounds that seven
+mappings against six is not a difference the scale can resolve; **what was
+missing was a label on the second row, not a finer threshold**. One library and
+one reviewer.
+
 ### Memories is the ontology's surface
+
+**Still drawn, and now beside the assertion card rather than alone** — see the
+Phase 3 section above. Everything below describes the legacy path.
 
 `Ontology.terms` groups everything distilled under the domain it landed in, and
 `DashboardView.domainSections` draws one card per domain. It replaced five cards
@@ -3244,6 +3358,20 @@ this file is in `git log -p CLAUDE.md`.
   the centroid**, because the centroid moves when a leaf is redrawn while the
   base is what `promptsReserve` and the header budget control, which is what all
   four recorded regressions were about.
+- **Nothing lists a suppressed assertion, so a hidden row cannot be recovered
+  the next day.** `list_assertions` filters `display_state = 'suppressed'` and no
+  other function returns them, so restoration is reachable only as an undo in
+  the moment it is removed — which makes a mis-tap permanent. It wants a server
+  decision rather than a client change: a second RPC, or a parameter on
+  `list_assertions`. The question underneath is what somebody is owed over
+  their own profile, which is why it has not been guessed at.
+- **Exposures are recorded when an answer is given, not when a row is drawn.**
+  Honest for anchoring — the row was on screen, somebody just pressed it — and
+  cheap, against one call per row per visit for a page most people only read.
+  The cost is that `assertion_exposures` cannot answer *"what was shown and not
+  acted on"*, which §10 lists among the shadow metrics and which wants
+  display-time recording. Three orphan exposures from the failed attempts are
+  already in that table, so it overstates what was considered.
 - **Connecting Google Calendar on a phone that already has the Google account
   duplicates every event, and it has now happened.** Measured 2026-08-12 on the
   Demo account: **four flights promoted twice**, once under `apple_calendar` and
