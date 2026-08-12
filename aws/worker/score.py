@@ -80,6 +80,27 @@ ELIGIBLE_STRENGTH = 0.35
 
 AFFINITY_PREDICATE = "affinity_to"
 
+# **Concept kinds that are scored and never asserted.**
+#
+# A hub is where a concept *lives*, not something somebody likes. `hub:music` at
+# 0.92 says this person likes music, which is true of everyone with a music
+# library — it is the denominator, not a fact about them. The three that
+# surfaced on a real profile were `music`, `ideas_learning` and `film_video`,
+# and none of them distinguishes one person from another.
+#
+# **Scored, though, and that is deliberate.** `concept_scores` is what a
+# Memories page groups by, and a hub with no score would leave a section with no
+# heading. The exclusion is on the *claim*, which is the same distinction
+# `notAnAction(.container)` draws for a playlist or a calendar: captured
+# broadly, promoted narrowly, and a container is structurally not an act.
+#
+# Eras are deliberately not here. They are `topic`, they look vacuous for the
+# same reason — everyone has a decade — and the owner's reading is that they are
+# the point: somebody who listens only to 1980s German music has a strong
+# identity, and the era is what carries it. Vacuous-looking is not the test;
+# whether it can differ between two people is.
+NEVER_ASSERTED_KINDS = frozenset({"hub"})
+
 
 # **Aggregated in SQL rather than in Python.** 12,017 mappings across ~340
 # concepts is small, but pulling them into the Lambda to group them would put
@@ -314,7 +335,14 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             })
         counts["scored"] += 1
 
-        state = "eligible" if strength >= ELIGIBLE_STRENGTH else "candidate"
+        kind = label.get("concept_kind")
+        if kind in NEVER_ASSERTED_KINDS:
+            # Counted rather than skipped silently: a kind quietly asserting
+            # nothing is indistinguishable from a kind nothing ever scored.
+            counts["container_kind"] = counts.get("container_kind", 0) + 1
+            state = "candidate"
+        else:
+            state = "eligible" if strength >= ELIGIBLE_STRENGTH else "candidate"
         counts[state] += 1
         if state != "eligible":
             # Scored and inspectable, asserting nothing. Promote narrowly.
