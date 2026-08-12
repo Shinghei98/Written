@@ -163,7 +163,19 @@ def classifier_for(user_id: str):
 
 
 def rows_for(user_id: str, key: str) -> list[dict]:
-    """Calendar events as the classifier reads them.
+    """Calendar events as the classifier reads them, one row per event.
+
+    **Through `summary_distilled_records`, never the table**, which is this
+    project's own standing rule and which the first version of this tool broke.
+    `distilled_records` is append-only across every run, so a re-distilled
+    calendar is in there several times: David's 106 events were 158 rows, and
+    the review reported **9 promotions where the vault holds 5** — eight flight
+    segments for four flights, each counted once per distillation.
+
+    Demo matched at 9 and 9 on the same broken code, because its four duplicate
+    rows happened not to be promotable ones. So the agreement check did not fail
+    on the account that would have exonerated it and passed on the other; only
+    running both caught it.
 
     `source` is normalised to `apple_calendar` and `data_type` to `event`, which
     is what the Lambda does — it hardcodes both, so a Google Calendar row goes
@@ -172,7 +184,7 @@ def rows_for(user_id: str, key: str) -> list[dict]:
     collected: list[dict] = []
     for source in ("apple_calendar", "google_calendar"):
         found = get(
-            f"/rest/v1/distilled_records?user_id=eq.{user_id}"
+            f"/rest/v1/summary_distilled_records?user_id=eq.{user_id}"
             f"&source=eq.{source}&data_type=eq.event"
             "&select=item_id,name,creator,detail,extra,collected_at", key,
         ) or []
@@ -277,9 +289,23 @@ def main() -> None:
           f"{len(rows) - len(included)} abstained")
     print("dispositions: " + ", ".join(
         f"{n}={c}" for n, c in sorted(dispositions.items(), key=lambda kv: -kv[1])))
+
+    # **Per source, because the totals are not comparable.** A source the vault
+    # never captured has no counterpart there — Google Calendar reached the
+    # vault for the first time on 2026-08-12 and only for one account — so a
+    # single total invites the reader to call a legitimate difference a
+    # mismatch, or worse to wave one through.
+    by_source: dict[str, int] = {}
+    for row, _ in included:
+        by_source[row["_origin"]] = by_source.get(row["_origin"], 0) + 1
+    print("promoted by source: " + (", ".join(
+        f"{s}={n}" for s, n in sorted(by_source.items())) or "none"))
+
     print(f"\nwrote {path} — it holds event titles, so it is git-ignored")
-    print("Compare `promoted` above against `candidate` in the database. They "
-          "must match, or this reproduced a different classifier.")
+    print("Compare each source above against that source's `candidate` count in "
+          "`semantic_private.observations`. A source absent from the vault is "
+          "expected to differ; a source present and disagreeing means this "
+          "reproduced a different classifier.")
 
 
 if __name__ == "__main__":

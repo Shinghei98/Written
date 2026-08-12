@@ -78,6 +78,24 @@ def test_the_tool_and_the_lambda_build_the_same_classifier(review_tool):
     assert constructor_arguments(tool) == constructor_arguments(handler)
 
 
+def test_it_reads_the_summary_view_and_not_the_table():
+    """`distilled_records` is append-only across runs; the view is current state.
+
+    The first version queried the table and counted history. David's 106 events
+    are 158 rows there, so the review reported **9 promotions against the
+    vault's 5** — eight flight segments for four flights, one per distillation.
+    Demo matched at 9 and 9 on the same code because its four duplicate rows
+    happened not to be promotable, so the agreement check passed on one account
+    and failed on the other; a single account would have shipped this.
+
+    Asserted as text because the alternative is a live database. What can
+    regress here is one identifier.
+    """
+    source = pathlib.Path(REPOSITORY, "tools", "calendar_review.py").read_text()
+    assert "/rest/v1/summary_distilled_records?" in source
+    assert "/rest/v1/distilled_records?" not in source
+
+
 def test_a_structured_flight_is_promoted(review_tool):
     """The shape the four real promotions have, and the one that misled me.
 
