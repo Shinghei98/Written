@@ -3021,13 +3021,19 @@ this file is in `git log -p CLAUDE.md`.
   `device_tokens` row so far reads `sandbox`; a TestFlight build mints a
   **production** token against a different host. Confirm a row reading
   `production`, then send one message and check the face still arrives.
-- **The plant's position is unverified**, and the reason given for it has
-  expired. `(858, 1626)` at stage 2 is the check that has caught every layout
-  regression here, and it went unrun because CoreSimulator was unusable from
-  2026-07-29 — several changes shipped on arithmetic alone. **CoreSimulator
-  works again**: an iPhone 17 booted, installed and screenshotted on 2026-08-11
-  while running `-probe-ingest`. So this is now simply a check nobody has run,
-  which is a smaller thing than it was and a much easier one to close.
+- **The plant's position is checked now, and `(858, 1626)` turned out to be
+  unrunnable rather than unrun.** That pair sat here from 2026-07-29 described as
+  *the check that has caught every layout regression*, and **nothing anywhere
+  recorded what it measures** — not the commit that added it, not the constants
+  in `SeedlingArt.swift`, not any tool. A number with no method cannot fail, so
+  it cannot catch anything. `tools/plant_position_check.py` replaces it: launch
+  `-route home -stage 2`, screenshot, measure the illustration's dark mass, and
+  compare against a baseline the tool itself produced. Verified 2026-08-12 on an
+  iPhone 17 simulator — the garden renders correctly at stage 2, nothing
+  overlaps, and the figures are in the tool. **It reports the base rather than
+  the centroid**, because the centroid moves when a leaf is redrawn while the
+  base is what `promptsReserve` and the header budget control, which is what all
+  four recorded regressions were about.
 - **Nobody has reviewed a Calendar promotion, and §10 requires it.** Five
   candidates exist — 4 `travel_itinerary`, 1 `public_ticket` — plus 96
   exclusions to sample. The gate is a person reading output, so it cannot be
