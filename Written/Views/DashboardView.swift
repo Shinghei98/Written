@@ -75,6 +75,16 @@ struct DashboardView: View {
     /// `-probe-surface` exists to keep distinguishable.
     @State private var assertions: [SemanticSurfaceService.Assertion]?
 
+    /// Why the last answer did not save.
+    ///
+    /// **Drawn, which is the whole point of it existing.** The first version of
+    /// this card recorded the failure on the service and showed nothing, so a
+    /// remove that the server refused looked exactly like one it accepted —
+    /// the row vanished, came back on the next load, and nothing said why. That
+    /// is this codebase's most-repeated defect and it was written into a brand
+    /// new file on the day it was written.
+    @State private var assertionFailure: String?
+
     /// The term whose evidence is being read, and the card it was drawn under.
     ///
     /// Both, because `TermDetailView` names the domain in its header and
@@ -1174,12 +1184,24 @@ struct DashboardView: View {
                 cardLabel("WHAT YOUR DATA SAYS", icon: "sparkles")
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
 
+                // **Said out loud when an answer does not save.** Without this
+                // the row simply reappears on the next visit, which reads as the
+                // app forgetting rather than as the server refusing — and that
+                // is precisely how a broken write path survived from the moment
+                // it was written until somebody asked whether a removal stuck.
+                if let assertionFailure {
+                    Text(assertionFailure)
+                        .font(.system(size: 12))
+                        .foregroundStyle(GardenPalette.muted)
+                        .padding(.vertical, 6)
+                }
+
                 entryStack {
                     ForEach(Array(assertions.enumerated()), id: \.element.id) { index, assertion in
                         if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
                         assertionRow(assertion)
                             .removable(editing: editingEntry == assertion.id.uuidString, index: index) {
-                                remove { suppress(assertion) }
+                                remove { suppress(assertion, rank: index) }
                             }
                             .editableOnLongPress($editingEntry, key: assertion.id.uuidString)
                             // **Tap confirms, long-press removes**, the same two
@@ -1188,7 +1210,7 @@ struct DashboardView: View {
                             // now carries a claim rather than a string.
                             .onTapGesture {
                                 guard editingEntry == nil else { return }
-                                confirm(assertion)
+                                confirm(assertion, rank: index)
                             }
                     }
                 }
@@ -1242,25 +1264,31 @@ struct DashboardView: View {
     /// landing — but an answer the server never recorded must not stay on the
     /// screen looking recorded. `LikeService.like` fills a heart the same way
     /// and had nothing to put back; here there is.
-    private func confirm(_ assertion: SemanticSurfaceService.Assertion) {
+    private func confirm(_ assertion: SemanticSurfaceService.Assertion, rank: Int) {
         guard let index = assertions?.firstIndex(where: { $0.id == assertion.id }) else { return }
         let previous = assertions?[index].displayState ?? "default"
         assertions?[index] = assertion.settingDisplayState("confirmed")
         Task {
-            if await !SemanticSurfaceService.shared.confirm(assertion.id) {
+            if await !SemanticSurfaceService.shared.confirm(assertion, rank: rank) {
+                let reason = await SemanticSurfaceService.shared.lastError
                 await MainActor.run {
                     assertions?[index] = assertion.settingDisplayState(previous)
+                    assertionFailure = reason ?? "That didn't save."
                 }
             }
         }
     }
 
-    private func suppress(_ assertion: SemanticSurfaceService.Assertion) {
+    private func suppress(_ assertion: SemanticSurfaceService.Assertion, rank: Int) {
         let removed = assertions
         assertions?.removeAll { $0.id == assertion.id }
         Task {
-            if await !SemanticSurfaceService.shared.suppress(assertion.id) {
-                await MainActor.run { assertions = removed }
+            if await !SemanticSurfaceService.shared.suppress(assertion, rank: rank) {
+                let reason = await SemanticSurfaceService.shared.lastError
+                await MainActor.run {
+                    assertions = removed
+                    assertionFailure = reason ?? "That didn't save."
+                }
             }
         }
     }

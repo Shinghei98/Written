@@ -143,32 +143,82 @@ actor SemanticSurfaceService {
     /// These four name one assertion by id, so "I do not like this" and "this
     /// is not me" stop being the same act. The contract is explicit that a
     /// title ban must never become a concept-level negative.
+    /// **Every answer is anchored to what was on screen, and the schema insists.**
+    /// `suppress_assertion` and its siblings end with
+    /// *"matching assertion exposure is required"* — an answer must name the
+    /// exposure it is answering, so "I disagree" refers to a particular label at
+    /// a particular rank computed by a particular score version, rather than to
+    /// a concept in the abstract. A score that has since moved cannot silently
+    /// inherit somebody's rejection of an older one.
+    ///
+    /// The first version of this passed `NSNull()` for the exposure and never
+    /// called this function at all, so **every confirm and suppress failed** —
+    /// found not by a test but by the owner tapping remove and asking whether
+    /// it had stuck. It had not.
+    ///
+    /// **Recorded at the moment of the answer, not when the card draws.** The
+    /// row demonstrably was on screen — somebody just pressed it — so the
+    /// anchoring is honest either way, and recording one per row per visit would
+    /// be 36 round trips for a page most people will only read. The cost is that
+    /// `assertion_exposures` cannot answer *"what was shown and not acted on"*,
+    /// which is a shadow metric §10 asks for and which wants display-time
+    /// recording when somebody builds it.
+    private func exposure(
+        for assertion: Assertion, rank: Int, surface: String
+    ) async -> String? {
+        do {
+            let rows = try await PostgREST.callFunction("record_assertion_exposure", arguments: [
+                "p_target_assertion_id": assertion.id.uuidString.lowercased(),
+                // `NSNull` and a `String?` have no common type, so the
+                // optional is widened explicitly rather than coalesced.
+                "p_assertion_score_version_id":
+                    assertion.scoreVersionID.map { $0.uuidString.lowercased() as Any }
+                        ?? (NSNull() as Any),
+                "p_presentation_version": Self.presentationVersion,
+                "p_displayed_label": assertion.label,
+                "p_rank": rank,
+                "p_surface_name": surface,
+            ])
+            lastError = nil
+            return rows.first?["value"] as? String
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// What the reader was looking at when they answered. Bumped when the card's
+    /// layout changes enough that an old answer was about a different thing.
+    static let presentationVersion = "memories-assertions-v1"
+
     @discardableResult
-    func confirm(_ id: UUID, surface: String = "memories") async -> Bool {
-        await call("confirm_assertion", [
-            "p_target_assertion_id": id.uuidString.lowercased(),
-            "p_client_event_id": UUID().uuidString.lowercased(),
-            "p_exposure_id": NSNull(),
-            "p_surface_name": surface,
-        ])
+    func confirm(_ assertion: Assertion, rank: Int, surface: String = "memories") async -> Bool {
+        await answer("confirm_assertion", assertion, rank: rank, surface: surface)
     }
 
     @discardableResult
-    func suppress(_ id: UUID, surface: String = "memories") async -> Bool {
-        await call("suppress_assertion", [
-            "p_target_assertion_id": id.uuidString.lowercased(),
-            "p_client_event_id": UUID().uuidString.lowercased(),
-            "p_exposure_id": NSNull(),
-            "p_surface_name": surface,
-        ])
+    func suppress(_ assertion: Assertion, rank: Int, surface: String = "memories") async -> Bool {
+        await answer("suppress_assertion", assertion, rank: rank, surface: surface)
     }
 
     @discardableResult
-    func restore(_ id: UUID, surface: String = "memories") async -> Bool {
-        await call("restore_assertion", [
-            "p_target_assertion_id": id.uuidString.lowercased(),
+    func restore(_ assertion: Assertion, rank: Int, surface: String = "memories") async -> Bool {
+        await answer("restore_assertion", assertion, rank: rank, surface: surface)
+    }
+
+    private func answer(
+        _ name: String, _ assertion: Assertion, rank: Int, surface: String
+    ) async -> Bool {
+        guard let exposureID = await exposure(for: assertion, rank: rank, surface: surface) else {
+            // `lastError` is already set by `exposure`. Returning false here is
+            // what puts the row back on screen — an answer the server never
+            // recorded must not stay looking recorded.
+            return false
+        }
+        return await call(name, [
+            "p_target_assertion_id": assertion.id.uuidString.lowercased(),
             "p_client_event_id": UUID().uuidString.lowercased(),
-            "p_exposure_id": NSNull(),
+            "p_exposure_id": exposureID,
             "p_surface_name": surface,
         ])
     }
