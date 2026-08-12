@@ -9,6 +9,12 @@ written-distillation-*.csv
 # The term-labelling sheet: one person's whole music library in plain text,
 # the same class as an export and equally unwelcome in history.
 ontology-terms.csv
+# The Calendar review artefact: event titles, locations and organiser names —
+# other people's, not only the owner's, which is the trade `CalendarDistiller`
+# makes deliberately and the reason the vault never returns them. §10 forbids
+# raw Calendar payloads in logs and traces; a file in the working tree is not
+# either of those, and it is not something to commit.
+calendar-review-*.md
 
 # Credentials. None of these belong in a repository, and the reason this list
 # exists rather than trusting care is that an APNs key was committed by a

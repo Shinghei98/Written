@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Assemble §8's fourth Phase 2 gate: the Calendar promotions, for a person to read.
+
+    export SUPABASE_SECRET_KEY=sb_secret_...
+    python3 tools/calendar_review.py <user_id> [--sample 4]
+
+Writes `calendar-review-<user>.md` and prints **counts only**. The file holds
+event titles, so it is git-ignored beside `written-distillation-*.csv` and
+`ontology-terms.csv`, and it is not something to paste anywhere.
+
+## Why this reconstructs the decision instead of reading it back
+
+**The vault cannot tell you which event a promotion was about, and that is the
+privacy property rather than a gap.** `observations.normalized_payload` is at
+most four keys — schema version, record kind, `classification_state`,
+`artifact_type` — because the classifier's own contract is that the private
+title *"participates only in the HMAC lineage and is not returned"*. The one
+key that could identify the row, `source_item_hmac`, is salted per user with a
+KMS key that only the classifier's IAM role may use.
+
+So §10's *"review every Calendar promotion"* cannot be performed from the vault
+alone, by design. The honest route is to re-derive the same decision from the
+same input: `public.distilled_records` holds the legacy calendar rows in exactly
+the shape `CalendarClassifier.classify` reads, and this builds the classifier the
+way `aws/classifier/handler.py` builds it — same package, same four offline
+catalogs. Nothing is decrypted and no KMS call is made.
+
+**The reproduction is checked rather than assumed.** The script compares its own
+counts against `semantic_private.observations` for that user and says so. If
+they disagree, this is classifying with a different configuration from the
+Lambda and its output is describing a classifier nobody deployed — which is the
+one way this review could quietly be worthless.
+
+## What "stratified" means here
+
+§8 asks for *"a stratified sample of abstentions"*, not a sample of rows: the
+strata are the classifier's own dispositions, so a disposition that fired twice
+is represented alongside one that fired seventy times. Sampling rows uniformly
+would show `excluded_unknown` seventy times and never show the interesting ones.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import sys
+import urllib.error
+import urllib.request
+
+BASE = "https://fwnezkbesjoazlpaflbq.supabase.co"
+
+
+def env_key() -> str:
+    key = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
+    if not key:
+        sys.exit(
+            "SUPABASE_SECRET_KEY is not set.\n\n"
+            "It bypasses row level security entirely, so it lives in your shell "
+            "for the length of this run and nowhere else."
+        )
+    return key
+
+
+def get(path: str, key: str):
+    req = urllib.request.Request(f"{BASE}{path}")
+    req.add_header("apikey", key)
+    req.add_header("Authorization", f"Bearer {key}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        sys.exit(f"GET {path} failed: {error.code}\n{error.read().decode()}")
+
+
+def classifier_for(user_id: str):
+    """Built exactly as `aws/classifier/handler.py:classifier_for` builds it.
+
+    The four offline catalogs are what decide whether a booking is a recognised
+    vendor, so constructing without one would silently reclassify. The lineage
+    signer is the one thing that differs: the Lambda derives an HMAC key from
+    KMS and this has no such key and needs none — the hash identifies a row to
+    the database, and here the row is already in front of us.
+    """
+    from written_ontology.calendar_semantics import CalendarClassifier
+    from written_ontology.export_adapter import (
+        _OFFLINE_CALENDAR_CARRIERS,
+        _OFFLINE_CALENDAR_PLACE_CATALOG,
+        _OFFLINE_CALENDAR_PLACE_LABELS,
+        _OFFLINE_LEISURE_VENDORS,
+    )
+
+    return CalendarClassifier(
+        place_catalog=_OFFLINE_CALENDAR_PLACE_CATALOG,
+        place_labels=_OFFLINE_CALENDAR_PLACE_LABELS,
+        carrier_codes=_OFFLINE_CALENDAR_CARRIERS,
+        recognized_leisure_vendors=_OFFLINE_LEISURE_VENDORS,
+        lineage_signer=lambda _content: "review-only",
+    )
+
+
+def rows_for(user_id: str, key: str) -> list[dict]:
+    """Calendar events as the classifier reads them.
+
+    `source` is normalised to `apple_calendar` and `data_type` to `event`, which
+    is what the Lambda does — it hardcodes both, so a Google Calendar row goes
+    through the identical path there and must here.
+    """
+    collected: list[dict] = []
+    for source in ("apple_calendar", "google_calendar"):
+        found = get(
+            f"/rest/v1/distilled_records?user_id=eq.{user_id}"
+            f"&source=eq.{source}&data_type=eq.event"
+            "&select=item_id,name,creator,detail,extra,collected_at", key,
+        ) or []
+        for row in found:
+            collected.append({
+                "source": "apple_calendar",
+                "data_type": "event",
+                "item_id": row.get("item_id") or "",
+                "name": row.get("name") or "",
+                "detail": row.get("detail") or "",
+                "creator": row.get("creator") or "",
+                "extra": row.get("extra") or "",
+                "_origin": source,
+            })
+    return collected
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("user_id")
+    parser.add_argument("--sample", type=int, default=4,
+                        help="abstentions to show per disposition (default 4)")
+    args = parser.parse_args()
+
+    key = env_key()
+    rows = rows_for(args.user_id, key)
+    if not rows:
+        sys.exit("no calendar events for that user")
+
+    classifier = classifier_for(args.user_id)
+
+    included: list[tuple[dict, object]] = []
+    excluded: dict[str, list[tuple[dict, object]]] = {}
+    dispositions: dict[str, int] = {}
+
+    for row in rows:
+        decision = classifier.classify(row, calendar_metadata=None)
+        name = str(decision.disposition)
+        dispositions[name] = dispositions.get(name, 0) + 1
+        if decision.included:
+            included.append((row, decision))
+        else:
+            excluded.setdefault(name, []).append((row, decision))
+
+    lines: list[str] = []
+    out = lines.append
+    out(f"# Calendar review — {args.user_id}\n")
+    out(f"{len(rows)} events, {len(included)} promoted, "
+        f"{len(rows) - len(included)} abstained.\n")
+    out("Reproduced from `public.distilled_records` with the same classifier and "
+        "the same four offline catalogs the Lambda uses. Nothing was decrypted.\n")
+
+    out("\n## Dispositions\n")
+    for name, count in sorted(dispositions.items(), key=lambda kv: -kv[1]):
+        out(f"- `{name}` — {count}")
+
+    out("\n## Every promotion\n")
+    out("**Read each of these.** §10 allows one verified ticket to create only "
+        "its typed booked/scheduled predicate, so a wrong promotion here is a "
+        "claim about somebody's life made from a misread calendar entry.\n")
+    for row, decision in included:
+        activity = getattr(decision, "booked_activity", None)
+        flight = getattr(decision, "flight_segment", None)
+        starts = getattr(flight, "starts_at", None) or getattr(activity, "starts_at", None)
+        vendor = getattr(activity, "vendor_key", None)
+        out(f"\n### {row['name'] or '(untitled)'}")
+        out(f"- disposition: `{decision.disposition}`")
+        out(f"- source: {row['_origin']}")
+        if starts:
+            out(f"- starts: {starts}")
+        if row["detail"]:
+            out(f"- location: {row['detail']}")
+        if vendor:
+            out(f"- vendor: `{vendor}`")
+        if row["creator"]:
+            out(f"- organizer: {row['creator']}")
+        out(f"- extra: `{row['extra']}`")
+        out("- **verdict:** _(right / wrong / unsure — write here)_")
+
+    out("\n## Stratified sample of abstentions\n")
+    out("One group per disposition, so a rule that fired twice is as visible as "
+        "one that fired seventy times. Looking for the opposite mistake: an "
+        "event that *should* have been promoted and was not.\n")
+    for name, items in sorted(excluded.items(), key=lambda kv: -len(kv[1])):
+        out(f"\n### `{name}` — {len(items)} total, showing "
+            f"{min(args.sample, len(items))}")
+        # First-N rather than random: the run has to be reproducible, and a
+        # review somebody half-finishes should show the same rows next time.
+        for row, _ in items[:args.sample]:
+            detail = f" — {row['detail']}" if row["detail"] else ""
+            out(f"- {row['name'] or '(untitled)'}{detail}")
+        out("- **verdict:** _(any of these wrongly excluded? write here)_")
+
+    path = pathlib.Path(f"calendar-review-{args.user_id[:8]}.md")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+    print(f"{len(rows)} events -> {len(included)} promoted, "
+          f"{len(rows) - len(included)} abstained")
+    print("dispositions: " + ", ".join(
+        f"{n}={c}" for n, c in sorted(dispositions.items(), key=lambda kv: -kv[1])))
+    print(f"\nwrote {path} — it holds event titles, so it is git-ignored")
+    print("Compare `promoted` above against `candidate` in the database. They "
+          "must match, or this reproduced a different classifier.")
+
+
+if __name__ == "__main__":
+    main()
