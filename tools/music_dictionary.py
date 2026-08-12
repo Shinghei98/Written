@@ -729,7 +729,13 @@ CLASSICAL_COMPOSERS: dict[str, str] = {
     "Glass": "Philip Glass",
     "Reich": "Steve Reich",
     "Pärt": "Arvo Pärt",
-    "Part": "Arvo Pärt",
+    # **No ASCII `Part` fallback.** It matched "Part II" in
+    # `Johannes-Passion, BWV 245, Part II`, read the movement marker as a
+    # composer, and stopped the work from being recognised at all — so the
+    # Monteverdi Choir kept full weight on 92 rows. An accent-stripped alias
+    # for a name that collides with a common English word costs more than
+    # the name is worth. `Glass`, `Reich`, `Berg` and `Ives` are the same
+    # hazard and survive only because the prefix test below is now strict.
     "Górecki": "Henryk Górecki",
     "Ligeti": "György Ligeti",
     "Messiaen": "Olivier Messiaen",

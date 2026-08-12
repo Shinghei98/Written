@@ -245,8 +245,21 @@ def _is_classical(payload: dict[str, Any]) -> bool:
     the same reason `english_genre` exists.
     """
     genres = payload.get("genres")
-    if not isinstance(genres, list):
-        return False
+    if not isinstance(genres, list) or not genres:
+        # **Nothing stated, so the title is allowed to speak — and only then.**
+        # The rule above is that a stated label beats a derived one, which is
+        # right when there is a stated label. Apple returns *no* genre on some
+        # rows: 68 of the 276 in one St Matthew Passion recording, same album as
+        # the rest, `genres: null`. Those rows escaped the classical rule
+        # entirely and carried their performers at full weight, which is how
+        # Pichon and Pygmalion survived a change that removed every comparable
+        # ensemble.
+        #
+        # A catalogue number is the narrowest fallback available: `BWV 244` is
+        # an identifier, not a guess, and `classical_work` already parses it.
+        # A crossover album with a genre stated is still judged on the genre,
+        # because this branch is only reached when there is none.
+        return classical_work(_text(payload.get("title"))) is not None
     for genre in genres:
         text = english_genre(_text(genre))
         if not text:

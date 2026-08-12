@@ -491,6 +491,30 @@ def _match_composer(text: str) -> str | None:
     return None
 
 
+def _composer_as_prefix(text: str) -> str | None:
+    """A composer named as the whole `Composer:` prefix, not merely inside it.
+
+    **The loose version read a movement marker as a composer.** It searched the
+    entire prefix — up to forty characters — so `Johannes-Passion, BWV 245,
+    Part II` matched `Part`, and the resulting strip left `classical_work`
+    unable to find the catalogue number it was standing next to.
+    `Glass`, `Reich`, `Berg` and `Ives` are the same hazard waiting.
+    
+    A real prefix is the composer and nothing else: `Bach: Matthäus-Passion`,
+    `Brahms: Double Concerto`, `Beethoven: Pathétique & Moonlight Sonatas`. So
+    the test is equality after trimming rather than a search, which removes the
+    whole class rather than the one instance that was caught.
+    """
+    prefix = _COMPOSER_PREFIX_RE.match(text)
+    if not prefix:
+        return None
+    candidate = prefix.group(1).strip()
+    for surname, canonical in CLASSICAL_COMPOSERS.items():
+        if candidate.casefold() == surname.casefold():
+            return canonical
+    return None
+
+
 def classical_composer(title: str, album: str, stated: str = "") -> str | None:
     """The composer of a classical row, in descending confidence.
 
@@ -516,11 +540,9 @@ def classical_composer(title: str, album: str, stated: str = "") -> str | None:
         return resolve_name(stated.strip()) or stated.strip()
 
     for text in (title, album):
-        prefix = _COMPOSER_PREFIX_RE.match(text or "")
-        if prefix:
-            found = _match_composer(prefix.group(1))
-            if found:
-                return found
+        found = _composer_as_prefix(text or "")
+        if found:
+            return found
 
     catalogue = _CATALOGUE_RE.search(title or "")
     if catalogue:
@@ -554,7 +576,7 @@ def classical_work(title: str) -> str | None:
         return None
     text = title
     prefix = _COMPOSER_PREFIX_RE.match(text)
-    if prefix and _match_composer(prefix.group(1)):
+    if prefix and _composer_as_prefix(text):
         text = text[prefix.end(1):].lstrip(": ").strip()
 
     catalogue = _CATALOGUE_RE.search(text)
