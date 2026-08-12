@@ -1,0 +1,25 @@
+concept_key,alias,locale,alias_type,confidence
+activity:american_football,American football,en,preferred,1.0
+activity:american_football,NFL,en,alternate,1.0
+activity:baseball,Baseball,en,preferred,1.0
+activity:baseball,MLB,en,alternate,1.0
+activity:cricket,Cricket,en,preferred,1.0
+activity:rugby,Rugby,en,preferred,1.0
+activity:ice_hockey,Ice hockey,en,preferred,1.0
+activity:ice_hockey,NHL,en,alternate,1.0
+activity:volleyball,Volleyball,en,preferred,1.0
+activity:badminton,Badminton,en,preferred,1.0
+activity:table_tennis,Table tennis,en,preferred,1.0
+activity:table_tennis,ping pong,en,alternate,1.0
+activity:golf,Golf,en,preferred,1.0
+activity:boxing,Boxing,en,preferred,1.0
+activity:mixed_martial_arts,Mixed martial arts,en,preferred,1.0
+activity:mixed_martial_arts,MMA,en,alternate,1.0
+activity:mixed_martial_arts,UFC,en,alternate,1.0
+activity:motorsport,Motorsport,en,preferred,1.0
+activity:motorsport,Formula 1,en,alternate,1.0
+activity:motorsport,F1,en,alternate,1.0
+activity:athletics,Athletics,en,preferred,1.0
+activity:athletics,track and field,en,alternate,1.0
+activity:gymnastics,Gymnastics,en,preferred,1.0
+activity:basketball,NBA,en,alternate,1.0

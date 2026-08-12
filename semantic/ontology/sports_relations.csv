@@ -1,0 +1,15 @@
+subject_key,predicate_key,object_key,confidence,provenance_type,status
+activity:american_football,broader,hub:sports_movement,1.0,curated,active
+activity:baseball,broader,hub:sports_movement,1.0,curated,active
+activity:cricket,broader,hub:sports_movement,1.0,curated,active
+activity:rugby,broader,hub:sports_movement,1.0,curated,active
+activity:ice_hockey,broader,hub:sports_movement,1.0,curated,active
+activity:volleyball,broader,hub:sports_movement,1.0,curated,active
+activity:badminton,broader,hub:sports_movement,1.0,curated,active
+activity:table_tennis,broader,hub:sports_movement,1.0,curated,active
+activity:golf,broader,hub:sports_movement,1.0,curated,active
+activity:boxing,broader,hub:sports_movement,1.0,curated,active
+activity:mixed_martial_arts,broader,hub:sports_movement,1.0,curated,active
+activity:motorsport,broader,hub:sports_movement,1.0,curated,active
+activity:athletics,broader,hub:sports_movement,1.0,curated,active
+activity:gymnastics,broader,hub:sports_movement,1.0,curated,active

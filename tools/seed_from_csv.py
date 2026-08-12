@@ -86,15 +86,40 @@ def q(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def rows(name: str) -> list[dict[str, str]]:
-    with (ONTOLOGY / name).open(encoding="utf-8-sig", newline="") as handle:
-        return list(csv.DictReader(handle))
+# **Two families of file, and the split is an invariant rather than tidiness.**
+# `seed_*.csv` mirrors `0044_semantic_seed.sql` exactly — `test_seed_consistency`
+# asserts the two are the same catalog, field for field, and that check is what
+# stops the original seed and its CSV representation drifting apart.
+#
+# Anything authored *since* `0044` therefore cannot live in those files. Sports
+# were added to them and broke the mirror by 66 differences; the test existed to
+# catch precisely that and did, once it was finally run. They live in
+# `sports_*.csv` now, and the next hand-authored set gets its own pair of files
+# for the same reason.
+FAMILIES = ("seed", "sports")
+
+
+def rows(kind: str) -> list[dict[str, str]]:
+    """Every file of one kind — `concepts`, `aliases`, `relations` — concatenated.
+
+    A family with no file is skipped rather than raising: adding
+    `sports_relations.csv` without `sports_aliases.csv` is a legitimate state,
+    and a missing file is not the same as an empty one.
+    """
+    collected: list[dict[str, str]] = []
+    for family in FAMILIES:
+        path = ONTOLOGY / f"{family}_{kind}.csv"
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            collected.extend(csv.DictReader(handle))
+    return collected
 
 
 def main(old: str, new: str, description: str) -> None:
-    concepts = rows("seed_concepts.csv")
-    aliases = rows("seed_aliases.csv")
-    relations = rows("seed_relations.csv")
+    concepts = rows("concepts")
+    aliases = rows("aliases")
+    relations = rows("relations")
 
     keys = {c["concept_key"] for c in concepts}
 
@@ -106,7 +131,7 @@ def main(old: str, new: str, description: str) -> None:
     unknown = {r[k] for r in relations for k in ("subject_key", "object_key")
                if r[k] not in keys}
     if unknown:
-        sys.exit("relations reference concepts absent from seed_concepts.csv: "
+        sys.exit("relations reference concepts absent from every *_concepts.csv: "
                  + ", ".join(sorted(unknown)))
 
     print(f"""-- {description}
