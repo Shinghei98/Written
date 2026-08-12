@@ -230,6 +230,36 @@ def test_a_run_that_scored_nothing_withdraws_nothing(score):
     assert counts["demoted"] == 0
 
 
+def test_a_work_clears_a_lower_bar_than_a_creator(score):
+    """The same strength means more evidence for a work than for a creator.
+
+    A creator accumulates across everything they touch; a work is attested only
+    by the songs belonging to it, and an album is one work and a dozen artists.
+    Measured on a real library with the owner's reading of it: Footloose at
+    0.266 on seven mappings is real, `work:re_zero` at 0.047 on one is not.
+
+    A strength between the two bars is the whole test — it must assert as a
+    work and not as a creator, which one shared constant cannot express.
+    """
+    between = 0.26   # above the work bar, below the creator bar
+
+    def strength_of(weight):
+        return weight / (weight + score.HALF_WEIGHT)
+
+    weight = next(w / 10 for w in range(1, 200)
+                  if abs(strength_of(w / 10) - between) < 0.01)
+
+    connection, counts = run(
+        score, [aggregate("footloose", weight)], [label("footloose", "work")],
+        existing=set())
+    assert counts["eligible"] == 1, "a work at 0.26 must assert"
+
+    connection, counts = run(
+        score, [aggregate("someone", weight)], [label("someone", "creator")],
+        existing=set())
+    assert counts["candidate"] == 1, "a creator at 0.26 must not"
+
+
 def test_an_eligible_concept_is_still_asserted(score):
     """The control. Everything above removes claims; this proves one survives."""
     connection, counts = run(

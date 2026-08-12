@@ -96,6 +96,25 @@ AFFINITY_PREDICATE = "affinity_to"
 #
 NEVER_ASSERTED_KINDS = frozenset({"hub"})
 
+# **A work clears a lower bar than a creator, because the same strength means
+# more evidence.** A creator accumulates across everything they touch — Bach is
+# on 417 mappings — while a work is attested only by the songs that belong to
+# it, and an album is one work and a dozen artists. Judging both at 0.35 asks a
+# cast recording to be as well evidenced as a composer.
+#
+# Measured on the owner's library, with their reading of the result: *"Footloose
+# is real"*, at 0.266 on seven mappings, against `work:re_zero` at 0.047 on one,
+# which they rejected outright. Any bar between those satisfies both, so it goes
+# **below** the pair Footloose and BanG Dream! (0.237, six mappings) rather than
+# between them: one mapping apart is not a difference this scale can resolve,
+# and splitting them would be fitting a constant to a single data point. 0.20 is
+# a total weight of about 1.5, which on these actions is five or six songs from
+# the same work.
+#
+# It excludes the four-mapping cluster — Bleach, Thousand-Year Blood War, MyGO —
+# which is where a franchise starts looking like one soundtrack somebody played.
+ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.20}
+
 # **A bare decade, which is a different argument from the hub above.**
 #
 # Eras were deliberately kept assertable, on the owner's reading that they are
@@ -401,7 +420,8 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             counts["container_kind"] = counts.get("container_kind", 0) + 1
             state = "candidate"
         else:
-            state = "eligible" if strength >= ELIGIBLE_STRENGTH else "candidate"
+            bar = ELIGIBLE_STRENGTH_BY_KIND.get(kind, ELIGIBLE_STRENGTH)
+            state = "eligible" if strength >= bar else "candidate"
         counts[state] += 1
         if state != "eligible":
             # Scored and inspectable, asserting nothing. Promote narrowly — and
