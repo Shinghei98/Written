@@ -65,6 +65,16 @@ struct DashboardView: View {
     /// user never pointed at.
     @State private var editingEntry: String?
 
+    /// The owner's own assertions, or `nil` for *could not ask*.
+    ///
+    /// **Three states and they mean three things**, which is why this is an
+    /// optional array and not an array: `nil` is a request that never got an
+    /// answer, `[]` is the surface being off or genuinely empty, and rows are
+    /// rows. Collapsing the first two would draw "nothing yet" over a dropped
+    /// request — the defect CLAUDE.md records eleven instances of, and the one
+    /// `-probe-surface` exists to keep distinguishable.
+    @State private var assertions: [SemanticSurfaceService.Assertion]?
+
     /// The term whose evidence is being read, and the card it was drawn under.
     ///
     /// Both, because `TermDetailView` names the domain in its header and
@@ -117,6 +127,13 @@ struct DashboardView: View {
                         // LIFESTYLE were a picture of the plumbing; these are
                         // what the ontology concluded, with their owner standing
                         // over them. See `Ontology.terms`.
+                        // **The semantic surface, above the legacy cards and
+                        // replacing nothing when it is empty.** §8 cuts Memories
+                        // over while discovery, the bio and the icebreaker stay
+                        // on the old path, so both can be on screen while the
+                        // two readings are compared — which is what the shadow
+                        // comparison is for and what a hard swap would end.
+                        assertionSection
                         domainSections
                         // The readings, which are not terms — a chronotype has
                         // no entry behind it to agree with.
@@ -194,6 +211,23 @@ struct DashboardView: View {
                 .onChange(of: isVisible) { visible in
                     guard visible else { return }
                     proxy.scrollTo("top", anchor: .top)
+                }
+                // **Loaded when the tab becomes visible, not on `.task`.**
+                // `AppShell` mounts every tab, so a `.task` here would fire on
+                // every launch whether or not anybody opened Memories — the
+                // same reason the garden's clock and `ChatView`'s poll take an
+                // `isVisible`. Reloaded on each visit rather than cached,
+                // because a distillation between visits changes the state
+                // revision and `list_assertions` will then correctly withhold
+                // everything until the worker catches up: a stale cache would
+                // show claims the server has stopped standing behind.
+                .onChange(of: isVisible) { visible in
+                    guard visible, AppConfig.semanticSurfacesEnabled else { return }
+                    Task { assertions = await SemanticSurfaceService.shared.assertions() }
+                }
+                .task {
+                    guard isVisible, AppConfig.semanticSurfacesEnabled else { return }
+                    assertions = await SemanticSurfaceService.shared.assertions()
                 }
 #if DEBUG
                 // `-bio education`; see `DebugLaunch`. The rows only open to a
@@ -1103,6 +1137,131 @@ struct DashboardView: View {
             // `-scroll music`, `-scroll science`. The old anchors were named
             // after sources and those sections no longer exist.
             .id(group.domain.rawValue)
+        }
+    }
+
+    // MARK: - The semantic surface (v0.3.1 Phase 3)
+
+    /// What the ontology concluded, as claims somebody can answer.
+    ///
+    /// **The difference from `domainSections` is what a row *is*.** There, every
+    /// row is a string a source produced — an artist, a channel, an event title
+    /// — grouped by a domain `Ontology.classify` guessed at by substring, and
+    /// striking one off goes through `BanList.Kind`, which removes *every row
+    /// whose name matches*. Here a row is a concept with a score and an id, and
+    /// answering it names that one assertion: `suppress_assertion` cannot reach
+    /// a YouTube channel that happens to share an artist's name. The contract is
+    /// explicit that a title ban must never become a concept-level negative.
+    ///
+    /// **Ranked, not grouped, and that is the RPC's decision rather than a
+    /// layout preference.** `api.list_assertions` returns
+    /// `order by surfacing_score desc` and hands back no `concept_key`, so there
+    /// is no namespace to group by without inventing one from the label. The
+    /// order is the product's own claim about what somebody is most about, and
+    /// drawing it in any other order would be overruling it — which is exactly
+    /// what happened when `0102` dropped that clause and this card's first
+    /// version led with a violinist at 0.503.
+    ///
+    /// **Drawn only when the server answered with something.** `nil` is *could
+    /// not ask*, `[]` is *the surface is off or empty* — both leave
+    /// `domainSections` drawing exactly as before, which is §8's requirement
+    /// that Memories cut over while discovery, bio and the icebreaker stay on
+    /// the legacy path.
+    @ViewBuilder
+    private var assertionSection: some View {
+        if let assertions, !assertions.isEmpty {
+            card {
+                cardLabel("WHAT YOUR DATA SAYS", icon: "sparkles")
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+
+                entryStack {
+                    ForEach(Array(assertions.enumerated()), id: \.element.id) { index, assertion in
+                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        assertionRow(assertion)
+                            .removable(editing: editingEntry == assertion.id.uuidString, index: index) {
+                                remove { suppress(assertion) }
+                            }
+                            .editableOnLongPress($editingEntry, key: assertion.id.uuidString)
+                            // **Tap confirms, long-press removes**, the same two
+                            // verbs the term rows use, so the gesture somebody
+                            // already knows means the same thing on a row that
+                            // now carries a claim rather than a string.
+                            .onTapGesture {
+                                guard editingEntry == nil else { return }
+                                confirm(assertion)
+                            }
+                    }
+                }
+            }
+            .id("assertions")
+        }
+    }
+
+    /// One claim: what it is, how strongly, and whether its owner has said so.
+    private func assertionRow(_ assertion: SemanticSurfaceService.Assertion) -> some View {
+        HStack(spacing: 12) {
+            Text(assertion.label)
+                .font(.system(size: 16))
+                .foregroundStyle(GardenPalette.ink)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            // **A tick only once somebody has agreed**, never as a default
+            // state. An unanswered claim and a confirmed one are different
+            // facts, and a page that marked everything would be putting words
+            // in their mouth — which is the same reason `-probe-surface` reads
+            // and never writes.
+            if assertion.isConfirmed {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(GardenPalette.gold)
+            }
+
+            // The bar is against 1.0 rather than against the strongest row:
+            // `strength` already saturates, so it means the same thing on every
+            // card and for every person. `domainSections` uses a local peak
+            // because a raw count does not.
+            if let strength = assertion.strength {
+                Capsule()
+                    .fill(GardenPalette.ink.opacity(0.08))
+                    .frame(width: 54, height: 4)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(GardenPalette.gold.opacity(0.75))
+                            .frame(width: max(2, 54 * strength), height: 4)
+                    }
+            }
+        }
+        .padding(.vertical, 9)
+        .opacity(assertion.isSuppressed ? 0.4 : 1)
+    }
+
+    /// **Optimistic, and put back if the server refuses.** The tap is the
+    /// feedback — a tick that waited for a round trip would read as the tap not
+    /// landing — but an answer the server never recorded must not stay on the
+    /// screen looking recorded. `LikeService.like` fills a heart the same way
+    /// and had nothing to put back; here there is.
+    private func confirm(_ assertion: SemanticSurfaceService.Assertion) {
+        guard let index = assertions?.firstIndex(where: { $0.id == assertion.id }) else { return }
+        let previous = assertions?[index].displayState ?? "default"
+        assertions?[index] = assertion.settingDisplayState("confirmed")
+        Task {
+            if await !SemanticSurfaceService.shared.confirm(assertion.id) {
+                await MainActor.run {
+                    assertions?[index] = assertion.settingDisplayState(previous)
+                }
+            }
+        }
+    }
+
+    private func suppress(_ assertion: SemanticSurfaceService.Assertion) {
+        let removed = assertions
+        assertions?.removeAll { $0.id == assertion.id }
+        Task {
+            if await !SemanticSurfaceService.shared.suppress(assertion.id) {
+                await MainActor.run { assertions = removed }
+            }
         }
     }
 

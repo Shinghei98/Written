@@ -51,6 +51,17 @@ actor SemanticSurfaceService {
         /// Worth drawing differently: one is a reading of somebody's data and
         /// the other is a statement they made.
         var isInferred: Bool { origin == "inferred" }
+
+        /// The same assertion with a different answer on it, for drawing a tap
+        /// before the server has agreed to it — and for putting the old answer
+        /// back when it refuses.
+        func settingDisplayState(_ state: String) -> Assertion {
+            Assertion(
+                id: id, predicate: predicate, label: label, origin: origin,
+                displayState: state, strength: strength, confidence: confidence,
+                scoreVersionID: scoreVersionID
+            )
+        }
     }
 
     private(set) var lastError: String?
