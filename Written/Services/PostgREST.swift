@@ -69,6 +69,41 @@ enum PostgREST {
         return (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
     }
 
+    /// A function call in the `api` schema.
+    ///
+    /// **The schema header is the whole of why this is separate from `insert`.**
+    /// PostgREST resolves an unqualified `rpc/name` against its *exposed*
+    /// schemas, and with more than one exposed it uses the first unless a
+    /// request says otherwise. Sending `Content-Profile: api` names the schema
+    /// per request, so `public` stays the default for every other call in the
+    /// app and nothing else has to change.
+    ///
+    /// **`api` must also be in the project's exposed schemas**, which is a
+    /// dashboard setting and not something a migration can do. Without it every
+    /// call here answers `PGRST202` — *"Searched for the function
+    /// public.list_assertions… no matches were found in the schema cache"* —
+    /// which names `public` and reads as a missing function rather than as an
+    /// unexposed schema. Measured before any of this was written, precisely so
+    /// it would not be diagnosed from inside the app.
+    static func callFunction(
+        _ name: String,
+        arguments: [String: Any] = [:]
+    ) async throws -> [[String: Any]] {
+        let data = try await send(
+            "POST", path: "rest/v1/rpc/\(name)", query: [:],
+            body: arguments, prefer: nil, schema: "api"
+        )
+        // A set-returning function answers an array; a scalar one answers a
+        // bare value. Both are wrapped so a caller reads one shape.
+        if let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
+            return rows
+        }
+        if let scalar = try? JSONSerialization.jsonObject(with: data) {
+            return [["value": scalar]]
+        }
+        return []
+    }
+
     /// `PATCH`, which is how a status is answered.
     @discardableResult
     static func update(
@@ -103,7 +138,8 @@ enum PostgREST {
         path: String,
         query: [String: String],
         body: Any?,
-        prefer: String?
+        prefer: String?,
+        schema: String? = nil
     ) async throws -> Data {
         guard let token = await SupabaseAuth.shared.validAccessToken() else {
             throw Failure.notSignedIn
@@ -125,6 +161,14 @@ enum PostgREST {
         request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let prefer { request.setValue(prefer, forHTTPHeaderField: "Prefer") }
+        // Both headers, because PostgREST reads `Accept-Profile` for reads and
+        // `Content-Profile` for writes — and an RPC is a POST that reads.
+        // Setting only one sends half the calls to `public`, where none of
+        // these functions exists.
+        if let schema {
+            request.setValue(schema, forHTTPHeaderField: "Content-Profile")
+            request.setValue(schema, forHTTPHeaderField: "Accept-Profile")
+        }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

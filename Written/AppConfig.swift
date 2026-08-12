@@ -201,6 +201,24 @@ enum AppConfig {
     /// Whether the vault path does anything at all this build.
     static var semanticIngestionEnabled: Bool { !semanticIngestionSources.isEmpty }
 
+    /// Whether this build asks the server for semantic surfaces at all.
+    ///
+    /// **The build half of a pair, and the pair is deliberate.** This ships with
+    /// the binary and decides whether the app *asks*; the server's
+    /// `memories_reads` flag decides whether it *answers*, and is §9's rollback
+    /// contract — throwable without an App Store release, which is the whole
+    /// reason it exists. Either being off leaves the legacy Memories page
+    /// drawing exactly as it does today.
+    ///
+    /// **`false` until the `api` schema is exposed.** Measured 2026-08-12: the
+    /// project exposes `public` only, so every one of the seven RPCs answers
+    /// `PGRST202` naming `public.list_assertions` — which reads as a missing
+    /// function rather than as an unexposed schema. Adding `api` under
+    /// Settings → API → Exposed schemas is a dashboard action no migration can
+    /// perform, and until it is done this flag being `true` would only produce
+    /// a page that fails quietly.
+    static let semanticSurfacesEnabled = false
+
     /// `aws/ingestion` — API Gateway in front of the Lambda. Not a secret: it
     /// authenticates every request against the caller's Supabase access token,
     /// so knowing the address buys nothing, exactly as the OAuth client ids
