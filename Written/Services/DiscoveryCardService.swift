@@ -97,6 +97,32 @@ actor DiscoveryCardService {
             return false
         }
 
+        // **No terms, no publish — because this is an upsert over a live card.**
+        // The write is `resolution=merge-duplicates`, so an empty `interests`
+        // does not mean "leave it alone", it means "replace sixty names with
+        // none". Measured on 2026-08-12: David's card went from 60 interests
+        // and 3 subjects to zero at 18:42, two minutes after signing into a
+        // fresh install — `sync` ran, `Ontology.terms` read a `RecordStore`
+        // that `RestoreService.hydrate()` had not filled yet, and the card was
+        // republished empty. The account was invisible in discovery from then
+        // on, with no error anywhere.
+        //
+        // **This is the photo lesson, one file over.** CLAUDE.md records it
+        // already: *"a grid that has not hydrated yet is six empty slots, and
+        // anything reconciling the array against the server reads that as
+        // delete everything"* — and `flushPhotos` is driven by staged edits for
+        // exactly this reason. It did not travel here, which is itself a named
+        // pattern in that file.
+        //
+        // The cost of the guard is a stale card for somebody who strikes off
+        // every term they have; the cost of not having it is a wiped one for
+        // anybody who reinstalls. A card that keeps yesterday's terms is a much
+        // smaller wrong than a card that keeps none.
+        guard !card.interests.isEmpty else {
+            lastError = nil
+            return false
+        }
+
         let body: [String: Any] = [
             "user_id": userID,
             "display_name": card.displayName,
