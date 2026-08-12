@@ -2468,6 +2468,31 @@ either way and `CALENDAR_CLASSIFIER_ARN` unset is a deliberate off switch.
 `excluded_unknown` is the allowlist working rather than a gap: an event is
 excluded unless positively recognised as a booking or an itinerary.
 
+**Reviewed by the owner on 2026-08-12, and every promotion was right.** §10's
+gate is a person reading output, so this is the only way it could close. All
+nine promotions across both accounts — five flights and one tour booking, four
+of the flights duplicated by Google Calendar — were confirmed, and the sampled
+abstentions were confirmed as correctly refused in every stratum: work meetings
+and webinars, public holidays and birthdays, and five surgical and outpatient
+entries under `excluded_sensitive`, which is the category the allowlist exists
+for.
+
+**Reading it needed a tool, because the vault cannot answer the question.**
+`observations.normalized_payload` is four keys and no title, and
+`source_item_hmac` is salted with a KMS key only the classifier's role may use —
+so *"review every Calendar promotion"* is unanswerable from stored evidence, by
+design. `tools/calendar_review.py` re-derives each decision from the legacy row
+with the same classifier and the same four offline catalogs, and a test pins the
+constructor arguments because a missing catalog would silently reclassify and
+produce a confident review of a classifier nobody deployed.
+
+**It counted history on its first run**, reporting 9 promotions against the
+vault's 5: `distilled_records` is append-only, David's 106 events are 158 rows,
+and four flights were classified once per distillation. The `summary_*` rule
+again. Demo matched at 9 and 9 on the same broken code because its duplicate
+rows happened not to be promotable, so **only running both accounts caught it** —
+which is the argument for the agreement check rather than for trusting the tool.
+
 **The whole row speaks the schema's language, and that was learned twice.**
 `0064` was written against `0060`'s eleven-argument body after `0062` had added
 a twelfth, so `create or replace` **overloaded** rather than replaced — a lesson
@@ -3086,11 +3111,22 @@ this file is in `git log -p CLAUDE.md`.
   the centroid**, because the centroid moves when a leaf is redrawn while the
   base is what `promptsReserve` and the header budget control, which is what all
   four recorded regressions were about.
-- **Nobody has reviewed a Calendar promotion, and §10 requires it.** Five
-  candidates exist — 4 `travel_itinerary`, 1 `public_ticket` — plus 96
-  exclusions to sample. The gate is a person reading output, so it cannot be
-  closed by any amount of testing, and it should happen while the number is
-  five rather than after a beta.
+- **Connecting Google Calendar on a phone that already has the Google account
+  duplicates every event, and it has now happened.** Measured 2026-08-12 on the
+  Demo account: **four flights promoted twice**, once under `apple_calendar` and
+  once under `google_calendar` — same carrier, same flight number, same start
+  time, different `item_id`. This is precisely what `hasGoogleAccountOnDevice()`
+  exists to prevent, and the Apple rows say so themselves, carrying
+  `cal_type=caldav` and `calendar=davidmok1998@gmail.com`.
+
+  **The guard behaved as designed and its design has the hole**: it reads
+  `EKEventStore().sources`, and *"returns false when calendar access has not
+  been granted"* on the stated grounds that letting somebody connect a redundant
+  source beats hiding one they needed. But the person who has not yet granted
+  calendar access is exactly the person being offered Google Calendar, so the
+  fallback fires in the common case rather than the rare one. Deciding it after
+  Apple Calendar has been connected, or re-deciding once access exists, is the
+  fix; `append_source_records` dedupes within a source and cannot see this.
 - **Nobody has read the 81 assertions.** They exist now — see the section on the
   first assertions below — and §8's review gate is a person reading output, so
   it is the same shape as the Calendar one above and cannot be closed by
