@@ -165,13 +165,37 @@ enum AppConfig {
         // it back.
         "user",
 
-        // **Spotify is deliberately absent.** Its Developer Terms IV.2.1.a
-        // forbid "ingesting Spotify Content into a machine learning or AI
-        // model", and IV.2.5 closes the consent route in its own words — even
-        // if a user consents. The vault is the front of that pipeline, so this
-        // is the same position YouTube is in and not a matter of scope. It is
-        // still offered as a *source* for the collection prototype; what it may
-        // not do is feed the semantic system.
+        // **YouTube, and it is the second independence group.**
+        // `apple_music`, `music_library` and `spotify` all carry the group
+        // `music` by design — three streaming services agreeing that somebody
+        // played a song is one witness, not three — so no music source can ever
+        // be the second, and `motif_rules` requires two as a check constraint.
+        // Nothing in this system has ever had two.
+        //
+        // **What travels is labels, never text.** The endpoint projects
+        // `topics`, `tags`, `category_id`, `channel_id` and `subscriber_count`
+        // and copies no title, channel name or description;
+        // `private_observation_projection_is_valid_v03` refuses the row if it
+        // tries. The encrypted raw record keeps the whole payload and expires
+        // at thirty days through `sweep_youtube_vault_retention` — which had to
+        // exist before this line could be written, because
+        // `guard_observation_immutable` freezes a projection and a title
+        // landing there could never be removed.
+        //
+        // Its two mapping kinds are permitted differently: `provider_topic`
+        // needs no approval, and `uploader_tag` is licensed by `0078`'s
+        // recorded determination. `written_title_tag` — inferring a category
+        // from a title — stays shut.
+        "youtube",
+
+        // **Spotify is deliberately absent, and is not in YouTube's position.**
+        // Its Developer Terms IV.2.1.a forbid "ingesting Spotify Content into a
+        // machine learning or AI model", and IV.2.5 closes the consent route in
+        // its own words — even if a user consents. There is no narrow permitted
+        // path to find: the clause names the use and offers no carve-out, where
+        // YouTube's III.E.4.h prohibits *inferring* a category and leaves
+        // reading one alone. It is still offered as a *source* for the
+        // collection prototype; what it may not do is feed the semantic system.
     ]
 
     /// Whether the vault path does anything at all this build.
