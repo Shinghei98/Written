@@ -610,3 +610,186 @@ WORK_ALIASES: dict[str, str] = {
 MEDIA_GENRES: frozenset[str] = frozenset({
     "Soundtrack", "Anime", "Musicals", "Video Game", "TV Soundtrack",
 })
+
+
+# ---------------------------------------------------------------------------
+# Classical: the composer, which Apple mostly does not supply.
+#
+# **Measured on a real library before any of this was written.** Of 1,014
+# classical observations, **84** carried a `composer` field and **1,014**
+# carried a performer — so the whole repertoire resolved to whoever played it.
+# One recording of the St Matthew Passion is 68 movement rows crediting six
+# performers each: several hundred performer credits, and no Bach. The owner's
+# own reading of the result was that he recognises none of the ensembles and
+# cares only about the piece, which is what these tables exist to recover.
+#
+# **The composer is already in the payload.** Classical albums are labelled
+# `Composer: Work` by convention — `Beethoven: Pathétique & Moonlight Sonatas`,
+# `Brahms: Double Concerto`, `The Very Best of Shostakovich` — and the same
+# prefix often opens the title. Reading it needs no network call, which also
+# means `sources.online_resolution_policy` stays `catalog_ids_only` and nothing
+# about this library leaves the machine.
+# ---------------------------------------------------------------------------
+
+# Surname → the canonical name a concept is keyed on. Matched **word-boundaried
+# and never as a substring**: `Bach` inside `Bacharach` is precisely the failure
+# this codebase keeps paying for, and it is the reason `domainForCreatorTag`
+# matches whole tags rather than fragments.
+#
+# **The Bach family collapses onto Johann Sebastian deliberately.** C.P.E. and
+# J.C. Bach exist and are rare enough that filing them under their father is a
+# smaller error than failing to recognise `Bach` at all. `Wq.` below is what
+# separates C.P.E. when a catalogue number is present.
+CLASSICAL_COMPOSERS: dict[str, str] = {
+    "Bach": "Johann Sebastian Bach",
+    "Handel": "George Frideric Handel",
+    "Händel": "George Frideric Handel",
+    "Vivaldi": "Antonio Vivaldi",
+    "Telemann": "Georg Philipp Telemann",
+    "Purcell": "Henry Purcell",
+    "Monteverdi": "Claudio Monteverdi",
+    "Corelli": "Arcangelo Corelli",
+    "Scarlatti": "Domenico Scarlatti",
+    "Rameau": "Jean-Philippe Rameau",
+    "Couperin": "François Couperin",
+    "Buxtehude": "Dieterich Buxtehude",
+    "Schütz": "Heinrich Schütz",
+    "Zelenka": "Jan Dismas Zelenka",
+    "Haydn": "Joseph Haydn",
+    "Mozart": "Wolfgang Amadeus Mozart",
+    "Beethoven": "Ludwig van Beethoven",
+    "Schubert": "Franz Schubert",
+    "Mendelssohn": "Felix Mendelssohn",
+    "Schumann": "Robert Schumann",
+    "Chopin": "Frédéric Chopin",
+    "Liszt": "Franz Liszt",
+    "Brahms": "Johannes Brahms",
+    "Bruckner": "Anton Bruckner",
+    "Wagner": "Richard Wagner",
+    "Verdi": "Giuseppe Verdi",
+    "Rossini": "Gioachino Rossini",
+    "Bellini": "Vincenzo Bellini",
+    "Donizetti": "Gaetano Donizetti",
+    "Puccini": "Giacomo Puccini",
+    "Bizet": "Georges Bizet",
+    "Berlioz": "Hector Berlioz",
+    "Saint-Saëns": "Camille Saint-Saëns",
+    "Saint-Saens": "Camille Saint-Saëns",
+    "Franck": "César Franck",
+    "Fauré": "Gabriel Fauré",
+    "Faure": "Gabriel Fauré",
+    "Debussy": "Claude Debussy",
+    "Ravel": "Maurice Ravel",
+    "Satie": "Erik Satie",
+    "Poulenc": "Francis Poulenc",
+    "Tchaikovsky": "Pyotr Ilyich Tchaikovsky",
+    "Rimsky-Korsakov": "Nikolai Rimsky-Korsakov",
+    "Mussorgsky": "Modest Mussorgsky",
+    "Borodin": "Alexander Borodin",
+    "Rachmaninoff": "Sergei Rachmaninoff",
+    "Rachmaninov": "Sergei Rachmaninoff",
+    "Scriabin": "Alexander Scriabin",
+    "Prokofiev": "Sergei Prokofiev",
+    "Shostakovich": "Dmitri Shostakovich",
+    "Stravinsky": "Igor Stravinsky",
+    "Sibelius": "Jean Sibelius",
+    "Grieg": "Edvard Grieg",
+    "Nielsen": "Carl Nielsen",
+    "Dvořák": "Antonín Dvořák",
+    "Dvorak": "Antonín Dvořák",
+    "Smetana": "Bedřich Smetana",
+    "Janáček": "Leoš Janáček",
+    "Janacek": "Leoš Janáček",
+    "Bartók": "Béla Bartók",
+    "Bartok": "Béla Bartók",
+    "Kodály": "Zoltán Kodály",
+    "Elgar": "Edward Elgar",
+    "Vaughan Williams": "Ralph Vaughan Williams",
+    "Holst": "Gustav Holst",
+    "Britten": "Benjamin Britten",
+    "Walton": "William Walton",
+    "Mahler": "Gustav Mahler",
+    "Strauss": "Richard Strauss",
+    "Bruch": "Max Bruch",
+    "Paganini": "Niccolò Paganini",
+    "Sarasate": "Pablo de Sarasate",
+    "Kreisler": "Fritz Kreisler",
+    "Wieniawski": "Henryk Wieniawski",
+    "Albéniz": "Isaac Albéniz",
+    "Albeniz": "Isaac Albéniz",
+    "Granados": "Enrique Granados",
+    "Falla": "Manuel de Falla",
+    "Rodrigo": "Joaquín Rodrigo",
+    "Villa-Lobos": "Heitor Villa-Lobos",
+    "Piazzolla": "Astor Piazzolla",
+    "Gershwin": "George Gershwin",
+    "Copland": "Aaron Copland",
+    "Barber": "Samuel Barber",
+    "Ives": "Charles Ives",
+    "Glass": "Philip Glass",
+    "Reich": "Steve Reich",
+    "Pärt": "Arvo Pärt",
+    "Part": "Arvo Pärt",
+    "Górecki": "Henryk Górecki",
+    "Ligeti": "György Ligeti",
+    "Messiaen": "Olivier Messiaen",
+    "Berg": "Alban Berg",
+    "Webern": "Anton Webern",
+    "Schoenberg": "Arnold Schoenberg",
+    "Hindemith": "Paul Hindemith",
+    "Orff": "Carl Orff",
+    "Respighi": "Ottorino Respighi",
+    "Boccherini": "Luigi Boccherini",
+    "Clementi": "Muzio Clementi",
+    "Czerny": "Carl Czerny",
+    "Gluck": "Christoph Willibald Gluck",
+    "Pergolesi": "Giovanni Battista Pergolesi",
+    "Allegri": "Gregorio Allegri",
+    "Palestrina": "Giovanni Pierluigi da Palestrina",
+    "Tallis": "Thomas Tallis",
+    "Byrd": "William Byrd",
+    "Gesualdo": "Carlo Gesualdo",
+    "Charpentier": "Marc-Antoine Charpentier",
+    "Lully": "Jean-Baptiste Lully",
+    "Marais": "Marin Marais",
+    "Biber": "Heinrich Ignaz Franz Biber",
+    "Albinoni": "Tomaso Albinoni",
+    "Pachelbel": "Johann Pachelbel",
+    "Scarlatti, Alessandro": "Alessandro Scarlatti",
+}
+
+# Catalogue prefix → composer, for rows whose album says nothing.
+#
+# **A catalogue number is an identifier, not a guess.** `BWV 244` is the Bach
+# Werke Verzeichnis entry for the St Matthew Passion; reading it is the same
+# class of act as reading a provider topic. Measured on the same library: 704
+# of 1,014 classical rows carry one, and 678 of those carry no composer field.
+#
+# **`Op.` is deliberately absent and must stay absent.** Every composer numbers
+# opuses, so `Op. 13` identifies nobody — it was 167 rows in the measured
+# library and every one of them has to come from the album instead. The same
+# goes for bare `No.`. Ambiguous prefixes left out rather than guessed:
+# `S.` (Liszt/Searle but also others), `L.` (Debussy/Lesure), `WoO` (usually
+# Beethoven, not only), `K.` (Mozart/Köchel *and* Scarlatti/Kirkpatrick).
+CATALOGUE_COMPOSERS: dict[str, str] = {
+    "BWV": "Johann Sebastian Bach",
+    "RV": "Antonio Vivaldi",
+    "HWV": "George Frideric Handel",
+    "TWV": "Georg Philipp Telemann",
+    "D.": "Franz Schubert",
+    "Hob.": "Joseph Haydn",
+    "SWV": "Heinrich Schütz",
+    "BuxWV": "Dieterich Buxtehude",
+    "ZWV": "Jan Dismas Zelenka",
+    "Wq.": "Carl Philipp Emanuel Bach",
+    "Sz.": "Béla Bartók",
+    "KV": "Wolfgang Amadeus Mozart",
+}
+
+# Every catalogue prefix worth *finding* in a title, including the ambiguous
+# ones. Used to cut a movement title down to its work — `Op. 13` cannot name a
+# composer and still marks exactly where the work ends.
+CATALOGUE_PREFIXES: tuple[str, ...] = (
+    "BuxWV", "BWV", "HWV", "TWV", "SWV", "ZWV", "Hob.", "Wq.", "Sz.", "RV",
+    "KV", "WoO", "Op.", "op.", "K.", "D.", "S.", "L.", "BB",
+)

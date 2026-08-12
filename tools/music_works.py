@@ -19,6 +19,9 @@ import unicodedata
 
 from music_dictionary import (
     ARTIST_ERA,
+    CATALOGUE_COMPOSERS,
+    CATALOGUE_PREFIXES,
+    CLASSICAL_COMPOSERS,
     JUNK_EXACT,
     MAX_COMPOSERS,
     NAME_ALIASES,
@@ -453,3 +456,109 @@ def people_in(credit: str, limit: int | None = None) -> list[str]:
 def composers_in(credit: str) -> list[str]:
     """The writers a song is by, capped at `MAX_COMPOSERS`."""
     return people_in(credit, limit=MAX_COMPOSERS)
+
+
+# ---------------------------------------------------------------------------
+# Classical: recovering the composer and the piece
+# ---------------------------------------------------------------------------
+
+# Longest prefix first, so `BuxWV` is not read as `BWV` and `Hob.` is not read
+# as a bare `H`. Escaped because `.` is in several of them.
+_CATALOGUE_RE = re.compile(
+    r"\b(" + "|".join(re.escape(p) for p in sorted(
+        CATALOGUE_PREFIXES, key=len, reverse=True)) + r")\s*(\d+[a-zA-Z]?)"
+)
+
+# `Composer: Work` — the classical labelling convention, and the highest-
+# confidence form because the colon says the name is a composer rather than
+# merely a word in a title.
+_COMPOSER_PREFIX_RE = re.compile(r"^\s*([^:]{2,40}?)\s*:\s*\S")
+
+
+def _match_composer(text: str) -> str | None:
+    """A composer named anywhere in `text`, matched on word boundaries.
+
+    **Never a substring**, which is the whole reason this is a regex per name
+    rather than an `in` test: `Bach` occurs inside `Bacharach`, and a library
+    with one Burt Bacharach track would otherwise credit the St Matthew Passion
+    to him. The same rule `Ontology.domainForCreatorTag` follows for tags.
+    """
+    if not text:
+        return None
+    for surname, canonical in CLASSICAL_COMPOSERS.items():
+        if re.search(r"\b" + re.escape(surname) + r"\b", text, re.IGNORECASE):
+            return canonical
+    return None
+
+
+def classical_composer(title: str, album: str, stated: str = "") -> str | None:
+    """The composer of a classical row, in descending confidence.
+
+    Four passes, and the order is the argument:
+
+    1. **What Apple stated.** Present on only ~8% of a real classical library,
+       and still the best answer where it exists.
+    2. **A `Composer: Work` prefix** on the title or album. The colon is what
+       makes this strong — `Beethoven: Pathétique` asserts the name is the
+       composer, where a bare mention does not.
+    3. **A catalogue number.** `BWV 244` identifies Bach the way an ISBN
+       identifies a book. Ambiguous prefixes are absent from the table rather
+       than guessed, so `Op. 13` falls through to nothing here.
+    4. **A composer named anywhere in the album.** `The Very Best of
+       Shostakovich` has no colon and is unmistakable. Weakest of the four
+       because it is the one that could be a coincidence, so it runs last.
+
+    Returns `None` rather than a guess. An unattributed row keeps its performer
+    and gains no composer, which is the same abstention this module already
+    makes for a work it cannot name.
+    """
+    if stated.strip():
+        return resolve_name(stated.strip()) or stated.strip()
+
+    for text in (title, album):
+        prefix = _COMPOSER_PREFIX_RE.match(text or "")
+        if prefix:
+            found = _match_composer(prefix.group(1))
+            if found:
+                return found
+
+    catalogue = _CATALOGUE_RE.search(title or "")
+    if catalogue:
+        composer = CATALOGUE_COMPOSERS.get(catalogue.group(1))
+        if composer:
+            return composer
+
+    return _match_composer(album or "")
+
+
+def classical_work(title: str) -> str | None:
+    """The piece a movement belongs to, cut at its catalogue number.
+
+    `Matthäus-Passion, BWV 244, Seconda parte: Nr.38. Petrus aber saß draußen`
+    becomes `Matthäus-Passion, BWV 244`. Sixty-eight movement rows collapse onto
+    one work, which is the thing a listener would say they listened to — the
+    owner of the measured library put it as caring about the piece and not about
+    which choir performed it.
+
+    **The catalogue number is the cut point because it is unambiguous.** Cutting
+    at the first colon would take `Chopin` off `Chopin: Polonaise…` and cutting
+    at the last would keep `Seconda parte`. A catalogue number ends the work's
+    name by convention and begins nothing else.
+
+    A leading `Composer: ` is stripped first, so the work is the piece rather
+    than the attribution. Returns `None` when there is no catalogue number: a
+    title with no such marker cannot be cut safely, and inventing a boundary is
+    how `Bleach: Thousand-Year Blood War` once collected 139 unrelated albums.
+    """
+    if not title:
+        return None
+    text = title
+    prefix = _COMPOSER_PREFIX_RE.match(text)
+    if prefix and _match_composer(prefix.group(1)):
+        text = text[prefix.end(1):].lstrip(": ").strip()
+
+    catalogue = _CATALOGUE_RE.search(text)
+    if not catalogue:
+        return None
+    work = text[:catalogue.end()].strip().rstrip(",;:").strip()
+    return work or None

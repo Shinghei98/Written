@@ -42,7 +42,11 @@ from written_ontology.models import (
 from written_ontology.normalize import normalize_text
 from written_ontology.graph import OntologyGraph
 
+from score import score_user
+from music_dictionary import CLASSICAL_ERAS
 from music_works import (
+    classical_composer,
+    classical_work,
     artist_eras,
     composers_in,
     english_genre,
@@ -181,6 +185,31 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _is_classical(payload: dict[str, Any]) -> bool:
+    """Whether this row is classical repertoire, by Apple's own genre.
+
+    **Genre, never the title.** A catalogue number in a title is good evidence
+    and a crossover album would still be mislabelled by it; Apple's genre is a
+    stated fact and this whole file's rule is that a stated label beats a
+    derived one. `CLASSICAL_ERAS` is reused rather than a second list, so
+    `Baroque`, `Renaissance` and `Romantic` count without being named twice —
+    the same reason `english_genre` exists.
+    """
+    genres = payload.get("genres")
+    if not isinstance(genres, list):
+        return False
+    for genre in genres:
+        text = english_genre(_text(genre))
+        if not text:
+            continue
+        lowered = text.lower()
+        if "classical" in lowered or "opera" in lowered:
+            return True
+        if text in CLASSICAL_ERAS:
+            return True
+    return False
+
+
 def _term(text: str, role: str, source_field: str, type_hint: str | None) -> Term:
     return Term(
         text=text,
@@ -217,8 +246,24 @@ def terms_for(payload: dict[str, Any], action: str,
     terms: list[Term] = []
 
     title = _text(payload.get("title"))
+    album_text = _text(payload.get("album"))
     # An artist row's `title` *is* the artist. Anything else is a work.
     title_is_creator = action in {"library_artist", "followed_artist"}
+
+    # **Classical is the one repertoire where the title names a movement rather
+    # than a piece.** `Matthäus-Passion, BWV 244, Seconda parte: Nr.38 …` is one
+    # of 68 rows for one work, so taking the title whole makes 68 works nobody
+    # listened to and loses the one they did. Cut at the catalogue number, which
+    # ends a work's name by convention. A row with no catalogue number is left
+    # exactly as it was — `classical_work` abstains rather than guessing a
+    # boundary, which is how a work concept once collected 139 unrelated albums.
+    classical = _is_classical(payload)
+    if title and not title_is_creator and classical:
+        work_title = classical_work(title)
+        if work_title:
+            terms.append(_term(work_title, "work", "title", "work"))
+            title = ""
+
     if title:
         terms.append(_term(
             title,
@@ -245,6 +290,20 @@ def terms_for(payload: dict[str, Any], action: str,
             terms.append(_term(performer, "creator", "primary_performer", "creator"))
 
     composer = _text(payload.get("composer"))
+    # **Apple states a composer on 8% of a classical library and a performer on
+    # 100% of it**, so the repertoire resolved entirely to whoever played it:
+    # 1,014 classical rows produced 138 observations for one ensemble and two
+    # for Bach. The composer is in the data — classical albums are labelled
+    # `Composer: Work` by convention, and a catalogue number names the composer
+    # outright — it was simply never read. Recovered on 788 of those 1,014.
+    #
+    # Only where Apple said nothing, and only for classical: preferring a
+    # composer everywhere would tell a pop listener they are into Max Martin,
+    # which is the asymmetry `0038` already established for the icebreaker and
+    # this is the same rule one layer down.
+    if not composer and classical:
+        composer = classical_composer(title or _text(payload.get("title")),
+                                      album_text, "") or ""
     if composer:
         # **Kept apart from the performer, which is the whole reason this field
         # is carried.** The "artist" of a Bach partita is whoever played it, and
@@ -592,6 +651,20 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             if str(candidate.state) == "rejected":
                 counts["rejected"] = counts.get("rejected", 0) + 1
                 continue
+
+            # **A fuzzy match that was not accepted is a near-miss, not a
+            # candidate.** `resolve_alias` accepts a lexical match only above
+            # 0.87 and hands back everything below it for review — which was
+            # harmless while those matches hit concepts of the wrong kind and
+            # were rejected on type. Once `work` concepts existed, song titles
+            # and album names became type-compatible with them, and 321 matches
+            # at confidence 0.28–0.56 landed as candidates against 77 real ones:
+            # `Bleach: Thousand-Year Blood War` collected 139 albums it has
+            # nothing to do with. Every genuine mapping here is a `curated_alias`
+            # at 1.000.
+            if candidate.method == "lexical" and str(candidate.state) != "accepted":
+                counts["near_miss"] = counts.get("near_miss", 0) + 1
+                continue
             concept_id = concept_ids.get(candidate.concept_key)
             if concept_id is None:
                 continue
@@ -622,6 +695,18 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             counts["mappings"] += 1
             if str(candidate.state) == "accepted":
                 counts["accepted"] += 1
+
+    # **Scoring runs inside this run, not a second one.** A score belongs to the
+    # mappings it was computed from, and `finalize_semantic_run`'s staleness
+    # check covers the whole run — mappings and scores together — only because
+    # they share one. Two runs could interleave with a distillation and leave
+    # scores describing mappings that are no longer current, with nothing saying
+    # so.
+    #
+    # Before `RECORD_METRICS` so the run's metrics describe what it actually
+    # did. A run that scored nothing and a run that never tried are different
+    # facts, and the metrics are the only place that difference is visible.
+    counts.update(score_user(connection, user_id, run_id, version, as_of))
 
     with connection.cursor() as cursor:
         cursor.execute(RECORD_METRICS, {
