@@ -210,14 +210,16 @@ enum AppConfig {
     /// reason it exists. Either being off leaves the legacy Memories page
     /// drawing exactly as it does today.
     ///
-    /// **`false` until the `api` schema is exposed.** Measured 2026-08-12: the
-    /// project exposes `public` only, so every one of the seven RPCs answers
-    /// `PGRST202` naming `public.list_assertions` — which reads as a missing
-    /// function rather than as an unexposed schema. Adding `api` under
-    /// Settings → API → Exposed schemas is a dashboard action no migration can
-    /// perform, and until it is done this flag being `true` would only produce
-    /// a page that fails quietly.
-    static let semanticSurfacesEnabled = false
+    /// **The `api` schema is exposed as of 2026-08-12**, confirmed by request
+    /// rather than by the dashboard saying so: with `Content-Profile: api` the
+    /// RPCs resolve, and without it PostgREST still searches `public` and
+    /// answers `PGRST202`. So the profile header is load-bearing rather than
+    /// belt-and-braces.
+    ///
+    /// `anon` is refused with *"permission denied for schema api"* and
+    /// `authenticated` is not, which is the intended posture and also the
+    /// reason `SemanticSurfaceService` cannot read `42501` as "switched off".
+    static let semanticSurfacesEnabled = true
 
     /// `aws/ingestion` — API Gateway in front of the Lambda. Not a secret: it
     /// authenticates every request against the caller's Supabase access token,

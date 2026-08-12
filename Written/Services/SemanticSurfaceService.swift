@@ -97,10 +97,20 @@ actor SemanticSurfaceService {
             lastError = nil
             return rows.compactMap(Self.assertion(from:))
         } catch let error as PostgREST.Failure {
-            // `42501` is `assert_surface_allowed` refusing a surface whose flag
-            // is down. That is a decision rather than a fault, so it is not
-            // recorded as an error and the caller draws the legacy page.
-            if case .server(_, let code, _) = error, code == "42501" {
+            // **Matched on the message, not on `42501` alone**, and the
+            // difference is not pedantry. `assert_surface_allowed` raises
+            // `insufficient_privilege` for a surface whose flag is down — but
+            // so does *"permission denied for schema api"*, which is what an
+            // unexposed schema or a missing grant answers, and so does every
+            // row-level-security refusal in the project.
+            //
+            // Keying on the code alone would read a real permission failure as
+            // "the surface is switched off" and quietly draw the legacy page
+            // forever. Seen for real while testing the exposure: the same
+            // `42501` came back for a reason that had nothing to do with a
+            // flag.
+            if case .server(_, let code, let message) = error,
+               code == "42501", message.contains("is disabled") {
                 lastError = nil
                 return []
             }
