@@ -74,6 +74,38 @@ def get(path: str, key: str):
         sys.exit(f"GET {path} failed: {error.code}\n{error.read().decode()}")
 
 
+def _require_modern_python() -> None:
+    """`written_ontology` needs 3.11, and `python3` here is Xcode's 3.9.
+
+    **The failure is six frames deep and names `enum`**, not this tool and not
+    the interpreter — `ImportError: cannot import name 'StrEnum'` from a path
+    inside `Xcode.app`, which reads as the package being broken. It is the same
+    trap `tools/export_terms_to_label.py` already carries a note about, and
+    carrying the note in one tool did not help anybody running the other.
+
+    So this refuses early and names a working interpreter it has actually found,
+    rather than telling somebody to install something they already have.
+    """
+    if sys.version_info >= (3, 11):
+        return
+
+    candidates = [
+        pathlib.Path(directory) / name
+        for directory in ("/opt/homebrew/bin", "/usr/local/bin")
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11")
+    ]
+    found = next((c for c in candidates if c.exists()), None)
+    here = " ".join([pathlib.Path(sys.argv[0]).name, *sys.argv[1:]])
+    sys.exit(
+        f"this needs Python 3.11 or newer and is running {sys.version.split()[0]}"
+        f" from {sys.executable}.\n\n"
+        + (f"Run it with:\n\n    {found} tools/{here}\n"
+           if found else
+           "No newer interpreter was found in /opt/homebrew/bin or "
+           "/usr/local/bin.\n")
+    )
+
+
 def _ensure_written_ontology() -> None:
     """Find the package in the repository when it is not installed.
 
@@ -164,6 +196,10 @@ def main() -> None:
     parser.add_argument("--sample", type=int, default=4,
                         help="abstentions to show per disposition (default 4)")
     args = parser.parse_args()
+
+    # Before the key is read, so a wrong interpreter is not diagnosed as a
+    # missing credential — and before the network, so it costs nothing.
+    _require_modern_python()
 
     key = env_key()
     rows = rows_for(args.user_id, key)
