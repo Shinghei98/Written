@@ -259,8 +259,30 @@ def _is_classical(payload: dict[str, Any]) -> bool:
     return False
 
 
-def _term(text: str, role: str, source_field: str, type_hint: str | None) -> Term:
+# **What a classical performer's credit is worth, and why it is not 1.0.**
+# Measured on the owner's own library and confirmed by the owner: of 81
+# assertions, 58 were creators and roughly 28 of those were performers —
+# Pichon, Pygmalion, Gardiner, the Monteverdi Choir, the Berlin Philharmonic —
+# ranking at 0.5 to 0.92, above Mozart, Beethoven and Vivaldi. His reading:
+# *"I do not recognise any of these groups; I care about a piece."*
+#
+# **Reduced rather than dropped.** Somebody who seeks out Gardiner recordings is
+# saying something, and it is not nothing; it is just not what a listener would
+# say they listen to. At 0.3 a heavily-recorded ensemble can still surface, and
+# it can no longer outrank the composer of the work it is playing.
+#
+# **And this could not have been done first.** Down-weighting performers before
+# `classical_composer` existed would have emptied the classical profile rather
+# than corrected it — Bach was 0.089 then, because Apple returns no composer for
+# the St Matthew Passion and the credit was all there was. He is 0.95 now, which
+# is what makes the reduction safe.
+CLASSICAL_PERFORMER_WEIGHT = 0.3
+
+
+def _term(text: str, role: str, source_field: str, type_hint: str | None,
+          weight: float = 1.0) -> Term:
     return Term(
+        evidence_weight=weight,
         text=text,
         normalized=normalize_text(text),
         role=role,
@@ -336,7 +358,9 @@ def terms_for(payload: dict[str, Any], action: str,
             if normalize_text(performer) in seen_creators:
                 continue
             seen_creators.add(normalize_text(performer))
-            terms.append(_term(performer, "creator", "primary_performer", "creator"))
+            terms.append(_term(
+                performer, "creator", "primary_performer", "creator",
+                weight=CLASSICAL_PERFORMER_WEIGHT if classical else 1.0))
 
     composer = _text(payload.get("composer"))
     # **Apple states a composer on 8% of a classical library and a performer on

@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import hashlib
 import unicodedata
 import urllib.error
 import urllib.request
@@ -116,14 +117,33 @@ def slug(text: str) -> str:
     """
     folded = unicodedata.normalize("NFKD", text.strip().casefold())
     folded = "".join(c for c in folded if not unicodedata.combining(c))
+    # **Recomposed, and this is the whole of a real bug.** NFKD decomposes a
+    # Hangul syllable into jamo — 류 becomes ᄅ + ᅲ — and the class below accepts
+    # only *precomposed* syllables `가-힯`. So every Korean name stripped to
+    # nothing and fell through to the constant fallback, which merged four
+    # different people into `creator:unnamed`: 류정한, 서정아, 김도연 and a
+    # decorative-Unicode name, all one concept, all one another's work.
+    #
+    # NFKD is still wanted for the Latin path — it is what turns `é` into `e`
+    # after the combining mark is dropped — so the fix is to recompose
+    # afterwards rather than to stop decomposing.
+    folded = unicodedata.normalize("NFC", folded)
     # **Quote style must never make two concepts.** `Amanda “Kiddo” Ibanez` and
     # `Amanda "Kiddo" Ibanez` differ by one curly quote, and `"Hitman" Bang` and
     # `"hitman"bang` by case and a space. Folding them here merges the key while
     # rule 6 keeps every spelling as a label.
     folded = folded.replace("\u2018", "").replace("\u2019", "")
     folded = folded.replace("\u201c", "").replace("\u201d", "").replace('"', "")
-    keyed = re.sub(r"[^a-z0-9぀-ヿ㐀-鿿가-힯]+", "_", folded)
-    return keyed.strip("_") or "unnamed"
+    keyed = re.sub(r"[^a-z0-9぀-ヿ㐀-鿿가-힯]+", "_", folded).strip("_")
+    if keyed:
+        return keyed
+    # **A constant fallback is a merge waiting to happen.** Any two names the
+    # class cannot represent — Yi syllables, emoji, symbol fonts — collapsed onto
+    # one key and became one artist. A digest of the original keeps them apart
+    # and keeps the key stable across runs, which is what a handle has to be.
+    # Unreadable, but a key nobody can read is better than a key that is wrong:
+    # the original string survives as the label either way.
+    return "x" + hashlib.sha256(text.strip().casefold().encode()).hexdigest()[:12]
 
 
 def genre_keys() -> dict[str, str]:
