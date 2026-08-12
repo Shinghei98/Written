@@ -2339,6 +2339,58 @@ the set. **That should be the first move, not the sixth.** One caution from
 4's dyad and surface paths and correctly rolled itself back — a check broad
 enough to demand privileges nobody asked for is an argument for granting them.
 
+### Classical performers, and why a code deploy re-scores nothing
+
+**A performer is weighed by how many distinct albums they appear on, not how
+many rows.** Measured: Pygmalion has 276 rows — the most of anyone in the
+library — across *one* album, the St Matthew Passion counted once per movement.
+Perlman has 47 across six, Hadelich 97 across three, the Berlin Philharmonic 100
+across thirteen. One album means the performer came with a recording; several
+means they were chosen more than once.
+
+Below two albums a classical credit is weighed `0.02` rather than dropped — the
+term still has to exist, because this file's own rule is that unresolved terms
+feed `EmergentTermMiner` and *"dropping them would be dropping the ontology's
+growth path"*. Three tests caught the first attempt, using Hilary Hahn as the
+fixture, who is one of the performers the change exists to protect.
+
+The final state, after the owner's review asked for it:
+
+| kept | | dropped | |
+|---|---|---|---|
+| Bach 0.95, Mozart 0.73 | composers | Pichon, Pygmalion | 0.187 |
+| Hadelich 0.82, Perlman 0.66 | soloists | Gardiner, Monteverdi Choir, EBS | 0.078 |
+| Berlin Philharmonic 0.70 | 13 albums | Gilels, Podger | 0.078, 0.027 |
+
+**A flat weight could not have done this**, and the arithmetic is why: `strength`
+saturates as `w/(w+6)` and that curve is nearly flat where these concepts sat,
+so a 70% cut moved Pichon 0.92 → 0.85. `0.02` is chosen *against the 0.35
+eligibility bar*, not picked: 69 units become 1.4, which saturates to 0.19.
+
+**Two escapes cost three rounds each, and both were found by grouping mappings
+on `evidence_weight`** rather than by reading code — 138 rows at 0.02 beside 68
+at 1.0 pointed straight at the cause both times:
+
+- **`genres: null` on 68 of 276 rows** of one recording. `_is_classical` read
+  the genre and never the title, on the principle that a stated label beats a
+  derived one — correct when a label exists, silent when there is none. It falls
+  back to a catalogue number *only* when no genre is stated at all.
+- **`"Part II"` matched `Part`, an ASCII alias for Arvo Pärt.** The false
+  composer stripped the title's prefix, `classical_work` then found no catalogue
+  number, and 92 Monteverdi Choir rows read as non-classical. Fixed as a class
+  rather than an instance: a composer prefix must *be* the prefix, since
+  `Glass`, `Reich`, `Berg` and `Ives` were the same hazard waiting.
+
+**And deploying resolver code re-scores nothing.**
+`semantic_run_live_identity_idx` keys a run on
+`(user, ontology version, resolver model, scorer model, input_revision,
+input_hash)` — **the code version is not in it**, so a second run against
+unchanged input returns `already_resolved` and does no work. That is right for
+idempotency and it means a deploy alone can never change a score. Three levers
+force a fresh run: a new distillation (bumps `input_revision`), a new ontology
+version, or a new resolver model id. A distillation is the cheapest, and it is
+the one to reach for.
+
 ### Phase 2, which is about half done
 
 §8 asks for four things: backfill under §7, run every source classifier and the
