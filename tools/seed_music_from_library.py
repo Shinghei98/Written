@@ -85,13 +85,44 @@ def env_key() -> str:
     return key
 
 
+# **Rows that are not acts, and therefore not vocabulary.**
+#
+# The pipeline gives `recommendation` an `action_weight` of exactly 0.000 —
+# Apple suggesting an album is not something anybody did — and
+# `apple_music_subscription` is a fact about an account rather than an act at
+# all. Both were nevertheless being read for concept *names*, so the ontology
+# was defining its vocabulary from rows it refuses to count as evidence.
+#
+# Measured on one library: **22 of 38 `work:` concepts had never once been
+# accepted onto an observation.** `work:re_zero_starting_life_in_another_world`
+# is the clearest — its name comes from *"Netsuretsu! Anison Spirits… TV Anime
+# Series Re:ZERO Starting Life in Another World - EP"*, a recommendation, and
+# `WORK_EN_SERIES_PATTERN` duly matched it. Attack on Titan, Demon Slayer, My
+# Neighbour Totoro and Mob Psycho 100 arrived the same way: works Apple thought
+# somebody might like, minted as concepts describing them.
+#
+# It costs nothing directly — an unmatched concept scores nothing — but it makes
+# a count of concepts a claim about coverage that is not true, and it is
+# incoherent: a row cannot be worth zero as evidence and authoritative as a
+# name.
+#
+# **Named exclusions rather than an allowlist**, unlike the Memories surface
+# filter. There the risk is an internal kind appearing on somebody's profile,
+# invisible to them; here the risk is a genuinely act-bearing type being dropped
+# from the vocabulary, which loses real concepts. So a new data type is included
+# by default and `fetch` prints what it dropped, so a new *non*-act announces
+# itself in the output rather than in a count nobody checks.
+NOT_AN_ACT = frozenset({"recommendation", "apple_music_subscription"})
+
+
 def fetch(key: str) -> list[dict]:
     rows: list[dict] = []
+    dropped: dict[str, int] = {}
     offset = 0
     while True:
         request = urllib.request.Request(
             f"{BASE}/rest/v1/distilled_records"
-            "?select=name,creator,extra&source=in.(apple_music,music_library)"
+            "?select=name,creator,extra,data_type&source=in.(apple_music,music_library)"
             f"&limit={PAGE}&offset={offset}",
             method="GET",
         )
@@ -102,8 +133,19 @@ def fetch(key: str) -> list[dict]:
                 page = json.loads(response.read() or b"[]")
         except urllib.error.HTTPError as error:
             sys.exit(f"fetch failed: {error.code}\n{error.read().decode()}")
-        rows.extend(page)
+        for row in page:
+            data_type = row.get("data_type") or ""
+            if data_type in NOT_AN_ACT:
+                dropped[data_type] = dropped.get(data_type, 0) + 1
+                continue
+            rows.append(row)
         if len(page) < PAGE:
+            # **Said out loud, per this project's own rule against silent caps.**
+            # A filter that quietly halves its input reads as a smaller library,
+            # and the whole point of this one is that somebody should be able to
+            # see which rows stopped defining vocabulary.
+            for data_type, count in sorted(dropped.items(), key=lambda kv: -kv[1]):
+                print(f"skipped {count} {data_type} row(s): not an act")
             return rows
         offset += PAGE
 
