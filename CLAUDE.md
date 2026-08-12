@@ -1684,7 +1684,7 @@ hand over weeks never proved they build a schema from nothing. Done once against
 an empty project, the chain applied cleanly — and produced the measurement that
 corrected this paragraph.
 
-**The migration head is `0090` as of 2026-08-12, and everything through it is
+**The migration head is `0098` as of 2026-08-12, and everything through it is
 applied to production.** `0066`–`0090` are the music concepts, the YouTube
 vocabulary and policy, the scorer and its grants; the section below on the first
 assertions sets out what each earned. The ledger exists now: `supabase_migrations` was absent
@@ -2276,9 +2276,34 @@ explicitly.
 ### The first assertions, and the four faults between capture and them
 
 **542 `concept_scores`, 81 `user_assertions`, and 13 concepts reaching two
-independence groups** — measured 2026-08-12. Nothing in this system had ever
-had more than one, and `motif_rules` requires two as a check constraint, so
-until this every motif rule was unsatisfiable by construction.
+independence groups** — measured 2026-08-12, on the first run that produced any.
+Nothing in this system had ever had more than one group, and `motif_rules`
+requires two as a check constraint, so until this every motif rule was
+unsatisfiable by construction. (Those two figures are a snapshot of that first
+run and not the current state: **65 active assertions per account** after the
+hub, performer, era and sphere work later the same day.)
+
+**And the scorer could raise a claim and could not withdraw one**, which is the
+defect that outlived all four faults below. Its eligibility test sat *before* the
+assertion lookup, so `UPDATE_ASSERTION` was reachable only with state
+`eligible` — and the comment above it, *"an assertion that stops being evidenced
+becomes `inactive`"*, described something the control flow made impossible.
+Found by making hubs never assert, deploying, re-scoring, and watching three hub
+assertions come back `eligible` from a run that had not touched them.
+
+Two statements fix it, because only one of the two ways a claim stops holding is
+iterated: scored-and-no-longer-eligible is demoted in the loop, never-scored-at
+-all is swept afterwards. Both are `assertion_origin = 'inferred'` only — a
+declared assertion is what a person said about themselves, and no absence of
+evidence overrules it — and **the sweep is guarded on the run having scored
+something**, since a fallen-over resolver must not read as somebody who likes
+nothing. Its first application withdrew 27: three hubs plus **24 classical
+performers the album-breadth change had disqualified weeks earlier and been
+unable to retire**.
+
+`score_user` had no unit test because it wants a database, which is why this
+survived. It has one now, and what it asserts is **which statement ran** rather
+than what was scored — the bug was never in the arithmetic.
 
 `creator:le_sserafim` at strength 0.684, breadth 2, three sources: listened to
 on Apple Music and watched across **nine separate repost channels** on YouTube.
@@ -2391,16 +2416,124 @@ force a fresh run: a new distillation (bumps `input_revision`), a new ontology
 version, or a new resolver model id. A distillation is the cheapest, and it is
 the one to reach for.
 
-### Phase 2, which is about half done
+**And when the library stops changing, a distillation is not a lever at all.**
+There were two more gates behind that one and each was invisible until the
+previous cleared. `finalize_ingestion_run_v031` enqueues `recompute_user` **only
+inside `if changed_count > 0`** and keys the job on the revision alone — so four
+ingestion runs of an unchanged library produced zero jobs. Ingestion is the only
+thing that enqueues and it cannot see a model publish, so promoting a model
+changed what the system *would* compute and nothing it had.
+`semantic_private.enqueue_recompute_on_analysis_change` (`0093`) is the second
+entry point, keyed on the revision **and** all three analysis ids, skipping any
+user a run already covers. It is owner-only, so a migration is the only caller —
+deliberately: enqueuing work for every user is not a client's to do.
+
+**So the rule is: a migration that publishes an ontology version or activates a
+model ends with that call.** `0093` wrote the rule and `0095`/`0096` broke it
+within the hour, needing `0097` to supply what they owed. `0098` carries its own.
+
+**And a model version that lags its code makes `semantic_runs` state something
+untrue.** `missing_aware_late_fusion` 0.1.0 produced eight runs while the scorer
+changed twice beneath it; `ontology_first_resolver` 0.1.0 did the same. Both are
+versioned properly now (`0092`, `0094`, `0098`) — scorer 0.3.0, resolver 0.2.0 —
+and the parameters live on the model row, where a later reader looks, rather
+than in a commit message.
+
+**One thing that had to be found by reading the logs: `prepare_threshold=None`.**
+psycopg 3 auto-prepares a statement after five executions, and Supabase's
+transaction pooler hands each transaction to whichever backend is free — so the
+*second* of two back-to-back invocations tries to `PREPARE` a name the first
+left behind and fails `42P05`. It failed for one account and succeeded for the
+other, which reads as bad data rather than a driver setting. This file has
+asserted since the pooler was chosen that *"the Lambda's driver must have them
+off"*; nothing implemented it, and nothing had ever run five times on one
+connection until the scorer's demotion statement arrived.
+
+### An era is an axis; a scene is the claim
+
+**A decade means nothing on its own, and this was measured before it was
+believed.** `era:1970s` at 0.403 rested on ABBA, Stevie Wonder, Frankie Kao's
+姑娘的酒渦 and Fritz Kreisler — anglophone pop, Mandopop and a violin recital,
+three unrelated worlds under one assertion. The owner's reading: *"eras strongly
+interact with language sphere — 1970 UK music vs 1970 cantopop is very
+different."*
+
+So `0095`/`0096` mint two families and the second is the point of the first:
+**`sphere:*`**, five language spheres, and **`scene:<decade>_<sphere>`**, thirty
+composites. Bare eras are scored and never asserted, through
+`NEVER_ASSERTED_KEY_PREFIXES` rather than by kind — `era:`, `sphere:` and
+`scene:` are all `concept_kind = 'topic'`, so the kind cannot separate the axis
+from the claim.
+
+That **implements** the owner's earlier *"80s German music would be a strong
+personality"* rather than reversing it: that example is itself a scene, and the
+composite did not exist when the era had to carry it alone.
+
+Four things about it, and three were mistakes worth keeping:
+
+- **A marked genre silences the unmarked ones on its row.** Apple writes both —
+  Frankie Kao's rows are `Mandopop|Music|Pop`. Read as equals, a Taiwanese
+  singer produced `sphere:anglophone` and his five 1970s rows became evidence
+  for `scene:1970s_anglophone`, which then carried **all thirteen** of
+  `era:1970s`'s mappings: the composite spanning exactly the worlds it was built
+  to separate. The union across *rows* survives, so a bilingual act keeps both.
+  Every anglophone figure fell when this landed, which is how you see it work.
+- **Classical periods are never crossed with a sphere.** Baroque music is
+  baroque in every language, so `scene:baroque_anglophone` would describe
+  nothing and would compete with `era:baroque` for the same evidence. Thirty
+  concepts, not sixty-five.
+- **`0095` minted 35 concepts that could never resolve**, and its own assertions
+  passed: it counted concepts and edges, and counting the right number of
+  unreachable things is what a structural check gets wrong. The resolver matches
+  a term against `normalized_label`, and `era:1970s` carries an `alternate`
+  label of exactly `1970s` — prose labels never meet suffix terms. `0096`
+  asserts *resolvability* instead, and its first draft stored the underscore
+  form that `normalize_text` turns into a space, reintroducing the same silent
+  failure inside its own fix.
+- **That check then flagged `era:classical_period` and was wrong.** It stores
+  `classical period` and resolves correctly. **The data was right and the check
+  was wrong**, which is the more useful half of the lesson.
+
+**The classical era distortion this started from does not exist.** `takes_decades`
+gates decades to `DECADE_GENRES`, `Classical` is absent from it, and the 2022
+Bach recording never contributed to `era:2020s`. The real gap was the opposite
+shape: Apple files the passions as plain `Classical`, so `classical_eras`
+returned nothing, classical rows got **no era at all**, and the six period
+concepts had sat since `0044` with zero assertions. `COMPOSER_PERIODS` reads the
+period off the composer — a fact about the work, not about the listener, and the
+same distinction `classical_work` already draws. `era:baroque` scores 0.958 on
+417 mappings now, `era:classical_period` 0.853 on 100.
+
+### Phase 2, whose four bullets are all satisfied
 
 §8 asks for four things: backfill under §7, run every source classifier and the
 worker, compare old display terms against new assertions for diagnostics, and
 **review every Calendar/HealthKit promotion plus a stratified sample of
 abstentions** — that last one is a person reading output and is not
-self-certifiable. Measured 2026-08-11: **2,518 observations, and every table
-downstream of them is zero** — `observation_mappings`, `concept_scores`,
-`user_assertions`, `assertion_evidence`. The two source classifiers exist; the
-resolution and scoring half of the worker has never run.
+self-certifiable. All four are done as of 2026-08-12, on two accounts.
+
+| | |
+|---|---|
+| backfill | **a no-op, by doing rather than arguing.** §7 prefers a fresh distillation to an import, the only account with legacy rows and no vault presence was Demo, and Demo distils from the same device. Re-distilled instead: 2,583 rows, 7 sources. No `legacy_backfill` run exists and none is needed. |
+| classifiers and worker | running for both accounts, all sources |
+| shadow comparison | `tools/shadow_compare.sql` |
+| the human review | the owner read every Calendar promotion; all right |
+
+**What is not finished is Phase 2's *premises*, and they are the entries in
+Known gaps rather than in this list.** The eight zombie runs still hold ~1,224
+unpromoted music rows; nobody has read the assertions end to end, only the
+strongest of them; and the ontology is one library's.
+
+**And the phase's outputs moved three times in the hour it closed.** Spheres,
+scenes and composer periods landed after the shadow comparison was run, so its
+16 / 44 / 37 split describes a scoring model two versions old. Re-run it before
+quoting those numbers: the comparison is cheap and the assertion set is not
+stable yet.
+
+Where it started, for scale: measured 2026-08-11, **2,518 observations and every
+table downstream of them zero** — `observation_mappings`, `concept_scores`,
+`user_assertions`, `assertion_evidence`. Today both accounts hold **65 active
+assertions** each, over 6,654 scores.
 
 **Music resolution is blocked on content, not on code.** `ontology.concepts`
 holds 45 rows — 19 `activity:*`, 13 `hub:*`, 5 `routine:*` and a few identity
@@ -3127,11 +3260,20 @@ this file is in `git log -p CLAUDE.md`.
   fallback fires in the common case rather than the rare one. Deciding it after
   Apple Calendar has been connected, or re-deciding once access exists, is the
   fix; `append_source_records` dedupes within a source and cannot see this.
-- **Nobody has read the 81 assertions.** They exist now — see the section on the
-  first assertions below — and §8's review gate is a person reading output, so
-  it is the same shape as the Calendar one above and cannot be closed by
-  testing. 542 scores is small enough to sample properly and will not stay that
-  way.
+- **The assertions have been read down the strong end and not to the bottom.**
+  The owner reviewed the ranked list on 2026-08-12 and it produced a design
+  change rather than a tick — the era/sphere work above came out of one question
+  about what `era:1970s` contained. Confirmed as far as `creator:frederic_chopin`
+  at 0.362, which is the concept nearest the 0.35 bar and therefore the useful
+  place to stop. **65 active assertions per account now**, and what is unread is
+  the middle: the K-pop and J-pop creators between 0.38 and 0.72 nobody has
+  looked at one by one.
+
+  One thing to check when that happens: **`genre:asian_music` at 0.942 is a
+  container in all but name.** It is a `broader` parent of k_pop, j_pop,
+  cantopop and mandopop, so it scores once for everything those four score for —
+  the same tautology as `hub:music` one level down, and the hub rule cannot
+  catch it because its kind is `genre`.
 - **Whether HealthKit habit candidates are within the grant is unanswered.**
   The consent says *keep and use my activity to describe me to myself*, with all
   four booleans false; the next HealthKit unit computes fitness *assertions*.
