@@ -44,3 +44,17 @@ routine:afternoon_workouts,Afternoon workouts,activity,ordinary,review_required,
 routine:evening_workouts,Evening workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
 routine:overnight_workouts,Overnight workouts,activity,ordinary,review_required,active,Coarse workout timing routine; requires recurrence and review.
 routine:consistent_sleep_schedule,Consistent sleep schedule,activity,ordinary,review_required,active,Coarse wellness routine; never sleep quality or diagnosis.
+activity:american_football,American football,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:baseball,Baseball,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:cricket,Cricket,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:rugby,Rugby,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:ice_hockey,Ice hockey,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:volleyball,Volleyball,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:badminton,Badminton,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:table_tennis,Table tennis,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:golf,Golf,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:boxing,Boxing,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:mixed_martial_arts,Mixed martial arts,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:motorsport,Motorsport,activity,ordinary,review_required,active,"Spectator sport; watched far more often than practised, so completed_activity is expected to be rare rather than absent."
+activity:athletics,Athletics,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
+activity:gymnastics,Gymnastics,activity,ordinary,review_required,active,"Spectator-capable sport with no HealthKit workout type; reached by content_about when watched and completed_activity when played."
