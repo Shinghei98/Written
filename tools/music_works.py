@@ -35,7 +35,12 @@ from music_dictionary import (
     CLASSICAL_ERAS,
     COMPILATION_MIN_ALBUM,
     COMPILATION_MIN_ROWS,
+    COMPOSER_PERIODS,
     DECADE_GENRES,
+    DECADES,
+    MARKED_SPHERE_GENRES,
+    UNMARKED_SPHERE_GENRES,
+    scene_key,
     GENRE_TRANSLATIONS,
     decade_of,
     MEDIA_GENRES,
@@ -303,6 +308,63 @@ def classical_eras(genres: list[str]) -> set[str]:
     }
 
 
+# A set for the membership test in `artist_scenes`, named once so the tuple in
+# `music_dictionary` stays the single list of what a decade is.
+DECADES_SET = frozenset(DECADES)
+
+
+def artist_spheres(rows: list[dict]) -> set[str]:
+    """Which language spheres this artist's rows state.
+
+    Read from Apple's genre, never guessed from a name or a script. `Cantopop`,
+    `Mandopop`, `J-Pop` and `K-Pop` name the sphere outright; the anglophone
+    market is the unmarked case in that taxonomy, which
+    `UNMARKED_SPHERE_GENRES` explains at length and which is the one signal
+    here resting on a convention rather than a field.
+
+    **Decided per row, and a marked genre silences the unmarked ones on that
+    row.** Apple writes both — Frankie Kao's rows are `Mandopop|Music|Pop` —
+    so reading them as equals put a Taiwanese singer in the anglophone sphere
+    and, through the cross-product, into `scene:1970s_anglophone`. `Mandopop|Pop`
+    means *Mandopop, which is a kind of pop*.
+
+    **Still a union across rows**, because an artist genuinely can span spheres:
+    a Japanese act with an English-language album has two, and one row's marked
+    genre must not silence another row's.
+    """
+    spheres: set[str] = set()
+    for row in rows:
+        genres = [english_genre(g) for g in (row.get("genres") or ())]
+        marked = {MARKED_SPHERE_GENRES[g] for g in genres if g in MARKED_SPHERE_GENRES}
+        if marked:
+            spheres |= marked
+            continue
+        spheres |= {
+            UNMARKED_SPHERE_GENRES[g] for g in genres if g in UNMARKED_SPHERE_GENRES
+        }
+    return spheres
+
+
+def artist_scenes(eras: set[str], spheres: set[str]) -> set[str]:
+    """A decade crossed with a sphere, where both are known.
+
+    **Decades only.** A classical period is already a statement about a musical
+    world — baroque music is baroque in every language — so crossing it with a
+    sphere would produce `scene:baroque_anglophone`, which describes nothing and
+    would compete with `era:baroque` for the same evidence.
+
+    Empty when either side is missing, which is most of the library: an artist
+    with a decade and no stated sphere yields no scene rather than a scene in a
+    sphere nobody established. That is the same refusal as `takes_decades`, one
+    axis over.
+    """
+    return {
+        scene_key(era, sphere)
+        for era in eras if era in DECADES_SET
+        for sphere in spheres
+    }
+
+
 def takes_decades(genres: list[str]) -> bool:
     """Whether a decade means anything for this music.
 
@@ -348,6 +410,28 @@ def artist_eras(performer: str, rows: list[dict]) -> set[str]:
     eras: set[str] = set()
     for row in rows:
         eras |= classical_eras(row.get("genres", []))
+    if eras:
+        return eras
+
+    # **The composer, where Apple stated no period.** Apple files the Bach
+    # passions as plain `Classical`, so `classical_eras` returns nothing and
+    # `takes_decades` is false — a Bach row got no era at all, which is why the
+    # six period concepts have existed since `0044` with zero assertions. The
+    # composer settles a fact about the work rather than about the listener.
+    #
+    # Read from the title and album, not from the performer: `classical_composer`
+    # is the same function that already tells a Bach partita from whoever played
+    # it, so a Perlman row can yield `era:romantic` through Sarasate while
+    # Perlman himself is filed under no period at all.
+    for row in rows:
+        composer = classical_composer(
+            row.get("title") or row.get("name") or "",
+            row.get("album") or "",
+            row.get("composer") or "",
+        )
+        period = COMPOSER_PERIODS.get(composer or "")
+        if period:
+            eras.add(period)
     if eras:
         return eras
 

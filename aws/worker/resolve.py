@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import Any
+from typing import Any, NamedTuple
 
 from written_ontology.mapping import ObservationMapper
 from written_ontology.models import (
@@ -57,6 +57,8 @@ from music_works import (
     classical_composer,
     classical_work,
     artist_eras,
+    artist_scenes,
+    artist_spheres,
     composers_in,
     english_genre,
     normalized_song_key,
@@ -321,7 +323,9 @@ def _term(text: str, role: str, source_field: str, type_hint: str | None,
 
 def terms_for(payload: dict[str, Any], action: str,
               work: str | None = None, eras: tuple[str, ...] = (),
-              breadth: dict[str, int] | None = None) -> tuple[Term, ...]:
+              breadth: dict[str, int] | None = None,
+              spheres: tuple[str, ...] = (),
+              scenes: tuple[str, ...] = ()) -> tuple[Term, ...]:
     """The terms one music observation supports.
 
     Roles and type hints mirror `export_adapter._music_observation`, which is the
@@ -458,13 +462,37 @@ def terms_for(payload: dict[str, Any], action: str,
     for era in eras:
         terms.append(_term(era.removeprefix("era:"), "era", "era", "topic"))
 
+    # **The sphere, and the decade crossed with it.** An era alone spans worlds
+    # that have nothing to do with each other — one real `era:1970s` rested on
+    # ABBA, Frankie Kao and Fritz Kreisler at once — so the composite is what
+    # carries a taste and the bare decade is kept only as its axis. Both are
+    # artist-level for the same reason the era is: a row cannot decide either.
+    for sphere in spheres:
+        terms.append(_term(sphere.removeprefix("sphere:"), "sphere", "sphere", "topic"))
+    for scene in scenes:
+        terms.append(_term(scene.removeprefix("scene:"), "scene", "scene", "topic"))
+
     return tuple(terms)
 
 
-def library_facts(
-    rows: list[dict[str, Any]],
-) -> tuple[dict[str, str], dict[str, tuple[str, ...]], dict[str, int]]:
-    """The three things a single row cannot decide: work, era, and breadth.
+class LibraryFacts(NamedTuple):
+    """What `library_facts` computes, named rather than positional.
+
+    It returned a bare 3-tuple and is now five. A caller unpacking positionally
+    keeps working as it grows — which is the hazard, not the convenience: adding
+    a fourth element between `eras` and `breadth` would have silently handed
+    every performer's album count to the era parameter. Named fields make that a
+    `TypeError` at the call site instead of a wrong number in a score.
+    """
+    works: dict[str, str]
+    eras: dict[str, tuple[str, ...]]
+    breadth: dict[str, int]
+    spheres: dict[str, tuple[str, ...]]
+    scenes: dict[str, tuple[str, ...]]
+
+
+def library_facts(rows: list[dict[str, Any]]) -> LibraryFacts:
+    """The five things a single row cannot decide.
 
     **Both are properties of a set of rows.** A work propagates between releases
     of the same song — `Resister (Special Edition)` names none while
@@ -486,6 +514,12 @@ def library_facts(
             "performer": payload.get("primary_performer") or "",
             "genres": [english_genre(g) for g in (payload.get("genres") or [])],
             "released": payload.get("release_date") or "",
+            # **Carried for the period lookup**, which is what `artist_eras`
+            # gained with `COMPOSER_PERIODS`. Apple states a composer on most
+            # classical rows and `classical_composer` prefers a stated name to
+            # one parsed out of a title — dropping it here made the strongest
+            # available signal invisible to the one function that wanted it.
+            "composer": payload.get("composer") or "",
         })
 
     works = propagate(flat)
@@ -496,6 +530,24 @@ def library_facts(
     eras = {
         performer: tuple(sorted(artist_eras(performer, items)))
         for performer, items in by_performer.items()
+        if performer
+    }
+
+    # **The sphere and the scene, per performer for the same reason the era is.**
+    # A row states a genre and the genre states a sphere, so a per-row sphere
+    # would be defensible — but the *scene* crosses it with an era, and the era
+    # is only decidable across an artist's rows. Deriving one per row and the
+    # other per artist would let a single `Pop`-tagged Cantopop track put an
+    # artist in the anglophone scene of a decade computed from everything else.
+    spheres = {
+        performer: tuple(sorted(artist_spheres(items)))
+        for performer, items in by_performer.items()
+        if performer
+    }
+    scenes = {
+        performer: tuple(sorted(artist_scenes(
+            set(eras.get(performer, ())), set(spheres.get(performer, ())))))
+        for performer in by_performer
         if performer
     }
 
@@ -518,7 +570,7 @@ def library_facts(
             albums_by_person.setdefault(normalize_text(person), set()).add(item["album"])
     breadth = {person: len(albums) for person, albums in albums_by_person.items()}
 
-    return works, eras, breadth
+    return LibraryFacts(works, eras, breadth, spheres, scenes)
 
 
 def youtube_terms_for(payload: dict[str, Any],
@@ -614,7 +666,9 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          works: dict[str, str] | None = None,
                          eras: dict[str, tuple[str, ...]] | None = None,
                          allow_uploader_tags: bool = False,
-                         breadth: dict[str, int] | None = None) -> Observation | None:
+                         breadth: dict[str, int] | None = None,
+                         spheres: dict[str, tuple[str, ...]] | None = None,
+                         scenes: dict[str, tuple[str, ...]] | None = None) -> Observation | None:
     payload = row["normalized_payload"]
     if not isinstance(payload, dict):
         return None
@@ -633,6 +687,8 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
             work=(works or {}).get(key),
             eras=(eras or {}).get(performer, ()),
             breadth=breadth,
+            spheres=(spheres or {}).get(performer, ()),
+            scenes=(scenes or {}).get(performer, ()),
         )
     if not terms:
         return None
@@ -878,15 +934,16 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     mapping_rows: list[dict[str, Any]] = []
 
     # Computed once over the whole set, because neither is decidable per row.
-    works, eras, breadth = library_facts(rows)
+    facts = library_facts(rows)
 
     for row in rows:
         source = sources.get(row["source_code"])
         if source is None:
             continue
         observation = observation_from_row(
-            row, source, works, eras, allow_uploader_tags=allow_uploader_tags,
-            breadth=breadth)
+            row, source, facts.works, facts.eras,
+            allow_uploader_tags=allow_uploader_tags,
+            breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes)
         if observation is not None:
             before = len(observation.terms)
             observation = exact_terms_only(observation, graph)

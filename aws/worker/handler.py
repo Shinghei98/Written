@@ -107,7 +107,24 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
 
     user_id = job.payload["user_id"]
     try:
-        with psycopg.connect(database_url(), row_factory=dict_row) as connection:
+        # **`prepare_threshold=None` — no prepared statements, ever.** Supabase's
+        # transaction pooler routes each transaction to whichever backend is
+        # free, so a statement prepared on one is absent on the next and the
+        # name collides: `DuplicatePreparedStatement`, SQLSTATE `42P05`, from
+        # `cursor.py` with nothing naming the pooler.
+        #
+        # psycopg 3 prepares automatically once a statement has run five times,
+        # which is why this survived so long unset — no query here ran five
+        # times in one connection until `DEMOTE_ASSERTION` arrived and ran once
+        # per non-eligible concept, several hundred times a run. It then failed
+        # for one account and not the other, which reads as bad data rather
+        # than a driver setting.
+        #
+        # CLAUDE.md has asserted since the pooler was chosen that "the Lambda's
+        # driver must have them off". It was a requirement nobody implemented.
+        with psycopg.connect(
+            database_url(), row_factory=dict_row, prepare_threshold=None
+        ) as connection:
             fitness = build_fitness_snapshot(
                 connection, _kms, user_id, vault_key_arn=VAULT_KEY_ARN
             )

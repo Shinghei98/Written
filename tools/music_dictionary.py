@@ -424,6 +424,179 @@ ARTIST_ERA: dict[str, tuple[str, ...]] = {
     "Hikaru Utada": ("era:1990s", "era:2000s"),
 }
 
+# ---------------------------------------------------------------------------
+# Rule 4b — periods from the composer
+#
+# **`CLASSICAL_ERAS` reads a period Apple stated, and Apple usually states
+# none.** It files the St Matthew and St John Passions as plain `Classical`, so
+# `classical_eras` returns nothing, `takes_decades` is false, and a Bach row
+# gets no era at all — which is why `era:baroque` and its five siblings have
+# existed as concepts since `0044` with zero assertions against them.
+#
+# The composer settles it where the genre does not, and it is a *read* of a
+# fact about the work rather than an inference about the listener: Bach is
+# baroque whoever recorded him and whenever the pressing came out. That is the
+# same distinction `classical_work` already makes — the piece, not the disc.
+#
+# **Only composers whose period is uncontroversial.** A transitional figure gets
+# the period they are conventionally filed under, and anyone this table is
+# unsure about is simply absent, which yields no era rather than a guessed one —
+# the rule `DECADE_GENRES` states two paragraphs down and the reason this file
+# has no default branch anywhere.
+COMPOSER_PERIODS: dict[str, str] = {
+    # Renaissance
+    "Thomas Tallis": "era:renaissance",
+    "William Byrd": "era:renaissance",
+    "Giovanni Pierluigi da Palestrina": "era:renaissance",
+    "Josquin des Prez": "era:renaissance",
+    # Baroque. Monteverdi sits on the seam and is filed early baroque by
+    # convention, which is the convention this table follows rather than
+    # adjudicating.
+    "Claudio Monteverdi": "era:baroque",
+    "Johann Sebastian Bach": "era:baroque",
+    "George Frideric Handel": "era:baroque",
+    "Antonio Vivaldi": "era:baroque",
+    "Henry Purcell": "era:baroque",
+    "Arcangelo Corelli": "era:baroque",
+    "Georg Philipp Telemann": "era:baroque",
+    "Domenico Scarlatti": "era:baroque",
+    "Jean-Philippe Rameau": "era:baroque",
+    # Classical period. Beethoven spans the seam to Romanticism and is filed
+    # here, which is the standard shelving and not a claim about late quartets.
+    "Joseph Haydn": "era:classical_period",
+    "Wolfgang Amadeus Mozart": "era:classical_period",
+    "Ludwig van Beethoven": "era:classical_period",
+    "Christoph Willibald Gluck": "era:classical_period",
+    # Romantic
+    "Franz Schubert": "era:romantic",
+    "Robert Schumann": "era:romantic",
+    "Felix Mendelssohn": "era:romantic",
+    "Frédéric Chopin": "era:romantic",
+    "Franz Liszt": "era:romantic",
+    "Johannes Brahms": "era:romantic",
+    "Pyotr Ilyich Tchaikovsky": "era:romantic",
+    "Antonín Dvořák": "era:romantic",
+    "Edvard Grieg": "era:romantic",
+    "Camille Saint-Saëns": "era:romantic",
+    "Georges Bizet": "era:romantic",
+    "Giuseppe Verdi": "era:romantic",
+    "Richard Wagner": "era:romantic",
+    "Giacomo Puccini": "era:romantic",
+    "Sergei Rachmaninoff": "era:romantic",
+    "Gustav Mahler": "era:romantic",
+    "Richard Strauss": "era:romantic",
+    "Edward Elgar": "era:romantic",
+    "Jean Sibelius": "era:romantic",
+    "Pablo de Sarasate": "era:romantic",
+    "Niccolò Paganini": "era:romantic",
+    "Fritz Kreisler": "era:romantic",
+    "Max Bruch": "era:romantic",
+    "César Franck": "era:romantic",
+    "Gabriel Fauré": "era:romantic",
+    # Impressionist
+    "Claude Debussy": "era:impressionist",
+    "Maurice Ravel": "era:impressionist",
+    # Modern
+    "Igor Stravinsky": "era:modern",
+    "Dmitri Shostakovich": "era:modern",
+    "Sergei Prokofiev": "era:modern",
+    "Béla Bartók": "era:modern",
+    "Ralph Vaughan Williams": "era:modern",
+    "Aaron Copland": "era:modern",
+    "Benjamin Britten": "era:modern",
+    "George Gershwin": "era:modern",
+    # Contemporary
+    "Philip Glass": "era:contemporary",
+    "Steve Reich": "era:contemporary",
+    "Arvo Pärt": "era:contemporary",
+    "John Williams": "era:contemporary",
+}
+
+# ---------------------------------------------------------------------------
+# Rule 5 — the language sphere
+#
+# **A decade is not a taste on its own, and this is why.** On one real library
+# `era:1970s` rested on ABBA, Stevie Wonder, Frankie Kao's 姑娘的酒渦 and
+# Fritz Kreisler — anglophone pop, Mandopop and a violin recital, three
+# unrelated worlds inside one assertion at 0.403. 1970s British pop and 1970s
+# Cantopop are not the same fact about a person, and an era that cannot tell
+# them apart says almost nothing.
+#
+# **Apple's own taxonomy carries the sphere and only for some of the world.**
+# It names `Cantopop`, `Mandopop`, `J-Pop` and `K-Pop`, so those are reads. It
+# has no genre meaning "English-language", and the absence is the convention:
+# music from the anglophone market is filed under the unmarked names — `Pop`,
+# `Rock`, `R&B/Soul` — while everything else is marked. So `sphere:anglophone`
+# rests on that convention rather than on a stated field, which is weaker than
+# the other four and is why `Latin` is deliberately absent from it rather than
+# swept in as unmarked.
+# **Two maps, because Apple states both the specific genre and the broad one on
+# the same row and one map cannot tell them apart.** Frankie Kao's rows read
+# `Mandopop|Music|Pop` — a Taiwanese singer carrying `Pop` as Apple's parent
+# genre, not as a claim about language. With a single map he yielded
+# `sphere:mandarin` *and* `sphere:anglophone`, and his five 1970s rows became
+# evidence for `scene:1970s_anglophone`, which then held all thirteen of
+# `era:1970s`'s mappings. The composite that was built to stop a decade
+# spanning three worlds spanned them anyway.
+#
+# So a marked genre wins on the row that states it, and the unmarked ones only
+# speak when nothing marked is present. That is a read rather than a
+# tie-break: `Mandopop|Pop` means *Mandopop, which is a kind of pop*.
+MARKED_SPHERE_GENRES: dict[str, str] = {
+    "Cantopop": "sphere:cantonese",
+    "Mandopop": "sphere:mandarin",
+    "J-Pop": "sphere:japanese",
+    "Anime": "sphere:japanese",
+    "K-Pop": "sphere:korean",
+    "Korean Hip-Hop": "sphere:korean",
+}
+
+# The unmarked case. In Apple's taxonomy the anglophone market carries no
+# language marker while everything else does, so these speak only in the absence
+# of a marked genre — and `Latin` is deliberately not here rather than swept in,
+# since "unmarked" is a convention about the English-language market and not a
+# licence to treat every unlisted genre as English.
+UNMARKED_SPHERE_GENRES: dict[str, str] = {
+    "Pop": "sphere:anglophone",
+    "Rock": "sphere:anglophone",
+    "Pop/Rock": "sphere:anglophone",
+    "Soft Rock": "sphere:anglophone",
+    "Hard Rock": "sphere:anglophone",
+    "Arena Rock": "sphere:anglophone",
+    "Folk Rock": "sphere:anglophone",
+    "Hip-Hop/Rap": "sphere:anglophone",
+    "R&B/Soul": "sphere:anglophone",
+    "Country": "sphere:anglophone",
+    "Adult Contemporary": "sphere:anglophone",
+    "Singer/Songwriter": "sphere:anglophone",
+    "Alternative": "sphere:anglophone",
+}
+
+# Every sphere and decade this vocabulary can produce, which is what the
+# migration mints and what the tests check the cross-product against. Listed
+# rather than derived from the two maps above so that adding a genre alias for
+# an existing sphere does not silently change the concept set.
+SPHERES: tuple[str, ...] = (
+    "sphere:anglophone", "sphere:cantonese", "sphere:mandarin",
+    "sphere:japanese", "sphere:korean",
+)
+
+DECADES: tuple[str, ...] = (
+    "era:1970s", "era:1980s", "era:1990s", "era:2000s", "era:2010s",
+    "era:2020s",
+)
+
+
+def scene_key(era: str, sphere: str) -> str:
+    """The composite concept for one decade in one sphere.
+
+    **`scene:` rather than `era_sphere:`** because it is a thing a sentence can
+    be about — *"you're both into the 1970s Mandarin scene"* — and this app's
+    whole surface is sentences about what two people share. A decade alone and a
+    language alone are both axes; their intersection is a place.
+    """
+    return f"scene:{era.removeprefix('era:')}_{sphere.removeprefix('sphere:')}"
+
 # The shape that betrays a compilation: many rows, one release date, and a single
 # album far larger than a record. Both conditions are needed — a classical
 # soloist legitimately has 65 rows on one date, and a normal album legitimately

@@ -94,12 +94,30 @@ AFFINITY_PREDICATE = "affinity_to"
 # `notAnAction(.container)` draws for a playlist or a calendar: captured
 # broadly, promoted narrowly, and a container is structurally not an act.
 #
-# Eras are deliberately not here. They are `topic`, they look vacuous for the
-# same reason — everyone has a decade — and the owner's reading is that they are
-# the point: somebody who listens only to 1980s German music has a strong
-# identity, and the era is what carries it. Vacuous-looking is not the test;
-# whether it can differ between two people is.
 NEVER_ASSERTED_KINDS = frozenset({"hub"})
+
+# **A bare decade, which is a different argument from the hub above.**
+#
+# Eras were deliberately kept assertable, on the owner's reading that they are
+# the point: *"if he/she listens specifically to 80s German music, it would be a
+# strong personality"*. That reading stands and this implements it rather than
+# reversing it — **"80s German music" is a decade crossed with a language, not a
+# decade.** The composite did not exist then, so the era had to carry it alone.
+#
+# What a bare decade actually carries was then measured on the owner's library:
+# `era:1970s` at 0.403 rested on ABBA, Stevie Wonder, Frankie Kao's 姑娘的酒渦
+# and Fritz Kreisler — anglophone pop, Mandopop and a violin recital. Three
+# unrelated worlds under one claim, and 1970s British pop and 1970s Cantopop are
+# not the same fact about a person. So the decade is the axis and `scene:*` is
+# the claim, exactly as `sphere:*` remains assertable on its own: what language
+# somebody listens in does differ between two people, and a decade alone barely
+# does.
+#
+# **By key prefix rather than by kind**, because `era:`, `sphere:` and `scene:`
+# are all `concept_kind = 'topic'` — the kind cannot separate the axis from the
+# claim, and giving eras a kind of their own would rewrite thirteen concepts
+# that six migrations already reference.
+NEVER_ASSERTED_KEY_PREFIXES = ("era:",)
 
 
 # **Aggregated in SQL rather than in Python.** 12,017 mappings across ~340
@@ -376,7 +394,8 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         scored_concepts.append(concept_id)
 
         kind = label.get("concept_kind")
-        if kind in NEVER_ASSERTED_KINDS:
+        key = label.get("concept_key") or ""
+        if kind in NEVER_ASSERTED_KINDS or key.startswith(NEVER_ASSERTED_KEY_PREFIXES):
             # Counted rather than skipped silently: a kind quietly asserting
             # nothing is indistinguishable from a kind nothing ever scored.
             counts["container_kind"] = counts.get("container_kind", 0) + 1
