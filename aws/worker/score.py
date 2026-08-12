@@ -372,9 +372,12 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             evidence = cursor.fetchall()
 
         total = sum(float(e["weight"]) for e in evidence) or 1.0
+        # Batched for the same reason the mappings are: one concept can rest on
+        # thousands of mappings, and a round trip each turns an explanation into
+        # a timeout.
+        evidence_rows = []
         for item in evidence:
-            with connection.cursor() as cursor:
-                cursor.execute(INSERT_EVIDENCE, {
+            evidence_rows.append({
                     "version_id": score_version_id, "user_id": user_id,
                     "mapping": item["mapping_id"],
                     # A share of the whole, so `contribution` stays in [0,1] and
@@ -392,8 +395,11 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                     "rule": item["recency_rule_id"],
                     "status": item["recency_status"],
                     "quality_label": item["recency_timestamp_quality"],
-                    "as_of": as_of,
-                })
-            counts["evidence_rows"] += 1
+                "as_of": as_of,
+            })
+        if evidence_rows:
+            with connection.cursor() as cursor:
+                cursor.executemany(INSERT_EVIDENCE, evidence_rows)
+            counts["evidence_rows"] += len(evidence_rows)
 
     return counts

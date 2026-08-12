@@ -37,6 +37,7 @@ made. Dropping them would be dropping the ontology's growth path.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from written_ontology.mapping import ObservationMapper
@@ -492,6 +493,36 @@ YOUTUBE_KIND_BY_ROLE = {
 }
 
 
+def exact_terms_only(observation: Observation, graph: OntologyGraph) -> Observation | None:
+    """Drop terms that can only ever produce a discarded fuzzy match.
+
+    **`resolve_alias` falls back to comparing a term against every alias in the
+    graph**, one `SequenceMatcher` per label, and that fallback fires for any
+    term with no exact hit. Music barely noticed: its terms are curated aliases
+    that match exactly. Uploader tags are arbitrary free text — roughly 5,500 of
+    them on one real library, almost none matching anything — so each triggered a
+    full scan of 1,512 labels. About 8.3 million string comparisons in pure
+    Python, which is the whole of the worker's 300-second timeout.
+    
+    **And every result was already being thrown away.** The fuzzy path can only
+    return `CANDIDATE` or `REJECTED` — never `ACCEPTED` — and the loop below
+    skips any non-accepted `lexical` match as a near miss. So this removes no
+    mapping that was ever written; it removes the work of computing answers
+    nobody reads, which is this codebase's standing defect measured in CPU-minutes.
+    
+    It is also what `0078`'s resolver model already specified — `whole_tag_only`,
+    `fuzzy: false`, `substring_matching: false` — and the resolver was simply not
+    honouring it.
+
+    Returns `None` when nothing survives, which the caller treats exactly as it
+    treats an observation that supported no terms.
+    """
+    kept = tuple(t for t in observation.terms if t.normalized in graph.aliases)
+    if not kept:
+        return None
+    return replace(observation, terms=kept)
+
+
 def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          works: dict[str, str] | None = None,
                          eras: dict[str, tuple[str, ...]] | None = None,
@@ -746,6 +777,17 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     counts["youtube_policy"] = policy["policy_version"] if policy else "missing"
     counts["allow_uploader_tags"] = allow_uploader_tags
 
+    # **Collected, then written in one statement.** This was one `INSERT` per
+    # mapping, and at ~2,000 observations producing several terms each that is
+    # thousands of sequential round trips through a *transaction pooler* — every
+    # one paying full network latency inside a single transaction. Measured
+    # before changing it: the run never finished, burning the Lambda's whole
+    # 300s twice over, and `pg_stat_statements` put the blame on the
+    # `semantic_runs` insert at 116s max, which was really later jobs blocking
+    # on `semantic_run_live_identity_idx` while the first held its transaction
+    # open for the entire resolution.
+    mapping_rows: list[dict[str, Any]] = []
+
     # Computed once over the whole set, because neither is decidable per row.
     works, eras = library_facts(rows)
 
@@ -755,6 +797,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             continue
         observation = observation_from_row(
             row, source, works, eras, allow_uploader_tags=allow_uploader_tags)
+        if observation is not None:
+            before = len(observation.terms)
+            observation = exact_terms_only(observation, graph)
+            after = len(observation.terms) if observation is not None else 0
+            counts["no_exact_alias"] = counts.get("no_exact_alias", 0) + before - after
+            if observation is None:
+                counts["no_terms"] += 1
+                continue
         if observation is None:
             counts["no_terms"] += 1
             continue
@@ -811,8 +861,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             concept_id = concept_ids.get(candidate.concept_key)
             if concept_id is None:
                 continue
-            with connection.cursor() as cursor:
-                cursor.execute(INSERT_MAPPING, {
+            mapping_rows.append({
                     "run": run_id,
                     "observation": observation.id,
                     "user_id": user_id,
@@ -838,10 +887,17 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                         YOUTUBE_KIND_BY_ROLE.get(candidate.term.role)
                         if observation.source == YOUTUBE_SOURCE else None
                     ),
-                })
+            })
             counts["mappings"] += 1
             if str(candidate.state) == "accepted":
                 counts["accepted"] += 1
+
+    # `executemany` pipelines under psycopg 3, so this is one round trip rather
+    # than one per row. Nothing about what is written changes — same statement,
+    # same `on conflict do nothing`, same order.
+    if mapping_rows:
+        with connection.cursor() as cursor:
+            cursor.executemany(INSERT_MAPPING, mapping_rows)
 
     # **Scoring runs inside this run, not a second one.** A score belongs to the
     # mappings it was computed from, and `finalize_semantic_run`'s staleness
