@@ -488,10 +488,59 @@ consent screen is in Testing, which allowlists 100 users and expires every
 refresh token after 7 days, and publishing needs a Search Console **Domain**
 property, a scope justification and a demo video. And, for the ontology stage,
 Google's **Content Categorization and Tagging** amendment
-(`developers.google.com/youtube/terms/derived-metrics-policy`), which licenses
-*"descriptive sub-genres or tags"* that are *"additive and distinct from
-YouTube's video categories"* — applied for on the same form, prospectively, so do
-not apply while running the unlicensed version of the thing being applied for.
+(`developers.google.com/youtube/terms/derived-metrics-policy`) — applied for on
+the same form, prospectively, so do not apply while running the unlicensed
+version of the thing being applied for.
+
+**Read in full, that amendment licenses much less than its headline clause
+suggests, and the prior question is eligibility rather than sequencing.** It does
+say what is usually quoted — *"You may use analysis to assign descriptive
+sub-genres or tags to videos and channels. These must be additive and distinct
+from YouTube's video categories"* — but two conditions sit around it, and the
+first is decisive:
+
+- **The gate is the use case, not the technique.** The permissions exist *"to
+  support advanced analytics and creator tools"*, and the amendment states
+  flatly: ***"Your API Service must reflect an analytics use case on YouTube."***
+  This app is a dating platform building a personal taste profile, which is
+  neither. That sentence conditions every numbered permission beneath it.
+- **The storage relief excludes exactly what this product wants.** Accepted
+  clients may keep *statistics* and *derived metrics* for 36 months, but *"other
+  data (such as video titles, creator names, descriptions, and comment text) must
+  still follow the 30-day refresh and deletion policy"*. Channel names are what a
+  discovery card would carry, so `0016`'s sweep survives acceptance untouched.
+
+**But it does license real mapping, and the line is *where the label attaches*
+rather than categorisation against none.** Three levels, and only the middle one
+turns on the amendment:
+
+- **Read YouTube's own labels onto our vocabulary** — permitted today, no
+  amendment, and already built: `Ontology.domain(youTubeTopics:creatorTags:categoryID:)`.
+- **Assign our own sub-genres to videos and channels** — what §3 licenses, and a
+  genuine gain. It is exactly the restraint in `domainForCreatorTag`, which
+  matches whole tags against a small controlled vocabulary because inferring
+  from freeform text would be a guess; licensed, that guess is permitted and the
+  many untagged channels stop being unplaced.
+- **Aggregate those into a claim about the viewer** — absent. The six categories
+  are Custom Channel Scores, Financial Performance, Content Categorization,
+  Viewer Sentiment, Gamification and Brand Suitability; five are about channels
+  and videos, and the only one naming viewers does so as a restriction. So this
+  stays inside III.E.4.h's general prohibition with no carve-out reaching it.
+
+**Which is why Memories is fine and the discovery card is not.** Grouping
+somebody's own channels under YouTube's own topic labels, on their own page, is
+the first level and needs nothing. **And it amends III.E.4.b/c/d only, so
+III.E.3.b is not in scope**: showing one user's YouTube-derived channels to
+another user stays prohibited whatever is accepted. Worth noting the one place the code is already ahead of it — §4 forbids
+profiling users on *"age, race, religious affiliation, political leaning, sexual
+orientation, or health status"*, which is `refusedTopics` and the absence of
+categories 25 and 29, written before this page was read.
+
+**Fetched twice, and the first response was a summary** that read as a general
+licence to extend processing. The clauses above are from the second. This is the
+third time a summarised fetch has produced a confident wrong reading of YouTube's
+terms, which is why the rule at the head of this section is what it is.
+
 `youtube.readonly` is *sensitive*, not *restricted*, so no CASA assessment is
 needed. Whatever happens, the YouTube contribution must be **separable and
 reversible** — or the 7-day deletion cannot be honoured without recomputing every
