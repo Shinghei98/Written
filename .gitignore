@@ -51,3 +51,8 @@ aws/classifier/dist/
 # Python bytecode from running the semantic tests and tools.
 __pycache__/
 *.pyc
+
+# Wrangler's local cache, created by `npx wrangler deploy`. Holds
+# `wrangler-account.json`, which carries the Cloudflare account id — a local
+# working file rather than anything the repository should describe.
+.wrangler/
