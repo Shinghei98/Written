@@ -222,6 +222,33 @@ actor SemanticSurfaceService {
     /// and a row hidden last week cannot be brought back from this surface at
     /// all. That wants a second RPC rather than a client change, and it is a
     /// decision about what a person is owed rather than a missing function.
+    /// Something the person says about themselves, which no phone observed.
+    ///
+    /// **Free text rather than a concept id, and the RPC takes exactly one.**
+    /// `add_assertion` refuses both or neither — *"provide exactly one existing
+    /// concept or new label"* — and a label is the right one here: somebody
+    /// adding "Hilary Hahn" should not have to find her concept id, and the
+    /// resolver's vocabulary is not a thing a person can browse. A term with no
+    /// concept becomes a `user_term`, which is exactly what `0108`'s kind filter
+    /// keeps: it has no `concept_kind` to allow, so the rule is written as
+    /// *"a user's own term or an allowed kind"*.
+    ///
+    /// **No exposure**, for the same reason `restore` needs none: nothing was
+    /// shown, so there is nothing this could be answering. It is a statement
+    /// rather than a reply.
+    @discardableResult
+    func add(_ label: String, surface: String = "memories") async -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return await call("add_assertion", [
+            "p_client_event_id": UUID().uuidString.lowercased(),
+            "p_target_concept_id": NSNull(),
+            "p_new_label": trimmed,
+            "p_linked_observation_ids": [String](),
+            "p_surface_name": surface,
+        ])
+    }
+
     @discardableResult
     func restore(_ assertion: Assertion, surface: String = "memories") async -> Bool {
         await call("restore_assertion", [

@@ -97,6 +97,16 @@ struct DashboardView: View {
     /// a countdown somebody cannot see is a deadline they can miss.
     @State private var undoable: (assertion: SemanticSurfaceService.Assertion, index: Int)?
 
+    /// The `favouriteKind` value that means "this is an assertion, not a
+    /// legacy domain favourite".
+    ///
+    /// **A sentinel rather than a second sheet**, because the sheet already
+    /// carries the dimmed backdrop, the tap-outside-to-cancel, the disabled
+    /// confirm and the field styling — and a second copy of all that would be a
+    /// second place for them to drift. It cannot collide with a real kind:
+    /// those are `Ontology.Domain` raw values and none is a concept key.
+    private static let assertionKind = "assertion:new"
+
     /// The term whose evidence is being read, and the card it was drawn under.
     ///
     /// Both, because `TermDetailView` names the domain in its header and
@@ -880,7 +890,11 @@ struct DashboardView: View {
                 confirmEnabled: !favouriteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 confirmTitle: "Save",
                 onConfirm: {
-                    viewModel.addFavourite(kind: kind, favouriteText)
+                    if kind == Self.assertionKind {
+                        addAssertion(favouriteText)
+                    } else {
+                        viewModel.addFavourite(kind: kind, favouriteText)
+                    }
                     favouriteText = ""
                     withAnimation(.easeOut(duration: 0.18)) { favouriteKind = nil }
                 },
@@ -1239,6 +1253,15 @@ struct DashboardView: View {
                             }
                     }
                 }
+
+                // **The fourth verb.** §8 asks for confirmation, addition,
+                // removal and restoration; until this the page could only
+                // subtract. A row somebody types has no concept and therefore
+                // no `concept_kind`, which is why `0108`'s filter is written as
+                // *a user's own term or an allowed kind* rather than as a kind
+                // test alone.
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                addYourOwn(kind: Self.assertionKind)
             }
             .id("assertions")
         }
@@ -1328,6 +1351,33 @@ struct DashboardView: View {
     /// **Restored to the rank it came from rather than appended**: a row that
     /// reappeared at the bottom would read as a different row. The server's own
     /// ordering reasserts itself on the next load either way.
+    /// Add a term the person typed.
+    ///
+    /// **Reloaded rather than inserted optimistically**, unlike confirm and
+    /// suppress. Those answer a row already on screen and know its shape; this
+    /// one produces a row the server builds — a new `user_term`, an assertion
+    /// id, a display state — and guessing at it would mean drawing a row that
+    /// might not match the one that exists. The list is short and the round
+    /// trip is one call.
+    private func addAssertion(_ text: String) {
+        let label = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return }
+        undoable = nil
+        Task {
+            let added = await SemanticSurfaceService.shared.add(label)
+            let reason = await SemanticSurfaceService.shared.lastError
+            let refreshed = added ? await SemanticSurfaceService.shared.assertions() : nil
+            await MainActor.run {
+                if added {
+                    if let refreshed { assertions = refreshed }
+                    assertionFailure = nil
+                } else {
+                    assertionFailure = reason ?? "Couldn't add that."
+                }
+            }
+        }
+    }
+
     private func undo() {
         guard let target = undoable else { return }
         undoable = nil
