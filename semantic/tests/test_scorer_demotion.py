@@ -90,11 +90,13 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, module, aggregates, labels, existing_assertions) -> None:
+    def __init__(self, module, aggregates, labels, existing_assertions,
+                 transfers=None) -> None:
         self.module = module
         self.aggregates = aggregates
         self.labels = labels
         self.existing = existing_assertions
+        self.transfers = transfers or []
         self.executed: list[tuple[str, dict]] = []
 
     def cursor(self) -> FakeCursor:
@@ -110,6 +112,8 @@ class FakeConnection:
             return [{"n": 2}]
         if sql is m.AGGREGATE:
             return self.aggregates
+        if sql is m.SUPPRESSION_TRANSFER:
+            return self.transfers
         if sql is m.FIND_ASSERTION:
             concept = params.get("concept")
             if concept in self.existing:
@@ -156,8 +160,8 @@ def label(concept_id: str, kind: str) -> dict:
     }
 
 
-def run(module, aggregates, labels, existing) -> tuple[FakeConnection, dict]:
-    connection = FakeConnection(module, aggregates, labels, set(existing))
+def run(module, aggregates, labels, existing, transfers=None) -> tuple[FakeConnection, dict]:
+    connection = FakeConnection(module, aggregates, labels, set(existing), transfers)
     counts = module.score_user(
         connection, "user-1", "run-1", "version-1", "2026-08-12T00:00:00Z")
     return connection, counts
@@ -272,3 +276,54 @@ def test_an_eligible_concept_is_still_asserted(score):
     assert [i["concept"] for i in connection.statements(score.INSERT_ASSERTION)] \
         == ["strong"]
     assert connection.statements(score.DEMOTE_ASSERTION) == []
+
+
+def test_a_suppressed_creator_transfers_its_weight(score):
+    """A rejection is evidence about which concept the row was about.
+
+    The owner's model: liking a song admits three readings — the singer and the
+    song, the singer only, the song only. Striking off the singer eliminates the
+    first two, so what remains is carried by whatever else the row names. The
+    schema had already said as much and acted on none of it: a suppression is
+    written `label_semantics = 'ambiguous_rejection'`, which states that the
+    rejection does not say which reading it was.
+
+    **Added before saturation, which is the whole of why it works.** `strength`
+    is `w/(w+6)`, nearly flat where a well-evidenced concept sits — adding to
+    its *output* would give a large transfer almost no effect there and a small
+    one a large effect on a weak concept, the opposite of what the evidence
+    says. A flat performer weight failed on exactly this arithmetic once
+    already.
+    """
+    without = score._saturate(9.58, score.HALF_WEIGHT)
+    with_transfer = score._saturate(9.58 + 4.247, score.HALF_WEIGHT)
+
+    connection, counts = run(
+        score,
+        [aggregate("wicked", 9.58)],
+        [label("wicked", "work")],
+        existing=set(),
+        transfers=[{"concept_id": "wicked", "extra_weight": 4.247}],
+    )
+    version = connection.statements(score.INSERT_SCORE)[0]
+    assert abs(version["strength"] - with_transfer) < 1e-9
+    assert version["strength"] > without
+    assert counts["transferred_concepts"] == 1
+
+    # And the explanation says so, because a score that moved for a reason
+    # nobody can see is what an explanation exists to prevent.
+    assert "transferred_from_suppressed" in version["explanation"]
+
+
+def test_a_concept_with_no_transfer_is_unchanged(score):
+    """The control. Most concepts share no row with anything suppressed."""
+    connection, _ = run(
+        score,
+        [aggregate("untouched", 9.58)],
+        [label("untouched", "creator")],
+        existing=set(),
+        transfers=[{"concept_id": "somebody_else", "extra_weight": 4.0}],
+    )
+    version = connection.statements(score.INSERT_SCORE)[0]
+    assert abs(version["strength"] - score._saturate(9.58, score.HALF_WEIGHT)) < 1e-9
+    assert "transferred_from_suppressed" not in version["explanation"]

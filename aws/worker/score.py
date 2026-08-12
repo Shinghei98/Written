@@ -157,6 +157,102 @@ NEVER_ASSERTED_KEY_PREFIXES = ("era:",)
 # mapping; `default_reliability` and the per-action weight come from
 # `semantic_private.sources`, which is authored data and not this file's
 # business to invent.
+# **A rejection is evidence about which concept the row was about.**
+#
+# The owner's model: liking a song admits three readings — the singer and the
+# song, the singer only, the song only. Striking off the singer eliminates the
+# first two, so what remains must be carried by whatever else the row names.
+# It is the classical composer/performer/work dilemma with a pop name on it,
+# and `CLASSICAL_PERFORMER_MIN_ALBUMS` already solves one corner of it.
+#
+# **The schema had already named this and nothing acted on it.** A suppression
+# is written `label_semantics = 'ambiguous_rejection'`, against
+# `explicit_confirmation` for a confirm — the vocabulary says outright that a
+# rejection does not tell you *which* reading it was. Redistributing the
+# evidence among the concepts that shared the row is disambiguating that. It is
+# **not** a concept-level negative, which the contract forbids: nothing here
+# asserts that the person dislikes the struck-off concept, only that the rows
+# are better explained by something else on them.
+#
+# **The rule is "a different named role on the same row", and the data taught
+# each half of that.** Cynthia Erivo's rows also carry Ariana Grande, Idina
+# Menzel, Kristin Chenoweth and the Wicked Movie Cast — so boosting every
+# co-occurring name would let striking off one cast member promote the other
+# five, who are in exactly the same ambiguous position. Hence *different* role.
+# The Berlin Philharmonic's rows carry **no work at all** — 108 creator
+# mappings, zero `source_work` — so in classical the gainer is the composer,
+# which is why this is written in the resolver's *roles* rather than in
+# `concept_kind`.
+#
+# And it is symmetric because a real suppression demanded it: the first one
+# anybody made was **Frank Wildhorn, who has no `creator` mappings at all** —
+# he is the composer of *Jekyll & Hyde*. A creator-only rule did nothing for
+# him. Striking off the writer says the same kind of thing as striking off the
+# singer, so the performers and the work gain instead.
+#
+# **And genre, era, scene and sphere are excluded.** "I don't like the singer"
+# says nothing new about the genre, which the row already supported; raising it
+# would count one fact twice.
+#
+# **Conservation rather than a constant.** The freed weight is exactly what the
+# suppressed concept was drawing from those rows, redistributed in proportion to
+# what each recipient already rests on them. Measured on the real library:
+# Erivo frees 4.247 and Wicked stands at 9.580, so Wicked rises to about 0.66
+# from 0.615; the Berlin Philharmonic frees 13.894 across Beethoven at 13.99 and
+# Mahler at 13.84. A multiplier would have needed a number nobody measured; this
+# needs none, and says something truer — the listening did not change, only the
+# account of it.
+SUPPRESSION_TRANSFER = """
+with weighted as (
+  select m.concept_id, m.observation_id,
+         m.evidence_path -> 0 ->> 'role' as role,
+         m.evidence_weight * m.recency_weight * s.default_reliability
+           * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0) as w
+    from semantic_private.observation_mappings m
+    join semantic_private.observations o on o.id = m.observation_id
+    join semantic_private.sources s on s.source_code = o.source_code
+   where m.semantic_run_id = %(run)s
+     and m.user_id = %(user_id)s
+     and m.mapping_state = 'accepted'
+), suppressed as (
+  select a.concept_id
+    from semantic_private.assertion_preferences p
+    join semantic_private.user_assertions a on a.id = p.assertion_id
+   where p.user_id = %(user_id)s
+     and a.user_id = %(user_id)s
+     and p.display_state = 'suppressed'
+     and a.concept_id is not null
+), freed as (
+  -- Per row *and per role*: a row whose performer was struck off frees the
+  -- performer's weight, and one whose composer was frees the composer's. The
+  -- role is carried through so recipients can exclude it.
+  select w.observation_id, w.role as freed_role, sum(w.w) as amount
+    from weighted w
+    join suppressed s on s.concept_id = w.concept_id
+   where w.role in ('creator', 'composer', 'source_work')
+   group by w.observation_id, w.role
+), recipients as (
+  select w.observation_id, w.role, w.concept_id, w.w
+    from weighted w
+   where w.role in ('creator', 'composer', 'source_work')
+     and w.concept_id not in (select concept_id from suppressed)
+), shares as (
+  -- The window cannot sit inside the aggregate below, so the share per row is
+  -- computed first. The denominator is every recipient of a *different* role on
+  -- the same row, which is what makes the split conserve the freed weight.
+  select r.concept_id,
+         f.amount * r.w
+           / sum(r.w) over (partition by r.observation_id, f.freed_role) as share
+    from recipients r
+    join freed f
+      on f.observation_id = r.observation_id
+     and f.freed_role <> r.role
+)
+select concept_id, sum(share) as extra_weight
+  from shares
+ group by concept_id
+"""
+
 AGGREGATE = """
 select
   m.concept_id,
@@ -383,11 +479,31 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         cursor.execute(AGGREGATE, {"run": run_id, "user_id": user_id})
         aggregates = cursor.fetchall()
 
+    # The weight freed by suppressed creators, already apportioned to the
+    # composers and works that shared their rows. Fetched separately rather than
+    # folded into `AGGREGATE` so the base scoring query stays the thing it has
+    # always been, and so a run with no suppressions does no extra arithmetic.
+    with connection.cursor() as cursor:
+        cursor.execute(SUPPRESSION_TRANSFER, {"run": run_id, "user_id": user_id})
+        transferred = {
+            str(row["concept_id"]): float(row["extra_weight"])
+            for row in cursor.fetchall()
+        }
+    counts["transferred_concepts"] = len(transferred)
+
     for agg in aggregates:
         concept_id = str(agg["concept_id"])
         label = labels.get(concept_id, {})
 
-        strength = _saturate(float(agg["total_weight"]), HALF_WEIGHT)
+        # **The transfer is added before saturation, not after.** Saturation is
+        # what makes a strength comparable between people, and adding to the
+        # output of a curve that is nearly flat at the top would give a large
+        # transfer almost no effect on a well-evidenced concept and a small one
+        # a large effect on a weak one — the opposite of what the evidence says.
+        # It is the same arithmetic that made a flat 0.3 performer weight
+        # useless: the curve, not the constant, decides what a change is worth.
+        transfer = transferred.get(concept_id, 0.0)
+        strength = _saturate(float(agg["total_weight"]) + transfer, HALF_WEIGHT)
         observation_confidence = _saturate(
             float(agg["observation_count"]), HALF_OBSERVATIONS)
         breadth = int(agg["breadth"])
@@ -402,6 +518,9 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             "mapping_count": int(agg["mapping_count"]),
             "observation_count": int(agg["observation_count"]),
             "half_weight": HALF_WEIGHT,
+            # Recorded whenever it is non-zero, because a score that moved for a
+            # reason nobody can see is the thing an explanation exists to stop.
+            **({"transferred_from_suppressed": round(transfer, 4)} if transfer else {}),
             "stability_basis": "no_prior_run",
             "concept_key": label.get("concept_key"),
         }
