@@ -74,10 +74,24 @@ build, one is impossible, and one is unresolved. **Spotify is a third case: its
 data-collection prototype offers it and the real launch will not. So a marker
 means "held back or on its way back", and only the code around it says which.
 
-- **YouTube** (`YouTubeDistiller`) — **ARCHIVED.** Subscriptions, liked videos,
-  playlists and playlist contents. Watch history is **not** reachable: the API
-  does not expose it, and Takeout/Data Portability is EU-only. Why it is held
-  back is in the YouTube section below.
+- **YouTube** (`YouTubeDistiller`) — **live, and the `ARCHIVED-YOUTUBE` marker
+  had drifted from the code for months.** `Modality.swift:134` says `"youtube"`
+  was removed for the App Store build and `:147` returns it; the same is true of
+  `google_calendar` at `:175`. Measured 2026-08-12: **731 rows**, 3 connections,
+  distilling normally. **Anything shipped from this tree offers a reviewer both
+  sources, and both 403 for accounts off the Testing allowlist** — so the drift
+  has to be closed deliberately before any upload, in one direction or the other.
+
+  Subscriptions, liked videos, playlists and playlist contents. Watch history is
+  **not** reachable: the API does not expose it, and Takeout/Data Portability is
+  EU-only. `channels.list` is asked for `topicDetails,statistics` in one call —
+  quota is charged per call rather than per part, so the subscriber count is
+  free, and it is the one field here III.E.4 lets outlive thirty days because it
+  is a *statistic*.
+
+  **It dual-writes to the vault and resolves**, which the YouTube section below
+  sets out. What it may not do is infer: `provider_topic` and `uploader_tag` are
+  reads and are permitted, `written_title_tag` is a guess and is gated.
 
 - **Apple Music** (`AppleMusicDistiller`) — library songs/albums/artists/music
   videos, playlists + contents, recently added, recently played, heavy rotation,
@@ -305,11 +319,14 @@ Ruled out and not to come back: MusicKit has no podcast types; iCloud sync uses
   kept and drawn by nothing: booked-against-typed, evenings, weekends and the
   busiest day are derived readings the ontology stage will want.
 
-- **Google Calendar** (`GoogleCalendarDistiller`) — **ARCHIVED**, for the reason
-  YouTube is: the consent screen is in Testing, so a reviewer's account gets a
-  403 *after* a successful login. Nobody has ever connected it.
+- **Google Calendar** (`GoogleCalendarDistiller`) — **its `ARCHIVED-` marker has
+  drifted exactly as YouTube's did**, and the sentence that used to sit here —
+  *"nobody has ever connected it"* — is false. `Modality.swift:175` returns
+  `google_calendar`, and there are **7 rows and 1 connection**. The reason for
+  archiving still stands: the consent screen is in Testing, so a reviewer's
+  account gets a 403 *after* a successful login.
 
-When it returns, its condition is the whole design: **offered only where the
+Its condition is the whole design: **offered only where the
   phone has no Google account.** One added in iOS Settings delivers its events
   through EventKit as `caldav`, so `CalendarDistiller` already has them, and
   collecting them again would put every dinner in the database twice under a
@@ -1667,8 +1684,10 @@ hand over weeks never proved they build a schema from nothing. Done once against
 an empty project, the chain applied cleanly — and produced the measurement that
 corrected this paragraph.
 
-**The migration head is `0065` as of 2026-08-11, and everything through it is
-applied to production.** The ledger exists now: `supabase_migrations` was absent
+**The migration head is `0090` as of 2026-08-12, and everything through it is
+applied to production.** `0066`–`0090` are the music concepts, the YouTube
+vocabulary and policy, the scorer and its grants; the section below on the first
+assertions sets out what each earned. The ledger exists now: `supabase_migrations` was absent
 entirely — not empty, *absent* — because every migration had been applied by
 hand, so `supabase db push` would have tried `0001` against a full database.
 `supabase migration repair --status applied 0001 … 0041` came first, and
@@ -1843,9 +1862,11 @@ run, three wrapped keys (one per call, one active).
 **Per source rather than per build** — `AppConfig.semanticIngestionSources`.
 Turning it on everywhere at once throws away the only thing shadow running is
 for: a disagreement found in one source is a diagnosis, and in nine it is a
-shrug. `music_library` is deliberately excluded even though it emits the same
-`library_song` rows, because on a subscriber's phone both sources return the
-same library and the comparison wants one of them.
+shrug. **The list now holds nine sources including `youtube`**, and the note
+that used to sit here — that `music_library` is excluded because a subscriber's
+phone returns the same library twice — no longer describes the code: it is in
+the set. Whether that was decided or drifted is unrecorded, so treat it as
+undecided rather than as the reasoning above still holding.
 
 **Eight of ten data types matched the legacy count exactly.** The two that did
 not are both the comparison's fault rather than the pipeline's, and getting them
@@ -2251,6 +2272,72 @@ record source.
 service_role`, and **`on all tables` binds at execution time, not going
 forward** — so every table `0048` adds gets no grant unless `0048` grants it
 explicitly.
+
+### The first assertions, and the four faults between capture and them
+
+**542 `concept_scores`, 81 `user_assertions`, and 13 concepts reaching two
+independence groups** — measured 2026-08-12. Nothing in this system had ever
+had more than one, and `motif_rules` requires two as a check constraint, so
+until this every motif rule was unsatisfiable by construction.
+
+`creator:le_sserafim` at strength 0.684, breadth 2, three sources: listened to
+on Apple Music and watched across **nine separate repost channels** on YouTube.
+That is the shape the whole exercise was for — `apple_music`, `music_library`
+and `spotify` all carry the `music` group by design, so no music source can
+ever be the second witness. The rest of the thirteen are the same K-pop cohort
+plus `genre:classical` 0.963, `genre:pop` 0.941 and `genre:electronic`, those
+last three arriving through `0076`'s provider-topic mapping.
+
+**The scorer is `aws/worker/score.py`, inside the resolver's own run.** Not a
+second run: a score belongs to the mappings it came from, and
+`finalize_semantic_run`'s staleness check covers both only because they share
+one. `strength` saturates rather than sums — `w/(w+6)` — because one concept
+carries 3,893 `library_song` mappings and a hard cap would tie every strong
+concept at 1.0. `stability` is 0.0 on a first run and that is a refusal: 1.0
+would assert a property from the absence of observation.
+
+**Four faults stood between a correct client and this, and each hid the next.**
+They are worth keeping because none of them announced itself:
+
+- **A 500 that should have been a 400.** A projection refusal is the *caller*
+  sending a forbidden shape, and `SemanticIngestionService` classifies
+  permanence by status code — `500...599` transient, everything else permanent.
+  So one Calendar batch, staged by a build predating `semanticDataType` and
+  carrying `event`/`entered_by_user` where the projection demands
+  `calendar_event`/`scheduled`, was re-sent on every distillation for thirteen
+  hours at the head of a FIFO queue, starving three YouTube distillations
+  behind it. Nothing could see it: the queue drains only when new work arrives,
+  and that actor deliberately shares no error state with the app.
+- **A trigger error that named no row.** `private observations require an exact
+  closed projection` is raised by a guard, so the operator got a bare 500.
+  `projectionDiagnostic` reports each rejected row's *shape* — field names,
+  payload keys, presence rather than value, deduplicated with a count — and
+  named the cause on its first run. **It found in one line what four rounds of
+  reading code had not.**
+- **Fuzzy matching nobody reads.** `resolve_alias` falls back to a
+  `SequenceMatcher` against every alias for any term with no exact hit. Music
+  never noticed — its terms are curated aliases. Uploader tags are arbitrary
+  free text: ~5,500 on one library, almost none matching, each scanning 1,512
+  labels. **≈8.3 million comparisons a run, the entire 300-second Lambda
+  timeout** — and every result was already discarded, since the fuzzy path
+  returns only `CANDIDATE` or `REJECTED` and the loop skips non-accepted
+  lexical matches. `exact_terms_only` drops those terms before the mapper sees
+  them: 300s to 9s, removing no mapping that was ever written. It is also what
+  `0078`'s resolver model already specified — `whole_tag_only`, `fuzzy: false`.
+- **Row-at-a-time inserts** through a transaction pooler, now `executemany`.
+  `pg_stat_statements` blamed the `semantic_runs` insert at 116s max, which was
+  really later jobs blocking on `semantic_run_live_identity_idx` while the first
+  held its transaction open — **parallel invocations manufacturing the
+  contention being diagnosed.** Invoke the worker serially.
+
+**And five migrations found five grants by watching five invocations fail**
+(`0086`–`0090`, after `0063` and `0070`–`0073`). Each cost a deploy and a run to
+learn a fact that was static the whole time. `0090` stopped guessing: read
+`pg_trigger` for the tables being written, follow what each trigger calls, grant
+the set. **That should be the first move, not the sixth.** One caution from
+`0089`, whose first draft asserted so broadly it demanded privileges for Phase
+4's dyad and surface paths and correctly rolled itself back — a check broad
+enough to demand privileges nobody asked for is an argument for granting them.
 
 ### Phase 2, which is about half done
 
@@ -2946,12 +3033,11 @@ this file is in `git log -p CLAUDE.md`.
   exclusions to sample. The gate is a person reading output, so it cannot be
   closed by any amount of testing, and it should happen while the number is
   five rather than after a beta.
-- **Nothing has resolved an observation to a concept.** 2,518 observations and
-  zero rows in `observation_mappings`, `concept_scores` and `user_assertions`.
-  For music that is blocked on **`ontology.concepts` having no musical
-  concepts** — 45 rows, all `activity`, `hub`, `routine`, identity and place —
-  so a resolver run today would abstain on 2,417 of them. Authoring concepts
-  comes before running one.
+- **Nobody has read the 81 assertions.** They exist now — see the section on the
+  first assertions below — and §8's review gate is a person reading output, so
+  it is the same shape as the Calendar one above and cannot be closed by
+  testing. 542 scores is small enough to sample properly and will not stay that
+  way.
 - **Whether HealthKit habit candidates are within the grant is unanswered.**
   The consent says *keep and use my activity to describe me to myself*, with all
   four booleans false; the next HealthKit unit computes fitness *assertions*.
@@ -3036,6 +3122,30 @@ Calendar and no notifications for a day after all three shipped, and promised
 six times across three pages an in-app control for removing a single source,
 which existed for nothing. **Adding a source, a sign-in method, or anything else
 that leaves the device means editing `web/en-us/privacy/` in the same commit.**
+
+**It happened again and worse: four pages said in six places that Written "no
+longer connects to a YouTube account" and collects "no new YouTube data", while
+YouTube was live with 731 rows.** A published compliance document asserting that
+a live source collects nothing is the most expensive form this trap takes.
+Corrected 2026-08-12, and the scope table gained `youtube.readonly` — that table
+is what Google's verification form points at, so a missing scope is the one
+omission it cannot afford.
+
+**And the deploy target was wrong the whole time.** `wrangler.jsonc` named
+`written-site`; `written-stl.com` is a custom domain on a Worker called
+`written`. Every `npx wrangler deploy` created a *second* Worker and published
+to it — success, every asset uploaded, a version id printed, nothing reachable
+changed. It was convincing in the wrong direction: the apex served the old copy
+**with our own `_headers` CSP on it**, `cf-cache-status` said `HIT`, and a
+cache-busting query returned `HIT` too. Purging the zone changed nothing because
+nothing was stale. What settled it was the account, not any amount of `curl`:
+
+    GET /accounts/{id}/workers/domains  ->  written-stl.com -> written
+
+The corrected deploy confirmed itself — *"Uploaded 4 of 4 assets (19 already
+uploaded)"*, exactly the changed files diffed against what was genuinely live.
+**Verify a site deploy by diffing a live page against the repo file**, not by
+reading wrangler's success line.
 
 Two words it uses precisely: **struck off** is the `BanList` pass, where
 `markedRemoved` annotates `extra` and *keeps the row* — so the site says never
