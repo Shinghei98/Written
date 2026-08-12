@@ -209,9 +209,26 @@ actor SemanticSurfaceService {
         await answer("suppress_assertion", assertion, rank: rank, surface: surface)
     }
 
+    /// **Restore takes no exposure, and that is the schema being right.**
+    /// `restore_assertion` has three parameters where its siblings have four:
+    /// a suppressed assertion is filtered out of `list_assertions`, so it was
+    /// never on screen, so there is no exposure it could be answering. Routing
+    /// it through the same path as confirm and suppress — which the first
+    /// version did — sends an argument the function does not declare.
+    ///
+    /// The consequence for the app is larger than the signature: **there is no
+    /// way to list what somebody has hidden.** Nothing returns suppressed
+    /// assertions, so restoration is reachable only in the moment, as an undo,
+    /// and a row hidden last week cannot be brought back from this surface at
+    /// all. That wants a second RPC rather than a client change, and it is a
+    /// decision about what a person is owed rather than a missing function.
     @discardableResult
-    func restore(_ assertion: Assertion, rank: Int, surface: String = "memories") async -> Bool {
-        await answer("restore_assertion", assertion, rank: rank, surface: surface)
+    func restore(_ assertion: Assertion, surface: String = "memories") async -> Bool {
+        await call("restore_assertion", [
+            "p_target_assertion_id": assertion.id.uuidString.lowercased(),
+            "p_client_event_id": UUID().uuidString.lowercased(),
+            "p_surface_name": surface,
+        ])
     }
 
     private func answer(

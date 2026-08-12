@@ -85,6 +85,18 @@ struct DashboardView: View {
     /// new file on the day it was written.
     @State private var assertionFailure: String?
 
+    /// The row just removed, kept so it can be put back.
+    ///
+    /// **Undo is the only reachable form of restore**, because
+    /// `list_assertions` filters suppressed rows out and nothing returns them —
+    /// so a person can never see what they have hidden in order to press
+    /// anything on it. That makes the moment of removal the only moment, which
+    /// raises the stakes of a mis-tap rather than lowering them.
+    ///
+    /// Held until the card is left or another row is answered, not on a timer:
+    /// a countdown somebody cannot see is a deadline they can miss.
+    @State private var undoable: (assertion: SemanticSurfaceService.Assertion, index: Int)?
+
     /// The term whose evidence is being read, and the card it was drawn under.
     ///
     /// Both, because `TermDetailView` names the domain in its header and
@@ -1196,6 +1208,19 @@ struct DashboardView: View {
                         .padding(.vertical, 6)
                 }
 
+                if let undoable {
+                    HStack(spacing: 8) {
+                        Text("Removed \(undoable.assertion.label).")
+                            .font(.system(size: 12))
+                            .foregroundStyle(GardenPalette.muted)
+                        Button("Undo") { undo() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(GardenPalette.gold)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 6)
+                }
+
                 entryStack {
                     ForEach(Array(assertions.enumerated()), id: \.element.id) { index, assertion in
                         if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
@@ -1265,6 +1290,9 @@ struct DashboardView: View {
     /// screen looking recorded. `LikeService.like` fills a heart the same way
     /// and had nothing to put back; here there is.
     private func confirm(_ assertion: SemanticSurfaceService.Assertion, rank: Int) {
+        // One offer at a time, naming one row: a stale "Removed X" beside a
+        // different answer is an undo pointing at the wrong thing.
+        undoable = nil
         guard let index = assertions?.firstIndex(where: { $0.id == assertion.id }) else { return }
         let previous = assertions?[index].displayState ?? "default"
         assertions?[index] = assertion.settingDisplayState("confirmed")
@@ -1283,11 +1311,34 @@ struct DashboardView: View {
         let removed = assertions
         assertions?.removeAll { $0.id == assertion.id }
         Task {
-            if await !SemanticSurfaceService.shared.suppress(assertion, rank: rank) {
+            if await SemanticSurfaceService.shared.suppress(assertion, rank: rank) {
+                await MainActor.run { undoable = (assertion, rank) }
+            } else {
                 let reason = await SemanticSurfaceService.shared.lastError
                 await MainActor.run {
                     assertions = removed
                     assertionFailure = reason ?? "That didn't save."
+                }
+            }
+        }
+    }
+
+    /// Put back the row just removed.
+    ///
+    /// **Restored to the rank it came from rather than appended**: a row that
+    /// reappeared at the bottom would read as a different row. The server's own
+    /// ordering reasserts itself on the next load either way.
+    private func undo() {
+        guard let target = undoable else { return }
+        undoable = nil
+        let index = min(target.index, assertions?.count ?? 0)
+        assertions?.insert(target.assertion, at: index)
+        Task {
+            if await !SemanticSurfaceService.shared.restore(target.assertion) {
+                let reason = await SemanticSurfaceService.shared.lastError
+                await MainActor.run {
+                    assertions?.removeAll { $0.id == target.assertion.id }
+                    assertionFailure = reason ?? "Couldn't put that back."
                 }
             }
         }
