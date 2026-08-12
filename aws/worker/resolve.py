@@ -546,8 +546,8 @@ def library_facts(rows: list[dict[str, Any]]) -> LibraryFacts:
     }
     scenes = {
         performer: tuple(sorted(artist_scenes(
-            set(eras.get(performer, ())), set(spheres.get(performer, ())))))
-        for performer in by_performer
+            performer, items, set(eras.get(performer, ())))))
+        for performer, items in by_performer.items()
         if performer
     }
 

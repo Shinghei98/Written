@@ -345,24 +345,67 @@ def artist_spheres(rows: list[dict]) -> set[str]:
     return spheres
 
 
-def artist_scenes(eras: set[str], spheres: set[str]) -> set[str]:
-    """A decade crossed with a sphere, where both are known.
+def artist_scenes(performer: str, rows: list[dict], eras: set[str]) -> set[str]:
+    """A decade crossed with a sphere, both attested on the same row.
 
     **Decades only.** A classical period is already a statement about a musical
     world — baroque music is baroque in every language — so crossing it with a
     sphere would produce `scene:baroque_anglophone`, which describes nothing and
     would compete with `era:baroque` for the same evidence.
 
-    Empty when either side is missing, which is most of the library: an artist
-    with a decade and no stated sphere yields no scene rather than a scene in a
-    sphere nobody established. That is the same refusal as `takes_decades`, one
-    axis over.
+    **Per row, and the first version was not.** Crossing the artist's eras with
+    the artist's spheres reads every combination as observed when only some
+    were. Sheena Ringo has sixteen rows tagged `J-Pop` and two tagged `Rock` —
+    two 2026 releases Apple filed without a language marker — so she carried
+    both `japanese` and `anglophone`, and a 1998 J-Pop single landed in
+    `scene:1990s_anglophone`. On the owner's card that concept meant nothing at
+    all: a Japanese single reached through two rock tracks recorded twenty-eight
+    years later.
+
+    The docstring of the version that shipped said this would happen —
+    *"a single Pop-tagged Cantopop track [would] put an artist in the anglophone
+    scene of a decade computed from everything else"* — and described it as the
+    reason to compute both at artist level. It was the reason to pair them per
+    row instead. `MARKED_SPHERE_GENRES` fixed the case where both genres sit on
+    one row; this is the case where they sit on different rows.
+
+    **A named artist is the exception**, because `ARTIST_ERA` exists precisely
+    for people whose per-row dates are wrong — Hikaru Utada's catalogue carries
+    a 2024 tour album's date. There is nothing better to pair with, so their
+    named eras cross the spheres their rows attest, which is the old behaviour
+    kept exactly where it is still the best available reading.
     """
-    return {
-        scene_key(era, sphere)
-        for era in eras if era in DECADES_SET
-        for sphere in spheres
-    }
+    spheres = artist_spheres(rows)
+    if not spheres:
+        return set()
+
+    if ARTIST_ERA.get((performer or "").strip()):
+        return {
+            scene_key(era, sphere)
+            for era in eras if era in DECADES_SET
+            for sphere in spheres
+        }
+
+    if not dates_are_trustworthy(rows):
+        return set()
+
+    scenes: set[str] = set()
+    for row in rows:
+        genres = row.get("genres", []) or []
+        if not takes_decades(genres):
+            continue
+        year = (row.get("released") or "")[:4]
+        if not year.isdigit():
+            continue
+        decade = decade_of(int(year))
+        if decade not in DECADES_SET:
+            continue
+        # The sphere this row states, by the same marked-wins rule — so a
+        # `Rock` row pairs with anglophone and a `J-Pop` row with japanese, and
+        # neither borrows the other's decade.
+        for sphere in artist_spheres([row]):
+            scenes.add(scene_key(decade, sphere))
+    return scenes
 
 
 def takes_decades(genres: list[str]) -> bool:

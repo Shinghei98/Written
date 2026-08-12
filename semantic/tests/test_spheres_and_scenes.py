@@ -73,11 +73,33 @@ def test_a_scene_needs_both_axes(works):
     scene in a sphere nobody established, which is `takes_decades`' refusal one
     axis over.
     """
-    assert works.artist_scenes({"era:1970s"}, set()) == set()
-    assert works.artist_scenes(set(), {"sphere:mandarin"}) == set()
-    assert works.artist_scenes({"era:1970s"}, {"sphere:mandarin"}) == {
-        "scene:1970s_mandarin"
-    }
+    no_sphere = [row(["Classical"], "1975-01-01")]
+    assert works.artist_scenes("x", no_sphere, {"era:1970s"}) == set()
+
+    mandopop = [row(["Mandopop"], "1979-05-01")]
+    assert works.artist_scenes("x", mandopop, {"era:1970s"}) == {"scene:1970s_mandarin"}
+
+
+def test_a_scene_pairs_the_decade_and_the_sphere_on_one_row(works):
+    """The defect that made `1990s English-language` mean nothing.
+
+    Sheena Ringo has sixteen observations tagged `J-Pop` and two tagged `Rock` —
+    2026 releases Apple filed without a language marker. The first version
+    crossed the artist's eras with the artist's spheres, so a 1998 J-Pop single
+    landed in `scene:1990s_anglophone`: a Japanese single reached through two
+    rock tracks recorded twenty-eight years later.
+
+    The shipped docstring predicted this in words and then chose the design that
+    has it. Both halves are asserted here: what she must have, and what she must
+    not.
+    """
+    ringo = [row(["J-Pop"], "1998-09-09", title=f"jp{i}") for i in range(3)]
+    ringo.append(row(["Rock", "Music"], "2026-07-10", title="rock"))
+    eras = works.artist_eras("Sheena Ringo", ringo)
+
+    scenes = works.artist_scenes("Sheena Ringo", ringo, eras)
+    assert scenes == {"scene:1990s_japanese", "scene:2020s_anglophone"}
+    assert "scene:1990s_anglophone" not in scenes
 
 
 def test_a_classical_period_is_never_crossed_with_a_sphere(works):
@@ -87,7 +109,10 @@ def test_a_classical_period_is_never_crossed_with_a_sphere(works):
     `era:baroque` for the same evidence, so the cross-product is decades only —
     which is why the migration mints 30 concepts and not 65.
     """
-    assert works.artist_scenes({"era:baroque"}, {"sphere:anglophone"}) == set()
+    bach = [row(["Classical"], "2022-03-11",
+                title="Matth\u00e4us-Passion, BWV 244",
+                album="J.S. Bach: Matth\u00e4us-Passion, BWV 244")]
+    assert works.artist_scenes("x", bach, {"era:baroque"}) == set()
 
 
 def test_the_composer_supplies_a_period_apple_did_not_state(works):
