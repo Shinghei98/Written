@@ -95,10 +95,20 @@ enum PostgREST {
         )
         // A set-returning function answers an array; a scalar one answers a
         // bare value. Both are wrapped so a caller reads one shape.
+        //
+        // **`.allowFragments`, and without it the scalar case silently returned
+        // nothing.** A function returning `uuid` answers `"a1b2-…"` — a
+        // top-level JSON string, which `JSONSerialization` refuses by default as
+        // not being an object or an array. So `record_assertion_exposure`
+        // parsed to nil, the exposure id was never read, and every confirm and
+        // suppress that depended on it failed with no error worth reporting:
+        // the request had succeeded and only the reading of it had not.
         if let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
             return rows
         }
-        if let scalar = try? JSONSerialization.jsonObject(with: data) {
+        if let scalar = try? JSONSerialization.jsonObject(
+            with: data, options: [.allowFragments]
+        ) {
             return [["value": scalar]]
         }
         return []

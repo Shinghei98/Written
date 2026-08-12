@@ -179,8 +179,16 @@ actor SemanticSurfaceService {
                 "p_rank": rank,
                 "p_surface_name": surface,
             ])
+            guard let exposureID = rows.first?["value"] as? String, !exposureID.isEmpty else {
+                // **A successful request whose answer could not be read is its
+                // own failure**, and saying so is what separates it from a
+                // refusal. Silence here is what made the exposure bug look like
+                // the server rejecting an answer it had never been asked.
+                lastError = "The server accepted the request and returned no exposure id."
+                return nil
+            }
             lastError = nil
-            return rows.first?["value"] as? String
+            return exposureID
         } catch {
             lastError = error.localizedDescription
             return nil
