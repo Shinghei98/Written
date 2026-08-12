@@ -74,6 +74,35 @@ def get(path: str, key: str):
         sys.exit(f"GET {path} failed: {error.code}\n{error.read().decode()}")
 
 
+def _ensure_written_ontology() -> None:
+    """Find the package in the repository when it is not installed.
+
+    `written_ontology` lives at `semantic/src/` and is installed only into a
+    virtual environment somebody remembered to make. A tool that exists to be
+    run once, by hand, at the moment somebody finally sits down to a review
+    gate, cannot also be a tool that requires `pip install -e semantic` first —
+    the failure is a bare `ModuleNotFoundError` three frames deep, which reads
+    as the tool being broken.
+
+    The path is added rather than the package vendored, for the same reason the
+    Lambdas vendor rather than reimplement: there must be exactly one copy of
+    the classifier, and this must be reading the copy the tests cover.
+    """
+    try:
+        import written_ontology  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    source = pathlib.Path(__file__).resolve().parent.parent / "semantic" / "src"
+    if not (source / "written_ontology").is_dir():
+        sys.exit(
+            f"written_ontology is not installed and is not at {source}.\n"
+            "Install it with `pip install -e semantic` from the repository root."
+        )
+    sys.path.insert(0, str(source))
+
+
 def classifier_for(user_id: str):
     """Built exactly as `aws/classifier/handler.py:classifier_for` builds it.
 
@@ -83,6 +112,7 @@ def classifier_for(user_id: str):
     KMS and this has no such key and needs none — the hash identifies a row to
     the database, and here the row is already in front of us.
     """
+    _ensure_written_ontology()
     from written_ontology.calendar_semantics import CalendarClassifier
     from written_ontology.export_adapter import (
         _OFFLINE_CALENDAR_CARRIERS,
