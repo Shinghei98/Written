@@ -41,10 +41,14 @@ struct WrittenApp: App {
             // learned: hung off a screen's `onAppear` it may never fire, and
             // reported through a self-dismissing banner it may never be read —
             // and both look exactly like a survey that found nothing.
+            if UserDefaults.standard.string(forKey: "mark") == "outlook" {
+                OutlookMarkDebugView()
+            } else {
             RootView()
                 .modifier(MediaSurveyAlert())
                 .modifier(ProbeAlert())
                 .dynamicTypeSize(...Self.largestSupportedText)
+            }
 #else
             RootView().dynamicTypeSize(...Self.largestSupportedText)
 #endif

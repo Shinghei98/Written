@@ -1801,27 +1801,11 @@ struct AppMark: View {
         .frame(width: diameter, height: diameter)
     }
 
-    /// Outlook's mark: the open envelope, its two folded flaps, and the navy
-    /// badge with the white **O**.
+    /// Outlook's mark, transcribed from the official SVG — see `OutlookMark`.
     ///
-    /// **Third attempt, and the first two were wrong about the shape rather
-    /// than the colour.** The first drew the pre-2025 icon — a blue ring over a
-    /// pale page. The second got the palette right off a render of the official
-    /// SVG and the geometry wrong: a rectangular body with one diagonal band
-    /// across it.
-    ///
-    /// It is neither. The body is an **open envelope** — a pentagon with
-    /// rounded corners whose two bottom edges meet at a point, at ninety
-    /// degrees, which is why `apex` sits exactly `halfWidth` below where the
-    /// sides end. In front of it hang **two rounded triangles converging from
-    /// opposite sides**, overlapping at the middle with one covering the other;
-    /// that overlap is the fold, and collapsing it into a single band is what
-    /// made the last version read as a rectangle with a stripe.
-    ///
-    /// Colours are sampled from a render of the official SVG; the proportions
-    /// are read from it rather than measured pixel by pixel, because a
-    /// `qlmanage` render lands on an opaque white background and every
-    /// find-the-white-pixels measurement matches the backdrop instead.
+    /// **No longer drawn by hand, after three wrong attempts.** Each was
+    /// reasoned from a render and each got the geometry wrong in a different
+    /// way; the coordinates now come from the SVG's own path data.
     private var outlookCalendar: some View {
         ZStack {
             RoundedRectangle(cornerRadius: diameter * 0.26)
@@ -1830,54 +1814,8 @@ struct AppMark: View {
                     RoundedRectangle(cornerRadius: diameter * 0.26)
                         .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
                 }
-
-            ZStack(alignment: .bottomLeading) {
-                // The open envelope. Measured (10, 150, 241) at its lower right.
-                OutlookEnvelope()
-                    .fill(Color(red: 0.039, green: 0.588, blue: 0.945))
-                    .frame(width: diameter * 0.72, height: diameter * 0.60)
-
-                // The far flap, folding in from the right: the deepest blue in
-                // the icon, (61, 54, 200) toward its outer edge.
-                OutlookFlap(fromLeft: false)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.247, green: 0.494, blue: 0.929),
-                                Color(red: 0.239, green: 0.212, blue: 0.784),
-                            ],
-                            startPoint: .topTrailing, endPoint: .bottomLeading
-                        )
-                    )
-                    .frame(width: diameter * 0.72, height: diameter * 0.60)
-
-                // The near flap, folding in from the left and drawn last, so it
-                // covers the other where they meet. That order *is* the fold.
-                OutlookFlap(fromLeft: true)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.255, green: 0.827, blue: 1.0),
-                                Color(red: 0.247, green: 0.494, blue: 0.929),
-                            ],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: diameter * 0.72, height: diameter * 0.60)
-
-                // The badge, overhanging the envelope's lower-left corner —
-                // fill measured (13, 98, 209).
-                RoundedRectangle(cornerRadius: diameter * 0.075)
-                    .fill(Color(red: 0.051, green: 0.384, blue: 0.820))
-                    .frame(width: diameter * 0.32, height: diameter * 0.32)
-                    .overlay {
-                        Circle()
-                            .strokeBorder(.white, lineWidth: diameter * 0.055)
-                            .frame(width: diameter * 0.185, height: diameter * 0.185)
-                    }
-                    .offset(x: -diameter * 0.07, y: diameter * 0.07)
-            }
-            .frame(width: diameter * 0.72, height: diameter * 0.60)
+            OutlookMarkView()
+                .frame(width: diameter * 0.74, height: diameter * 0.70)
         }
         .frame(width: diameter, height: diameter)
     }
@@ -2706,84 +2644,5 @@ private struct GoogleCalendarCap: Shape {
         p.addQuadCurve(to: CGPoint(x: inset + r, y: 0), control: CGPoint(x: inset, y: 0))
         p.closeSubpath()
         return p
-    }
-}
-
-/// The open envelope: a rounded pentagon whose two bottom edges meet at a
-/// point, at ninety degrees.
-///
-/// **The right angle is a constraint, not a proportion to taste.** The apex
-/// sits `width / 2` below the height at which the sides stop, because two edges
-/// running at forty-five degrees from opposite sides can only meet squarely
-/// there. Choosing the apex by eye and the shoulders separately is what makes a
-/// drawn envelope look subtly melted.
-struct OutlookEnvelope: Shape {
-    /// How far down the vertical sides run before the taper begins, as a
-    /// fraction of height. The rest is decided by the right angle.
-    var shoulder: CGFloat = 0.42
-    var corner: CGFloat = 0.10
-
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width, h = rect.height
-        let half = w / 2
-        let shoulderY = min(h * shoulder, h - half)
-        let apex = CGPoint(x: rect.midX, y: shoulderY + half)
-        let r = min(corner * w, half * 0.5)
-
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY + r))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX + r, y: rect.minY),
-            control: CGPoint(x: rect.minX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY + r),
-            control: CGPoint(x: rect.maxX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + shoulderY))
-        // The two forty-five degree edges, rounded where they meet.
-        path.addLine(to: CGPoint(x: apex.x + r, y: apex.y - r))
-        path.addQuadCurve(
-            to: CGPoint(x: apex.x - r, y: apex.y - r),
-            control: apex
-        )
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + shoulderY))
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// One of the two flaps folding in over the envelope, from the left or the
-/// right, meeting at the middle.
-///
-/// **Two of these, drawn one after the other, are the fold.** Each is a rounded
-/// triangle anchored along the top edge with its point reaching down past the
-/// centre; the second one drawn covers the first where they cross, and that
-/// overlap is what reads as paper folded over paper. A single band across the
-/// body — which is what this used to be — reads as a stripe on a rectangle.
-struct OutlookFlap: Shape {
-    let fromLeft: Bool
-    /// How far past the centre the point reaches, as a fraction of height.
-    var reach: CGFloat = 0.72
-
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width, h = rect.height
-        let outer = fromLeft ? rect.minX : rect.maxX
-        let inner = fromLeft ? rect.minX + w * 0.92 : rect.maxX - w * 0.92
-        let point = CGPoint(x: rect.midX + (fromLeft ? w * 0.06 : -w * 0.06),
-                            y: rect.minY + h * reach)
-        let r = w * 0.10
-
-        var path = Path()
-        path.move(to: CGPoint(x: outer, y: rect.minY + r))
-        path.addQuadCurve(
-            to: CGPoint(x: outer + (fromLeft ? r : -r), y: rect.minY),
-            control: CGPoint(x: outer, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: inner, y: rect.minY))
-        path.addLine(to: point)
-        path.closeSubpath()
-        return path
     }
 }
