@@ -267,7 +267,33 @@ select
     * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0)
   )                                            as total_weight,
   avg(m.confidence)                            as mapping_agreement,
-  avg(m.recency_quality * s.default_reliability) as evidence_quality
+  avg(m.recency_quality * s.default_reliability) as evidence_quality,
+  -- **The same channel must supply both, which is the whole claim.** A like is
+  -- one act about one video; a subscription is a standing relationship somebody
+  -- chose and has not undone. "Subscribed to them *and* liked their work" is a
+  -- statement about one channel, so the two sets are intersected rather than
+  -- tested independently.
+  --
+  -- The first version used two `bool_or`s over all mappings for the concept,
+  -- and that is a different and much weaker claim: it fired whenever *some*
+  -- subscription and *some* like anywhere carried the label. Measured on a real
+  -- account, it promoted `concept:fashion` outright on one incidental `Fashion`
+  -- tag from a NewJeans subscription and another from a LE SSERAFIM like — two
+  -- unrelated artists, neither of whom the person follows for fashion — over a
+  -- strength of 0.190 the scorer had correctly judged weak.
+  --
+  -- `&&` is array overlap. `array_agg ... filter` yields null when nothing
+  -- matches and `null && anything` is null, so a concept with only one kind of
+  -- attestation fails closed.
+  (array_agg(distinct o.normalized_payload ->> 'channel_id')
+     filter (where o.source_code = 'youtube'
+                and o.action_type = 'subscription'
+                and o.normalized_payload ? 'channel_id')
+   && array_agg(distinct o.normalized_payload ->> 'channel_id')
+     filter (where o.source_code = 'youtube'
+                and o.action_type in ('liked', 'liked_video')
+                and o.normalized_payload ? 'channel_id'))
+                                               as youtube_co_attested
 from semantic_private.observation_mappings m
 join semantic_private.observations o on o.id = m.observation_id
 join semantic_private.sources s on s.source_code = o.source_code
@@ -549,7 +575,31 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             state = "candidate"
         else:
             bar = ELIGIBLE_STRENGTH_BY_KIND.get(kind, ELIGIBLE_STRENGTH)
-            state = "eligible" if strength >= bar else "candidate"
+            # **Subscribed to a channel *and* liked something from that same
+            # channel is eligible outright, whatever the strength.** The two are
+            # different kinds of evidence rather than different amounts of one:
+            # a like is a single act about a single video, a subscription is a
+            # standing relationship somebody chose. Their conjunction, *on one
+            # channel*, is the strongest statement this data can make.
+            #
+            # The same-channel part is load-bearing and was missing from the
+            # first version — see `AGGREGATE`, where the intersection now
+            # happens.
+            #
+            # A weight could not express it. Calibrated on the same account,
+            # one mapping contributes ~0.21 after decay and the bar needs 3.23,
+            # so a lone subscription reaches 0.036 even at the maximum weight of
+            # 1.0 — no number in `action_weights` moves a two-mapping creator
+            # across, which is why this is a rule rather than a tuning.
+            #
+            # Deliberately not a lower *bar* for subscriptions alone: that would
+            # admit every channel somebody followed once and forgot, which is a
+            # different and much weaker claim.
+            co_attested = bool(agg.get("youtube_co_attested"))
+            if co_attested and strength < bar:
+                counts["subscribed_and_liked"] = \
+                    counts.get("subscribed_and_liked", 0) + 1
+            state = "eligible" if (strength >= bar or co_attested) else "candidate"
         counts[state] += 1
         if state != "eligible":
             # Scored and inspectable, asserting nothing. Promote narrowly — and
