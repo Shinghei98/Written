@@ -255,7 +255,19 @@ extension VideoPayload {
         self.init(
             title: record.name,
             channelTitle: record.creator.isEmpty ? nil : record.creator,
-            channelID: record.extraValue("channel_id"),
+            // **A subscription's `item_id` *is* the channel id**, so it needs no
+            // `channel_id=` in `extra` and never had one — `YouTubeDistiller`
+            // writes `itemID: channelID` for that row. Reading only `extra`
+            // therefore gave every subscription a null channel, which is
+            // invisible until something tries to use it: measured 2026-08-13,
+            // 941 liked videos carried a channel id and all 430 subscriptions
+            // carried none, so `channel_identity` terms could only ever come
+            // from likes. A subscription is the stronger signal of the two —
+            // somebody chose the channel rather than a single video — and it
+            // was the half being dropped.
+            channelID: record.dataType == "subscription"
+                ? (record.itemID.isEmpty ? nil : record.itemID)
+                : record.extraValue("channel_id"),
             publishedAt: record.extraValue("published_at").flatMap(DistilledRecord.parseDate),
             description: record.detail.isEmpty ? nil : record.detail,
             // Read, never computed. See `VideoPayload`.
