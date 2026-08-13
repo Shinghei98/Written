@@ -323,6 +323,22 @@ struct GrowProfileView: View {
     /// to make a first connection it has already made.
     private func startTutorialIfNeeded() {
         guard isOnboarding,
+              // **Not until the server has confirmed there is an account.**
+              // The first frame is chosen synchronously from the Keychain, on
+              // purpose — that is what removed the two-second sign-in flash —
+              // but a *coach mark* is not first-frame work, and inviting
+              // somebody to make their first connection is the worst thing to
+              // draw while the account is still unverified. A tester whose
+              // account had been deleted got exactly that: the garden, the
+              // "make your first connection" mark, then the sign-in page five
+              // seconds later.
+              //
+              // `isSignedIn` is nil-until-restored, so this waits for the
+              // round trip rather than guessing. The cost is that a legitimate
+              // returning user sees the mark a moment later than before, which
+              // is the right side of the trade for something that only ever
+              // appears once.
+              SupabaseAuth.shared.isSignedIn,
               !Tutorial.Progress.hasSeen(.firstConnection),
               viewModel.treeState.connectedModalities.isEmpty,
               tutorialStep == nil
@@ -487,6 +503,16 @@ struct GrowProfileView: View {
         // rest of the screen is not.
         .tutorial(tutorialStep) { }
         .onAppear { startTutorialIfNeeded() }
+        // **The retry the guard above makes necessary.** `onAppear` fires
+        // before `restoreSession` has answered on a cold launch, so gating the
+        // mark on a verified session without this would mean a legitimate user
+        // never saw it at all — trading a five-second wrong screen for a
+        // permanently missing one. `userID` is `@Published`, so this fires the
+        // moment the server confirms the account.
+        .onReceive(SupabaseAuth.shared.$userID) { id in
+            guard id != nil else { return }
+            startTutorialIfNeeded()
+        }
         // The second and third cards are summoned by what the person did, not
         // by a timer: a card that says "tap the icon to update your connection"
         // before there is an icon is pointing at nothing.
@@ -1708,6 +1734,7 @@ struct AppMark: View {
         case "health": health
         case "apple_calendar": calendar
         case "google_calendar": googleCalendar
+        case "outlook_calendar": outlookCalendar
         default: unknown
         }
     }
@@ -1770,6 +1797,70 @@ struct AppMark: View {
                     .foregroundStyle(.white)
                     .offset(y: diameter * 0.055)
             }
+        }
+        .frame(width: diameter, height: diameter)
+    }
+
+    /// Outlook's mark: the cyan envelope, its folded flap, and the navy badge
+    /// with the white **O**.
+    ///
+    /// **Redrawn against the 2025 icon after the first attempt was wrong.**
+    /// That one was a pale page behind a heavy blue ellipse — the pre-2025
+    /// mark, and a poor version of it. The current icon is an envelope whose
+    /// flap sweeps from upper-left to lower-right through cyan, blue and
+    /// indigo, with a dark rounded square at the lower left carrying a white
+    /// ring.
+    ///
+    /// **Proportions are read off a render of the official SVG**, not measured
+    /// pixel by pixel the way the Google Calendar mark above was: the flap's
+    /// three gradient bands collapse into mud at 48pt, so they are one gradient
+    /// here. What has to survive the size is the silhouette — envelope, corner
+    /// badge, white O — and that is what these constants are chosen for.
+    private var outlookCalendar: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: diameter * 0.26)
+                .fill(.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: diameter * 0.26)
+                        .strokeBorder(GardenPalette.ink.opacity(0.10), lineWidth: 1)
+                }
+
+            ZStack(alignment: .bottomLeading) {
+                // The envelope body: measured (10, 150, 241) at its lower right.
+                RoundedRectangle(cornerRadius: diameter * 0.09)
+                    .fill(Color(red: 0.039, green: 0.588, blue: 0.945))
+                    .frame(width: diameter * 0.66, height: diameter * 0.52)
+
+                // The flap, folded over the top. Cyan at the upper left
+                // (65, 211, 255) through to indigo at the right (61, 54, 200).
+                OutlookFlap()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.255, green: 0.827, blue: 1.0),
+                                Color(red: 0.247, green: 0.494, blue: 0.929),
+                                Color(red: 0.239, green: 0.212, blue: 0.784),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: diameter * 0.66, height: diameter * 0.34)
+                    .offset(y: -diameter * 0.18)
+
+                // The badge, overhanging the envelope's lower-left corner —
+                // fill measured (13, 98, 209).
+                RoundedRectangle(cornerRadius: diameter * 0.07)
+                    .fill(Color(red: 0.051, green: 0.384, blue: 0.820))
+                    .frame(width: diameter * 0.30, height: diameter * 0.30)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(.white, lineWidth: diameter * 0.052)
+                            .frame(width: diameter * 0.175, height: diameter * 0.175)
+                    }
+                    .offset(x: -diameter * 0.06, y: diameter * 0.06)
+            }
+            .frame(width: diameter * 0.66, height: diameter * 0.52)
         }
         .frame(width: diameter, height: diameter)
     }
@@ -2598,5 +2689,24 @@ private struct GoogleCalendarCap: Shape {
         p.addQuadCurve(to: CGPoint(x: inset + r, y: 0), control: CGPoint(x: inset, y: 0))
         p.closeSubpath()
         return p
+    }
+}
+
+/// The folded flap of the Outlook envelope: a wide top edge tapering to a
+/// point on the right, which is what reads as a fold at small sizes.
+///
+/// Drawn rather than approximated with a rotated rectangle because the fold's
+/// asymmetry — long shallow slope from the left, short steep one on the right
+/// — is the only part of the 2025 icon that survives being shrunk to a badge.
+struct OutlookFlap: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.30, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY * 0.55))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.42, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }

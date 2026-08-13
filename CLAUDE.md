@@ -338,6 +338,132 @@ Its condition is the whole design: **offered only where the
   exists: same `extra` keys, same card, same ontology stage. Birthdays go by
   Google's own `eventType`, which beats the Apple path's title matching.
 
+- **Outlook Calendar** (`OutlookCalendarDistiller`) — **the third calendar, and
+  the one that mostly duplicates work EventKit already does.** Microsoft Graph
+  `v1.0`, same PKCE machinery as every other OAuth source — an `OAuthProvider`
+  case, not a second auth service, and deliberately not MSAL, which would drag
+  an SDK in for a flow already built. The `common` authority, so a personal
+  Outlook.com account and a work or university Microsoft 365 tenant both sign
+  in.
+
+  **Read this before touching the scope: `Calendars.ReadBasic` is not available
+  to personal Microsoft accounts.** It is Microsoft's least-privileged calendar
+  permission and excludes bodies, attachments and extensions by definition,
+  which is why it was chosen — and Microsoft's permissions reference lists
+  personal-account support for `Calendars.Read` and `Calendars.ReadWrite` and
+  not for it. **The failure is silent and expensive**: the consent screen is
+  approved, a valid token is issued carrying no calendar permission, and Graph
+  answers the first call **401 with no body and no `WWW-Authenticate` header**.
+  Nothing in that refusal names a scope. It survived four wrong diagnoses on
+  2026-08-13 — permission type, stale consent, missing `scope` on refresh, the
+  full-URL scope form — each costing a build, an install and a person tapping a
+  button. Reading the permissions reference is what found it; the sixth
+  diagnostic, not the first.
+
+  Two things that misled, worth knowing next time. A personal-account Graph
+  token is an opaque **compact token** beginning `EwA`, not a JWT — so
+  `aud`/`scp` cannot be read from it and its shape is *not* evidence of a
+  problem. And `Modality.plans` already worked for Outlook through EventKit,
+  so nothing being broken here was ever the difference between having Outlook
+  data and not.
+
+  **So the grant is now `Calendars.Read`, which is wider than what is read.**
+  `$select` names twelve fields and never `body`, `bodyPreview`, `attendees`,
+  `attachments`, `onlineMeeting` or `webLink`. That is minimisation our code
+  performs rather than one the permission enforces — a weaker guarantee than
+  the entry above used to claim, and the reason this paragraph exists. Still
+  not `.ReadWrite`, which would be a real escalation rather than a forced one.
+
+  **Its audience is narrower than it looks, and that was measured.** An
+  Outlook.com or Microsoft 365 account added in iOS Settings arrives through
+  EventKit as `EKSourceType.exchange` and `CalendarDistiller` already collects
+  it — 16 such events on a real device on 2026-08-13, which Graph would fetch
+  again. And a tenant that disables user consent refuses this app outright:
+  WashU does, so every account there is unreachable by Graph and perfectly
+  reachable through EventKit. What is left is the person who uses the Outlook
+  app and has never added the account to their phone.
+
+  **It stamps no `booked=1`.** `booked` is decided by an organiser and a
+  ticketing url — the two fields that separate a ticket somebody paid for from
+  a reminder they typed — and the `$select` asks for neither. So its events map
+  to `scheduled` alone, and listing `booked` in `SemanticSource`'s action map
+  would be reaching for a distinction this connector does not draw. Adding
+  `organizer` to the `$select` is now possible under `Calendars.Read` and has
+  not been done: the flag is worth having, and widening what is read is a
+  decision rather than a consequence.
+
+  **Its rows overlap Apple Calendar's the way Google's do, and worse.** An
+  Exchange or Outlook.com account added in iOS Settings arrives through EventKit
+  as `EKSourceType.exchange`, so the same meeting is collected twice under two
+  `source` values and two `item_id`s. It is offered anyway, on
+  `SourceAvailability`'s recorded reasoning for Google Calendar — harmonising
+  several calendars is the product — and deduped where it is *shown*, by title
+  and start, in `ListeningHighlights.personalEvents`. **That set is now derived
+  from `Modality.plans.recordSources` rather than written out**: it decides both
+  which rows reach the Events card *and* which rows dedupe against each other,
+  so a calendar missing from it would be invisible **and** double-count the ones
+  that are there.
+
+  **A tenant can refuse it after a successful sign-in** — admin consent,
+  conditional access — which is exactly the shape that archived Google
+  Calendar. It arrives as a 403 and is said in words
+  (`CalendarError.tenantRefused`), because "your organisation blocked this" is
+  actionable and "something went wrong" is not.
+
+  **The Outlook row is absent, not disabled, until `AppConfig.microsoftClientID`
+  is real.** An unregistered id does not fail at the token endpoint; it fails on
+  Microsoft's own page with *"Application with identifier … was not found in the
+  directory"*, after somebody has tapped Connect and watched a browser open.
+  `AppConfig.isMicrosoftConfigured` gates it in `SourceAvailability`.
+
+  **It is on the legacy `distilled_records` path only**, deliberately absent
+  from `AppConfig.semanticIngestionSources` until it has been exercised against
+  a real tenant. `0133` is what had to be true first, and the reason is in the
+  next paragraph.
+
+### A calendar missing from the private-source list is permitted, not unhandled
+
+**Six `semantic_private` functions decided how a calendar observation is
+treated, and five named `apple_calendar` and `google_calendar` as a literal
+`in (...)` list.** Four of the six are *prohibitions*:
+`guard_calendar_observation_mapping` (no generic mapping lane),
+`guard_private_source_generic_lane_v03` (no mention or feedback lane),
+`guard_calendar_assertion_evidence` (calendar evidence may not sit under a
+public surface grant) and `private_observation_projection_is_valid_v03` (the
+sanitised shape, which is what stops a title being transcribed). The other two
+are `assertion_has_calendar_evidence` and
+`guard_calendar_classification_current_v03`.
+
+So registering `outlook_calendar` in `semantic_private.sources` and stopping
+there would not have left it *unhandled* — it would have left it **permitted**:
+a calendar whose events may enter the generic mention lane, whose observations
+may carry an unsanitised payload, and whose evidence may be named on a public
+surface, with nothing anywhere reporting the difference. **The failure mode of a
+deny-list is silence.**
+
+`0133` replaces all five literals with
+`semantic_private.is_private_calendar_source` and
+`is_private_lane_source`, and asserts **no function outside those two still
+names a calendar by literal** — so a sixth written later fails the next replay
+rather than shipping a hole. Two things about the helpers:
+
+- **Pure literal arrays, not table lookups.** `private_observation_projection_is_valid_v03`
+  is `immutable` and backs a check constraint on `observations`; a helper
+  reading `sources` could not be immutable, and making the projection `stable`
+  would mean dropping and re-adding that constraint, which re-validates every
+  stored row. A table would also let a row in `sources` quietly change what is
+  enforced.
+- **The projection is proved by calling it, both ways** — an Outlook payload
+  carrying an event title is refused, a sanitised one accepted, and Apple's
+  answer is unchanged. `0117` read an empty table, answered false for
+  everything, and passed its own structural assertion; a predicate is not
+  believed here until it has been seen answering both ways.
+
+`outlook_calendar` shares the `calendar` independence group with the other two,
+which is a decision rather than bookkeeping: two calendars agreeing is often one
+diary reached twice, and `minimum_independence_groups >= 2` would otherwise be
+satisfiable by a duplicate.
+
 - **Google Health is not possible on iOS, and this is settled rather than
   deferred.** The Fit REST API stopped accepting new signups on 2024-05-01 and
   is supported only to the end of 2026; Health Connect is Android-only with no

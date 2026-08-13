@@ -112,6 +112,16 @@ private struct ProbeAlert: ViewModifier {
                 result = ("Assertion surface probe", await SemanticSurfaceService.shared.probe())
             }
             .task {
+                guard DebugLaunch.probesOutlook,
+                      DebugLaunch.firesOnce("probe-outlook") else { return }
+                // Printed as well as shown, for the reason set out below: the
+                // report runs to dozens of lines and an alert truncates them,
+                // while the console is where it will actually be read.
+                let answer = OutlookCalendarProbe.run()
+                print("probe-outlook:\n\(answer)")
+                result = ("Outlook parse probe", answer)
+            }
+            .task {
                 guard let target = DebugLaunch.probeMatch,
                       DebugLaunch.firesOnce("probe-match") else { return }
                 // **Printed as well as shown, and the print is the reliable
@@ -242,6 +252,24 @@ struct RootView: View {
         case .unreachable:
             return
         case .rejected:
+            // **Clear the session, do not merely route away from it.** A
+            // refusal here means the stored token will never work again — the
+            // account was deleted, or the grant revoked — and leaving it in the
+            // Keychain makes `hasStoredSession` true on the *next* launch too.
+            // Reported 2026-08-13 by a tester whose account had been deleted:
+            // the app opened on the garden, showed the "make your first
+            // connection" coach mark, and dropped to the sign-in page five
+            // seconds later. Every launch did it again, because nothing that
+            // decides the first frame had been told the session was dead.
+            //
+            // `signOut()` clears the refresh token, the cached onboarding step
+            // and the account-scoped answers, so the synchronous guess on the
+            // next launch is `signIn` rather than `home`. The records, photos
+            // and ban list stay on disk under `AccountScope`, keyed to an
+            // account id nobody will sign in as again — the second line of
+            // defence doing its job, and the reason this does not need the view
+            // model it cannot reach from here.
+            SupabaseAuth.shared.signOut()
             route = .signIn
         case .restored:
             route = Self.route(for: SupabaseAuth.shared.onboardingStep)
