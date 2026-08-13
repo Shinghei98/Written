@@ -1,0 +1,16 @@
+subject_key,predicate_key,object_key,confidence,provenance_type,status
+creator:one_ok_rock,broader,hub:music,1.0,curated,active
+creator:gen_hoshino,broader,hub:music,1.0,curated,active
+creator:taichi_mukai,broader,hub:music,1.0,curated,active
+creator:jolin_tsai,broader,hub:music,1.0,curated,active
+creator:eve_ai,broader,hub:music,1.0,curated,active
+creator:xiao_yu,broader,hub:music,1.0,curated,active
+creator:nariaki_obukuro,broader,hub:music,1.0,curated,active
+creator:akko_gorilla,broader,hub:music,1.0,curated,active
+creator:sufjan_stevens,broader,hub:music,1.0,curated,active
+creator:corsak,broader,hub:music,1.0,curated,active
+work:ranking_of_kings,broader,hub:film_video,1.0,curated,active
+work:run_with_the_wind,broader,hub:film_video,1.0,curated,active
+work:call_me_by_your_name,broader,hub:film_video,1.0,curated,active
+activity:flute,broader,hub:arts_live,1.0,curated,active
+activity:quantitative_research,broader,hub:work_study_making,1.0,curated,active

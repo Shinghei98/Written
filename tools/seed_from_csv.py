@@ -96,7 +96,13 @@ def q(value: str) -> str:
 # catch precisely that and did, once it was finally run. They live in
 # `sports_*.csv` now, and the next hand-authored set gets its own pair of files
 # for the same reason.
-FAMILIES = ("seed", "sports")
+# **The third family, and the reason the list grows rather than the files.**
+# `seed_*.csv` mirrors `0044_semantic_seed.sql` exactly and `test_seed_consistency`
+# asserts it field for field, so anything authored since cannot go there. Sports
+# were added to those files once and broke the mirror by 66 differences.
+# `youtube_terms_*` is vocabulary a second real account named and the ontology
+# lacked — see `0134`.
+FAMILIES = ("seed", "sports", "youtube_terms")
 
 
 def rows(kind: str) -> list[dict[str, str]]:

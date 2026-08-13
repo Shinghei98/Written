@@ -1,0 +1,51 @@
+concept_key,alias,locale,alias_type,confidence
+creator:one_ok_rock,ONE OK ROCK,en,preferred,1.0
+creator:one_ok_rock,OOR,und,alternate,1.0
+creator:one_ok_rock,ワンオク,ja,alternate,1.0
+creator:one_ok_rock,ワンオクロック,ja,alternate,1.0
+creator:gen_hoshino,Gen Hoshino,en,preferred,1.0
+creator:gen_hoshino,Hoshino Gen,en,alternate,1.0
+creator:gen_hoshino,星野源,ja,alternate,1.0
+creator:taichi_mukai,Taichi Mukai,en,preferred,1.0
+creator:taichi_mukai,MUKAI TAICHI,en,alternate,1.0
+creator:taichi_mukai,向井太一,ja,alternate,1.0
+creator:jolin_tsai,Jolin Tsai,en,preferred,1.0
+creator:jolin_tsai,蔡依林,zh,alternate,1.0
+creator:eve_ai,Eve Ai,en,preferred,1.0
+creator:eve_ai,艾怡良,zh,alternate,1.0
+creator:xiao_yu,Xiao Yu,en,preferred,1.0
+creator:xiao_yu,宋念宇,zh,alternate,1.0
+creator:xiao_yu,小宇,zh,alternate,1.0
+creator:nariaki_obukuro,Nariaki Obukuro,en,preferred,1.0
+creator:nariaki_obukuro,小袋成彬,ja,alternate,1.0
+creator:akko_gorilla,Akko Gorilla,en,preferred,1.0
+creator:akko_gorilla,あっこゴリラ,ja,alternate,1.0
+creator:sufjan_stevens,Sufjan Stevens,en,preferred,1.0
+creator:sufjan_stevens,sufjanstevens,und,alternate,1.0
+creator:corsak,CORSAK,en,preferred,1.0
+work:ranking_of_kings,Ranking of Kings,en,preferred,1.0
+work:ranking_of_kings,國王排名,zh,alternate,1.0
+work:run_with_the_wind,Run with the Wind,en,preferred,1.0
+work:run_with_the_wind,kaze ga tsuyoku fuiteiru,ja,alternate,1.0
+work:call_me_by_your_name,Call Me by Your Name,en,preferred,1.0
+work:call_me_by_your_name,callmebyyourname,und,alternate,1.0
+activity:flute,Playing the flute,en,preferred,1.0
+activity:flute,flute,en,alternate,1.0
+activity:flute,flute cover,en,alternate,1.0
+activity:flute,alto flute,en,alternate,1.0
+activity:flute,alto flute cover,en,alternate,1.0
+activity:quantitative_research,Quantitative research,en,preferred,1.0
+activity:quantitative_research,statistics,en,alternate,1.0
+activity:quantitative_research,ANCOVA,en,alternate,1.0
+activity:quantitative_research,analysis of covariance,en,alternate,1.0
+activity:quantitative_research,repeated measures anova,en,alternate,1.0
+activity:quantitative_research,effect size,en,alternate,1.0
+activity:quantitative_research,mplus,en,alternate,1.0
+genre:rock,rock music,en,alternate,1.0
+genre:hip_hop,hip hop music,en,alternate,1.0
+genre:rnb_soul,soul music,en,alternate,1.0
+genre:rnb_soul,rhythm and blues,en,alternate,1.0
+genre:indie,independent music,en,alternate,1.0
+creator:hikaru_utada,宇多田ヒカル,ja,alternate,1.0
+creator:hikaru_utada,Utada Hikaru,en,alternate,1.0
+creator:mayday,五月天,zh,alternate,1.0
