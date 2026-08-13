@@ -205,6 +205,29 @@ enum AppConfig {
     /// fabricating consent, which is the exact thing that guard prevents.
     static let semanticIngestionSources: Set<String> = [
         "apple_music",
+        // **Spotify, for the training build only, and this is the line to
+        // delete before launch.** IV.2.1.a forbids "using the Spotify Platform
+        // or any Spotify Content to train a machine learning or AI model or
+        // otherwise ingesting Spotify Content into" one — no carve-out, and
+        // IV.2.5 closes the consent route explicitly, covering derived and
+        // aggregate data "even if a user consents to such transfer or use". So
+        // this is not a judgement that could go either way at launch; it is the
+        // clause naming the thing being done here.
+        //
+        // Enabled because the training corpus comes from collaborators rather
+        // than users, and because withholding it made the second real account
+        // unreadable: measured 2026-08-13, she has no Apple Music, 593 Spotify
+        // rows, and produced zero assertions because her only music source
+        // never reached the vault — her whole vault was 50 YouTube observations
+        // against another account's 575.
+        //
+        // **Removing it is one line here and nothing else.** The action map in
+        // `SemanticSource`, the weights in `semantic_private.sources` and the
+        // `music` independence group all predate this and stay correct either
+        // way. What does *not* follow automatically is deleting what was
+        // captured — that is `SyncService.deleteSource(_:)` and the vault's own
+        // erasure, and it has to be done deliberately.
+        "spotify",
         // **The two sources the encrypted vault exists for.** Their payloads
         // are whole calendar events — titles, locations, organisers — which is
         // why they are encrypted at rest and why `consent_purpose` derives to
