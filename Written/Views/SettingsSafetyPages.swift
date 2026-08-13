@@ -16,6 +16,23 @@ struct BlockListView: View {
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
+    /// **The same country the sign-in page defaults to, and the same picker.**
+    ///
+    /// A block reaches the other account only if the number resolves, and
+    /// `0124` compares digits and deliberately refuses to guess a region —
+    /// prefixing this phone's own dial code would silently block a stranger
+    /// abroad who happens to share the digits. So the country has to be
+    /// *stated*, and a free-text field is the one shape that cannot state it.
+    ///
+    /// **This was a real failure rather than a hypothetical one.** Blocking
+    /// somebody by their ten-digit national number wrote a local ban, matched
+    /// no account, and reported nothing — because `block_by_phone` returns void
+    /// whether or not it found anybody, which is what stops the block list
+    /// becoming an oracle for *"is this person on Written?"*. That silence is
+    /// correct, so the fix belongs at the input.
+    @State private var country: Country = .unitedStates
+    @State private var isPickingCountry = false
+
     var body: some View {
         SettingsSubPage(title: "Block list") {
             VStack(alignment: .leading, spacing: 0) {
@@ -69,6 +86,16 @@ struct BlockListView: View {
         // same reason: two screens that ask the same kind of question should
         // not answer it in two different shapes.
         .overlay { addSheet }
+        // **Full screen, as the sign-in page presents it.** A country list is a
+        // long scroll with a search field; over a card it would be a scroll
+        // inside a scroll, and the same list should not behave differently
+        // depending on which screen asked for it.
+        .fullScreenCover(isPresented: $isPickingCountry) {
+            CountryPickerView(
+                selection: $country,
+                onClose: { isPickingCountry = false }
+            )
+        }
     }
 
     /// **"Block" rather than "Confirm", and that follows `ReportSheet`.** A
@@ -80,11 +107,24 @@ struct BlockListView: View {
         if isAdding {
             BiographicsSheet(
                 title: "Block someone",
-                subtitle: "They won't see your profile, and you won't see theirs.",
+                // **Says what it does now.** The old line — "They won't see your
+                // profile, and you won't see theirs" — promised mutual
+                // invisibility that a local ban could never deliver, and only
+                // became true once `0123` made the block server-side and
+                // symmetric. The number is what makes it reach them, so the
+                // subtitle asks for the thing the mechanism needs.
+                subtitle: "Their number, with its country code. "
+                        + "You won't see each other again.",
                 confirmEnabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty,
                 confirmTitle: "Block",
                 onConfirm: {
-                    let number = draft
+                    // **E.164, built exactly as `PhoneNumberView` builds it** —
+                    // a `+`, the dial code, then the national digits. Supabase
+                    // stores the number that way, `private.phone_digits` strips
+                    // the punctuation from both sides, and the two then agree.
+                    // A second way of assembling this string is a second way for
+                    // it to disagree with the one somebody signed up with.
+                    let number = country.dialCode + draft.filter(\.isNumber)
                     viewModel.block(name: number)
                     draft = ""
                     withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
@@ -106,24 +146,45 @@ struct BlockListView: View {
                     withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
                 }
             ) {
-                TextField("Name or phone number", text: $draft)
-                    .font(BrandFont.body(17))
-                    .foregroundStyle(GardenPalette.ink)
-                    .multilineTextAlignment(.center)
-                    // A person's name more often than not, so the biographics
-                    // sheets' capitalisation rather than the word filter's —
-                    // the two fields take genuinely different things.
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .focused($isFocused)
-                    .padding(.vertical, 11)
-                    .padding(.horizontal, 14)
-                    .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                // **A dial code beside the digits, not a free-text field.** It
+                // used to read "Name or phone number", which was wrong twice: a
+                // *name* only ever matched the local ban on this device and
+                // reached nobody, and a number without its country code matches
+                // no account at all.
+                HStack(spacing: 8) {
+                    Button { isPickingCountry = true } label: {
+                        HStack(spacing: 4) {
+                            Text(country.flag)
+                            Text(country.dialCode)
+                                .font(BrandFont.body(17))
+                                .foregroundStyle(GardenPalette.ink)
+                        }
+                        .padding(.vertical, 11)
+                        .padding(.horizontal, 12)
+                        .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Country code, \(country.dialCode)")
+
+                    TextField("Phone number", text: $draft)
+                        .font(BrandFont.body(17))
+                        .foregroundStyle(GardenPalette.ink)
+                        .keyboardType(.phonePad)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .focused($isFocused)
+                        .padding(.vertical, 11)
+                        .padding(.horizontal, 14)
+                        .background(GardenPalette.parchment, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(GardenPalette.ink.opacity(0.08), lineWidth: 1)
+                        }
+                }
             }
             .onAppear { isFocused = true }
             .transition(.opacity)
