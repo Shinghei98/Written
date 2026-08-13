@@ -208,7 +208,16 @@ begin
     raise exception 'matching may use a term and may never name it';
   end if;
 
-  if open_bio = 0 then
+  -- **Conditional on there being assertions to grant, which is not a
+  -- weakening.** The back-fill is what this asserts, and a back-fill over an
+  -- empty table correctly grants nothing — so demanding a non-zero count made
+  -- the migration unapplicable to a fresh database and the whole chain
+  -- unreplayable. On the database this was written against there were 178
+  -- rows and 155 opened; the check that matters is that a *populated* table
+  -- did not come out with every row shut, which is the failure it was written
+  -- for and which this still catches.
+  if open_bio = 0
+     and exists (select 1 from semantic_private.assertion_surface_permissions) then
     raise exception 'no bio row can name anything, so no card will show a term';
   end if;
 

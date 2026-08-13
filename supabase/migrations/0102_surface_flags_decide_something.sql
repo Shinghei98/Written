@@ -170,11 +170,26 @@ begin
   -- and `feature_flags` is the one exemption by construction: it is how a client
   -- asks which surfaces are on, so gating it behind a surface would make the
   -- answer unobtainable exactly when it is needed.
-  select string_agg(p.proname, ', ' order by p.proname) into ungated
-  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'api'
-    and p.proname <> 'feature_flags'
-    and pg_get_functiondef(p.oid) not like '%assert_surface_allowed%';
+  -- **`offset 0` is an optimisation fence and it is load-bearing.**
+  -- `pg_get_functiondef` *raises* on an aggregate — "array_agg is an aggregate
+  -- function" — and Postgres does not promise to evaluate `where` clauses in
+  -- the order they are written. Flattened, the planner is free to call it on
+  -- every row of `pg_proc` before the `nspname` filter narrows to `api`, and
+  -- then the migration dies on a catalog function it was never asking about.
+  -- It worked in production by the luck of one plan and failed the first time
+  -- the chain was replayed against an empty database, which is the same shape
+  -- of accident either way. `prokind = 'f'` excludes aggregates and window
+  -- functions from the answer; the fence is what stops them being touched.
+  select string_agg(f.proname, ', ' order by f.proname) into ungated
+  from (
+    select p.proname, p.oid
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'api'
+      and p.prokind = 'f'
+      and p.proname <> 'feature_flags'
+    offset 0
+  ) f
+  where pg_get_functiondef(f.oid) not like '%assert_surface_allowed%';
   if ungated is not null then
     raise exception 'these api functions reach no surface guard: %', ungated;
   end if;

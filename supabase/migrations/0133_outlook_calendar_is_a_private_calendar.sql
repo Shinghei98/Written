@@ -628,15 +628,23 @@ begin
   -- out again is the defect this migration exists to end, so the absence is
   -- asserted rather than assumed. `is_private_calendar_source` itself is the
   -- one place the strings are allowed to appear.
+  -- `offset 0` for the reason `0102` records: `pg_get_functiondef` raises on
+  -- an aggregate, and without a fence the planner may reach one before the
+  -- schema filter has excluded it. Same scan, same hazard, and it would have
+  -- failed the same way on the next fresh replay.
   select count(*) into literal_holdouts
-  from pg_proc as p
-  join pg_namespace as n on n.oid = p.pronamespace
-  where n.nspname = 'semantic_private'
-    and p.prokind = 'f'
-    and p.proname not in (
-      'is_private_calendar_source', 'is_private_lane_source'
-    )
-    and pg_get_functiondef(p.oid) like '%google_calendar%';
+  from (
+    select p.oid
+    from pg_proc as p
+    join pg_namespace as n on n.oid = p.pronamespace
+    where n.nspname = 'semantic_private'
+      and p.prokind = 'f'
+      and p.proname not in (
+        'is_private_calendar_source', 'is_private_lane_source'
+      )
+    offset 0
+  ) f
+  where pg_get_functiondef(f.oid) like '%google_calendar%';
   if literal_holdouts <> 0 then
     raise exception
       '0133: % function(s) in semantic_private still name a calendar by literal',

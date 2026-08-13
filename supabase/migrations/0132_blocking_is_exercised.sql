@@ -24,6 +24,22 @@
 
 begin;
 
+-- **What the database held before this migration touched anything.**
+--
+-- The check at the foot asserts that exercising blocking left the database as
+-- it found it, and it used to do that by naming what production held: one
+-- like, declined, from 2026-08-12. That is a true sentence about one database
+-- and a false one about every other, so the chain could not be replayed from
+-- empty — and the migration would equally have failed on the day somebody
+-- sent a second like. Measuring the *change* asks the same question without
+-- knowing the answer in advance.
+create temp table blocking_before on commit drop as
+select
+  (select count(*) from public.likes) as likes,
+  (select count(*) from public.blocks) as blocks,
+  (select count(*) from public.conversations) as conversations,
+  (select count(*) from semantic_private.match_authorizations) as authorizations;
+
 do $$
 declare
   a uuid;          -- the blocker
@@ -177,19 +193,24 @@ $$;
 -- real accounts would have changed the thing it was measuring.
 do $$
 begin
-  if (select count(*) from public.blocks) <> 0 then
+  if (select count(*) from public.blocks)
+     <> (select blocks from blocking_before) then
     raise exception 'a block was left behind';
   end if;
-  if (select count(*) from public.conversations) <> 0 then
+  if (select count(*) from public.conversations)
+     <> (select conversations from blocking_before) then
     raise exception 'a conversation was left behind';
   end if;
-  if (select count(*) from semantic_private.match_authorizations) <> 0 then
+  if (select count(*) from semantic_private.match_authorizations)
+     <> (select authorizations from blocking_before) then
     raise exception 'a match authorization was left behind';
   end if;
-  -- The one like this database legitimately holds is the declined invitation
-  -- from 2026-08-12, which `0122` was proven against on a device.
-  if (select count(*) from public.likes) <> 1
-     or not exists (select 1 from public.likes where status = 'declined') then
+  -- The like this database legitimately held when the migration was written
+  -- was one declined invitation from 2026-08-12, which `0122` was proven
+  -- against on a device. What must be true is that it is still there and
+  -- nothing joined it, whatever the number happens to be.
+  if (select count(*) from public.likes)
+     <> (select likes from blocking_before) then
     raise exception 'the likes table is not as it was found';
   end if;
 end

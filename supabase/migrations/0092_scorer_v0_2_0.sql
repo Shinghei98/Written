@@ -42,15 +42,29 @@ insert into ontology.model_versions (
   'active'
 ) on conflict (id) do nothing;
 
-update ontology.model_versions
-   set status = 'retired'
- where model_role = 'scorer' and version = '0.1.0' and status = 'active';
-
 do $$
 declare
   active_scorers integer;
   newest text;
+  runs_before integer;
+  runs_after integer;
 begin
+  -- **Counted before the retirement, so the assertion is about this
+  -- migration rather than about production.** It used to demand that runs
+  -- referencing 0.1.0 exist at all — true of the database it was written
+  -- against, where there were eight, and false of an empty one, so the chain
+  -- could not be replayed from scratch. What it means to check is that
+  -- retiring a model does not take its runs with it, and that is a *change*,
+  -- which is measurable without knowing the number in advance.
+  select count(*) into runs_before
+  from semantic_private.semantic_runs r
+  join ontology.model_versions m on m.id = r.scorer_model_id
+  where m.version = '0.1.0';
+
+  update ontology.model_versions
+     set status = 'retired'
+   where model_role = 'scorer' and version = '0.1.0' and status = 'active';
+
   select count(*) into active_scorers
   from ontology.model_versions where model_role = 'scorer' and status = 'active';
   if active_scorers <> 1 then
@@ -69,13 +83,18 @@ begin
     raise exception 'finalization would pick scorer %, not 0.2.0', newest;
   end if;
 
-  -- Retirement must not orphan the runs that named it.
-  if not exists (
-    select 1 from semantic_private.semantic_runs r
-    join ontology.model_versions m on m.id = r.scorer_model_id
-    where m.version = '0.1.0'
-  ) then
-    raise exception 'the eight runs computed by 0.1.0 no longer reference it';
+  -- Retirement must not orphan the runs that named it. `on delete restrict`
+  -- protects them and retirement is not deletion, so this is defensive — but
+  -- it is the one statement standing between a mistaken `delete` here and a
+  -- run that no longer records which scorer computed it.
+  select count(*) into runs_after
+  from semantic_private.semantic_runs r
+  join ontology.model_versions m on m.id = r.scorer_model_id
+  where m.version = '0.1.0';
+  if runs_after <> runs_before then
+    raise exception
+      'retiring 0.1.0 changed the runs referencing it: % before, % after',
+      runs_before, runs_after;
   end if;
 end
 $$;
