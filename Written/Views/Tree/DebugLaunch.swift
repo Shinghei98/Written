@@ -188,6 +188,29 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "probe-surface") != nil
     }
 
+    /// `-probe-outlook 1` → run `OutlookCalendarDistiller.shape` over a
+    /// recorded Graph `calendarView` response and print what it produced.
+    ///
+    /// **The one probe that deliberately needs no account**, which is the
+    /// opposite of `-probe-ingest` and `-probe-surface` and for a reason worth
+    /// stating. Those two exist because the wiring compiles in the simulator
+    /// and proves nothing without a real token. This one exists because the
+    /// token is the part we cannot get: registering an Entra application means
+    /// a directory, and a personal Microsoft account can no longer have one.
+    ///
+    /// So it tests the half that is ours. The fetch is `OAuthPKCEService` and
+    /// `URLSession`, both exercised by four other sources; the parse is new
+    /// code making ten decisions, and those are what this drives — the
+    /// cancelled, sensitivity, empty-title and holiday drops, the generated
+    /// calendar, the series collapse, and the timestamps Graph states in a
+    /// separate `timeZone` field that a naive parse gets wrong by hours.
+    ///
+    /// It reads a bundled fixture and touches no network, so it is safe to run
+    /// anywhere and says the same thing every time.
+    static var probesOutlook: Bool {
+        UserDefaults.standard.string(forKey: "probe-outlook") != nil
+    }
+
     /// `-tutorial badge` → open the coach mark that lights the connected badge,
     /// without connecting anything.
     ///

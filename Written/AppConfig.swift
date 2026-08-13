@@ -89,6 +89,85 @@ enum AppConfig {
         "https://www.googleapis.com/auth/calendar.events.readonly",
     ].joined(separator: " ")
 
+    // MARK: Microsoft (Outlook Calendar)
+
+    /// The Entra application (client) id. **Paste it here after registering.**
+    ///
+    /// A public client, so there is no secret and none belongs in this binary —
+    /// the same posture as the Google client ids above, and the reason
+    /// `OAuthPKCEService` exists rather than an SDK. Microsoft's own guidance
+    /// treats a mobile app as a public client that cannot hold a secret.
+    /// Registered 2026-08-13 in a directory created for Written, under an
+    /// account Written controls. **Not WashU's** — an application object cannot
+    /// be moved between tenants, so registering in a university directory would
+    /// have made their admins the permanent home of this integration.
+    ///
+    /// Audience is *any Entra tenant + personal Microsoft accounts*, which is
+    /// what makes the `common` authority in `OAuthProvider.outlookCalendar`
+    /// resolve for an Outlook.com account and a Microsoft 365 tenant alike.
+    /// Committed deliberately, like the Google client ids above: an iOS OAuth
+    /// client id is not a secret, and PKCE is what secures the flow.
+    static let microsoftClientID = "05d95265-58c4-49ea-80a3-e144498c0153"
+
+    /// Whether the Entra registration has actually been done.
+    ///
+    /// **Without it the Outlook row is not drawn at all**, through
+    /// `SourceAvailability` — not disabled, absent. A placeholder client id
+    /// does not fail at sign-in, which would at least be legible; it opens a
+    /// Microsoft page reading *"Application with identifier
+    /// 'YOUR_MICROSOFT_CLIENT_ID' was not found in the directory"*, which reads
+    /// as the app being broken. This codebase's own rule: a button that does
+    /// nothing is worse than an absent one.
+    static var isMicrosoftConfigured: Bool {
+        !microsoftClientID.hasPrefix("YOUR_")
+    }
+
+    /// MSAL's convention, kept even though this app does not use MSAL, because
+    /// it is what the Entra portal generates when you add the iOS platform and
+    /// enter the bundle id. Deviating would mean hand-editing the redirect in
+    /// the portal for no gain.
+    static var microsoftRedirectScheme: String { "msauth.com.written.datingapp" }
+
+    static var microsoftRedirectURI: String { "\(microsoftRedirectScheme)://auth" }
+
+    /// **`Calendars.Read`, and the narrower permission was not an option.**
+    ///
+    /// `Calendars.ReadBasic` is Microsoft's least-privileged calendar
+    /// permission and excludes event bodies, attachments and extensions *by
+    /// definition* — which is what this app wants and what it asked for first.
+    /// **It is not available to personal Microsoft accounts.** Microsoft's
+    /// permissions reference lists personal-account support for
+    /// `Calendars.Read` and `Calendars.ReadWrite` and not for `.ReadBasic`,
+    /// and the failure mode is silent: the consent screen is approved, a valid
+    /// token is issued carrying no calendar permission, and Graph answers the
+    /// first call **401 with no body and no `WWW-Authenticate` header**.
+    /// Nothing in that sequence names a scope, which is why it survived four
+    /// wrong diagnoses on 2026-08-13.
+    ///
+    /// **So the grant is now wider than what is read, and the restraint moved
+    /// from the permission into our code.** `OutlookCalendarDistiller` asks for
+    /// `$select=id,iCalUId,subject,start,end,isAllDay,isCancelled,sensitivity,
+    /// categories,showAs,type,seriesMasterId` and never requests `body`,
+    /// `bodyPreview`, `attendees`, `attachments`, `onlineMeeting` or `webLink`
+    /// — so no event body ever reaches the device. That is a promise the
+    /// `$select` keeps rather than one the scope enforces, which is a weaker
+    /// guarantee and is recorded here as such.
+    ///
+    /// Still not `.ReadWrite`: this app has no reason to change somebody's
+    /// diary, and that one is a real escalation rather than a forced one.
+    ///
+    /// `offline_access` yields the refresh token, so a later distillation costs
+    /// no taps; `openid profile` let the token endpoint answer for `common`.
+    static let outlookCalendarScope = [
+        "openid",
+        "profile",
+        "offline_access",
+        "Calendars.Read",
+    ].joined(separator: " ")
+
+    /// Graph's stable version. `beta` is explicitly not for production use.
+    static let microsoftGraphBase = "https://graph.microsoft.com/v1.0"
+
     // MARK: The private semantic vault (v0.3.1, Phase 1)
 
     /// **Which sources dual-write to the vault. Apple Music, and nothing else.**

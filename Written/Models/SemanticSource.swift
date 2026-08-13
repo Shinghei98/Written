@@ -32,6 +32,15 @@ enum SemanticSource: String, CaseIterable, Codable, Sendable {
     case podcast
     case appleCalendar = "apple_calendar"
     case googleCalendar = "google_calendar"
+    /// **Present so the vocabulary is complete, and not yet ingested.** Six
+    /// functions in `semantic_private` name the other two calendars by literal
+    /// — including `guard_private_source_generic_lane_v03`, which bars them and
+    /// HealthKit from the generic mention and feedback lanes. Until those learn
+    /// this source code, `outlook_calendar` must stay out of
+    /// `AppConfig.semanticIngestionSources`: an Outlook observation would not be
+    /// barred from the lane the other calendars are kept out of, which is a
+    /// privacy regression rather than a missing feature.
+    case outlookCalendar = "outlook_calendar"
     case healthKit = "healthkit"
     case youTube = "youtube"
     case location
@@ -81,7 +90,8 @@ extension SemanticSource {
     /// `appSourceCode` gives.
     func semanticDataType(for appDataType: String) -> String {
         switch (self, appDataType) {
-        case (.appleCalendar, "event"), (.googleCalendar, "event"):
+        case (.appleCalendar, "event"), (.googleCalendar, "event"),
+             (.outlookCalendar, "event"):
             return "calendar_event"
         default:
             return appDataType
@@ -246,6 +256,17 @@ extension SemanticSource {
             "event": .actions([.booked, .scheduled]),
             "calendar": .notAnAction(.container),
         ],
+        // **`scheduled` alone, and the absence of `booked` is the source
+        // telling on itself.** `booked` is decided by an organiser and a
+        // ticketing url — the two fields that separate a booking somebody paid
+        // for from a reminder they typed — and `Calendars.ReadBasic` returns
+        // neither. Listing `booked` here would let `action(for:)` reach for a
+        // `booked=1` that this distiller can never stamp, which is a candidate
+        // nothing can satisfy rather than a distinction being drawn.
+        .outlookCalendar: [
+            "event": .actions([.scheduled]),
+            "calendar": .notAnAction(.container),
+        ],
         .healthKit: [
             "workout": .actions([.workout]),
             "activity_day": .actions([.activityDay]),
@@ -329,7 +350,8 @@ extension SemanticSource {
     /// The purpose a row from this source is captured under.
     var dataUsePurpose: DataUsePurpose {
         switch self {
-        case .appleCalendar, .googleCalendar: return .calendarDistillation
+        case .appleCalendar, .googleCalendar, .outlookCalendar:
+            return .calendarDistillation
         case .healthKit: return .fitnessConnection
         default: return .sourceDistillation
         }

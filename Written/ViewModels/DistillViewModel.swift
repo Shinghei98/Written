@@ -12,6 +12,7 @@ final class DistillViewModel: ObservableObject {
     @Published var healthStatus: SourceStatus = .idle
     @Published var calendarStatus: SourceStatus = .idle
     @Published var googleCalendarStatus: SourceStatus = .idle
+    @Published var outlookCalendarStatus: SourceStatus = .idle
     /// Beta only; removed before the App Store build. See `Modality.sources`.
     @Published var spotifyStatus: SourceStatus = .idle
     @Published private(set) var records: [DistilledRecord] = []
@@ -134,6 +135,7 @@ final class DistillViewModel: ObservableObject {
     /// key derived from the provider's name, so the two cannot overwrite each
     /// other — see `OAuthProvider.googleCalendar`.
     private let googleCalendarOAuth = OAuthPKCEService(provider: .googleCalendar)
+    private let outlookCalendarOAuth = OAuthPKCEService(provider: .outlookCalendar)
     private let spotifyOAuth = OAuthPKCEService(provider: .spotify)
 
     init() {
@@ -188,6 +190,7 @@ final class DistillViewModel: ObservableObject {
         youtubeStatus.isRunning || appleMusicStatus.isRunning
             || healthStatus.isRunning || calendarStatus.isRunning
             || googleCalendarStatus.isRunning
+            || outlookCalendarStatus.isRunning
             || podcastStatus.isRunning
             || spotifyStatus.isRunning
     }
@@ -200,6 +203,7 @@ final class DistillViewModel: ObservableObject {
         case "apple_podcasts": return podcastStatus
         case "apple_calendar": return calendarStatus
         case "google_calendar": return googleCalendarStatus
+        case "outlook_calendar": return outlookCalendarStatus
         case "spotify": return spotifyStatus
         default: return .idle
         }
@@ -257,6 +261,7 @@ final class DistillViewModel: ObservableObject {
         case "apple_podcasts": distillPodcasts()
         case "apple_calendar": distillCalendar()
         case "google_calendar": distillGoogleCalendar()
+        case "outlook_calendar": distillOutlookCalendar()
         case "spotify": distillSpotify()
         default: break
         }
@@ -1045,6 +1050,42 @@ final class DistillViewModel: ObservableObject {
                 googleCalendarStatus = .idle
             } catch {
                 googleCalendarStatus = Self.status(after: error)
+            }
+        }
+    }
+
+    /// **Outlook, which is the third calendar and the second one that can fail
+    /// for a reason the person cannot fix.**
+    ///
+    /// A work or university Microsoft 365 tenant may refuse the app outright —
+    /// admin consent, conditional access — and that arrives as a 403 *after* a
+    /// successful sign-in, exactly the shape that archived Google Calendar. It
+    /// is said in words rather than drawn as a generic failure, because "your
+    /// organisation blocked this" is actionable and "something went wrong" is
+    /// not. See `OutlookCalendarDistiller.CalendarError.tenantRefused`.
+    func distillOutlookCalendar() {
+        guard !outlookCalendarStatus.isRunning else { return }
+        outlookCalendarStatus = .running
+        Task {
+            do {
+                let newRecords = try await OutlookCalendarDistiller(
+                    oauth: outlookCalendarOAuth
+                ).distill()
+                // Same reading as Google Calendar: an account with calendars
+                // and no events is a real answer that is indistinguishable
+                // from a refused grant, so it fails loudly.
+                guard newRecords.contains(where: { $0.dataType == "event" }) else {
+                    outlookCalendarStatus = .failed(
+                        message: "No events in that Outlook calendar."
+                    )
+                    return
+                }
+                replaceRecords(from: "outlook_calendar", with: newRecords)
+                outlookCalendarStatus = .done(count: newRecords.count)
+            } catch OAuthPKCEService.OAuthError.cancelled {
+                outlookCalendarStatus = .idle
+            } catch {
+                outlookCalendarStatus = Self.status(after: error)
             }
         }
     }

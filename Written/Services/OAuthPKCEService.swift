@@ -31,6 +31,23 @@ struct OAuthProvider {
     /// nobody and outlive the sign-in.
     var persistsRefreshToken: Bool = true
 
+    /// Whether `scope` must be repeated on the refresh request.
+    ///
+    /// **Microsoft requires it and Google does not, which is why this only
+    /// surfaced on the fourth OAuth source.** RFC 6749 §6 permits `scope` on a
+    /// refresh and Google simply infers the original grant when it is absent —
+    /// so three providers worked for a year with it omitted. Microsoft's
+    /// personal-account endpoint instead mints a token that is not valid for
+    /// the resource, and Graph answers **401 after a completely successful
+    /// sign-in**: the consent screen is approved, the token exchange returns
+    /// 200, and the first API call is refused. Nothing in that sequence points
+    /// at the refresh.
+    ///
+    /// Kept as a per-provider flag rather than sent to everyone, because the
+    /// three that work today work without it and a token path is not somewhere
+    /// to find out whether a change was harmless.
+    var sendsScopeOnRefresh: Bool = false
+
     /// Where to tell the provider the grant is over, if it offers such a place.
     ///
     /// **Forgetting a token is not revoking it**, and the difference is the
@@ -87,6 +104,57 @@ struct OAuthProvider {
             // refresh token, so revoking one leaves the other alone. Somebody
             // disconnecting YouTube does not silently lose their calendar.
             revocationURL: "https://oauth2.googleapis.com/revoke"
+        )
+    }
+
+    /// Outlook / Microsoft 365 calendars, through Microsoft Graph.
+    ///
+    /// **No MSAL, and that is a deliberate departure from Microsoft's own
+    /// advice.** Their guidance is to use MSAL rather than hand-roll OAuth, and
+    /// the reason they give — a mobile app is a public client that cannot hold
+    /// a secret — is exactly why `OAuthPKCEService` exists and already serves
+    /// four providers. Adding MSAL would mean this project's first SDK
+    /// dependency, a keychain access group, two extra query schemes and a second
+    /// authentication system alongside the one that works. Microsoft's endpoints
+    /// speak ordinary authorization-code-with-PKCE, which is what this struct
+    /// does. The convention here is to add a provider, not another auth service.
+    ///
+    /// **`common` as the authority**, so a personal `outlook.com` account and a
+    /// university or employer's Microsoft 365 account both work. `organizations`
+    /// would exclude the first and `consumers` the second, and this app has no
+    /// business caring which somebody has.
+    ///
+    /// **A tenant may still refuse.** `Calendars.ReadBasic` does not normally
+    /// need administrator consent, but an organisation can set a policy that
+    /// blocks user consent to unverified publishers. That is a distinct failure
+    /// from a wrong password and reads as one to the person: see
+    /// `OutlookCalendarDistiller`, which names it rather than saying the
+    /// connection failed.
+    static var outlookCalendar: OAuthProvider {
+        OAuthProvider(
+            name: "Outlook Calendar",
+            authorizationURL:
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            tokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            clientID: AppConfig.microsoftClientID,
+            redirectScheme: AppConfig.microsoftRedirectScheme,
+            redirectURI: AppConfig.microsoftRedirectURI,
+            scope: AppConfig.outlookCalendarScope,
+            // Microsoft returns a refresh token when `offline_access` is in the
+            // scope rather than from a parameter, so there is nothing to add
+            // here — unlike Google, which needs `access_type=offline`.
+            extraAuthParameters: [:],
+            configHint: "AppConfig.microsoftClientID",
+            // Microsoft has no token-revocation endpoint of the kind Google
+            // offers; a grant is withdrawn from the account's own app
+            // permissions page. `disconnect()` still deletes our copy, which is
+            // forgetting rather than revoking — the distinction `revoke()`
+            // exists to draw, and here only half of it is available.
+            // See `sendsScopeOnRefresh`: without it, Microsoft's refresh mints
+            // a token Graph refuses, and the refusal appears after a sign-in
+            // that looked perfect.
+            sendsScopeOnRefresh: true,
+            revocationURL: nil
         )
     }
 
@@ -150,6 +218,14 @@ final class OAuthPKCEService: NSObject {
     enum OAuthError: LocalizedError {
         case notConfigured(provider: String, hint: String)
         case cancelled
+        /// The account signed in successfully and its organisation will not
+        /// let it approve this app.
+        ///
+        /// **A separate case because the remedy is a separate person.** Every
+        /// other failure here is something the user can retry; this one can
+        /// only be resolved by their IT administrator, and telling somebody to
+        /// try again is telling them to do a thing that cannot work.
+        case needsAdminConsent(provider: String)
         case badResponse(String)
 
         var errorDescription: String? {
@@ -158,6 +234,10 @@ final class OAuthPKCEService: NSObject {
                 return "\(provider) client ID is not configured. Set \(hint)."
             case .cancelled:
                 return "Sign-in was cancelled."
+            case .needsAdminConsent(let provider):
+                return "Your organisation has to approve Written before "
+                    + "\(provider) can be connected. A personal account will "
+                    + "work without approval."
             case .badResponse(let detail):
                 return "Sign-in failed: \(detail)"
             }
@@ -353,9 +433,37 @@ final class OAuthPKCEService: NSObject {
             session.start()
         }
 
-        guard let code = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "code" })?.value
-        else {
+        let callback = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+        func item(_ name: String) -> String? {
+            callback?.queryItems?.first(where: { $0.name == name })?.value
+        }
+
+        // **The provider says why, and we were throwing it away.** A refusal
+        // arrives as `error=` on the callback with no `code`, and reading only
+        // `code` turned every one of them into "authorization code missing
+        // from callback" — which is true, useless, and reads as our bug. Seen
+        // on 2026-08-13: a university tenant requires admin consent, so the
+        // sign-in succeeded and the consent screen refused, and the app said
+        // nothing about an administrator.
+        if let failure = item("error") {
+            switch failure {
+            // Backing out of a consent screen is a decision, not a fault, and
+            // belongs at `.idle` like dismissing the sheet — which is what
+            // `DistillViewModel.status(after:)` does with `.cancelled`.
+            case "access_denied" where item("error_subcode") == "cancel":
+                throw OAuthError.cancelled
+            case "admin_consent_required", "consent_required", "access_denied":
+                throw OAuthError.needsAdminConsent(provider: provider.name)
+            default:
+                // Everything else keeps the provider's own words, which are
+                // more use than any sentence written here in advance.
+                throw OAuthError.badResponse(
+                    item("error_description") ?? failure
+                )
+            }
+        }
+
+        guard let code = item("code") else {
             throw OAuthError.badResponse("authorization code missing from callback")
         }
 
@@ -375,11 +483,15 @@ final class OAuthPKCEService: NSObject {
     }
 
     private func refreshAccessToken(refreshToken: String) async throws -> String {
-        try await requestToken(parameters: [
+        var parameters = [
             "client_id": provider.clientID,
             "refresh_token": refreshToken,
             "grant_type": "refresh_token",
-        ])
+        ]
+        if provider.sendsScopeOnRefresh {
+            parameters["scope"] = provider.scope
+        }
+        return try await requestToken(parameters: parameters)
     }
 
     private func requestToken(parameters: [String: String]) async throws -> String {

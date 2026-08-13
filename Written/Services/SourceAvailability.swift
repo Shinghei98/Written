@@ -51,6 +51,16 @@ enum SourceAvailability {
         // both, because the ontology stage should see everything that was
         // found.
 
+        case "outlook_calendar":
+            // **The one OAuth source with a setup step outside this repo.**
+            // Google's client ids are committed and always present; Microsoft's
+            // is a placeholder until somebody registers the Entra application,
+            // and an unregistered id does not fail at the token endpoint — it
+            // fails on Microsoft's own page with "Application with identifier
+            // … was not found in the directory", after the person has already
+            // tapped Connect and watched a browser open. Absent is better.
+            return AppConfig.isMicrosoftConfigured
+
         default:
             // OAuth sources. The browser is the requirement, and every device
             // has one.

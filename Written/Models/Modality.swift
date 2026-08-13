@@ -172,7 +172,30 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // EventKit, so for most people the second row would collect the same
         // dinner twice. It was here for the people whose calendar the device
         // cannot see at all.
-        case .plans: return ["apple_calendar", "google_calendar"]
+        // **Outlook last, and its whole audience is the person EventKit
+        // cannot reach.** That is narrower than it looks and was measured
+        // rather than assumed: an Outlook.com or Microsoft 365 account added
+        // in iOS Settings arrives through EventKit as `EKSourceType.exchange`,
+        // and `CalendarDistiller` already collects it — 16 such events on a
+        // real device on 2026-08-13, which Graph would have fetched again.
+        // So this row is for somebody who uses the Outlook app and has never
+        // added the account to their phone, for whom the alternative is a trip
+        // to Settings → Apps → Calendar → Accounts.
+        //
+        // It was archived for a day: Microsoft requires an Entra tenant to
+        // register an application and a personal Microsoft account can no
+        // longer create one, so there was no client id to be had. An Azure
+        // free account provisions a directory as part of its sign-up, which is
+        // the one route left, and `AppConfig.microsoftClientID` came from it.
+        // `AppConfig.isMicrosoftConfigured` still gates the row, so a build
+        // whose id is a placeholder hides it rather than offering a sign-in
+        // that cannot work.
+        //
+        // **Its rows will duplicate the Exchange events EventKit already
+        // returns**, for anyone who has both. Deduped where it is shown, by
+        // title and start, in `ListeningHighlights.personalEvents`; not deduped
+        // in the vault, which is the known gap Google Calendar already has.
+        case .plans: return ["apple_calendar", "google_calendar", "outlook_calendar"]
         case .lifestyle: return ["health"]
         }
     }
@@ -243,6 +266,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "health": return "Apple Health"
         case "apple_calendar": return "Apple Calendar"
         case "google_calendar": return "Google Calendar"
+        case "outlook_calendar": return "Outlook Calendar"
         default: return source
         }
     }
@@ -257,6 +281,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         case "health": return "heart.fill"
         case "apple_calendar": return "calendar"
         case "google_calendar": return "calendar.badge.clock"
+        case "outlook_calendar": return "calendar.badge.plus"
         default: return "app"
         }
     }

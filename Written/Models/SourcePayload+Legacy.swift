@@ -119,7 +119,7 @@ extension SourcePayload {
             self = .music(MusicPayload(record: record))
         case .applePodcasts, .podcast:
             self = .podcast(PodcastPayload(record: record))
-        case .appleCalendar, .googleCalendar:
+        case .appleCalendar, .googleCalendar, .outlookCalendar:
             self = .calendar(CalendarPayload(record: record))
         case .healthKit:
             // Age and biological sex are not fitness readings and do not fit

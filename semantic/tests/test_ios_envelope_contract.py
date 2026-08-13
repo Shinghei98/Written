@@ -112,9 +112,13 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         mapped = self.data["semantic_data_types"]
         self.assertEqual(mapped["appleCalendar/event"], "calendar_event")
         self.assertEqual(mapped["googleCalendar/event"], "calendar_event")
-        # Nothing else is translated: a second entry here is a second place for
-        # the two vocabularies to drift.
-        self.assertEqual(len(mapped), 2)
+        self.assertEqual(mapped["outlookCalendar/event"], "calendar_event")
+        # Nothing else is translated: every entry here is another place for the
+        # two vocabularies to drift, so the count is pinned as well as the
+        # entries. A new calendar connector belongs in this list; anything that
+        # is not a calendar arriving here means a rename was reached for where
+        # the schema's own vocabulary should have been used from the device on.
+        self.assertEqual(len(mapped), 3)
         self.assertNotIn("health", self.data["sources"])
 
     def test_mapped_sources_are_all_declared(self) -> None:

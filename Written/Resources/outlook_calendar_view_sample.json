@@ -1,0 +1,160 @@
+{
+  "_comment": [
+    "A recorded-shape Microsoft Graph response, hand-built to the v1.0 schema",
+    "rather than captured from a real tenant — registering an Entra application",
+    "turned out to be days of Microsoft account plumbing and the parse should",
+    "not have waited on it. Every field name and every enum value here is from",
+    "Graph's own documented calendarView shape; nothing about anybody real is",
+    "in it. `-probe-outlook` drives OutlookCalendarDistiller.shape over this.",
+    "",
+    "Each event is present to exercise one decision, named in its _why."
+  ],
+  "calendars": [
+    {
+      "calendar": { "id": "cal-primary", "name": "Calendar" },
+      "events": [
+        {
+          "_why": "the ordinary case: an arranged, readable, single event",
+          "id": "evt-dinner",
+          "iCalUId": "uid-dinner",
+          "subject": "Dinner at Yardbird",
+          "start": { "dateTime": "2026-08-20T19:30:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "end": { "dateTime": "2026-08-20T21:30:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "isAllDay": false,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "categories": ["Personal"],
+          "showAs": "busy",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "ahead of now, and the reason the window reaches five years forward",
+          "id": "evt-flight",
+          "iCalUId": "uid-flight",
+          "subject": "Flight to Los Angeles (UA 1103)",
+          "start": { "dateTime": "2026-11-02T08:15:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-11-02T16:40:00.0000000", "timeZone": "UTC" },
+          "isAllDay": false,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "showAs": "busy",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "occurrence one of a series — kept, and stamped recurring=1",
+          "id": "evt-standup-1",
+          "iCalUId": "uid-standup",
+          "subject": "Team stand-up",
+          "start": { "dateTime": "2026-08-17T09:30:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "end": { "dateTime": "2026-08-17T09:45:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "isAllDay": false,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "showAs": "busy",
+          "type": "occurrence",
+          "seriesMasterId": "series-standup"
+        },
+        {
+          "_why": "occurrence two of the same series — must collapse into the first",
+          "id": "evt-standup-2",
+          "iCalUId": "uid-standup",
+          "subject": "Team stand-up",
+          "start": { "dateTime": "2026-08-24T09:30:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "end": { "dateTime": "2026-08-24T09:45:00.0000000", "timeZone": "Asia/Hong_Kong" },
+          "isAllDay": false,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "showAs": "busy",
+          "type": "occurrence",
+          "seriesMasterId": "series-standup"
+        },
+        {
+          "_why": "all-day, which Graph dates without a time — must still parse",
+          "id": "evt-conference",
+          "iCalUId": "uid-conference",
+          "subject": "Design conference",
+          "start": { "dateTime": "2026-09-14T00:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-09-15T00:00:00.0000000", "timeZone": "UTC" },
+          "isAllDay": true,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "showAs": "free",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "dropped: cancelled",
+          "id": "evt-cancelled",
+          "iCalUId": "uid-cancelled",
+          "subject": "Cancelled catch-up",
+          "start": { "dateTime": "2026-08-19T15:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-08-19T16:00:00.0000000", "timeZone": "UTC" },
+          "isCancelled": true,
+          "sensitivity": "normal",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "dropped: the owner marked it private, and that is honoured",
+          "id": "evt-private",
+          "iCalUId": "uid-private",
+          "subject": "Therapy",
+          "start": { "dateTime": "2026-08-21T11:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-08-21T12:00:00.0000000", "timeZone": "UTC" },
+          "isCancelled": false,
+          "sensitivity": "private",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "dropped: confidential, same rule",
+          "id": "evt-confidential",
+          "iCalUId": "uid-confidential",
+          "subject": "Board compensation review",
+          "start": { "dateTime": "2026-08-22T11:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-08-22T12:00:00.0000000", "timeZone": "UTC" },
+          "isCancelled": false,
+          "sensitivity": "confidential",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "dropped: no title, so there is nothing for the row to be about",
+          "id": "evt-untitled",
+          "iCalUId": "uid-untitled",
+          "subject": "   ",
+          "start": { "dateTime": "2026-08-23T11:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-08-23T12:00:00.0000000", "timeZone": "UTC" },
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "type": "singleInstance"
+        },
+        {
+          "_why": "dropped: a public holiday copied into a primary calendar as an ordinary event, which no calendar-level test can see",
+          "id": "evt-holiday",
+          "iCalUId": "uid-holiday",
+          "subject": "Christmas Day",
+          "start": { "dateTime": "2026-12-25T00:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-12-26T00:00:00.0000000", "timeZone": "UTC" },
+          "isAllDay": true,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "type": "singleInstance"
+        }
+      ]
+    },
+    {
+      "_why": "the whole calendar is dropped by CalendarDistiller.isGenerated, so neither its container row nor its events appear",
+      "calendar": { "id": "cal-holidays", "name": "United States holidays" },
+      "events": [
+        {
+          "id": "evt-independence",
+          "iCalUId": "uid-independence",
+          "subject": "Independence Day",
+          "start": { "dateTime": "2026-07-04T00:00:00.0000000", "timeZone": "UTC" },
+          "end": { "dateTime": "2026-07-05T00:00:00.0000000", "timeZone": "UTC" },
+          "isAllDay": true,
+          "isCancelled": false,
+          "sensitivity": "normal",
+          "type": "singleInstance"
+        }
+      ]
+    }
+  ]
+}
