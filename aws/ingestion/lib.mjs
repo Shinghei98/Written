@@ -9,14 +9,30 @@
 
 import { createHmac, randomBytes, createCipheriv } from "node:crypto";
 
-// The eleven `semantic_private.sources` rows, and the app-side names that map
+// The twelve `semantic_private.sources` rows, and the app-side names that map
 // onto them. `health` against `healthkit` is the only translation and it is
 // real: every distiller writes the first, the schema uses the second, and
 // renaming either rewrites history in a table that is append-only by design.
 // This mirrors `SemanticSource.appSourceCode` in Swift.
+//
+// **This list said "eleven" while holding ten, and the missing one was
+// `outlook_calendar`.** `normalizeSource` answers null for a code it does not
+// hold, `index.mjs` turns that into `400 unknown connector_source_code`, and
+// `SemanticIngestionService` classes a 4xx as `.permanent` and drops the batch
+// — so an Outlook distillation reached the legacy path and was discarded here
+// without one error anywhere. It was enabled in
+// `AppConfig.semanticIngestionSources` for three hours in that state and was
+// never exercised, which is the only reason no events were lost.
+//
+// The count in this sentence is the check: it is the number of rows in
+// `semantic_private.sources`, and a source added there without a line here
+// fails closed and silently. That is `0133`'s lesson — five literal calendar
+// lists in `semantic_private`, whose failure mode was silence — arriving on
+// this side of the wire, which `0133` did not touch.
 export const SOURCE_CODES = new Set([
   "apple_music", "music_library", "spotify", "apple_podcasts", "podcast",
-  "apple_calendar", "google_calendar", "healthkit", "youtube", "location", "user",
+  "apple_calendar", "google_calendar", "outlook_calendar", "healthkit",
+  "youtube", "location", "user",
 ]);
 
 const APP_SOURCE_ALIASES = { health: "healthkit" };
@@ -40,6 +56,7 @@ export function consentPurposeFor(sourceCode) {
   switch (sourceCode) {
     case "apple_calendar":
     case "google_calendar":
+    case "outlook_calendar":
       return "calendar_distillation";
     case "healthkit":
       return "fitness_connection";
@@ -421,7 +438,20 @@ function projection(sourceCode, typedPayload) {
   return { normalized_payload: fields, ...shape };
 }
 
-export const CALENDAR_SOURCES = new Set(["apple_calendar", "google_calendar"]);
+// **All three calendars, and the third was missing.** A source absent here is
+// captured and describes nothing: `calendarEventsFor` skips it, no classifier
+// decision comes back, and `projection()` returns `{}` because a calendar is
+// not in `PROJECTABLE` either. Encrypted, run-itemed, and never evidence —
+// which reads as a source that works, since the raw rows are all there.
+//
+// The same three names that `semantic_private.is_private_calendar_source`
+// holds, and they must stay in step: that function decides what a calendar
+// observation is *permitted* to do, this one decides whether one is ever
+// *made*. A calendar in the first and not the second is inert; the reverse is
+// the privacy regression `0133` was written for.
+export const CALENDAR_SOURCES = new Set([
+  "apple_calendar", "google_calendar", "outlook_calendar",
+]);
 
 /**
  * The calendar events in this batch, in the shape the classifier Lambda takes.

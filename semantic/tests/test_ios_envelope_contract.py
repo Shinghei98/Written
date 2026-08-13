@@ -125,6 +125,32 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         declared = set(self.data["sources"])
         self.assertTrue(set(self.mapping) <= declared)
 
+    def test_the_ingestion_endpoint_accepts_every_source_the_app_declares(self):
+        """The third copy of the source list, and the one nothing checked.
+
+        `SemanticSource` in Swift, `SOURCE_CODES` in `aws/ingestion/lib.mjs` and
+        `semantic_private.sources` in Postgres are three writings of one list.
+        The first two were never compared, and they drifted: `outlook_calendar`
+        was added to the enum and to `AppConfig.semanticIngestionSources` and
+        not to the Lambda.
+
+        **The failure mode is silence, which is why an equality is asserted
+        rather than a subset.** A code the endpoint does not hold makes
+        `normalizeSource` answer null, `index.mjs` answer `400`, and
+        `SemanticIngestionService` treat the refusal as permanent and drop the
+        batch — a distillation that lands in `distilled_records` and never
+        reaches the vault, with nothing failing anywhere. The reverse drift is
+        cheaper but still wrong: a code the Lambda accepts and the app cannot
+        produce is a door held open for a source nobody decided to add.
+        """
+        self.assertEqual(
+            set(self.data["ingestion_source_codes"]),
+            set(self.data["sources"]),
+            "SemanticSource and aws/ingestion/lib.mjs SOURCE_CODES disagree; a "
+            "source the endpoint does not hold has its batches refused 400 and "
+            "dropped",
+        )
+
     def test_actions_enum_carries_nothing_unused(self) -> None:
         """A vocabulary entry nobody uses is a claim the app cannot support.
 

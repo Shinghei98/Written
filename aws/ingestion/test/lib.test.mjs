@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { createDecipheriv } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, projectionDiagnostic, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections,
+  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, projectionDiagnostic, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections, CALENDAR_SOURCES,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -96,6 +96,25 @@ test("health is translated and unknown sources are refused", () => {
   assert.equal(normalizeSource("apple_music"), "apple_music");
   assert.equal(normalizeSource("tiktok"), null);
   assert.equal(normalizeSource(undefined), null);
+});
+
+test("every calendar is a calendar to all three of these lists", () => {
+  // `outlook_calendar` was in the Swift enum, in
+  // `AppConfig.semanticIngestionSources` and in `0133`'s
+  // `is_private_calendar_source`, and in none of the three lists here. Each
+  // omission fails differently and all three fail quietly: the source list
+  // refuses the batch 400 and the client drops it; the purpose would file
+  // whole calendar events under `source_distillation`, which is the general
+  // grant rather than the one the vault exists for; and the classifier set
+  // decides whether a calendar row ever becomes evidence at all.
+  for (const calendar of ["apple_calendar", "google_calendar", "outlook_calendar"]) {
+    assert.equal(normalizeSource(calendar), calendar, `${calendar} is accepted`);
+    assert.equal(
+      consentPurposeFor(calendar), "calendar_distillation",
+      `${calendar} is captured under the calendar grant`,
+    );
+    assert.ok(CALENDAR_SOURCES.has(calendar), `${calendar} reaches the classifier`);
+  }
 });
 
 test("the consent purpose follows the source, never the caller", () => {

@@ -30,6 +30,7 @@ import re
 import sys
 
 SEMANTIC_SOURCE_SWIFT = "Written/Models/SemanticSource.swift"
+INGESTION_LIB = "aws/ingestion/lib.mjs"
 DISTILLER_GLOB = "Written/Services/*Distiller*.swift"
 EXTRA_RECORD_SOURCES = ["Written/ViewModels/DistillViewModel.swift"]
 
@@ -227,10 +228,36 @@ def distiller_source_codes(repo: pathlib.Path) -> set[str]:
     return codes
 
 
+def ingestion_source_codes(repo: pathlib.Path) -> set[str]:
+    """`SOURCE_CODES` in the ingestion Lambda — the third copy of this list.
+
+    **A source missing here is dropped, not deferred.** `normalizeSource`
+    answers null for a code it does not hold, `index.mjs` turns that into `400
+    unknown connector_source_code`, and `SemanticIngestionService` classes a
+    4xx as `.permanent` and discards the batch. So the failure is a
+    distillation that reaches the legacy path and vanishes from the vault with
+    no error at either end.
+
+    That is what happened to `outlook_calendar`: enabled in
+    `AppConfig.semanticIngestionSources` while absent from this set, with the
+    set's own comment claiming eleven entries over ten. Nothing compared it to
+    anything, which is why the drift survived — hence this parser.
+    """
+    path = repo / INGESTION_LIB
+    if not path.exists():  # pragma: no cover - only without the AWS checkout
+        return set()
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"SOURCE_CODES\s*=\s*new Set\(\[(.*?)\]\)", text, re.S)
+    if match is None:  # pragma: no cover - the shape changed, and that is a fail
+        return set()
+    return set(re.findall(r'"([a-z0-9_]+)"', match.group(1)))
+
+
 def load(repo: pathlib.Path) -> dict:
     text = strip_comments((repo / SEMANTIC_SOURCE_SWIFT).read_text(encoding="utf-8"))
     return {
         "sources": sorted(enum_cases(text, "SemanticSource").values()),
+        "ingestion_source_codes": sorted(ingestion_source_codes(repo)),
         "actions": sorted(enum_cases(text, "SemanticAction").values()),
         "app_source_codes": app_source_codes(text),
         "semantic_data_types": semantic_data_types(text),
