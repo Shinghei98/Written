@@ -219,6 +219,26 @@ enum AppConfig {
         // rather than a limitation.
         "apple_calendar",
         "google_calendar",
+        // **Added once it had earned it, and once `0133` made it safe.**
+        // Measured 2026-08-13 against a real account: Graph returned 44 events
+        // where EventKit's copy of the same Exchange calendar had 16, and only
+        // 13 overlapped — iOS syncs a limited window, so the device copy
+        // stopped at 2023 while Graph reached to 2027. So this is coverage the
+        // legacy path does not have rather than a second route to the same
+        // rows, which is what the entry above assumed for a day.
+        //
+        // Safe only because `0133` replaced the literal calendar lists in five
+        // `semantic_private` functions with `is_private_calendar_source` and
+        // `is_private_lane_source`. Four of those are prohibitions, so before
+        // that migration an `outlook_calendar` observation would have been
+        // *permitted* into the generic mention lane and onto public surfaces
+        // rather than merely unhandled.
+        //
+        // **Its rows will duplicate the Exchange events EventKit already
+        // promotes** for anyone who has both, which the vault does not dedupe —
+        // the same open gap Google Calendar has, where four flights were
+        // promoted twice.
+        "outlook_calendar",
         // **Only safe because `FitnessPurposePrimer` runs first.**
         // `guard_raw_healthkit_grant` refuses an active HealthKit row without a
         // recorded `fitness_connection` grant, and a refusal is permanent to

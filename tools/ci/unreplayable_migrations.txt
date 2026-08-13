@@ -1,0 +1,37 @@
+# Migrations that cannot be applied to an empty database.
+#
+# **This file is a debt register, not a permission slip.** Every line is a
+# migration whose assertions are written against production data — eight runs
+# computed by a particular scorer, a flag that is false in production, a likes
+# table with rows in it — so replaying the chain from empty raises before the
+# migration's own DDL commits.
+#
+# It exists because `tools/replay_contracts.sh` applied 64 of 133 migrations
+# while its own comment said "the whole chain", and that silence was worth more
+# than the noise: the iOS envelope check was asking a schema 69 migrations
+# stale and passing, and only stopped passing when `outlook_calendar` arrived
+# in 0133 and was reported as an action the schema does not weigh.
+#
+# The replay now applies everything, continues past these, and **fails if a
+# migration not on this list fails** — so the debt cannot grow quietly. Deleting
+# a line when its migration is fixed is the point; adding one should be a
+# deliberate act with a reason beside it.
+#
+# Most of these cascade. The roots are 0092 (does not retire the old scorer, so
+# every later scorer migration then finds two active), 0102, 0103, 0120 (whose
+# absence removes `private.gender_key` and `discovery_requests`), 0128 and 0132.
+# Fixing the roots is likely to clear most of the rest.
+
+0092_scorer_v0_2_0.sql
+0094_scorer_v0_3_0.sql
+0102_surface_flags_decide_something.sql
+0103_prove_the_flags_gate.sql
+0109_scorer_v0_4_0.sql
+0110_scorer_v0_5_0.sql
+0114_scorer_v0_6_0.sql
+0120_server_owned_discovery_rpc.sql
+0121_pin_the_two_gender_vocabularies.sql
+0125_discovery_rpc_meets_the_gate.sql
+0127_sweep_discovery_requests.sql
+0128_terms_are_profile_content.sql
+0132_blocking_is_exercised.sql

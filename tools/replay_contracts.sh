@@ -115,6 +115,33 @@ apply() {
   psql_app < "$MIGRATIONS/$1" >/dev/null 2>&1 || { echo "  APPLY FAILED  $1"; fail=1; return 1; }
 }
 
+# Everything *after* `$1`, in order. The staged lanes above name their
+# migrations one by one because each is followed by a contract that asserts the
+# state at exactly that point; the tail has no such staging and only needs to
+# arrive, so listing 69 more filenames by hand would be 69 more chances to
+# forget one.
+apply_after() {
+  local from="$1" f known unexpected=0
+  known="$ROOT/tools/ci/unreplayable_migrations.txt"
+  for f in $(cd "$MIGRATIONS" && ls ./*.sql | sed 's|^\./||' | sort); do
+    [[ "$f" > "$from" ]] || continue
+    psql_app < "$MIGRATIONS/$f" >/dev/null 2>&1 && continue
+    # **Continues, and says so.** Thirteen migrations assert against production
+    # data — eight runs by a named scorer, a flag that is false in production,
+    # a likes table with rows — so they raise on an empty database before their
+    # own DDL commits. That is a real debt, registered in the file above rather
+    # than tolerated silently, and the schema they would have built is missing
+    # from every replay until it is paid.
+    if grep -qxF "$f" "$known" 2>/dev/null; then
+      echo "  known unreplayable  $f"
+    else
+      echo "  APPLY FAILED  $f  (not in tools/ci/unreplayable_migrations.txt)"
+      unexpected=1
+    fi
+  done
+  if [ "$unexpected" = 1 ]; then fail=1; return 1; fi
+}
+
 # Apply, then apply again. Every semantic migration is expected to survive being
 # run twice; the replay is where a `drop … if exists` that trips over its own
 # dependants shows up.
@@ -209,15 +236,27 @@ apply_twice 0064_observation_projection_vocabulary.sql
 # assuming.
 run_contract 0047_current_state_and_surface_hardening_contract
 
+# **The rest of the chain, because the check below says "the whole chain" and
+# for a long time that was false.** Lane A staged migrations one at a time up to
+# 0064 and stopped, so the envelope vocabulary was asked of a schema 69
+# migrations stale — and it passed, because every source it knew about had been
+# registered before 0064. `outlook_calendar` arrives in 0133 and was reported as
+# an action the schema does not weigh, which was the check telling the truth
+# about a database nobody meant to be testing against.
+echo
+echo "==> applying the rest of the chain"
+apply_after "0064_z"
+
 echo
 echo "########## the iOS envelope vocabulary ##########"
 # `Written/Models/SemanticSource.swift` maps every `data_type` the app emits to
 # an action, and an action is only real if the source actually weighs it.
 #
-# **This has to be asked of the built schema.** Five migrations touch
-# `action_weights` — 0042, 0044, 0045, 0046, 0048 — so reconstructing the final
-# state by parsing SQL would be a third copy of the thing under test. Lane A has
-# just applied the whole chain, so the answer is sitting in the database.
+# **This has to be asked of the built schema.** Several migrations touch
+# `action_weights` — 0042, 0044, 0045, 0046, 0048, and 0133 for the third
+# calendar — so reconstructing the final state by parsing SQL would be a third
+# copy of the thing under test. Lane A has now genuinely applied the whole
+# chain (see `apply_after` above), so the answer is sitting in the database.
 #
 # The other half of this check needs no database and lives in
 # `semantic/tests/test_ios_envelope_contract.py`: every data type mapped at all.
