@@ -137,6 +137,17 @@ enum SemanticAction: String, Codable, Sendable {
     case likedVideo = "liked_video"
     case subscription
     case playlist
+    /// **Spotify's report of what somebody actually played most**, weighted by
+    /// `0139` after a whole distillation proved what leaving them unweighted
+    /// costs: 500 `top_track` and 60 `top_artist` observations at 0.0 against
+    /// 20 `followed_artist` at 0.55, so every one of the nine mappings a
+    /// 593-row library produced came from the twenty. An account whose only
+    /// music source is Spotify could distil it all and assert nothing.
+    ///
+    /// `topTrack` carries an explicit `rank=N` in the projection, which is kept
+    /// and not yet used — a rank-1 track and a rank-500 track weigh the same.
+    case topTrack = "top_track"
+    case topArtist = "top_artist"
 }
 
 /// Why a row carries no action, when the absence is structural rather than an
@@ -224,10 +235,14 @@ extension SemanticSource {
             "followed_artist": .actions([.followedArtist]),
             // `top_track` carries an explicit `rank=N` and is the strongest
             // listening signal either music source returns. It joined
-            // `MusicHighlights.songTypes` for exactly that reason and the
-            // server still weighs neither it nor `top_artist`.
-            "top_track": .unweighted("top_track"),
-            "top_artist": .unweighted("top_artist"),
+            // `MusicHighlights.songTypes` for exactly that reason, and `0139`
+            // finally gave both a weight — 0.78 and 0.55, `recently_played`
+            // and `followed_artist` respectively. They were `.unweighted` here
+            // for as long as the server had no number for them, which is what
+            // that case is for; leaving them there now would make this file
+            // say the server ignores what it weighs.
+            "top_track": .actions([.topTrack]),
+            "top_artist": .actions([.topArtist]),
             "playlist": .notAnAction(.container),
         ],
         .applePodcasts: [

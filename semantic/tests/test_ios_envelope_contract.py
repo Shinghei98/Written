@@ -213,8 +213,16 @@ class IOSEnvelopeContractTests(unittest.TestCase):
         the first, and this pins the list so an addition is a decision rather
         than a drift.
 
-        `top_track` is the sharpest of them: it carries an explicit `rank=N`
-        and is the strongest listening signal either music source returns.
+        **Two left this list in `0139` and the list is shorter, not stale.**
+        `spotify/top_track` and `spotify/top_artist` were the sharpest entries
+        here — 500 and 60 observations weighted 0.0, against the 20
+        `followed_artist` rows that produced every one of a 593-row library's
+        nine mappings. They now carry 0.78 and 0.55 and are `.actions`, so a
+        source whose only music is Spotify can assert something.
+
+        `apple_music/heavy_rotation` is now the sharpest thing still owed a
+        decision: it is Apple's own "most played", the direct equivalent of the
+        signal just weighted on the other music source, and it is worth nothing.
         """
         unweighted = sorted(
             f"{source}/{data_type}"
@@ -228,8 +236,6 @@ class IOSEnvelopeContractTests(unittest.TestCase):
                 "apple_music/heavy_rotation",
                 "apple_music/library_music_video",
                 "location/place",
-                "spotify/top_artist",
-                "spotify/top_track",
             ],
         )
 
