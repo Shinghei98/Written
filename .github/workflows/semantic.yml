@@ -46,13 +46,27 @@ jobs:
         with:
           python-version: '3.12'
 
+      # **`pytest`, not `unittest discover`, and installing pytest alone would
+      # not have been enough.** Seven test modules import pytest and define bare
+      # `def test_*` functions rather than `TestCase` classes. Under
+      # `unittest discover` they failed at import with `ModuleNotFoundError`,
+      # which is how this workflow has been red since it was added — but adding
+      # the dependency without changing the runner would have been worse: the
+      # imports would succeed, `unittest` would find no `TestCase` in them, and
+      # seven files' worth of tests would silently not run behind a green tick.
+      #
+      # pytest collects both styles, so the `TestCase` suites keep running and
+      # the seven start to.
+      - name: Install test dependencies
+        run: python -m pip install --quiet pytest
+
       - name: Run the suite
         working-directory: semantic
         env:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: src
           WRITTEN_REPOSITORY_PATH: ${{ github.workspace }}
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest tests -q
 
       - name: Deterministic demo
         working-directory: semantic
@@ -71,9 +85,26 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pulled explicitly so a registry hiccup reads as a pull failure rather
-      # than as Postgres never becoming ready.
+      # than as Postgres never becoming ready. That worked: the run of
+      # 2026-08-13 failed here with `toomanyrequests: Rate exceeded`, named
+      # plainly, and nothing downstream had to be diagnosed.
+      #
+      # **Retried because the failure is the registry's, not this repository's.**
+      # A public ECR pull is rate limited per source address, and a CI runner
+      # shares its address with everybody else on that host — so the same commit
+      # passes or fails depending on who else is building. Three attempts with a
+      # widening gap; a genuine bad tag still fails, just three times slower.
       - name: Pull the Supabase Postgres image
-        run: docker pull public.ecr.aws/supabase/postgres:17.6.1.156
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull public.ecr.aws/supabase/postgres:17.6.1.156; then
+              exit 0
+            fi
+            echo "pull attempt $attempt failed; waiting $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "::error::could not pull the Postgres image after three attempts"
+          exit 1
 
       # Replays 0001 -> 0049 from empty three times and runs all eight adapted
       # contracts at the migration each one gates, plus the two fixture upgrade
