@@ -140,9 +140,10 @@ enum ListeningHighlights {
         var id: String { eventID }
         let eventID: String
         let name: String
-        /// Which calendar connector this came from. Carried rather than assumed
-        /// because it is genuinely two — `apple_calendar` and `google_calendar`
-        /// — and the Memories row shows the user where a term came from.
+        /// Which calendar connector this came from. Carried rather than
+        /// assumed because it is genuinely several — `apple_calendar`,
+        /// `google_calendar` and `outlook_calendar` — and the Memories row
+        /// shows the user where a term came from.
         let source: String
         let start: Date?
         /// Written in by a ticketing site rather than typed by the user —
@@ -154,6 +155,69 @@ enum ListeningHighlights {
         /// hand, which is exactly the distinction that ranks this list.
         let organizer: String
         let calendar: String
+
+        /// **Which service the event actually came from, which `source` does
+        /// not answer.** An Outlook, Exchange or Google account added in iOS
+        /// Settings reaches us through EventKit, so `source` reads
+        /// `apple_calendar` for all of them and the account behind the event
+        /// is invisible. `cal_type` is what the distiller stamps and this is
+        /// what reads it.
+        ///
+        /// It exists because Outlook has no connector of its own and will not
+        /// get one: Microsoft now requires an Entra tenant to register an
+        /// application, and a personal Microsoft account cannot create one. So
+        /// the *only* route to somebody's Outlook calendar on iOS is the one
+        /// they have already granted, and this is what makes those events
+        /// nameable as Outlook's rather than silently Apple's.
+        let provider: Provider
+
+        enum Provider: String {
+            case apple, outlook, google, other
+
+            /// **The account decides, and the type only breaks ties.**
+            ///
+            /// Measured on a real device: 141 `caldav` rows from iCloud, 6
+            /// `caldav` rows from a gmail account and 16 `exchange` rows. So a
+            /// rule reading `cal_type` alone puts the majority of somebody's
+            /// diary under "Calendar", because iCloud and Google are the same
+            /// type — which is the same reason the public-holiday filter cannot
+            /// rely on the type either.
+            ///
+            /// Nil-safe on purpose: rows collected before the distiller stamped
+            /// these carry neither, and guessing for them would invent
+            /// provenance. They read `other`.
+            static func from(
+                calType: String?, account: String?, calendarName: String
+            ) -> Provider {
+                // Exchange is Outlook whatever it is called: iOS delivers an
+                // Outlook.com account and a Microsoft 365 tenant both this way.
+                if calType == "exchange" { return .outlook }
+                if calType == "local" || calType == "subscription"
+                    || calType == "birthday" { return .apple }
+
+                // `EKSource.title` for iCloud is "iCloud"; for a Google account
+                // it is the address. Falling back to the calendar's own name
+                // catches rows written before `account=` was stamped, where the
+                // gmail address is often the calendar name.
+                let haystack = ((account ?? "") + " " + calendarName).lowercased()
+                if haystack.contains("icloud") { return .apple }
+                if haystack.contains("gmail") || haystack.contains("google") {
+                    return .google
+                }
+                if haystack.contains("outlook") || haystack.contains("hotmail")
+                    || haystack.contains("exchange") { return .outlook }
+                return .other
+            }
+
+            var label: String {
+                switch self {
+                case .apple: return "Apple Calendar"
+                case .outlook: return "Outlook"
+                case .google: return "Google Calendar"
+                case .other: return "Calendar"
+                }
+            }
+        }
     }
 
     /// **Public calendars are excluded here as well as at the distiller.**
@@ -170,12 +234,13 @@ enum ListeningHighlights {
     /// before the distiller started filtering.
     /// Every calendar this account has connected, read as one diary.
     ///
-    /// **Both sources, deduped, because a person has one calendar and two ways
-    /// of reaching it.** Apple Calendar and Google Calendar overlap heavily —
-    /// a Google account added in iOS Settings arrives through EventKit as well
-    /// as through the API — so the same dinner can be collected twice under two
-    /// `source` values and two `item_id`s, which `append_source_records` dedupes
-    /// *within* a source and cannot catch across.
+    /// **Every source, deduped, because a person has one calendar and several
+    /// ways of reaching it.** The calendars overlap heavily — a Google or
+    /// Microsoft account added in iOS Settings arrives through EventKit as
+    /// well as through its own API, as `caldav` and `exchange` respectively —
+    /// so the same dinner can be collected two or three times under different
+    /// `source` values and different `item_id`s, which `append_source_records`
+    /// dedupes *within* a source and cannot catch across.
     ///
     /// It is deduped here rather than at collection because the raw rows are
     /// the ontology stage's input and it should see everything that was found;
@@ -186,7 +251,13 @@ enum ListeningHighlights {
     /// Title and start together, since that is what makes two rows the same
     /// event: a weekly standup has one title and many starts, and two people
     /// called "Lunch" on the same afternoon is not a case worth splitting.
-    private static let calendarSources: Set<String> = ["apple_calendar", "google_calendar"]
+    /// **`Modality.plans.recordSources`, never a literal.** This set decides
+    /// two things at once — which rows appear in the Events card, and which
+    /// rows are deduped against each other — so a calendar missing from it is
+    /// invisible *and* counted twice against the ones that are there. Adding a
+    /// third calendar and forgetting one literal is exactly the drift this
+    /// file's own comment about "genuinely two" was about; there are three now.
+    private static var calendarSources: Set<String> { Set(Modality.plans.recordSources) }
 
     private static func personalEvents(in records: [DistilledRecord]) -> [DistilledRecord] {
         var seenEvent: Set<String> = []
@@ -255,7 +326,12 @@ enum ListeningHighlights {
                     start: record.extraValue("start").flatMap(Self.iso.date(from:)),
                     booked: record.extraValue("booked") == "1",
                     organizer: record.extraValue("organizer") ?? "",
-                    calendar: record.extraValue("calendar") ?? ""
+                    calendar: record.extraValue("calendar") ?? "",
+                    provider: Event.Provider.from(
+                        calType: record.extraValue("cal_type"),
+                        account: record.extraValue("account"),
+                        calendarName: record.extraValue("calendar") ?? ""
+                    )
                 )
             }
             // **Ranked by what made the entry, not by when it happens**, and

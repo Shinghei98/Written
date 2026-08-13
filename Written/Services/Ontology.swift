@@ -603,10 +603,15 @@ enum Ontology {
             guard let domain = classify(title: event.name, channel: event.organizer, detail: "") else { continue }
             add(Term(text: event.name, weight: 1, artworkURL: nil,
                      kind: .event, banValues: [event.name],
-                     // Carried rather than assumed: this is the one term type
-                     // with two real sources, `apple_calendar` and
-                     // `google_calendar`, so a literal here would be a lie.
-                     sources: [event.source]),
+                     // **The provider, not the connector.** `event.source` is
+                     // `apple_calendar` for an Outlook or Google account added
+                     // in iOS Settings, because EventKit is how those arrive —
+                     // so reporting it would tell somebody their Outlook dinner
+                     // came from Apple Calendar. `provider` reads the
+                     // `cal_type` the distiller stamped, which is the only
+                     // field that knows. Rows collected before that stamping
+                     // read `other` rather than being guessed at.
+                     sources: [event.provider.rawValue]),
                 to: domain)
         }
 

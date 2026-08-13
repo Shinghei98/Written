@@ -269,6 +269,16 @@ struct CalendarDistiller {
         if let type = event.calendar?.type {
             extras.append("cal_type=\(Self.name(for: type))")
         }
+        // **The account, because `cal_type` cannot tell iCloud from Google.**
+        // Both arrive as `caldav`, so a reading that has only the type puts
+        // somebody's whole iCloud diary under "Calendar" — measured on a real
+        // device, 141 of 163 rows. The `EKSource` title is the one field that
+        // knows: "iCloud", a gmail address, an Exchange account name. It is
+        // what `ListeningHighlights.Event.Provider` reads first, and it is why
+        // an Outlook event can say Outlook without a Microsoft connector.
+        if let account = event.calendar?.source?.title, !account.isEmpty {
+            extras.append("account=\(account)")
+        }
         extras.append("start=\(iso.string(from: event.startDate ?? Date()))")
         if let end = event.endDate {
             extras.append("end=\(iso.string(from: end))")
