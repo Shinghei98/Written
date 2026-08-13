@@ -574,7 +574,10 @@ def library_facts(rows: list[dict[str, Any]]) -> LibraryFacts:
 
 
 def youtube_terms_for(payload: dict[str, Any],
-                      allow_uploader_tags: bool) -> tuple[Term, ...]:
+                      allow_uploader_tags: bool,
+                      allow_channel_identity: bool = False,
+                      channel_titles: dict[str, str] | None = None,
+                      ) -> tuple[Term, ...]:
     """The terms one YouTube observation supports.
 
     Two kinds, and they carry different permissions and different type rules.
@@ -619,6 +622,23 @@ def youtube_terms_for(payload: dict[str, Any],
             if len(text) >= MIN_TAG_LENGTH:
                 terms.append(_term(text, "uploader_tag", "tags", "creator"))
 
+    # **The channel, named rather than identified.** The projection carries only
+    # `channel_id` — an opaque string that resolves to nothing — so the title
+    # comes from `ontology.youtube_channels`, which is catalogue rather than
+    # user data. Gated on the run's policy for the same reason the tags are: a
+    # run opened before the determination existed is legitimately denied, and
+    # reading the approval directly would grant it retroactively.
+    #
+    # `creator` as the type hint, exactly as an uploader tag takes: a channel
+    # can only ever be evidence about a creator, and the hint is what stops a
+    # channel called `Music` reaching `hub:music`.
+    if allow_channel_identity:
+        channel_id = payload.get("channel_id")
+        title = (channel_titles or {}).get(str(channel_id or "")) or ""
+        text = title.strip()
+        if len(text) >= MIN_TAG_LENGTH:
+            terms.append(_term(text, "channel_identity", "channel_id", "creator"))
+
     return tuple(terms)
 
 
@@ -629,6 +649,9 @@ def youtube_terms_for(payload: dict[str, Any],
 YOUTUBE_KIND_BY_ROLE = {
     "provider_topic": "provider_topic",
     "uploader_tag": "uploader_tag",
+    # Permitted by `observation_mappings_youtube_semantic_v02_check` since
+    # `0045`; granted by the 2026-08-13 determination in `0135`.
+    "channel_identity": "channel_identity",
 }
 
 
@@ -666,6 +689,8 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          works: dict[str, str] | None = None,
                          eras: dict[str, tuple[str, ...]] | None = None,
                          allow_uploader_tags: bool = False,
+                         allow_channel_identity: bool = False,
+                         channel_titles: dict[str, str] | None = None,
                          breadth: dict[str, int] | None = None,
                          spheres: dict[str, tuple[str, ...]] | None = None,
                          scenes: dict[str, tuple[str, ...]] | None = None) -> Observation | None:
@@ -678,7 +703,10 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
     # and no genres, by design — so widening the music reader would mean a
     # function whose every line tests which source it is looking at.
     if row["source_code"] == YOUTUBE_SOURCE:
-        terms = youtube_terms_for(payload, allow_uploader_tags)
+        terms = youtube_terms_for(
+            payload, allow_uploader_tags,
+            allow_channel_identity=allow_channel_identity,
+            channel_titles=channel_titles)
     else:
         performer = payload.get("primary_performer") or ""
         key = normalized_song_key(payload.get("title") or "", performer)
@@ -821,6 +849,22 @@ select allow_uploader_tags, allow_channel_identity, allow_role_resolution,
  where semantic_run_id = %(run)s
 """
 
+# **Only the channels this user actually observed.** The catalogue is global —
+# it is provider metadata, not user data — but loading all of it into every run
+# would grow without bound, and the join is what keeps the lookup proportional
+# to the person rather than to the table.
+SELECT_CHANNEL_TITLES = """
+select distinct ch.youtube_channel_id, ch.canonical_title
+  from ontology.youtube_channels ch
+  join semantic_private.observations o
+    on o.normalized_payload->>'channel_id' = ch.youtube_channel_id
+ where o.user_id = %(user_id)s
+   and o.source_code = 'youtube'
+   and o.lifecycle_state = 'active'
+   and ch.lifecycle_state = 'active'
+   and ch.canonical_title is not null
+"""
+
 FINALIZE_RUN = "select semantic_private.finalize_semantic_run(%(run)s) as finalized"
 
 CURRENT_REVISION = """
@@ -919,8 +963,23 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         cursor.execute(SELECT_RUN_POLICY, {"run": run_id})
         policy = cursor.fetchone()
     allow_uploader_tags = bool(policy and policy["allow_uploader_tags"])
+    allow_channel_identity = bool(policy and policy["allow_channel_identity"])
     counts["youtube_policy"] = policy["policy_version"] if policy else "missing"
     counts["allow_uploader_tags"] = allow_uploader_tags
+    counts["allow_channel_identity"] = allow_channel_identity
+
+    # Loaded once per run rather than per observation: a person's liked videos
+    # concentrate heavily on a few channels, so the same title would otherwise
+    # be fetched hundreds of times.
+    channel_titles: dict[str, str] = {}
+    if allow_channel_identity:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_CHANNEL_TITLES, {"user_id": user_id})
+            channel_titles = {
+                row["youtube_channel_id"]: row["canonical_title"]
+                for row in cursor.fetchall()
+            }
+    counts["channel_titles"] = len(channel_titles)
 
     # **Collected, then written in one statement.** This was one `INSERT` per
     # mapping, and at ~2,000 observations producing several terms each that is
@@ -943,6 +1002,8 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         observation = observation_from_row(
             row, source, facts.works, facts.eras,
             allow_uploader_tags=allow_uploader_tags,
+            allow_channel_identity=allow_channel_identity,
+            channel_titles=channel_titles,
             breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes)
         if observation is not None:
             before = len(observation.terms)
