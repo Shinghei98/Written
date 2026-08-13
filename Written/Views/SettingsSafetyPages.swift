@@ -84,9 +84,22 @@ struct BlockListView: View {
                 confirmEnabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty,
                 confirmTitle: "Block",
                 onConfirm: {
-                    viewModel.block(name: draft)
+                    let number = draft
+                    viewModel.block(name: number)
                     draft = ""
                     withAnimation(.easeOut(duration: 0.18)) { isAdding = false }
+                    // **The half that reaches the other account**, and the
+                    // reason the field asks for a number rather than a name: a
+                    // phone number *is* the account identity here, since
+                    // sign-up is phone-only. `0124` resolves it server-side and
+                    // says nothing about whether it found anybody, so this can
+                    // report no more than that the call was made.
+                    //
+                    // Detached, and the local ban above does not wait on it —
+                    // getting away from somebody must not be conditional on a
+                    // network, which is the judgement every other safety path
+                    // in this app already makes.
+                    Task { await BlockService.shared.block(phone: number) }
                 },
                 onCancel: {
                     draft = ""
@@ -134,6 +147,13 @@ struct BlockListView: View {
                     Spacer()
                     Button {
                         viewModel.unblock(key: key)
+                        // **Both halves, or blocking is one-way.** The row is
+                        // whatever was typed, so this is only meaningful when
+                        // that was a number — which is exactly when a server
+                        // block was written. For a name it lifts nothing and
+                        // costs one silent call, and the alternative is
+                        // guessing here which of the two a string was.
+                        Task { await BlockService.shared.unblock(phone: key) }
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 13, weight: .semibold))
@@ -160,6 +180,16 @@ struct BlockListView: View {
             return
         }
 
+        // **Still names only, and the phone numbers stay here.** Sending the
+        // address book to `block_by_phones` would make the contacts toggle
+        // reach real accounts — and it would upload identifiers for hundreds of
+        // people who never agreed to anything, which is precisely what the note
+        // above refuses. A number somebody *types* into the field below is one
+        // they chose to submit about one person; an address book is not, and
+        // the difference is consent rather than volume.
+        //
+        // So this half remains local, and the toggle's subtitle overstates what
+        // it does — see the gap recorded in CLAUDE.md.
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey] as [CNKeyDescriptor]
         let request = CNContactFetchRequest(keysToFetch: keys)
         var names: [String] = []

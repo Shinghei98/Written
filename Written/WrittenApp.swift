@@ -111,6 +111,24 @@ private struct ProbeAlert: ViewModifier {
                       DebugLaunch.firesOnce("probe-surface") else { return }
                 result = ("Assertion surface probe", await SemanticSurfaceService.shared.probe())
             }
+            .task {
+                guard let target = DebugLaunch.probeMatch,
+                      DebugLaunch.firesOnce("probe-match") else { return }
+                // **Printed as well as shown, and the print is the reliable
+                // half.** Setting `result` twice — once before the await for a
+                // "reading…" placeholder — put an alert on screen that SwiftUI
+                // did not refresh when the answer arrived, so dismissing it
+                // discarded the result: the probe reported only that it had
+                // started. An alert is a single-shot surface and must be
+                // written once.
+                //
+                // The console cannot be swallowed that way, and this only ever
+                // runs from Xcode, where it is being read.
+                print("probe-match: reading \(target)…")
+                let answer = await MatchProfileService.shared.probe(target: target)
+                print("probe-match:\n\(answer)")
+                result = ("Match profile probe", answer)
+            }
             .alert(
                 result?.title ?? "",
                 isPresented: Binding(get: { result != nil }, set: { if !$0 { result = nil } })

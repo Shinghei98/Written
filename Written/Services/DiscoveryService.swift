@@ -30,6 +30,12 @@ actor DiscoveryService {
         /// generated stand-in and only one of the two is ever non-empty.
         let photoPaths: [String]
         let interests: [Interest]
+        /// What this person may show on the matching surface, from
+        /// `api.discover_profiles`. Empty on the legacy path, and **drawn by
+        /// nothing yet** — routing decides *who* is shown before it changes
+        /// *what* is shown, so a feed that suddenly looked different could not
+        /// be confused with a feed that suddenly authorised differently.
+        var terms: [String] = []
 
         struct Interest: Equatable {
             let domain: Ontology.Domain
@@ -41,6 +47,26 @@ actor DiscoveryService {
 
     func people() async -> [Person] {
         guard let token = await SupabaseAuth.shared.validAccessToken() else { return [] }
+
+        // **Phase 4's routing, and the asymmetry in it is the safety property.**
+        // When `discovery_profile_reads` is on, the feed comes from
+        // `api.discover_profiles`, which is the only path that enforces mutual
+        // block, two-way eligibility, the rate limit, current revision and
+        // per-assertion surface permissions. The direct read below enforces none
+        // of those — it is a policy that says "any signed-in user may read this
+        // table" and a client that promises to be careful.
+        //
+        // So: **fall back when the surface is off, never when the call fails.**
+        // A fallback on error would mean an unreachable server quietly restoring
+        // the unauthorised path, which is how a blocked person reappears in
+        // somebody's feed. An outage should empty the feed and say so.
+        if await Self.usesServerDiscovery() {
+            let rows = await serverPeople()
+            if rows == nil {
+                lastError = lastError ?? "Couldn't load people."
+            }
+            return rows ?? []
+        }
 
         var components = URLComponents(
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/discovery_cards"),
@@ -111,6 +137,66 @@ actor DiscoveryService {
 
     private static let columns =
         "user_id,display_name,age,district,photo_seeds,photo_paths,interests"
+
+    /// Whether the server owns the feed this launch.
+    ///
+    /// **Two switches and both must agree**, exactly as Memories does it:
+    /// `AppConfig.semanticSurfacesEnabled` ships with the binary and decides
+    /// whether the app asks, and `discovery_profile_reads` decides whether the
+    /// server answers — §9's rollback contract, throwable without a release.
+    ///
+    /// Asked rather than assumed, because the alternative is reading a `42501`
+    /// from the RPC as "switched off" — and `42501` also means "this schema is
+    /// not yours", which `SemanticSurfaceService` records as the reason it does
+    /// not do that.
+    private static func usesServerDiscovery() async -> Bool {
+        await SemanticSurfaceService.shared.enabledSurfaces()
+            .contains("discovery_profile_reads")
+    }
+
+    /// The feed as the server composes it, or `nil` for *could not ask*.
+    ///
+    /// Paged with a keyset cursor rather than `OFFSET`: cards are republished on
+    /// every distillation, so `updated_at` moves under a paging cursor
+    /// constantly and an offset would silently skip and repeat people.
+    private func serverPeople() async -> [Person]? {
+        var found: [Person] = []
+        var cursorUpdatedAt: String?
+        var cursorUserID: String?
+
+        // Bounded, and the bound is not arbitrary: the server allows 60 calls an
+        // hour, so an unbounded loop here could spend a person's whole budget on
+        // one refresh. Five pages is 250 people, far past what anybody scrolls.
+        for _ in 0..<5 {
+            var arguments: [String: Any] = ["p_limit": 50]
+            if let cursorUpdatedAt, let cursorUserID {
+                arguments["p_cursor_updated_at"] = cursorUpdatedAt
+                arguments["p_cursor_user_id"] = cursorUserID
+            }
+            do {
+                let rows = try await PostgREST.callFunction(
+                    "discover_profiles", arguments: arguments
+                )
+                lastError = nil
+                for row in rows {
+                    guard var person = Self.person(from: row) else { continue }
+                    person.terms = (row["terms"] as? [[String: Any]] ?? [])
+                        .compactMap { $0["label"] as? String }
+                    found.append(person)
+                }
+                guard rows.count == 50, let last = rows.last else { break }
+                cursorUpdatedAt = last["updated_at"] as? String
+                cursorUserID = last["user_id"] as? String
+                // A page that cannot say where it ended cannot be paged past;
+                // stopping is right, and asking again from the top would loop.
+                guard cursorUpdatedAt != nil, cursorUserID != nil else { break }
+            } catch {
+                lastError = error.localizedDescription
+                return nil
+            }
+        }
+        return found
+    }
 
     /// One request, one parse, one place that decides what a failure looks like.
     private func fetch(_ url: URL, token: String, excluding me: String?) async -> [Person]? {

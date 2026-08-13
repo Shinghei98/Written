@@ -59,6 +59,18 @@ struct YouTubeDistiller {
             /// unit the API did not state, and `extra` is where platform quirks
             /// belong.
             let duration: String?
+            /// `playlistItems.contentDetails` — the video's own id and the date
+            /// it was published, as against `snippet.publishedAt`, which is when
+            /// it was *added to the playlist*. Two different facts that the
+            /// snippet alone cannot tell apart.
+            let videoId: String?
+            let videoPublishedAt: String?
+            /// `subscriptions.contentDetails`. `newItemCount` is what YouTube
+            /// says is unwatched, which is the closest this API comes to saying
+            /// whether a subscription is live or abandoned — and watch history
+            /// is not reachable at all, so it is the only such signal here.
+            let totalItemCount: Int?
+            let newItemCount: Int?
         }
         /// Wikipedia and Freebase topic URLs — YouTube's own classification of
         /// what a video is *about*, which is a different and better question
@@ -66,14 +78,32 @@ struct YouTubeDistiller {
         struct TopicDetails: Decodable {
             let topicCategories: [String]?
         }
+        /// **Statistics are the one class III.E.4 lets outlive thirty days**, so
+        /// these are the only fields here that a sweep does not have to take —
+        /// and until now none were kept for a *video*, only for a channel.
         struct Statistics: Decodable {
             let subscriberCount: String?
+            let viewCount: String?
+            let likeCount: String?
+            let videoCount: String?
+        }
+        /// **Uploader-supplied channel keywords** — the same class as
+        /// `snippet.tags`, which `0078` licensed by name as *reading a supplied
+        /// label*. It reaches the half of the corpus tags cannot:
+        /// `subscriptions.list` carries no `topicDetails`, so subscriptions
+        /// arrive with far less than liked videos do.
+        struct BrandingSettings: Decodable {
+            struct Channel: Decodable {
+                let keywords: String?
+            }
+            let channel: Channel?
         }
         let id: String?
         let snippet: Snippet?
         let contentDetails: ContentDetails?
         let topicDetails: TopicDetails?
         let statistics: Statistics?
+        let brandingSettings: BrandingSettings?
     }
 
     // MARK: - Distillation
@@ -86,7 +116,7 @@ struct YouTubeDistiller {
         let subscriptions = try await fetchAllPages(
             token: token,
             path: "subscriptions",
-            query: ["part": "snippet", "mine": "true", "maxResults": "50"]
+            query: ["part": "snippet,contentDetails", "mine": "true", "maxResults": "50"]
         )
         // **What each channel is about, in YouTube's own words.**
         // `subscriptions.list` has no `topicDetails` part, so this is a second
@@ -122,6 +152,14 @@ struct YouTubeDistiller {
             // ours to compute. A published number compared against a threshold
             // is read; a label applied to a channel is inferred.
             let subscribers: String? = facts?.subscriberCount.map { "subscriber_count=\($0)" }
+            // Pipe-joined to match `tags=` on liked videos, so one parser serves
+            // both and the resolver's whole-tag rule reads the same shape from
+            // either. Capped for the reason every list here is capped.
+            let keywords: String? = facts.map(\.keywords).flatMap {
+                $0.isEmpty ? nil : "keywords=" + $0.prefix(12).joined(separator: "|")
+            }
+            let items: String? = item.contentDetails?.totalItemCount.map { "total_items=\($0)" }
+            let unwatched: String? = item.contentDetails?.newItemCount.map { "new_items=\($0)" }
             return record(
                 dataType: "subscription",
                 itemID: channelID,
@@ -134,7 +172,8 @@ struct YouTubeDistiller {
                 // fourth element and the note above is explicit that it was
                 // already close to the type checker's limit; naming the element
                 // type leaves it nothing to solve.
-                extra: joined([subscribedAt, artwork, topics, subscribers] as [String?])
+                extra: joined([subscribedAt, artwork, topics, subscribers,
+                               keywords, items, unwatched] as [String?])
             )
         }
 
@@ -142,7 +181,8 @@ struct YouTubeDistiller {
         let liked = try await fetchAllPages(
             token: token,
             path: "videos",
-            query: ["part": "snippet,contentDetails,topicDetails", "myRating": "like", "maxResults": "50"]
+            query: ["part": "snippet,contentDetails,topicDetails,statistics",
+                    "myRating": "like", "maxResults": "50"]
         )
         records += liked.map { item in
             record(
@@ -160,6 +200,12 @@ struct YouTubeDistiller {
                     item.snippet?.thumbnails?.url.map { "artwork=\($0)" },
                     item.snippet?.categoryId.map { "category_id=\($0)" },
                     item.contentDetails?.duration.map { "duration=\($0)" },
+                    // **Statistics, so these outlive the thirty-day sweep** —
+                    // III.E.4 permits storing statistics beyond 30 days where a
+                    // title or a channel name must be refreshed or deleted. A
+                    // liked video kept none until now, only channels did.
+                    item.statistics?.viewCount.map { "view_count=\($0)" },
+                    item.statistics?.likeCount.map { "like_count=\($0)" },
                     // Last path component of each Wikipedia URL — the topic
                     // itself rather than a link to it, which is what a keyword
                     // stage would want and is shorter to store.
@@ -197,7 +243,8 @@ struct YouTubeDistiller {
             guard let items = try? await fetchAllPages(
                 token: token,
                 path: "playlistItems",
-                query: ["part": "snippet", "playlistId": playlistID, "maxResults": "50"]
+                query: ["part": "snippet,contentDetails",
+                        "playlistId": playlistID, "maxResults": "50"]
             ) else { continue }
 
             records += items.map { item in
@@ -207,7 +254,18 @@ struct YouTubeDistiller {
                     name: item.snippet?.title ?? "",
                     creator: item.snippet?.channelTitle ?? "",
                     detail: "playlist=\(playlistName)",
-                    extra: "added_at=\(item.snippet?.publishedAt ?? "")"
+                    // **`added_at` and `published_at` are two different dates
+                    // and the snippet only tells you the first.**
+                    // `snippet.publishedAt` on a playlist item is when it was
+                    // *added to the playlist*; the video's own publication date
+                    // is in `contentDetails`, and without it a 2009 song added
+                    // last week reads as a 2026 one — which is exactly what the
+                    // decade and scene concepts are computed from.
+                    extra: joined([
+                        "added_at=\(item.snippet?.publishedAt ?? "")",
+                        item.contentDetails?.videoId.map { "video_id=\($0)" },
+                        item.contentDetails?.videoPublishedAt.map { "published_at=\($0)" }
+                    ] as [String?])
                 )
             }
         }
@@ -236,6 +294,44 @@ struct YouTubeDistiller {
         /// because a count that overflows an `Int` on some future channel should
         /// fail at whoever parses it rather than here.
         let subscriberCount: String?
+        /// **Uploader-supplied keywords, which is why they may be kept at all.**
+        /// `0078` recorded the determination for `snippet.tags`: matching a whole
+        /// tag against a controlled vocabulary is *reading a supplied label*, not
+        /// inferring one. These are the same field one level up, and they reach
+        /// the channels tags cannot — a subscription carries no video snippet.
+        ///
+        /// Already split; see `keywords(from:)` for why that is not `split(" ")`.
+        let keywords: [String]
+    }
+
+    /// YouTube returns channel keywords as **one space-delimited string with
+    /// quoted phrases** — `kpop "girl group" dance` is three keywords, not four.
+    ///
+    /// Splitting on whitespace would turn every multi-word keyword into
+    /// fragments, and a fragment is exactly what `0078`'s guards exist to keep
+    /// out: `creator:yg` matched in that measurement because two characters match
+    /// noise in any corpus. Whole keywords in, or nothing.
+    static func keywords(from raw: String?) -> [String] {
+        guard let raw, !raw.isEmpty else { return [] }
+        var out: [String] = []
+        var current = ""
+        var quoted = false
+        for character in raw {
+            switch character {
+            case "\"":
+                quoted.toggle()
+            case " " where !quoted:
+                if !current.isEmpty { out.append(current); current = "" }
+            default:
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { out.append(current) }
+        // An unterminated quote leaves the tail in `current`, which is kept
+        // rather than dropped: a malformed keyword string is the uploader's
+        // doing and losing the last keyword silently is worse than keeping one
+        // that reads oddly.
+        return out
     }
 
     /// YouTube's own topics and subscriber count for a set of channels.
@@ -259,7 +355,7 @@ struct YouTubeDistiller {
             let ids = Array(channelIDs[batch..<min(batch + 50, channelIDs.count)])
             guard var components = URLComponents(string: "\(Self.baseURL)/channels") else { continue }
             components.queryItems = [
-                URLQueryItem(name: "part", value: "topicDetails,statistics"),
+                URLQueryItem(name: "part", value: "topicDetails,statistics,brandingSettings"),
                 URLQueryItem(name: "id", value: ids.joined(separator: ",")),
                 URLQueryItem(name: "maxResults", value: "50")
             ]
@@ -280,14 +376,17 @@ struct YouTubeDistiller {
                 let names = (item.topicDetails?.topicCategories ?? [])
                     .compactMap { URL(string: $0)?.lastPathComponent }
                 let subscribers = item.statistics?.subscriberCount
+                let words = Self.keywords(from: item.brandingSettings?.channel?.keywords)
                 // **Recorded when either fact is present, not only when both
                 // are.** The guard used to require `topicCategories` and skip
                 // the channel otherwise; keeping that would have thrown away the
                 // subscriber count for every untagged channel — which is 8 of
                 // 146 on a real account, and precisely the channels a size
                 // threshold exists to judge.
-                guard !names.isEmpty || subscribers != nil else { continue }
-                facts[id] = ChannelFacts(topics: names, subscriberCount: subscribers)
+                guard !names.isEmpty || subscribers != nil || !words.isEmpty else { continue }
+                facts[id] = ChannelFacts(
+                    topics: names, subscriberCount: subscribers, keywords: words
+                )
             }
         }
         return facts

@@ -509,18 +509,31 @@ Google's **Content Categorization and Tagging** amendment
 the same form, prospectively, so do not apply while running the unlicensed
 version of the thing being applied for.
 
-**Read in full, that amendment licenses much less than its headline clause
-suggests, and the prior question is eligibility rather than sequencing.** It does
-say what is usually quoted — *"You may use analysis to assign descriptive
-sub-genres or tags to videos and channels. These must be additive and distinct
-from YouTube's video categories"* — but two conditions sit around it, and the
-first is decisive:
+**Read in full, that amendment does license real derivation, and what it does
+*not* license is not what this page used to say.** It says what is usually
+quoted — *"You may use analysis to assign descriptive sub-genres or tags to
+videos and channels. These must be additive and distinct from YouTube's video
+categories"*, with the worked example of tagging a Gaming video `Speedrun` or
+`Minecraft`. That is exactly `written_title_tag` and exactly what
+`allow_title_tags` gates. Two conditions sit around it:
 
-- **The gate is the use case, not the technique.** The permissions exist *"to
-  support advanced analytics and creator tools"*, and the amendment states
-  flatly: ***"Your API Service must reflect an analytics use case on YouTube."***
-  This app is a dating platform building a personal taste profile, which is
-  neither. That sentence conditions every numbered permission beneath it.
+- **There is a use-case gate, and how it reads is genuinely arguable.** The
+  permissions exist *"to support advanced analytics and creator tools"*, and the
+  amendment states: ***"Your API Service must reflect an analytics use case on
+  YouTube."*** **"Analytics use case" is nowhere defined in the document**, so
+  this page's former conclusion — that a dating platform "is neither" — was an
+  interpretation written in the voice of a quote. Memories, which groups
+  somebody's own channels under YouTube's own topic labels on their own page, is
+  a defensible analytics surface. The call is Google's at review; do not
+  pre-refuse it, and do not assume it either.
+- **What the amendment is silent on is the viewer.** Fetched 2026-08-12 and
+  asked directly whether it permits deriving attributes about a viewer from
+  viewing history, the answer was **absent**. All six categories — Custom Channel
+  Scores, Financial Performance Projections, Content Categorization, Viewer
+  Sentiment Analysis, Gamification, Brand Suitability — concern channels and
+  videos, and the only sentence naming users is the protected-attributes
+  restriction. So acceptance would not grant a viewer-level claim, which makes
+  eligibility the *second* question rather than the first.
 - **The storage relief excludes exactly what this product wants.** Accepted
   clients may keep *statistics* and *derived metrics* for 36 months, but *"other
   data (such as video titles, creator names, descriptions, and comment text) must
@@ -1275,6 +1288,106 @@ people impossible rather than merely unbuilt. Two tables open that up and no
 more should without the same argument — and note `bookmarks` (`0035`) is *not*
 a third: it names another user in a column, but only the owner may read the row.
 
+**A match profile is two reads and only one of them was ever guarded.**
+`match_profile` returns school and bio behind a condition; the name, age,
+district and photographs came from a direct read of `discovery_cards`, whose
+policy is *any signed-in user may read this table*. So `0123` hid a blocked
+person's two fields and left their face. `0126` adds `public.match_card` under
+the same condition and factors that condition into
+`private.may_see_match` — **one function called twice, because `0122` and `0123`
+each edited the original and a copy would have been the third place to edit and
+the first to be forgotten.** Deliberately **not** gated on
+`discovery_profile_reads`: that flag decides whether the *feed* is server-owned,
+while this is a hole that exists today, and gating the fix on a rollout would be
+choosing to leave it open.
+
+**`api.discover_profiles` (`0120`, completed by `0125`) is the server-owned
+replacement and ships dark.** `assert_surface_allowed('matching')` requires `discovery_profile_reads`,
+which is `false`, and nothing in Swift calls it. It exists because the rules
+currently live in the client — `DiscoveryService` appends `user_id=neq.<me>` and
+`DiscoveryModel` filters likes in three places that must agree — and a courtesy
+is not a rule when another client holds the same anon key.
+
+**`0125` completed it to §10's gate, and doing so decided what it returns.**
+That gate asks for *"mutual block, eligibility, rate limit, current revision and
+surface permissions"* — and **revision and surface permission are properties of
+an assertion, while `0120` returned cards.** Bolting them onto a card query
+would have been two more guards reading something nothing populates, which is
+`0117` exactly. So the RPC now returns, beside each card, the terms that person
+may show: eligible assertions carrying the grant, scored at the subject's
+current revision, and — for inferred ones — passing
+`concept_has_non_video_witness`, which **is `0118`'s first caller.** The witness
+test applies to inferred assertions only: a declared one has no observations, so
+demanding a witness would withhold precisely the terms somebody chose about
+themselves.
+
+**Which grant, though, is the thing `0125` got wrong and `0128` fixed.**
+`assertion_surface_permissions_matching_shape_check` reads
+`surface <> 'matching' or (not can_name and not can_explain)` — so **the
+matching surface may *use* a term and may never *name* it.** Matching decides
+who is shown to whom, invisibly; naming somebody's term to another person is the
+**`bio`** surface, which is why `assert_surface_allowed` gives the two one flag
+and calls a bio *"a projection of one person shown to another"*. `0125` returned
+labels gated on `matching.can_select`, reading one surface to do what another
+permits; `matching_terms` gates on `bio.can_name` now.
+
+**And every one of those grants was false, for everybody, because a derived
+claim defaulted to owner-only.** `user_assertions_initialize_surface_permissions`
+births each assertion `memories(true,true,true)` and the three outward surfaces
+shut, which is the v0.3.1 contract treating a derived claim as needing a purpose
+grant. **The product decision (2026-08-13) is that it does not**: Explore shows
+whoever fits the viewer's dating preferences, a profile's contents are simply
+shown, and the one lever a person has is Settings → dating preferences. Terms
+are profile content like a photograph.
+
+**No consent screen, because what one would have bought already exists** —
+Memories lists the same terms, so nothing is hidden from the person they are
+about, and suppressing one there already removes it from `matching_terms`. What
+was missing was only that the page never said the removal also hides the term
+from matches, which is a line of copy rather than a control.
+
+`0128` opens `matching` (`can_select`) and `bio` (`can_select, can_name`) and
+leaves `icebreaker` shut, having no consumer. **155 of 178 opened; 23 refused by
+the source guards**, which is those guards working.
+
+**Two things that migration cost, both worth keeping.** Its first draft set
+`can_name` on `matching` and **every one of 178 rows was refused** — and the
+count named nothing, because the three triggers it was natural to blame all
+early-return without their evidence type. Carrying `SQLERRM` out in the raised
+exception found a *check constraint* in one run. And the back-fill is **row by
+row inside its own exception block, never one `update`**: a bulk statement meets
+the first guarded row, raises, and rolls back every grant behind it, so 23
+refusals would have cost the other 155.
+
+**The client routes on the flag, and the asymmetry is the safety property.**
+Flag off falls back to the direct read; **flag on and the call failing does
+not** — a fallback on error would let an outage quietly restore the
+unauthorised path, which is how a blocked person reappears in a feed. `terms` is
+carried on `Person` and drawn by nothing yet, because routing should decide
+*who* is shown before it changes *what* is shown.
+
+**Rate limit is 60 calls an hour**, recorded in `semantic_private.discovery_requests`
+— and **nothing sweeps that table yet**, which wants a `pg_cron` job like
+`0016`'s.
+
+**It filters on eligibility, which nothing did before, and that will read as a
+regression.** Measured 2026-08-12: both production users are `sex = 'Male'` and
+`interested_in = {female}`, so the current feed shows each of them somebody
+neither asked to see, and under the RPC they correctly see nobody.
+
+**And the two gender columns speak different vocabularies, which `lower()` does
+not bridge.** `users.sex` holds `Gender.label` — `Male`, `Female`,
+**`Non-binary`** — via `Identity.columnValue`, pipe-joined; `users.interested_in`
+holds `Gender.rawValue` — `male`, `female`, **`nonbinary`**. A casefold
+comparison matches the two binary cases and **silently drops every non-binary
+person from every feed in both directions**, which is the same shape as
+`pushDemographics` overwriting a chosen gender and lands on the same people.
+`private.gender_key` is the one place that maps them and returns null for
+anything unrecognised, so it fails closed. **The real fix is for the two columns
+to share a vocabulary** — an app change and a backfill — and this is the sibling
+of *two columns that accept the same words are one column with two meanings*,
+with the sign flipped again.
+
 - **`discovery_cards`** (`0007`) — a name, an age, a district, six photo seeds
   and derived `{domain, subject}` pairs. Deliberately **not** a view over
   `distilled_records`: enough for `Ontology.line(for:subject:)` to write a line,
@@ -1337,6 +1450,58 @@ control people find without looking. Hidden during onboarding. The paper plane
 that used to sit there is deleted rather than disabled: there is no URL scheme
 and no profile page, so a share would open nothing, and an inert glyph that looks
 pressable is worse than an absent one.
+
+### Blocking
+
+**`0123` is the table and `0124` is the door.** A block is mutual, server-side,
+and the blocked person is told nothing: no notification, no error naming it,
+and refusals borrow wording the app already uses for a deleted account. Both
+ways in the feed; a pending invitation is **revoked** (a fourth `likes.status`,
+because *"I answered no"* and *"this was withdrawn"* are different facts); an
+existing conversation stays **visible and frozen** — past contact is history
+both took part in, and blocking ends future contact rather than erasing it.
+
+**Because it must be invisible, it cannot be enforced by an RLS policy.** A
+policy runs as the caller, so it would need `authenticated` to hold execute on
+the check — and anything a client may call, a client may probe:
+`is_blocked(me, them)` is the one question the blocked person must not be able
+to ask. It would also mean granting usage on `private`, where no client role has
+any and the ACL fingerprint is checked either side of every deploy. So
+enforcement lives in **`security definer` triggers and RPCs**:
+`api.discover_profiles` and `match_profile` call `private.is_blocked`, and three
+triggers revoke the like, refuse a new like and freeze the thread.
+`blocks`' select policy is `auth.uid() = blocker_id`, so the row is invisible to
+its subject **structurally** rather than by a screen remembering not to draw it.
+
+**Blocking is by phone number, and the resolution is server-side for the same
+reason.** A number is the account identity here — sign-up is phone-only — so it
+maps to at most one person, and `public.users` is closed to clients anyway.
+`block_by_phone` returns **void whether or not it matched**, because a
+distinguishable answer would make the safety screen an oracle for *"is this
+person on Written?"*. `block_by_phones` is the bulk form and returns void for a
+stronger version of the same reason: a count of how many of somebody's contacts
+hold accounts is a more interesting answer still.
+
+**`0124`'s own assertion caught a real defect before it applied.** `anon` could
+execute the function, because Supabase installs *default privileges* granting
+every new `public` function to `anon` and `authenticated` — so
+`revoke ... from public`, which names the pseudo-role, left a direct grant
+untouched. The mirror of `0053`'s lesson that `revoke ... on schema public` from
+one role does nothing. **Revoke from `anon` by name.**
+
+**Blocking is deliberately absent from `ProfileActionsSheet`.** It lives in one
+place, the block list, because it is the only one of these that can be undone
+and a control you can undo wants a screen where you can see what you have done.
+A match offers **Unmatch** and Report — irreversible, and the word says so.
+
+**And the contacts toggle still promises more than it does.** `importContacts`
+takes names only, on a documented refusal: *"uploading somebody's address book
+would be collecting data about people who never agreed to anything."* A name
+matches only in `BanList`, on this device — so *"people you already know cannot
+see you"* is true of nothing, and closing that gap means uploading contact
+identifiers, which needs `PrivacyInfo.xcprivacy`, `web/en-us/privacy/` and the
+App Store questionnaire moving in the same commit. **`block_by_phones` is
+deployed with no caller** for exactly this reason.
 
 ### The feed's rotation
 
@@ -1640,18 +1805,11 @@ no API to remove it.
 
 **`Written-Semantic-System-v0.3.1` is the authority for semantic design, and
 this app is not.** Its integration plan is written against this repository by
-name — commit `8203353`, migration head `0041` — and says so outright: *"When
-the current Swift/SQL implementation and the v0.3.1 contract disagree, the
-v0.3.1 contract controls."* Its governing rule is **capture broadly in an
-authorized private vault, promote narrowly into semantic evidence, expose only
-purpose- and surface-authorized projections** — four separate decisions where
-this app currently has one.
-
-Everything below about the ontology, the dynamic profile, Memories and the
-icebreaker is **still true of the shipping code and is now the legacy path**.
-It is kept rather than deleted: the reasoning is still worth having, the code
-still runs, and the cutover is six phases away. What changes is its status —
-none of it is the authority any more.
+name and says so outright: *"When the current Swift/SQL implementation and the
+v0.3.1 contract disagree, the v0.3.1 contract controls."* Its governing rule is
+**capture broadly in an authorized private vault, promote narrowly into semantic
+evidence, expose only purpose- and surface-authorized projections** — four
+separate decisions where the legacy path has one.
 
 | Named as superseded | Becomes |
 |---|---|
@@ -1661,1009 +1819,500 @@ none of it is the authority any more.
 | `seed_icebreaker` (`0036`) | Revision-bound frames requiring active match authorization; legacy themes are **not** migrated into validated facts |
 | Title-keyed `BanList` removals | Assertion-specific no-reason RPCs; a title ban never becomes a concept-level negative |
 
-**Two namespaces, and the distinction is load-bearing.** The reference chain
-uses `private` for its own objects; this app already owns that schema
-(`push_config`, `notify`, `collaborators`). Every semantic object is
-`semantic_private` here.
+Everything below about the ontology, the dynamic profile, Memories and the
+icebreaker is **still true of the shipping code and is now the legacy path**. It
+is kept rather than deleted: the reasoning is still worth having, the code still
+runs, and the cutover is three phases away. What changes is its status — none of
+it is the authority any more.
 
-**And the hazard is the grant, not the revoke** — the obvious reading is wrong,
-and it took a clean replay to find out. Reference `001` revokes `service_role`'s
-usage on `private`; measured on a from-empty install, `service_role` never had
-it (`has_schema_privilege` answers false), and push works anyway because
-`private.notify` is `security definer` and runs as its owner. What bites is
-reference `002` **granting** `service_role` usage plus `select, insert, update`
-on every table in the schema — widening access to `push_config`, which holds
-the shared push secret, and to `collaborators`, which was put in an ungranted
-schema precisely so nobody could mark themselves. "An adapted grant broadens
-access" is the integration plan's own failure condition. `0042`/`0043` are
-adapted for that reason and **no executable statement in either names
-`private`**; re-test that whenever another reference migration is adapted.
+**The build history is in `semantic/JOURNAL.md`, and this section is only the
+rules.** Every rule below was bought with a failure recorded there. **Read the
+journal before removing a guard, adapting another reference migration, or
+concluding that something looks arbitrary** — several of these do until you know
+what they cost. What follows is what binds; the journal is what happened.
 
-**Which is also the argument for the replay itself.** Applying 41 migrations by
-hand over weeks never proved they build a schema from nothing. Done once against
-an empty project, the chain applied cleanly — and produced the measurement that
-corrected this paragraph.
+**Migration head `0116`.** `db push` is the deployment mechanism and
+`supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
+reasoning in its header comment**, and that is the record — this section carries
+only what a later change could violate. `0091`–`0116` are the ones whose rules
+are written up below: the model-version discipline (`0092`–`0098`), the zombie
+runs (`0099`–`0100`), the review table (`0101`), the surface flags
+(`0102`–`0103`), the revision faults (`0104`–`0105`, `0111`–`0115`), the work bar
+(`0109`–`0110`) and the suppression transfer (`0114`, `0116`).
 
-**The migration head is `0098` as of 2026-08-12, and everything through it is
-applied to production.** `0066`–`0090` are the music concepts, the YouTube
-vocabulary and policy, the scorer and its grants; the section below on the first
-assertions sets out what each earned. The ledger exists now: `supabase_migrations` was absent
-entirely — not empty, *absent* — because every migration had been applied by
-hand, so `supabase db push` would have tried `0001` against a full database.
-`supabase migration repair --status applied 0001 … 0041` came first, and
-`0042`–`0049` were deliberately left unrepaired because they genuinely had not
-been applied. **From now on `db push` is the deployment mechanism**, and
-`supabase/DEPLOY.md` holds the procedure and the post-deploy numbers. **`0050`
-went the same day on that mechanism** — one pending migration, one push, no
-ledger work — and the checks came back right: RLS on with no policy, no client
-role reaching it, zero rows, and the `private` ACL fingerprint identical either
-side of the push.
+### The schema, and who may reach it
 
-Nothing about the product changed *at that deploy*: all seven feature flags
-were seeded off, nothing in Swift read the new schemas, and the legacy path was
-untouched. That is still true of the product surfaces — the legacy path still
-draws every screen — but Swift now writes to the vault and records a fitness
-grant, so read this paragraph as the record of one deploy rather than as the
-current state. The
-check that mattered came back exactly right — the app's `private` schema ACL
-fingerprint is byte-identical either side of the deploy, and `anon`,
-`authenticated` and `service_role` still have no usage on it.
+- **Two namespaces, and the distinction is load-bearing.** The reference chain
+  uses `private` for its own objects; this app already owns that schema
+  (`push_config`, `notify`, `collaborators`). Every semantic object is
+  **`semantic_private`** here.
+- **The hazard when adapting a reference migration is the grant, not the
+  revoke.** Reference `002` grants `service_role` usage plus `select, insert,
+  update` on every table in `private` — which here would widen access to the
+  push secret and to `collaborators`. **No executable statement in an adapted
+  migration may name `private`**; re-test that each time one is adapted.
+- **`semantic_private` has RLS on and no policies anywhere**, which is the
+  posture worth being able to state in one sentence. Access is decided by role
+  grants and `security definer` functions instead. Adding the first policy costs
+  that sentence, so it needs an argument.
+- **Two identities, and neither may become the other.**
+  `semantic_ingestor` (`0052`) can call exactly one `security definer` function
+  and holds **zero table privileges** — leaked, it writes vault rows and reads
+  none of them back. `semantic_worker` (`0057`) is `bypassrls` with an
+  **enumerated** grant list, nothing outside `semantic_private`, asserted from
+  the catalog at migration time. `0059` asserts the split survives, because it
+  is the migration that could have broken it.
+- **`0043` grants `on all tables in schema semantic_private`, and `on all
+  tables` binds at execution time, not going forward** — so every table a later
+  migration adds gets no grant unless that migration grants it explicitly.
+- **When a migration needs a grant, read `pg_trigger` for the tables being
+  written and follow what each trigger calls.** Five migrations (`0086`–`0090`)
+  each cost a deploy and a run to learn one statically-knowable fact. That
+  should be the first move, not the sixth.
 
-**`0042` and `0043` ship no product behaviour.** Phase 0 installs the schema and
-proves it upgrades cleanly. `004`–`006` become `0045`–`0047`, and the bridge,
-projection and cutover migrations are app-specific. Nothing is read by Swift
-until Phase 3 at the earliest, and §12's KMS design is a prerequisite of Phase 1
-rather than a detail of it.
+### Keys and crypto
 
-**That KMS decision is made: AWS**, and it is written up in
-`semantic/docs/KMS_DESIGN.md`. The scheme names no vendor — `DECISIONS.md` files
-the provider, the key hierarchy and the worker's host under *"not implemented or
-intentionally deferred"*, all in one bullet, because they are one decision. So
-choosing AWS also answers where the worker runs: Lambda on an EventBridge
-schedule, which fits a worker whose CLI *requires* `--once` and which had no
-host at all before, this project's only compute being three Deno edge functions
-and a static site.
+- **Ingestion gets encrypt-only; the worker gets decrypt.** The thing exposed to
+  the internet can write into the vault and cannot read it back.
+- **The data key is per *call*, and that is inherent rather than chosen** — a
+  write-only identity cannot reuse what it cannot recover, and a Lambda is
+  stateless. "Active" means the key the latest ingestion used.
+- **The key and the rows travel in one statement.** Two calls have a failure
+  mode where ciphertext exists and the key to read it does not, which is
+  indistinguishable from data loss and no retry recovers it. Reusing a version
+  with a *different* wrapped key is refused outright: refusing costs a retry,
+  accepting costs the data. The key is written *after* the rows and only if any
+  survived the conflict (`0054`).
+- **Crypto erasure means deleting the user's wrapped-key row, never the KMS
+  key** — one is a routine deletion request, the other erases every user at
+  once. Account deletion cascades the keys to zero with nothing to remember to
+  call. `semantic/docs/KMS_DESIGN.md` is the design.
+- **`key_version` must match `raw_source_records.encryption_key_version`'s
+  pattern**, asserted from the catalog by `0051` rather than trusted to a
+  comment — a key that can be created and then not named on the row obliged to
+  name it fails at ingestion, one service away from the mistake.
 
-Two things from that document are worth knowing without reading it. **Crypto
-erasure means deleting the user's wrapped-key row, never the KMS key** — one is
-a routine deletion request, the other erases every user at once. And **the
-ingestion identity gets encrypt-only while the worker gets decrypt**, so the
-thing exposed to the internet can write into the vault and cannot read it back.
+### The device half
 
-**Ingestion runs on AWS, and the argument that got it there was half wrong.**
-The recorded reasoning was that a Deno function on Supabase needs a long-lived
-AWS key in its environment while a Lambda assumes a role and needs no credential
-at all. The first half holds; the second does not. **A Lambda cannot reach
-`semantic_private` either** — RLS is on with no policy and `authenticated` has
-no usage on the schema — so a write needs a Postgres credential. Hosting on AWS
-does not remove the standing secret, it changes which one it is, and the two are
-not equivalent: a leaked encrypt-only KMS key writes rubbish into the vault and
-decrypts nothing, while a leaked `service_role` key reads and writes every table
-in the project. On that reading the edge function was the *safer* host.
-
-**`0052` is what makes AWS right rather than merely chosen.** The endpoint gets
-`semantic_ingestor`, a Postgres role that can call exactly one `security
-definer` function and holds no table privileges — 0 readable tables, 1 callable
-function, verified in production. Leaked, it writes vault rows and reads none of
-them back. Its password is set by hand and lives in AWS Secrets Manager, for the
-reason `private.push_config` is filled in by hand.
-
-**Proven by connecting, and the route was the risk.** The direct host
-`db.<ref>.supabase.co` has **no A record at all** — IPv6 only — while Lambda's
-egress is IPv4, so the shared pooler is the only free route, and Supabase
-documents its username as `postgres.PROJECT_REF` while saying nothing about
-custom roles. That was the premise the whole design rested on. Settled
-2026-08-10 on the transaction pooler: `current_user` came back
-`semantic_ingestor`, and reading `raw_source_records` came back **permission
-denied** — which is the success case, and the entire argument for `0052`
-existing rather than handing the endpoint `service_role`. Two smaller things
-fell out: a project's pooler fleet is discoverable with a *deliberately wrong*
-password, since Supavisor resolves the tenant before checking it and the two
-failures otherwise look equally like an outage; and transaction mode does not
-support prepared statements, so the Lambda's driver must have them off.
-
-**`0053` closes a gap that only appeared while designing the Lambda, and it was
-structural rather than an oversight.** Three correct facts left no way to
-encrypt anything: ingestion holds `GenerateDataKey` and `Encrypt` and **not**
-`Decrypt`, because §12 limits decrypt to the worker path; `0050` models one
-*active* wrapped key per user, to be reused; and `0052` gives the role execute
-on one function that cannot touch the key table. **A stored wrapped key is
-unusable to the identity obliged to encrypt with it** — recovering it needs
-`Decrypt`, and giving ingestion that would collapse the two-identity split that
-is the whole point. `kms:Encrypt` on the payload is no escape either: it caps at
-4 KB.
-
-So **the data key is per *call*, which is inherent to a write-only identity
-rather than a choice** — it cannot reuse what it cannot recover, and a Lambda is
-stateless. `0050` already anticipated the shape: *"Retired is not deleted: rows
-encrypted under it still name it."* Each call retires the previous active key
-and records its own, so "active" means the one the latest ingestion used, which
-is the only sense the word can carry when a key is never reused.
-
-**The key and the rows travel in one statement**, because two calls have a
-failure mode where ciphertext exists and the key to read it does not — that is
-indistinguishable from data loss and no retry recovers it. And reusing a version
-with a *different* wrapped key is refused outright: whichever ciphertext is not
-under the stored key would be permanently unreadable, and a wrong key does not
-announce itself. Refusing costs a retry; accepting costs the data.
-
-Two traps in that migration, both paid for. **`revoke ... on schema public` from
-one role does nothing**: usage there belongs to the `PUBLIC` pseudo-role, and
-revoking it from `PUBLIC` would take it from `anon` and `authenticated` too. The
-property that matters is the *table* count, not the schema flag. And the
-`security definer` function is what avoids adding `semantic_private`'s first RLS
-policies — a posture of "RLS on, no policy, everywhere" states in one sentence
-and a posture with two exceptions does not.
-
-The cost of AWS is verifying Supabase tokens ourselves, which is smaller than it
-sounds — the project publishes a JWKS (confirmed live, one `ES256` key), so any
-JOSE library verifies an access token against a public key **with no shared
-secret**, and the user id is its `sub`.
-
-**Phase 1 has started, and its first half ships no behaviour either.** Four
-new files under `Written/Models/` — `SemanticSource`, `SourceEnvelope`,
-`SourcePayload` and the `+Legacy` adapter — give the typed envelope §4 asks for.
-Nothing constructs or sends one yet; `DistilledRecord` and `SyncService` are
-untouched, because Phase 1 is *dual*-write and this is the half that did not
-exist.
-
-Three things about it are worth knowing without reading the files:
-
-- **`health` against `healthkit` is a real seam.** Every distiller writes
-  `source: "health"`; `semantic_private.sources` calls it `healthkit`. Neither
-  is wrong and renaming either rewrites history in a table that is append-only
-  by design, so the translation lives in exactly one function
-  (`SemanticSource.appSourceCode`) and a test pins it there.
-- **A `data_type` now has to mean something.** `actionsByDataType` maps all 31
-  distinct ones the shipping app can emit onto one of three answers: an action the server
-  weighs, a real signal it does **not** weigh yet, or structurally not an act.
-  Those are three different states and collapsing the middle one into the last
-  is how the list of things still owed a decision disappears. It currently holds
-  five: `heavy_rotation`, `library_music_video`, `top_track`, `top_artist` and
-  `location/place` — and `top_track` is the sharp one, carrying an explicit
-  `rank=N` and being the strongest listening claim either music source returns.
+- **Dual-write runs on its own detached task and shares nothing with the legacy
+  push** — not the task, not `syncFailure`, not `lastError`. A slow endpoint
+  must not delay the real outcome and a shadow problem must not be reported as a
+  lost distillation. **A shadow path that can break the live one is not a
+  shadow.**
+- **It applies `SyncService.isLocalOnly` before deriving anything**, which is
+  the single most important line in it: `health/biological_sex` never leaves the
+  device, and a second upload path is precisely how such a promise stops being
+  true without anybody deciding to break it. The rule is *asked for* rather than
+  reimplemented.
+- **Refusals are counted, never swallowed.** An unmapped `data_type` would
+  otherwise show up as a batch quietly smaller than the distillation it came
+  from — the hardest kind of gap to notice, because the numbers still look
+  plausible.
+- **A permanent refusal is dropped, not retried; 401 is transient.** A malformed
+  batch fails identically forever, but an expired token means the batch is fine,
+  and treating it as permanent throws away a distillation because somebody
+  reopened the app after an hour. **A projection refusal is a 4xx**: sent as 500
+  it is retried forever at the head of a FIFO queue, starving everything behind
+  it.
+- **Enabled per source** (`AppConfig.semanticIngestionSources`), never per
+  build. Turning it on everywhere at once throws away what shadow running is
+  for: a disagreement found in one source is a diagnosis, and in nine it is a
+  shrug. **Dual-write excludes YouTube and Spotify on licensing grounds** —
+  III.E.4.h and IV.2.1.a forbid what the semantic stage is for.
+- **Two translation seams, and only two.** `SemanticSource.appSourceCode` maps
+  `health` → `healthkit`; `SemanticSource.semanticDataType` maps calendar rows
+  to `calendar_event`/`scheduled`. Both are pinned by a test that also asserts
+  **nothing else is translated**. Renaming either side instead would rewrite
+  history in a table that is append-only by design.
 - **The vocabulary is checked from both ends, because neither end can see the
   other.** `semantic/tests/test_ios_envelope_contract.py` reads the distillers
   and fails if a `data_type` is unmapped; `tools/replay_contracts.sh` asks the
-  *built* schema whether each claimed action is one that source actually
-  weighs, since five migrations touch `action_weights` and reconstructing it by
-  parsing SQL would be a third copy of the thing under test. Both were proven to
-  bite by perturbation rather than assumed.
+  *built* schema whether each claimed action is one that source actually weighs.
+- **`actionsByDataType` has three answers, and the middle one is the point**: an
+  action the server weighs, a real signal it does **not** weigh yet, or
+  structurally not an act. Collapsing the middle into the last is how the list of
+  things still owed a decision disappears. Five sit there: `heavy_rotation`,
+  `library_music_video`, `top_track`, `top_artist` and `location/place` —
+  `top_track` being the sharp one, carrying an explicit `rank=N`.
+- **`SourcePayload+Legacy.swift` is scaffolding and is meant to be deleted.**
+  Re-parsing `key=value;key=value` inherits every bit of that string's
+  lossiness. The end state is distillers emitting `SourcePayload` directly.
 
-**The client half is built and switched off.**
-`SemanticIngestionService` batches envelopes to the endpoint;
-`PendingEnvelopeStore` is its durable queue, shaped like `PendingPhotoStore`
-because that queue was memory-only and died with the app.
-`AppConfig.semanticIngestionEnabled` is `false`, so `submit` and `flush` return
-having done nothing at all — no queue, no request, no cost.
+### Capture against promotion
 
-Three decisions in it worth knowing:
-
-- **It is independent of `SyncService` in every direction**, which is the
-  safety property rather than tidiness: nothing in it can make a distillation
-  fail, and it neither reads nor writes that actor's `lastError`. A shadow path
-  that can break the live one is not a shadow.
-- **A batch is written to disk before anything is sent**, so a force-quit
-  mid-upload leaves work to retry rather than losing it, and the bytes retried
-  are the bytes that failed.
-- **A permanent refusal is dropped, not retried.** A malformed batch the
-  endpoint will never accept fails identically on every launch, so keeping it
-  means uploading the same rejection forever. **401 is transient**, though,
-  which is the non-obvious half: the token expired, the batch is fine, and
-  treating it as permanent would throw away a distillation because somebody
-  reopened the app after an hour.
-
-**Dual-write is on for every source but YouTube and Spotify**, both of which
-are excluded on licensing grounds rather than readiness — III.E.4.h and IV.2.1.a
-forbid what the semantic stage is for. Apple Music went first, on 2026-08-11:
-**1,225 rows in three batches**, 1.07 MB of AES-GCM ciphertext, one ingestion
-run, three wrapped keys (one per call, one active).
-
-**Per source rather than per build** — `AppConfig.semanticIngestionSources`.
-Turning it on everywhere at once throws away the only thing shadow running is
-for: a disagreement found in one source is a diagnosis, and in nine it is a
-shrug. **The list now holds nine sources including `youtube`**, and the note
-that used to sit here — that `music_library` is excluded because a subscriber's
-phone returns the same library twice — no longer describes the code: it is in
-the set. Whether that was decided or drifted is unrecorded, so treat it as
-undecided rather than as the reasoning above still holding.
-
-**Eight of ten data types matched the legacy count exactly.** The two that did
-not are both the comparison's fault rather than the pipeline's, and getting them
-wrong twice is worth recording:
-
-- **`distilled_records` is append-only across every run**, so comparing against
-  the table counted history. Read through `summary_*`, which is this file's own
-  standing rule.
-- **The summary view is a *union of items across runs*, not a snapshot.**
-  `recommendation` reads 266 there against 171 in the vault because Apple
-  returns a different set daily and the union keeps them all; the one
-  `apple_music/apple_music_subscription` row is a historical item from a build
-  that filed it under `apple_music`, where the distiller now writes `user`.
-- **And the legacy path stores only *changes*** — `append_source_records`' trigger
-  drops rows identical to the newest version — so this run wrote 118 legacy rows
-  against the vault's 1,225 first-sight rows. Neither number is wrong and they
-  are not comparable. **The comparison that means something is the *second*
-  distillation**, where the vault should store roughly the delta the legacy path
-  does, its fingerprint idempotency doing the same job as that trigger.
-
-**`0048`'s provenance fix ran on real data for the first time.**
-`AppleMusicDistiller` emits the subscription state as a `user` record during an
-Apple Music run; it is in the vault as `user` evidence with connector
-`apple_music`, which was structurally impossible before `0048` and needed
-`0052`'s matrix row to be allowed at all.
-
-**Two more findings from the second run, both the same shape: a value that
-changes every pass makes a check vacuous.**
-
-- **A pure-duplicate batch was still recording a key.** Re-sending the
-  unchanged 1,225 rows stored nothing and wrote three more wrapped keys; four of
-  nine protected nothing. `0053` accepted that trade on the grounds it would be
-  rare, and it is not — key rows would grow with how often somebody distils
-  rather than with what they have. `0054` writes the key *after* the rows and
-  only if any survived the conflict, which is free because the function is one
-  transaction and there is no foreign key demanding the key exist first.
-- **`ingestion_run_live_identity_idx` can never fire**, and that one is
-  recorded rather than fixed. It is a unique index on
-  `(user_id, source_code, input_hash, connector_version)` over live runs — the
-  contract's guard against opening a second run for the same input. Our
-  `input_hash` is a SHA-256 over the *encoded records*, which carry `observed_at`
-  and `ingestion_id`, so it differs every run and the index has nothing to
-  catch. **Making it content-based is not a safe fix on its own**: runs are
-  never finalized, so a live run lingers forever and a content-identical
-  re-distill would then be blocked rather than deduplicated. Both halves belong
-  to Phase 2, together.
-
-**Runs finalize now, and finding out what that needed was the work.** Before
-`0055`, production held 1,227 encrypted rows, seven runs all still `running`,
-and `current_source_items`, `observations` and `ingestion_run_items` all empty:
-capture was built and promotion did not exist, so nothing downstream could tell
-that any row was *currently observed*.
-
-`finalize_ingestion_run_v031` refuses a run with no **scope manifest**, counts
-`ingestion_run_items` per scope, advances `source_state_heads`, updates
-`current_source_items`, mints a revision and enqueues a worker job — and
-`ingest_source_records_v031` wrote neither scopes nor items. `0055` adds both
-and calls the finalizer on the batch the client marks `final`, **from inside**
-rather than by granting it, so `semantic_ingestor` still reaches exactly one
-function and `0052`'s assertion stays honest.
-
-Three things the schema decided rather than us:
-
+- **Capture must not depend on promotion.** `0055` could roll back a whole
+  captured batch when the finalizer refused a run with no scope; `0056`
+  finalizes only when the run has one and otherwise leaves it `running` and
+  inert. This is the governing rule read the right way round.
 - **A scope is `(source, data_type, action)`, because
-  `ingestion_run_scopes.action_type` is `not null`.** So a row with no action
+  `ingestion_run_scopes.action_type` is `not null`.** A row with no action
   belongs to no scope, gets no run item and is never promoted — a `user/bio`, a
   calendar container, the subscription flag. Captured, encrypted, and not
-  evidence. That is *capture broadly, promote narrowly* falling out of the
-  schema rather than being imposed on it, and it is product-visible.
+  evidence. *Capture broadly, promote narrowly* falls out of the schema rather
+  than being imposed on it, and it is product-visible: 1,224 promoted against
+  1,225 captured, the difference being one subscription-state row.
 - **`partial`, never `complete`.** Only `complete` licenses expiring an item
   that went missing, and every Apple Music read is capped — so claiming a
-  complete snapshot would be inferring absence from omission, which §10 forbids
-  outright. Seen working: a `complete` scope with a wrong count is refused by
-  name, and the whole transaction rolls back, so a failed run changes no current
-  state.
+  complete snapshot would be inferring absence from omission, which §10 forbids.
+  It is not a formality: it is the difference between a bad afternoon for one
+  connector and somebody's library disappearing.
 - **A duplicate still needs a run item.** The insert is `on conflict do
   nothing`, so a duplicate returns no id — but the item was *seen* this run, and
-  a head that missed it would read as the item having gone away. Ids are
-  resolved by lookup, not only from `returning`.
-
-**An Apple Music distillation is sometimes partial, and reports success either
-way.** Two consecutive runs, measured: 17:01 returned **four** data types —
-`recently_played`, `recommendation`, `library_album`, `library_artist` — and
-17:08 returned all **nine**. Nothing was dropped in transit; the endpoint logged
-zero refusals and the batch counts match exactly. The distiller simply returned
-less. `AppleMusicDistiller.distill` runs its endpoints concurrently with one
-`async let` each, so a failure in the library passes leaves the catalog ones
-intact and the distillation still reports success — a partial result that looks
-exactly like a complete one.
-
-**The cause is one line, and it was a deliberate fix that was never finished.**
-`distill` fires nine requests concurrently and every one is
-`(try? await task) ?? []` — so **a failed request is indistinguishable from a
-person who owns nothing**, and the error is discarded where it happens. Only
-`MusicAuthorization` can end the run. Best-effort is right: library reads used to
-be mandatory, so one refusal threw away recommendations and heavy rotation too.
-What was missing is that best-effort was never made *visible*.
-
-Three endpoints failing cost five data types, because two feed later work:
-`library/songs` also carries `rating` (which works from its id list), and
-`library/playlists` also carries `playlist_item`. It says so now —
-`AppleMusicDistiller.Report` keeps each failure, `SourceStatus.partial` carries
-it (`.done` could not say "worked, partly"), `shortfallMessage` names the
-missing types in words on the prompt card, and the vault records a **`truncated`
-scope with no items** for each, so a lost data type leaves a trace instead of
-the run merely looking smaller. Why those three failed is still unproven — the
-error was thrown away — but the shape points at throttling rather than a
-permission state, since two library endpoints succeeded while three did not.
-
-**This is what `completeness = 'partial'` was for, and it earned its keep on the
-first occasion it could have.** Had those scopes been declared `complete`,
-finalizing the 17:01 run would have expired **five entire data types** from
-current state — 714 items, silently, because some fetches failed. Instead
-`current_source_items` still holds all nine types and 1,427 items. §10's
-"partial runs cannot infer absence from omission" is not a formality; it is the
-difference between a bad afternoon for one connector and somebody's library
-disappearing.
-
-**`observations` is non-zero: 2,417, from real Apple Music distillations.**
-The first semantic evidence this system has produced, across all nine music data
-types, with `user/apple_music_subscription` absent because it carries no action.
-
-**And the fingerprint no longer depends on the encoding, which is the actual
-fix.** `fingerprintContent` unwraps the payload's discriminator and drops
-`schema_version`, so both wire forms hash identically and the next encoding
-change churns nothing. The near-miss inside that change is the part to remember:
-its first version reduced any unrecognised payload shape to its first key, so
-`{title}` and `{title, playCount}` hashed the same — a changed record skipped as
-a duplicate and lost, which is the worst failure this function has. It unwraps
-only shapes it recognises now and hashes anything else whole.
-
-**It doubled the vault, and that was the price of the v2 wire form.**
-`record_fingerprint` is computed over the payload, so changing the payload's
-encoding changed every fingerprint and the whole library re-stored as new rows —
-1,227 became 2,441. The append-only model doing exactly what it says: a changed
-record is a new row, and the encoding changed even though the content did not.
-Paid once, at 1,225 rows, which is the cheapest it was ever going to be. The v1
-rows carry no observations and are history.
-
-**Calendar dual-writes, and since Phase 2 it describes something.** 109 rows —
-101 events, 8 calendars — under `calendar_distillation`, with the event count
-matching the legacy path **exactly**. The eight `calendar` rows promote to
-nothing at all, being containers rather than acts, and `event` produces *two*
-scopes — `booked` and `scheduled` — which is the per-row refinement working, and
-the reason the Calendar source exists.
-
-**HealthKit dual-writes now, behind a consent somebody actually gave.** 390
-rows — 366 `activity_day`, 24 `activity_hour` — under `fitness_connection`,
-matching the legacy path exactly. The 24 is the
-design in a number: an hour bucket for the whole year rather than 8,760 rows,
-because the question is which hours somebody moves in. No `workout` rows, which
-is the already-recorded absence rather than a loss — no test device has an Apple
-Watch — and the legacy path agrees, which is what makes it an absence.
-`biological_sex` never reached the vault, because `dualWriteToVault` asks
-`SyncService.isLocalOnly` rather than reimplementing the rule.
-
-**The grant is `0061`: `public.record_fitness_grant`, subject `auth.uid()` with
-no parameter for it**, because a function that let a caller name whose consent
-it recorded would be a function for forging consent. In `public` rather than
-`api`, which is not an exposed schema. All four permission booleans are false —
-matching, bio naming, icebreaker naming, controlled explanation — and
-`FitnessPurposePrimer` says those refusals out loud, since a consent screen
-listing only benefits asks agreement to something unstated. **Declining costs
-nothing**: Health still connects and distils, and only the encrypted copy is
-withheld.
-
-**The old note, kept because it is why any of this exists:**
-`guard_raw_healthkit_grant` refuses an active HealthKit row unless
-`healthkit_use_grants` holds an active grant, and there are none. Enabling it
-today would have every batch refused and — because
-`SemanticIngestionService` drops a permanent refusal — the data would vanish
-quietly. A grant is a recorded consent decision with its own `consent_version`
-and four booleans gating matching, bio naming, icebreaker naming and controlled
-explanation; writing one unasked would be fabricating consent, which is exactly
-what that fail-closed guard prevents. §4's `FitnessPurposeGrantService` is the
-work that unblocks it, and it is a product decision before it is a technical
-one.
-
-**Evidence is written by ingestion, not by the worker, and the schema is what
-decided that.** `guard_observation_ingestion_run` refuses any observation whose
-run is not still `running`, while `finalize_ingestion_run_v031` enqueues
-`recompute_user` *after* the run closes — so a worker claiming that job finds a
-`succeeded` run and every insert is refused. No grant fixes it. Classification
-belongs where the plaintext already is: the ingestion Lambda holds it before it
-encrypts it, and runs while the run is open. `ingestion_run_items` carrying both
-`raw_source_record_id` and `observation_id`, with a check requiring at least
-one, says the same from the other side.
-
-**And the split survives, which is the part that had to be checked rather than
-assumed.** `ingest_source_records_v031` is `security definer` owned by
-`postgres`, so the observation insert — and the six `security invoker` triggers
-it fires — run as the definer. `semantic_ingestor` gains **no table privilege at
-all**: still one callable function, still zero tables, still unable to read a
-row back. `0059` asserts exactly that, because it is the migration that could
-have broken it.
-
-**Calendar and HealthKit are captured and describe nothing.**
-`private_observation_projection_is_valid_v03` demands a sanitised shape for
-those two that is a *classifier's output* rather than a transcription, and §7
-permits only the current Calendar classifier over Calendar rows. The endpoint
-sends no `normalized_payload` for them, so their rows are stored encrypted and
-contribute zero evidence — which is what §10's Calendar gate asks for rather
-than a limitation.
-
-**The worker exists, and it is the other half of the split.** `0057` gives it
-`semantic_worker`: `bypassrls` and an **enumerated grant list** — ten tables
-read, two written, nothing outside `semantic_private`, all asserted from the
-catalog at migration time. Policies would have been the wrong tool: RLS here is
-keyed on `auth.uid()`, which a batch processor with no JWT can never satisfy, so
-a policy for this role could only be `using (true)` — a second mechanism that
-decides nothing while the table grants still decide everything. `semantic_private`
-therefore still has **no policies anywhere**, which remains statable in one
-sentence.
-
-`aws/worker` is the **vendored package**, not a reimplementation: `SemanticWorker`
-and `PostgresJobQueue` come from `written_ontology`, with its lease tokens,
-attempt limits, contract validation and fail-closed unhandled-job behaviour
-already tested. Writing a second queue in another language would have meant the
-thing in production was not the thing the tests cover.
-
-**It builds the HealthKit coverage snapshot, and it no longer writes
-observations at all.** `project_user` was removed from the handler in Phase 2,
-which is the second half of `0059`: `guard_observation_ingestion_run` takes a
-`for key share` lock on the run, needing `update` on `ingestion_runs` on top of
-`select` — and a worker that could update a run could mark somebody's capture
-complete. The privilege was the visible half; the real one is that an
-observation belongs to the run that captured it, and a worker running minutes
-later has no running run of its own. It failed every invocation with `42501` and
-took the whole job down with it, which is how it blocked the fitness snapshot
-sitting behind it. **~1,224 music rows captured before `0059` still have no
-observation**, all behind a single run left `running` from before finalization
-existed — the zombie-run problem rather than a projection one, and reviving that
-call would have written their evidence into a run that will never finalize.
-
-**Two packaging traps, both paid for.** `typing_extensions` must be named
-explicitly — psycopg 3 needs it below Python 3.13 and pip drops it under
-`--platform`, surfacing as the package's own *"install the postgres extra"*
-message, which swallows the real `ImportError` and points somewhere else
-entirely. And wheels must be resolved for `manylinux2014_x86_64`, or an Apple
-machine bundles arm64 binaries that fail at *import* in a way that reads like a
-typo. `build.sh` now checks the staged tree for every expected module, so both
-fail at build rather than at invoke.
-
-**The vault has been read back, and that is the premise nothing else could
-substitute for.** 1,227 payloads had been encrypted and not one decrypted: if
-the crypto were wrong the vault would be garbage and nothing anywhere would say
-so. Measured 2026-08-11 — KMS unwrapped the data key **with the encryption
-context**, which is what proves the per-user binding rather than merely the
-cipher; AES-GCM decrypted; the envelope parsed.
-
-**And the first row ever read back showed a defect.** Swift's synthesised
-`Codable` for an enum puts the associated value under `_0`, a *compiler*
-detail, and that was the wire form in the vault. Three reasons it matters more
-here than it looks: the reader is Python and would have to know a Swift
-convention to find the payload; **the vault is append-only and the ingestion
-identity has no `Decrypt`**, so a row's encoding can never be rewritten; and if
-Swift changed that convention, old rows would silently stop matching new code.
-`SourcePayload` now encodes `{"kind": …, "value": …}` by hand and
-`schema_version` is `written-source-envelope-v2` — **v1 rows exist forever and a
-reader must handle both**, which is exactly what that field is for and its first
-real use. Confirmed on a fresh vault row: `kind`/`value` present, `_0` absent.
-
-**Proven on a real distillation.** Apple Music finalized with 9 scopes, 9
-heads, 1,224 run items, 1,224 `current_source_items` and one worker job — and
-the number that matters is 1,224 against 1,225 captured. Every action-bearing
-pair promoted one for one; `user/apple_music_subscription` promoted **zero**,
-because a fact about an account is not an act. The rule shows up as an integer.
-
-**And `0055` could throw away a whole batch, which the first probe after it did.**
-A run of entirely unpromotable rows has no scope, the finalizer refuses that,
-and because finalization shares the insert's transaction **the rollback took the
-captured rows with it** — production went from seven runs to seven and stored
-nothing. Not a probe defect: every `user` distillation has that shape, since
-all its data types are `notAnAction`. `0056` finalizes only when the run has a
-scope and otherwise leaves it `running` and inert. **Capture must not depend on
-promotion**, which is the governing rule read the right way round.
-
-**Dual-write runs on its own detached task, and that is the safety property.**
-`DistillViewModel.sync` calls
-`dualWriteToVault`, which derives envelopes and submits them on **its own**
-detached task at `.background` — never sharing a task or `syncFailure` with the
-legacy push, since a slow endpoint must not delay the real outcome and a shadow
-problem must not be reported as a lost distillation.
-
-**It applies `SyncService.isLocalOnly` before deriving anything**, and that is
-the single most important line in it: `health/biological_sex` never leaves the
-device, which is a promise in `PrivacyInfo.xcprivacy` and on the website, and a
-second upload path is precisely how such a promise stops being true without
-anybody deciding to break it. The rule is *asked for* rather than reimplemented,
-because refusing to send and refusing to forget are one decision made in one
-place.
-
-**Refusals are counted, never swallowed.** A `data_type` nobody has mapped would
-otherwise show up as a batch quietly smaller than the distillation it came from
-— the hardest kind of gap to notice, because the numbers still look plausible.
-
-**Coverage measured against every row production has ever held: 6,148 of 6,148
-derive**, none unmapped. 6,082 carry an action the server weighs, 61 are
-structurally not acts (40 + 2 calendar containers, 4 subscription-state rows, 15
-`user` profile facts) and 5 are `location/place`, which the server gives no
-weight by its own decision. The comparison itself is **printed, not stored** —
-there is no consumer yet, and giving it a table would be building Phase 2 early
-in a codebase whose standing defect is results nobody reads.
-
-**`-probe-ingest 1` is what settles the last premise**, in the manner of
-`-probe-isrc` — and **the simulator cannot settle it**, which is worth knowing
-before trying. Run there it correctly answers *no access token: you're signed
-out*: a simulator holds no session, Sign in with Apple needs a device, and phone
-sign-up needs an OTP. That exercises the flag, the wiring and the failure
-message, and nothing past them. The endpoint needs a signed-in device or the
-demo account's test OTP. only a signed-in device holds a Supabase access token, and only a
-real token exercises the Lambda's issuer check, its KMS calls and
-`ingest_source_records_v031` together. It writes a real encrypted row into the
-prober's own vault, which is the point — a probe that avoided writing would
-leave the write path exactly as unproven. Run it twice: the second receipt
-should read `stored 0, duplicates 1`, which is the fingerprint idempotency
-working. **`SUPABASE_ISSUER` on the Lambda is the one setting never checked
-against a token Supabase actually minted**, and a wrong one refuses every
-request identically.
-
-**`SourcePayload+Legacy.swift` is scaffolding and is meant to be deleted.**
-Deriving a typed payload by re-parsing `key=value;key=value` inherits every bit
-of that string's lossiness — a value containing `;` or `=` was already
-unrecoverable before the adapter saw it. The end state is distillers emitting
-`SourcePayload` directly. It exists so dual-write can start without rewriting
-nine distillers first, and so the coverage comparison Phase 1 asks for has two
-paths to compare.
-
-**And the keys have somewhere to live: `0050`.**
-`raw_source_records` has carried `encryption_key_version not null` and
-`encrypted_payload` since `0046` — the envelope pattern assumed and never
-completed, with nowhere to put the wrapped key the version names.
-`semantic_private.user_encryption_keys` is that place, `service_role` only with
-RLS on and no policy, one live key per person by partial unique index. Its
-behaviour is verified against a real chain rather than read off the DDL: a
-second *active* key is refused, retire-then-insert works and is rotation, a
-malformed ARN is refused, and **deleting the account cascades the keys to zero**,
-which is crypto-erasure with nothing to remember to call. It ships no behaviour
-and nothing writes it yet.
-
-**The plan's three reserved numbers were overtaken entirely, and stopped being
-worth tracking.** It allocated a bridge, then server projections, then cutover;
-sixteen migrations of real work have landed since, so **projections and cutover
-have no number yet and should simply take the next free one.** §5 permits it:
-never *reuse* a number, skipping one is fine. What `0049`–`0065` actually went
-to is the record worth having:
-
-| | |
-|---|---|
-| `0049` | `public.rls_auto_enable()`, a Supabase dashboard event trigger that existed in production and in no file |
-| `0050`–`0051` | the wrapped-key registry, and aligning its `key_version` vocabulary with `0046`'s |
-| `0052`–`0054` | the ingestion identity; binding the data key to the rows it protects; writing it only when something was stored |
-| `0055`–`0056` | scopes, run items and finalization — and making finalization conditional, so capture cannot be rolled back by promotion |
-| `0057`–`0059` | the worker identity, its grants, and moving projection into ingestion |
-| `0060`–`0062` | a JSON `null` is not a SQL NULL; the fitness purpose grant; run coverage metrics |
-| `0063` | worker grants for the fitness snapshot |
-| `0064`–`0065` | the Calendar projection vocabulary, and the two mistakes it took to get right |
-
-**That one character is worth keeping.** `0050` admitted a colon in
-`key_version`; `raw_source_records.encryption_key_version`, which *names* that
-version, does not — so a key could be created, used to encrypt, and then be
-unstorable on the very row obliged to name it, with the refusal arriving at
-ingestion time one service away from the mistake. It is this codebase's own
-*two columns that accept the same words* defect with the sign flipped: two
-columns that must accept the same words accepting different ones. `0046` wins,
-because it is adapted from the contract and `0050` invented something. `0051`
-also **asserts the two patterns match, reading them out of the catalog at
-migration time** rather than trusting its own comment — proven by perturbing
-the other side and watching it refuse.
-
-**So the plan's numbers are no longer the app's, and its §-quotes are written in
-the plan's.** §10's gate reads *"existing push/chat/profile behavior remains
-green through 0048"* and §9 says *"do not reverse 0050 in place"* — the first
-still means our `0048`, the second now means our `0055`. Read a number in
-`WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**, not as a filename;
-`application_migrations` in the baseline manifest carries the mapping, which is
-why each entry has a `role` beside its name.
-
-Projections belong to Phase 4 and cutover to Phase 6, for three reasons, and the
-third is the one that bites: `0048` **is** the additive boundary by §10's gate;
-projections must match a `SemanticSurfaceService` that does not exist and their
-acceptance gate — two adversarial users against real assertions — is unrunnable
-before Phase 2; and cutover is irreversible by contract while **this project has
-no migration ledger at all** — `supabase_migrations` is not an empty schema, it
-is an absent one — so a routine `supabase db push` after linking would apply it
-and break `DiscoveryCardService`, `DiscoveryService`, `MatchProfileService` and
-`ChatService` for every installed build.
-
-**What `0048` has to carry, and the reason it is not bookkeeping:**
-`0042`–`0047` reference `auth.users` 31 times and legacy `public.*` tables zero
-times, so the semantic schema is completely decoupled today and `0048` is the
-single point where the two worlds meet. Its load-bearing change is a foreign
-key: `0042:482-484` constrains
-`(ingestion_run_id, user_id, source_code) → ingestion_runs`, which *encodes*
-the provenance defect — an observation's source must equal its run's source, so
-a `user` row inside an Apple Music batch is stored as Apple Music evidence.
-`connector_source_code` and a repointed FK are what fix it, and
-`finalize_ingestion_run_v031` (`0047:526`) has to be replaced to partition by
-record source.
-
-**One trap in `0043` that `0048` must not walk into.** It grants
-`select, insert, update on all tables in schema semantic_private to
-service_role`, and **`on all tables` binds at execution time, not going
-forward** — so every table `0048` adds gets no grant unless `0048` grants it
-explicitly.
-
-### The first assertions, and the four faults between capture and them
-
-**542 `concept_scores`, 81 `user_assertions`, and 13 concepts reaching two
-independence groups** — measured 2026-08-12, on the first run that produced any.
-Nothing in this system had ever had more than one group, and `motif_rules`
-requires two as a check constraint, so until this every motif rule was
-unsatisfiable by construction. (Those two figures are a snapshot of that first
-run and not the current state: **65 active assertions per account** after the
-hub, performer, era and sphere work later the same day.)
-
-**And the scorer could raise a claim and could not withdraw one**, which is the
-defect that outlived all four faults below. Its eligibility test sat *before* the
-assertion lookup, so `UPDATE_ASSERTION` was reachable only with state
-`eligible` — and the comment above it, *"an assertion that stops being evidenced
-becomes `inactive`"*, described something the control flow made impossible.
-Found by making hubs never assert, deploying, re-scoring, and watching three hub
-assertions come back `eligible` from a run that had not touched them.
-
-Two statements fix it, because only one of the two ways a claim stops holding is
-iterated: scored-and-no-longer-eligible is demoted in the loop, never-scored-at
--all is swept afterwards. Both are `assertion_origin = 'inferred'` only — a
-declared assertion is what a person said about themselves, and no absence of
-evidence overrules it — and **the sweep is guarded on the run having scored
-something**, since a fallen-over resolver must not read as somebody who likes
-nothing. Its first application withdrew 27: three hubs plus **24 classical
-performers the album-breadth change had disqualified weeks earlier and been
-unable to retire**.
-
-`score_user` had no unit test because it wants a database, which is why this
-survived. It has one now, and what it asserts is **which statement ran** rather
-than what was scored — the bug was never in the arithmetic.
-
-`creator:le_sserafim` at strength 0.684, breadth 2, three sources: listened to
-on Apple Music and watched across **nine separate repost channels** on YouTube.
-That is the shape the whole exercise was for — `apple_music`, `music_library`
-and `spotify` all carry the `music` group by design, so no music source can
-ever be the second witness. The rest of the thirteen are the same K-pop cohort
-plus `genre:classical` 0.963, `genre:pop` 0.941 and `genre:electronic`, those
-last three arriving through `0076`'s provider-topic mapping.
-
-**The scorer is `aws/worker/score.py`, inside the resolver's own run.** Not a
-second run: a score belongs to the mappings it came from, and
-`finalize_semantic_run`'s staleness check covers both only because they share
-one. `strength` saturates rather than sums — `w/(w+6)` — because one concept
-carries 3,893 `library_song` mappings and a hard cap would tie every strong
-concept at 1.0. `stability` is 0.0 on a first run and that is a refusal: 1.0
-would assert a property from the absence of observation.
-
-**Four faults stood between a correct client and this, and each hid the next.**
-They are worth keeping because none of them announced itself:
-
-- **A 500 that should have been a 400.** A projection refusal is the *caller*
-  sending a forbidden shape, and `SemanticIngestionService` classifies
-  permanence by status code — `500...599` transient, everything else permanent.
-  So one Calendar batch, staged by a build predating `semanticDataType` and
-  carrying `event`/`entered_by_user` where the projection demands
-  `calendar_event`/`scheduled`, was re-sent on every distillation for thirteen
-  hours at the head of a FIFO queue, starving three YouTube distillations
-  behind it. Nothing could see it: the queue drains only when new work arrives,
-  and that actor deliberately shares no error state with the app.
-- **A trigger error that named no row.** `private observations require an exact
-  closed projection` is raised by a guard, so the operator got a bare 500.
-  `projectionDiagnostic` reports each rejected row's *shape* — field names,
-  payload keys, presence rather than value, deduplicated with a count — and
-  named the cause on its first run. **It found in one line what four rounds of
-  reading code had not.**
-- **Fuzzy matching nobody reads.** `resolve_alias` falls back to a
-  `SequenceMatcher` against every alias for any term with no exact hit. Music
-  never noticed — its terms are curated aliases. Uploader tags are arbitrary
-  free text: ~5,500 on one library, almost none matching, each scanning 1,512
-  labels. **≈8.3 million comparisons a run, the entire 300-second Lambda
-  timeout** — and every result was already discarded, since the fuzzy path
-  returns only `CANDIDATE` or `REJECTED` and the loop skips non-accepted
-  lexical matches. `exact_terms_only` drops those terms before the mapper sees
-  them: 300s to 9s, removing no mapping that was ever written. It is also what
-  `0078`'s resolver model already specified — `whole_tag_only`, `fuzzy: false`.
-- **Row-at-a-time inserts** through a transaction pooler, now `executemany`.
-  `pg_stat_statements` blamed the `semantic_runs` insert at 116s max, which was
-  really later jobs blocking on `semantic_run_live_identity_idx` while the first
-  held its transaction open — **parallel invocations manufacturing the
-  contention being diagnosed.** Invoke the worker serially.
-
-**And five migrations found five grants by watching five invocations fail**
-(`0086`–`0090`, after `0063` and `0070`–`0073`). Each cost a deploy and a run to
-learn a fact that was static the whole time. `0090` stopped guessing: read
-`pg_trigger` for the tables being written, follow what each trigger calls, grant
-the set. **That should be the first move, not the sixth.** One caution from
-`0089`, whose first draft asserted so broadly it demanded privileges for Phase
-4's dyad and surface paths and correctly rolled itself back — a check broad
-enough to demand privileges nobody asked for is an argument for granting them.
-
-### Classical performers, and why a code deploy re-scores nothing
-
-**A performer is weighed by how many distinct albums they appear on, not how
-many rows.** Measured: Pygmalion has 276 rows — the most of anyone in the
-library — across *one* album, the St Matthew Passion counted once per movement.
-Perlman has 47 across six, Hadelich 97 across three, the Berlin Philharmonic 100
-across thirteen. One album means the performer came with a recording; several
-means they were chosen more than once.
-
-Below two albums a classical credit is weighed `0.02` rather than dropped — the
-term still has to exist, because this file's own rule is that unresolved terms
-feed `EmergentTermMiner` and *"dropping them would be dropping the ontology's
-growth path"*. Three tests caught the first attempt, using Hilary Hahn as the
-fixture, who is one of the performers the change exists to protect.
-
-The final state, after the owner's review asked for it:
-
-| kept | | dropped | |
-|---|---|---|---|
-| Bach 0.95, Mozart 0.73 | composers | Pichon, Pygmalion | 0.187 |
-| Hadelich 0.82, Perlman 0.66 | soloists | Gardiner, Monteverdi Choir, EBS | 0.078 |
-| Berlin Philharmonic 0.70 | 13 albums | Gilels, Podger | 0.078, 0.027 |
-
-**A flat weight could not have done this**, and the arithmetic is why: `strength`
-saturates as `w/(w+6)` and that curve is nearly flat where these concepts sat,
-so a 70% cut moved Pichon 0.92 → 0.85. `0.02` is chosen *against the 0.35
-eligibility bar*, not picked: 69 units become 1.4, which saturates to 0.19.
-
-**Two escapes cost three rounds each, and both were found by grouping mappings
-on `evidence_weight`** rather than by reading code — 138 rows at 0.02 beside 68
-at 1.0 pointed straight at the cause both times:
-
-- **`genres: null` on 68 of 276 rows** of one recording. `_is_classical` read
-  the genre and never the title, on the principle that a stated label beats a
-  derived one — correct when a label exists, silent when there is none. It falls
-  back to a catalogue number *only* when no genre is stated at all.
-- **`"Part II"` matched `Part`, an ASCII alias for Arvo Pärt.** The false
-  composer stripped the title's prefix, `classical_work` then found no catalogue
-  number, and 92 Monteverdi Choir rows read as non-classical. Fixed as a class
-  rather than an instance: a composer prefix must *be* the prefix, since
-  `Glass`, `Reich`, `Berg` and `Ives` were the same hazard waiting.
-
-**And deploying resolver code re-scores nothing.**
-`semantic_run_live_identity_idx` keys a run on
-`(user, ontology version, resolver model, scorer model, input_revision,
-input_hash)` — **the code version is not in it**, so a second run against
-unchanged input returns `already_resolved` and does no work. That is right for
-idempotency and it means a deploy alone can never change a score. Three levers
-force a fresh run: a new distillation (bumps `input_revision`), a new ontology
-version, or a new resolver model id. A distillation is the cheapest, and it is
-the one to reach for.
-
-**And when the library stops changing, a distillation is not a lever at all.**
-There were two more gates behind that one and each was invisible until the
-previous cleared. `finalize_ingestion_run_v031` enqueues `recompute_user` **only
-inside `if changed_count > 0`** and keys the job on the revision alone — so four
-ingestion runs of an unchanged library produced zero jobs. Ingestion is the only
-thing that enqueues and it cannot see a model publish, so promoting a model
-changed what the system *would* compute and nothing it had.
-`semantic_private.enqueue_recompute_on_analysis_change` (`0093`) is the second
-entry point, keyed on the revision **and** all three analysis ids, skipping any
-user a run already covers. It is owner-only, so a migration is the only caller —
-deliberately: enqueuing work for every user is not a client's to do.
-
-**So the rule is: a migration that publishes an ontology version or activates a
-model ends with that call.** `0093` wrote the rule and `0095`/`0096` broke it
-within the hour, needing `0097` to supply what they owed. `0098` carries its own.
-
-**And a model version that lags its code makes `semantic_runs` state something
-untrue.** `missing_aware_late_fusion` 0.1.0 produced eight runs while the scorer
-changed twice beneath it; `ontology_first_resolver` 0.1.0 did the same. Both are
-versioned properly now (`0092`, `0094`, `0098`) — scorer 0.3.0, resolver 0.2.0 —
-and the parameters live on the model row, where a later reader looks, rather
-than in a commit message.
-
-**One thing that had to be found by reading the logs: `prepare_threshold=None`.**
-psycopg 3 auto-prepares a statement after five executions, and Supabase's
-transaction pooler hands each transaction to whichever backend is free — so the
-*second* of two back-to-back invocations tries to `PREPARE` a name the first
-left behind and fails `42P05`. It failed for one account and succeeded for the
-other, which reads as bad data rather than a driver setting. This file has
-asserted since the pooler was chosen that *"the Lambda's driver must have them
-off"*; nothing implemented it, and nothing had ever run five times on one
-connection until the scorer's demotion statement arrived.
-
-### An era is an axis; a scene is the claim
-
-**A decade means nothing on its own, and this was measured before it was
-believed.** `era:1970s` at 0.403 rested on ABBA, Stevie Wonder, Frankie Kao's
-姑娘的酒渦 and Fritz Kreisler — anglophone pop, Mandopop and a violin recital,
-three unrelated worlds under one assertion. The owner's reading: *"eras strongly
-interact with language sphere — 1970 UK music vs 1970 cantopop is very
-different."*
-
-So `0095`/`0096` mint two families and the second is the point of the first:
-**`sphere:*`**, five language spheres, and **`scene:<decade>_<sphere>`**, thirty
-composites. Bare eras are scored and never asserted, through
-`NEVER_ASSERTED_KEY_PREFIXES` rather than by kind — `era:`, `sphere:` and
-`scene:` are all `concept_kind = 'topic'`, so the kind cannot separate the axis
-from the claim.
-
-That **implements** the owner's earlier *"80s German music would be a strong
-personality"* rather than reversing it: that example is itself a scene, and the
-composite did not exist when the era had to carry it alone.
-
-Four things about it, and three were mistakes worth keeping:
-
-- **A marked genre silences the unmarked ones on its row.** Apple writes both —
-  Frankie Kao's rows are `Mandopop|Music|Pop`. Read as equals, a Taiwanese
-  singer produced `sphere:anglophone` and his five 1970s rows became evidence
-  for `scene:1970s_anglophone`, which then carried **all thirteen** of
-  `era:1970s`'s mappings: the composite spanning exactly the worlds it was built
-  to separate. The union across *rows* survives, so a bilingual act keeps both.
-  Every anglophone figure fell when this landed, which is how you see it work.
-- **Classical periods are never crossed with a sphere.** Baroque music is
-  baroque in every language, so `scene:baroque_anglophone` would describe
-  nothing and would compete with `era:baroque` for the same evidence. Thirty
-  concepts, not sixty-five.
-- **`0095` minted 35 concepts that could never resolve**, and its own assertions
-  passed: it counted concepts and edges, and counting the right number of
-  unreachable things is what a structural check gets wrong. The resolver matches
-  a term against `normalized_label`, and `era:1970s` carries an `alternate`
-  label of exactly `1970s` — prose labels never meet suffix terms. `0096`
-  asserts *resolvability* instead, and its first draft stored the underscore
-  form that `normalize_text` turns into a space, reintroducing the same silent
-  failure inside its own fix.
-- **That check then flagged `era:classical_period` and was wrong.** It stores
-  `classical period` and resolves correctly. **The data was right and the check
-  was wrong**, which is the more useful half of the lesson.
-
-**The classical era distortion this started from does not exist.** `takes_decades`
-gates decades to `DECADE_GENRES`, `Classical` is absent from it, and the 2022
-Bach recording never contributed to `era:2020s`. The real gap was the opposite
-shape: Apple files the passions as plain `Classical`, so `classical_eras`
-returned nothing, classical rows got **no era at all**, and the six period
-concepts had sat since `0044` with zero assertions. `COMPOSER_PERIODS` reads the
-period off the composer — a fact about the work, not about the listener, and the
-same distinction `classical_work` already draws. `era:baroque` scores 0.958 on
-417 mappings now, `era:classical_period` 0.853 on 100.
-
-### Phase 2, whose four bullets are all satisfied
-
-§8 asks for four things: backfill under §7, run every source classifier and the
-worker, compare old display terms against new assertions for diagnostics, and
-**review every Calendar/HealthKit promotion plus a stratified sample of
-abstentions** — that last one is a person reading output and is not
-self-certifiable. All four are done as of 2026-08-12, on two accounts.
-
-| | |
-|---|---|
-| backfill | **a no-op, by doing rather than arguing.** §7 prefers a fresh distillation to an import, the only account with legacy rows and no vault presence was Demo, and Demo distils from the same device. Re-distilled instead: 2,583 rows, 7 sources. No `legacy_backfill` run exists and none is needed. |
-| classifiers and worker | running for both accounts, all sources |
-| shadow comparison | `tools/shadow_compare.sql` |
-| the human review | the owner read every Calendar promotion; all right |
-
-**What is not finished is Phase 2's *premises*, and they are the entries in
-Known gaps rather than in this list.** The eight zombie runs still hold ~1,224
-unpromoted music rows; nobody has read the assertions end to end, only the
-strongest of them; and the ontology is one library's.
-
-**And the phase's outputs moved three times in the hour it closed.** Spheres,
-scenes and composer periods landed after the shadow comparison was run, so its
-16 / 44 / 37 split describes a scoring model two versions old. Re-run it before
-quoting those numbers: the comparison is cheap and the assertion set is not
-stable yet.
-
-Where it started, for scale: measured 2026-08-11, **2,518 observations and every
-table downstream of them zero** — `observation_mappings`, `concept_scores`,
-`user_assertions`, `assertion_evidence`. Today both accounts hold **65 active
-assertions** each, over 6,654 scores.
-
-**Music resolution is blocked on content, not on code.** `ontology.concepts`
-holds 45 rows — 19 `activity:*`, 13 `hub:*`, 5 `routine:*` and a few identity
-and place seeds — and **not one of them is musical**, so resolving the 2,417
-music observations would abstain on essentially all of them. Concepts have to be
-authored before a resolver is worth running.
-
-**HealthKit classifies, and correctly produces nothing.** `fitness.py` in the
-worker runs the vendored `ingest_healthkit_rows` and records what it found in
-`fitness_feature_snapshots`: 390 accepted, **0 rejected**, 366 activity days, 24
-hours, no workouts, coverage `aggregate_only`. Zero habit candidates is what §10
-requires of aggregate-only HealthKit, because every `activity:*` and
-`routine:*_workouts` concept is derived from *typed workout sessions* and no
-test device has an Apple Watch. Recording the abstention as a row is what makes
-it reviewable rather than merely absent. `rejected = 0` is the load-bearing
-number: `_parse_activity_day` refuses a row it recovered nothing from, so 366
-days surviving is what proves the adapter's keys were read rather than silently
-absent.
-
-**`first_move` never reached the vault, and it was provable without decrypting
-anything.** `HealthKitDistiller` writes `first_move=06:00` and `FitnessPayload`
-read it with `extraInt` — `Int("06:00")` is nil, on all 366 days. The chronotype
-signal, dropped at the envelope boundary with nothing saying so, because
-`"%02d:00"` always emits a colon and `Int.init` always refuses one. `extraHour`
-parses it now and `activity_hour.share` was added beside it. **A typed field
-reading a string shape it cannot parse is the *two columns that accept the same
-words* defect one level down**, and the check worth repeating is the one that
-found nothing else: every other numeric extra is written as a plain integer.
-
-**The classifier must read `current_source_items`, never `raw_source_records`.**
-Nothing supersedes a prior revision — a row whose payload changed is captured
-beside the old one and both stay `active` — and `ingest_healthkit_rows`
-quarantines **both** sides of a lineage whose record fingerprints disagree,
-having no trustworthy revision order in the legacy row shape. So the `first_move`
-fix would have taken coverage from 390 to zero on the next distill, reading as
-HealthKit having stopped working. Same rule as reading through the `summary_*`
-views rather than the tables, one layer down.
-
-#### Calendar: the classifier runs in its own Lambda
-
-**Observations may only be appended to a still-`running` run** and `run_kind`
-allows only `connector` and `legacy_backfill`, so there is no reprocessing run a
-worker could open: classification has to happen at ingestion time, where the
-plaintext is. Ingestion is 823 lines of JavaScript and
-`written_ontology.calendar_semantics` is 1,283 lines of Python, so
-`written-semantic-calendar-classifier` holds the vendored classifier and
-ingestion invokes it synchronously. §7 permits only *the current Calendar
-classifier* over Calendar rows, and a port would not be it — the same argument
-that vendored the worker's queue.
-
-**Titles go in and do not come back.** The package's own contract is that the
-private title *"participates only in the HMAC lineage and is not returned"*, and
-the stored payload is at most four keys: schema version, record kind,
-`classification_state`, and an `artifact_type` from a closed set. A test asserts
-no fragment of a title, address, organiser or email domain survives into it. The
-classifier's IAM role holds `kms:GenerateMac` on the lineage key and **nothing
-else** — no database, no `Decrypt`, no `GenerateDataKey` — and its lineage signer
-is salted per user, because `content_lineage_hmac` is a column that exists to be
-joined on and an unsalted digest would be a cross-account correlation handle.
-**A classifier failure must never fail a distillation**: the rows are captured
-either way and `CALENDAR_CLASSIFIER_ARN` unset is a deliberate off switch.
-
-**101 events, 101 observations, 5 candidates** — 4 `travel_itinerary`, 1
-`public_ticket`, each with a lineage; 96 excluded with none. The 68
-`excluded_unknown` is the allowlist working rather than a gap: an event is
-excluded unless positively recognised as a booking or an itinerary.
-
-**Reviewed by the owner on 2026-08-12, and every promotion was right.** §10's
-gate is a person reading output, so this is the only way it could close. All
-nine promotions across both accounts — five flights and one tour booking, four
-of the flights duplicated by Google Calendar — were confirmed, and the sampled
-abstentions were confirmed as correctly refused in every stratum: work meetings
-and webinars, public holidays and birthdays, and five surgical and outpatient
-entries under `excluded_sensitive`, which is the category the allowlist exists
-for.
-
-**Reading it needed a tool, because the vault cannot answer the question.**
-`observations.normalized_payload` is four keys and no title, and
-`source_item_hmac` is salted with a KMS key only the classifier's role may use —
-so *"review every Calendar promotion"* is unanswerable from stored evidence, by
-design. `tools/calendar_review.py` re-derives each decision from the legacy row
-with the same classifier and the same four offline catalogs, and a test pins the
-constructor arguments because a missing catalog would silently reclassify and
-produce a confident review of a classifier nobody deployed.
-
-**It counted history on its first run**, reporting 9 promotions against the
-vault's 5: `distilled_records` is append-only, David's 106 events are 158 rows,
-and four flights were classified once per distillation. The `summary_*` rule
-again. Demo matched at 9 and 9 on the same broken code because its duplicate
-rows happened not to be promotable, so **only running both accounts caught it** —
-which is the argument for the agreement check rather than for trusting the tool.
-
-**The whole row speaks the schema's language, and that was learned twice.**
-`0064` was written against `0060`'s eleven-argument body after `0062` had added
-a twelfth, so `create or replace` **overloaded** rather than replaced — a lesson
-this file already carried. Worse, its premise was wrong:
-`guard_ingestion_run_item_v031` requires
-
-    raw_row.data_type           = scope_row.data_type
-    observation_row.data_type   = scope_row.data_type
-    observation_row.action_type = scope_row.action_type
-
-so an observation cannot hold a vocabulary of its own. A calendar row has to say
-`calendar_event` **from the device onward**, which is why the fix lives in
-`SemanticSource.semanticDataType` — the second translation seam beside
-`appSourceCode`, and pinned by the same test, which also asserts nothing else is
-translated. **`entered_by_user` became `scheduled` on the same evidence**: the
-projection allows a calendar observation only `scheduled` or `booked`, so the old
-action could be captured and could never become evidence — rows that land
-successfully and describe nothing. The distinction it carried is intact under the
-new name. Only `action_weight` still diverges, and no renaming reconciles it:
-`sources` weighs `scheduled` 0.9 while the projection is pinned at exactly 0.0.
-
-**Flights need the canonical title and bookings do not.** `_FLIGHT_TITLE_RE`
-matches `FLIGHT to Los Angeles (UA 1103)` and nothing else — "Flight to Los
-Angeles" is `excluded_unknown`, and the space is load-bearing since
-`[A-Z0-9]{2,3}` is greedy and `(UA1103)` parses as carrier `UA1`. Reading the
-pattern says what it accepts, not what a calendar contains: four real flights
-matched. The booking path is far broader, recognising Eventbrite, Ticketmaster,
-a dining reservation and a hotel stay, largely off the verified vendor host in
-the `url=` extra the app already captures.
-
-**Renaming a `data_type` re-stores every row and orphans its current items.**
-`data_type` is part of the fingerprint, so the 101 events stored again as new
-rows and `current_source_items` holds **202** for `apple_calendar` — the old
-`event` items still `present` beside the new `calendar_event` ones. They carry
-no observations and no scope the device still sends, and a `partial` scope
-licenses no expiry, so nothing removes them. Inert history, the same class as
-the v1 payload rows, and it will read as double counting to anyone coming to
-that table cold.
+  a head that missed it would read as the item having gone away. Resolve ids by
+  lookup, not only from `returning`.
+- **Evidence is written by ingestion, not by the worker, and the schema decided
+  that.** `guard_observation_ingestion_run` refuses any observation whose run is
+  not still `running`, while finalization enqueues the worker *after* the run
+  closes. No grant fixes it. Classification belongs where the plaintext already
+  is — and a worker that could update a run could mark somebody's capture
+  complete.
+- **A run that promoted nothing is finished, not running**, and this is
+  structural rather than exceptional: **every `user` distillation produces one**,
+  since a scope needs `action_type not null` and every `user` data type is
+  `notAnAction`. `0056`'s *"do not finalize a no-scope run"* silently became
+  *"leave it open forever"*, which leaked twelve runs. `failed` would be a lie —
+  capture succeeded and there was nothing to promote, which is an ordinary
+  result — and the finalizer cannot be used, because it refuses a run with no
+  scope manifest by contract. Hence a third, narrower close.
+- **That close is `close_unpromotable_ingestion_run`**, never an `update`: the
+  function refuses a run that *has* a scope, and a migration that knows better
+  than the guard is how the guard stops meaning anything. It raises its own flag
+  (`written.close_unpromotable_v031`) rather than impersonating the finalizer's,
+  so any trigger exempting one must be taught the other — which is exactly what
+  `0104` was.
+- **The whole row speaks the schema's language.**
+  `guard_ingestion_run_item_v031` requires the raw row's `data_type`, the
+  observation's `data_type` and the scope's to be equal, so an observation
+  cannot hold a vocabulary of its own — which is why the calendar rename had to
+  happen on the device. **Renaming a `data_type` re-stores every row** (it is
+  part of the fingerprint) **and orphans its current items**, since a `partial`
+  scope licenses no expiry. `current_source_items` holds 202 for
+  `apple_calendar` for that reason; it is inert history, and it reads as double
+  counting to anyone coming to that table cold.
+- **The fingerprint must not depend on the encoding.** `fingerprintContent`
+  unwraps the payload's discriminator and drops `schema_version`. Never reduce
+  an unrecognised payload shape to a subset of its keys — `{title}` and
+  `{title, playCount}` hashing alike means a changed record is skipped as a
+  duplicate and lost, which is the worst failure this function has.
+- **`schema_version` is `written-source-envelope-v2`, v1 rows exist forever, and
+  a reader must handle both.** The vault is append-only and the ingestion
+  identity has no `Decrypt`, so a row's encoding can never be rewritten.
+
+### Reading the vault
+
+- **Read `current_source_items`, never `raw_source_records`.** Nothing
+  supersedes a prior revision — a row whose payload changed is captured beside
+  the old one and both stay `active` — and `ingest_healthkit_rows` quarantines
+  **both** sides of a lineage whose fingerprints disagree. Same rule as reading
+  through the `summary_*` views, one layer down.
+- **Comparing the vault against the legacy path compares two different
+  things.** `distilled_records` is append-only, its summary views are a *union
+  across runs* rather than a snapshot, and the legacy path stores only *changes*.
+  The comparison that means something is the **second** distillation.
+
+### The revision, and what may move it
+
+**`api.list_assertions` withholds every *inferred* assertion whose score was not
+computed at the account's current revision** — `score_run.input_revision =
+coalesce(user_state.revision, 0)`. That guard is right: it is the difference
+between a claim about somebody and a claim about who they used to be. It is also
+why **the Memories page goes blank rather than stale**, and why every fault
+below presented as "the data section disappeared".
+
+**The revision means *"which version of the inputs were these scores computed
+against"*, so it moves when the scorer's inputs move — not when state changes.**
+Three migrations were needed to get that sentence right, and the shape repeated
+each time: **a trigger fired on something that looked like a change and was
+not, and the cost was every score the person had.**
+
+- **`0104`** — closing a zombie run bumped the revision nine times, while
+  writing a receipt saying `state_changed: false` in the same statement.
+  `bump_user_state_revision` exempted the finalizer's flag and knew nothing of
+  `close_unpromotable_ingestion_run`'s.
+- **`0111`** — a suppression bumped it, so answering one claim emptied the whole
+  page. The obvious fix, enqueuing a re-score per tap, is wrong twice: it
+  recomputes thousands of mappings to produce identical numbers, once per tap.
+- **`0113`** — narrowing that to exempt `explicit_add` was wrong the other way.
+  A declared assertion has no observations and the scorer never sees it, so it
+  is **exempt from the currency check by construction** — bumping withheld all
+  36 inferred rows and left the added term as the only row on the page. *Adding
+  a term deleted the page and left the term.*
+
+**The current answer is `0115`, and it is a trade rather than a settlement.**
+`0114` made suppression an actual scorer input, so:
+
+| action | bumps | why |
+|---|---|---|
+| `suppress` / `restore` | **yes** | redistributes weight; the score really changed |
+| `confirm` | no | nothing reads it yet |
+| `explicit_add` | no | no observations, no mappings, never scored |
+
+**The revision is monotonic and is never walked back** — an earlier value would
+be a lie about what has happened — so the repair is always to re-score at the
+revision that now stands, which is what `0105` and `0112` are.
+
+**Open: nothing enqueues a recompute on feedback.** A suppression stales the
+page until the worker is run by hand. That is the acknowledged cost of `0115`
+and the next thing to build.
+
+### Classification and scoring
+
+- **The Calendar classifier is its own Lambda** — `written_ontology.calendar_
+  semantics` vendored, not ported, on the same argument that vendored the
+  worker's queue. **Titles go in and do not come back**: the stored payload is at
+  most four keys, and a test asserts no fragment of a title, address, organiser
+  or email domain survives into it. Its IAM role holds `kms:GenerateMac` on the
+  lineage key and **nothing else**, and the lineage signer is **salted per user**,
+  because `content_lineage_hmac` exists to be joined on and an unsalted digest
+  would be a cross-account correlation handle. **A classifier failure must never
+  fail a distillation**; `CALENDAR_CLASSIFIER_ARN` unset is a deliberate off
+  switch.
+- **`_FLIGHT_TITLE_RE` matches the canonical title and nothing else.** "Flight to
+  Los Angeles" is `excluded_unknown`, and the space in `(UA 1103)` is
+  load-bearing since `[A-Z0-9]{2,3}` is greedy. An event is excluded unless
+  positively recognised — the allowlist is the design, not a gap.
+- **Deploying resolver or scorer code re-scores nothing.**
+  `semantic_run_live_identity_idx` keys a run on the user, ontology version,
+  model ids, input revision and input hash — **the code version is not in it**.
+  Three levers force a fresh run: a new distillation, a new ontology version, or
+  a new model id. **A model version that lags its code makes `semantic_runs`
+  state something untrue**, so the parameters live on the model row where a
+  later reader looks, not in a commit message. Scorer is at **0.7.0**, resolver
+  at **0.3.0**.
+- **Retire the old version in the same migration; never leave two active.**
+  `finalize_ingestion_run_v031` picks the newest *active* model by `created_at
+  desc`, so leaving both works by ordering, which is a coincidence rather than a
+  statement. **Retirement is not deletion** — `on delete restrict` protects the
+  runs pointing at it, and a run recording which model computed it is the whole
+  reason the column exists.
+- **A model version and the recompute it implies belong in one migration**,
+  which is the same rule as the enqueue above, stated from the other end.
+- **A rule that only withholds arrives too late for exactly the rows it was
+  written for.** `0092` promoted a scorer that refuses to assert hubs and the
+  three hub assertions already standing came back untouched: the new rule worked
+  perfectly on the population it was least needed for.
+- **A suppression is an `ambiguous_rejection`, and redistribution is
+  disambiguation rather than a negative.** Liking a song admits three readings —
+  the singer and the song, the singer only, the song only — so striking off the
+  singer leaves the weight to be carried by whatever else the row names. Nothing
+  asserts the person dislikes the struck-off concept; `user_suppressions` stays
+  empty and is where a real negative would live.
+- **Freed weight goes to a *different named role on the same row*** — `creator`,
+  `composer`, `source_work` — apportioned by existing weight, **never to the same
+  role** (that would let striking one cast member promote the other five, who are
+  in the identical ambiguous position) and **never to genre, era, scene or
+  sphere** ("I don't like the singer" says nothing new about the genre the row
+  already supported). **Conservation rather than a constant**, applied before
+  saturation. Writing it in the resolver's *roles* rather than in `concept_kind`
+  is what makes classical and pop one rule — the Berlin Philharmonic's rows carry
+  no work at all, so there the gainer is the composer.
+- **A scene's decade and sphere must come from the same row.** Deriving one per
+  row and the other per artist let a 1998 Japanese single reach
+  `scene:1990s_anglophone` through two rock tracks recorded twenty-eight years
+  later. The bare `era:*` term stays artist-level, which is a decision rather
+  than an omission, and `ARTIST_ERA` exists for people whose per-row dates are
+  known wrong.
+- **Match labels are `alternate`, not `preferred`.** The resolver emits the bare
+  key suffix, so a prose `preferred` label never meets it — the prose is what a
+  person reads on a card, the suffix is a matching token. Auto-accepting alias
+  types are `preferred` and `alternate` only.
+- **Mint no vocabulary from `recommendation` rows.** They carry `action_weight`
+  0.000 because they are Apple's suggestion rather than the person's act, and a
+  concept named from one arrives with no evidence that it is anybody's —
+  `work:re_zero` scored 0.047 on a single song whose mappings were every one a
+  fuzzy `candidate`.
+- **Authored vocabulary is minted whole, not on demand.** The full decade ×
+  sphere cross-product exists whether or not a library produces the pair:
+  `EmergentTermMiner`'s five-user floor stops one person's private string
+  becoming a public concept and has nothing to say about a closed authored list,
+  and minting on demand would make the concept set differ per install.
+- **`unicodedata.normalize("NFKD")` decomposes a Hangul syllable into jamo**, so
+  a key's character class accepting only precomposed `가-힯` strips every Korean
+  name to empty. That alone was survivable; **the second bug is what merged nine
+  artists into one concept — a *constant* fallback.** A fallback key must not be
+  able to collide. Correcting such a merge **does not rewrite history**: the old
+  concept keeps its id and mappings, since those record what the resolver
+  actually did that day, and is deprecated with its labels withheld so nothing
+  can resolve to it again. The assertion resting on it is retired `inactive`.
+- **A migration that publishes an ontology version or activates a model ends
+  with `semantic_private.enqueue_recompute_on_analysis_change`.** Ingestion is
+  the only other thing that enqueues, it fires only when a run changed
+  something, and it cannot see a model publish — so promoting a model otherwise
+  changes what the system *would* compute and nothing it has. `0093` wrote the
+  rule and `0095`/`0096` broke it within the hour.
+- **Invoke the worker serially**, and run psycopg with
+  **`prepare_threshold=None`** — the transaction pooler hands each transaction to
+  whichever backend is free, so an auto-prepared statement fails `42P05` on the
+  second of two back-to-back invocations, for one account and not the other.
+- **`exact_terms_only`: no fuzzy matching.** `resolve_alias`'s `SequenceMatcher`
+  fallback consumed an entire 300-second Lambda timeout on arbitrary uploader
+  tags, and every result was discarded anyway since the fuzzy path returns only
+  `CANDIDATE` or `REJECTED`. `0078`'s resolver model already specified
+  `whole_tag_only, fuzzy: false`.
+- **`strength` saturates as `w/(w+6)` rather than summing**, because one concept
+  carries 3,893 mappings and a hard cap would tie every strong concept at 1.0.
+  **`stability` is 0.0 on a first run and that is a refusal** — 1.0 would assert
+  a property from the absence of observation. The curve is nearly flat at the top,
+  so **a percentage cut cannot demote anything**; weights are chosen against the
+  0.35 eligibility bar.
+- **The scorer withdraws as well as raises.** Scored-and-no-longer-eligible is
+  demoted in the loop; never-scored-at-all is swept afterwards. Both are
+  `assertion_origin = 'inferred'` only — a declared assertion is what a person
+  said about themselves, and no absence of evidence overrules it — and **the
+  sweep is guarded on the run having scored something**, since a fallen-over
+  resolver must not read as somebody who likes nothing. A unit test asserts
+  **which statement ran**, because the bug was never in the arithmetic.
+- **A classical performer is weighed by distinct albums, not rows.** One album
+  means the performer came with a recording; several means they were chosen. Below
+  two albums the credit is weighed `0.02` rather than dropped, because the term
+  still has to exist for `EmergentTermMiner`. **`_is_classical` falls back to a
+  catalogue number only when no genre is stated at all**, and a composer prefix
+  must *be* the prefix — `Part`, `Glass`, `Reich`, `Berg` and `Ives` are all
+  waiting.
+- **An era is an axis; a scene is the claim.** `era:*` and `sphere:*` are scored
+  and never asserted, through `NEVER_ASSERTED_KEY_PREFIXES` rather than by kind —
+  all three families are `concept_kind = 'topic'`, so the kind cannot separate the
+  axis from the claim. **A marked genre silences the unmarked ones on its row**
+  (Apple writes `Mandopop|Music|Pop`), and the union across *rows* survives so a
+  bilingual act keeps both. **Classical periods are never crossed with a sphere**:
+  baroque music is baroque in every language.
+- **Assert resolvability, not counts.** `0095` minted 35 concepts that could
+  never resolve and its own assertions passed, because counting the right number
+  of unreachable things is what a structural check gets wrong.
+
+### The surfaces
+
+- **Two switches, and they are not redundant.**
+  `AppConfig.semanticSurfacesEnabled` decides whether the app *asks*;
+  `memories_reads` decides whether the server *answers* and is §9's rollback
+  contract, throwable without a release.
+- **The `api` schema is exposed by hand** — Settings → API → Exposed schemas, no
+  migration can do it. Unexposed, every RPC answers `PGRST202` naming
+  **`public.list_assertions`**, which reads as a missing function.
+  **`PostgREST.callFunction` sends both `Content-Profile` and `Accept-Profile`**,
+  because an RPC is a POST that reads and setting one sends half the calls to
+  `public`.
+- **An answer must name the exposure it answers.** `suppress_assertion` and
+  `confirm_assertion` require a matching `record_assertion_exposure` — "I
+  disagree" refers to a particular label at a particular rank computed by a
+  particular score version. A `uuid`-returning RPC answers a top-level JSON
+  fragment, which `JSONSerialization` refuses by default.
+- **`list_assertions` is an allowlist of `concept_kind`** — `creator`, `work`,
+  `activity` — so a new kind is withheld until somebody decides it belongs. An
+  internal kind appearing on somebody's profile is worse than a nameable one
+  being missed, because only the first is invisible to whoever added it. **A
+  user's own term always survives it**, having no concept and therefore no kind.
+- **YouTube may raise a concept's strength and may never be the only reason it
+  crosses to another user** (`0117`, corrected by `0118`). Measured over the
+  latest run per user: 1,139 concepts scored, 56 touched by YouTube, of which
+  **26 have another witness and cross and 30 are YouTube-only and are withheld**.
+  The legacy card answers III.E.3.b by
+  excluding YouTube outright, which is right while it publishes *strings*; Phase
+  4 matches on **concepts**, which are our vocabulary, and "concepts are ours so
+  anything goes" is the wrong answer — a concept only YouTube witnesses still
+  discloses YouTube data, because the subscription list is the only way it could
+  be true. `semantic_private.concept_has_non_video_witness` is the test: if a
+  non-YouTube source attests it, **the identical row would be published with
+  YouTube disconnected**, which is mechanical where judging a string's
+  recoverability by eye is not. It reads `observation_mappings → observations →
+  sources.independence_group` and requires `mapping_state = 'accepted'`, because
+  a candidate is a fuzzy near-miss the scorer discards. **`0117` read
+  `concept_source_scores`, which the contract defines and nothing populates — 0
+  rows — so it answered false for every concept**, and its own assertion was
+  guarded on that table being non-empty and skipped. *A check that can be
+  skipped will be skipped exactly when it is needed*, because the condition that
+  makes it skip is usually the bug; `0118`'s assertion instead demands the
+  predicate answer both true and false over real data, which fails on a vacuous
+  rule in either direction. YouTube still supplies the second independence
+  group, which no music source can. **No gate is opened** —
+  `allow_bio`, `allow_icebreaker` and `allow_cross_source_fusion` stay false and
+  are not consulted, because nothing YouTube supplied is displayed.
+- **The work bar is 0.25 against creators' 0.35, and it is a judgement.** A
+  creator accumulates across everything they touch while a work is attested only
+  by its own songs, so the same strength means more evidence. One library, one
+  reviewer.
+- **The flag check lives inside `assert_surface_allowed`**, not beside it —
+  five `api` functions already call that guard, and a parallel check is how two
+  tests that must agree stop agreeing. It is **`stable`, never `immutable`**: a
+  flag lookup reads tables, and an `immutable` function may be folded at plan
+  time, which for a guard means evaluated once and never again. The kill switch
+  comes free, since `flag_enabled_v031` already answers false for every key
+  while `emergency_privacy_kill_switch` is on.
+- **A check on a function's source text is not a check on its behaviour.** This
+  has shipped twice — `0095` counted 35 unreachable concepts and `0102` asserted
+  a guard *mentions* the flag function. `0103` is the shape to copy: flip the
+  flag, call the guard, assert the answer changes in both directions and with
+  the kill switch down, then restore every flag and prove that too. Inside the
+  migration's transaction, so it re-runs on every replay.
+- **Rewriting a reader to add a guard drops what is at the bottom of it.**
+  `0102` converted `list_assertions` from `language sql` to `plpgsql` by pasting
+  the body from `pg_get_functiondef` and lost the `order by` — its own assertion
+  checked the column *count*, which cannot see ordering any more than it can see
+  position. **Memories draws in the order it is given**, so an unordered read
+  showed somebody their fourteenth-strongest trait first and called it what they
+  are most about. Found on a device, not in SQL.
+- **A verdict attaches to the assertion, never to the run.** `user_assertions`
+  rows are stable — keyed on `(user, predicate, concept)`, with a re-score
+  updating `machine_state` — so a review survives any number of re-scores, which
+  matters because model versions change several times a day. **`assertion_reviews`
+  and `assertion_preferences` are two facts in two tables on purpose**: a
+  reviewer's *"this claim is wrong"* is diagnostic, a user's *"don't show me
+  this"* is product, and one column for both means a diagnostic judgement
+  silently becomes a hide — and that a later change to what `display_state` means
+  would rewrite the review history.
+- **`-probe-surface 1` proves the read half and needs a device.** It reads and
+  never writes, unlike `-probe-ingest` — confirm and suppress are somebody's own
+  answers about themselves, and a probe recording one to test a network call
+  would be putting words in their mouth. **`-probe-ingest 1` needs a device
+  too**, and writes a real encrypted row deliberately: a probe that avoided
+  writing would leave the write path exactly as unproven. Run it twice — the
+  second receipt should read `stored 0, duplicates 1`.
+### Where the pipeline stands
+
+**Phase 2 closed 2026-08-12 on two accounts**; §8's four bullets — backfill,
+classifiers and worker running, shadow comparison, and a human review of every
+Calendar/HealthKit promotion — are all satisfied. `semantic/JOURNAL.md` records
+what each involved and what it cost.
+
+**65 active assertions per account over ~6,650 scores**, from 2,417 music
+observations and 101 calendar events. Thirteen concepts reach two independence
+groups, which `motif_rules` requires as a check constraint and which nothing in
+this system had ever had — so until then every motif rule was unsatisfiable by
+construction. `creator:le_sserafim` at 0.684, across Apple Music and nine
+separate YouTube repost channels, is the shape the whole exercise was for: the
+music sources all carry the `music` group by design, so no music source can ever
+be the second witness.
+
+**HealthKit classifies and correctly produces nothing**: 390 accepted, **0
+rejected**, 366 activity days, 24 hours, coverage `aggregate_only`, zero habit
+candidates — which is what §10 requires when every `activity:*` and
+`routine:*_workouts` concept derives from typed workout sessions and no test
+device has an Apple Watch. `rejected = 0` is the load-bearing number, since
+`_parse_activity_day` refuses a row it recovered nothing from. Recording the
+abstention as a row is what makes it reviewable rather than merely absent.
+
+**Calendar promotes 5 of 101** — 4 `travel_itinerary`, 1 `public_ticket`, each
+with a lineage; 96 excluded with none. The 68 `excluded_unknown` is the
+allowlist working rather than a gap.
+
+Two things about reading any of it. **The vault cannot answer "what was promoted
+and why", by design** — `observations.normalized_payload` is four keys and no
+title, and `source_item_hmac` is salted with a KMS key only the classifier's
+role may use — so `tools/calendar_review.py` re-derives each decision from the
+legacy row with the same classifier and catalogs, and a test pins its
+constructor arguments because a missing catalog would silently reclassify. And
+**anything counted off `distilled_records` counts history**: that tool reported
+9 promotions against the vault's 5 on its first run for exactly that reason, and
+only running both accounts caught it.
+
+**Three works are judged and the bar honours all three** — Footloose in at
+0.266, BanG Dream! out at 0.237, Re:Zero out at 0.047 — which is what moved the
+work bar to 0.25. Still one library and one reviewer, so it is a judgement and
+will only become a measurement against somebody else's music.
+
+**What is not finished is Phase 2's *premises***, which are entries in Known
+gaps rather than here: nobody has read the assertions end to end, only the
+strongest of them, and the ontology is one library's.
 
 ### The dynamic profile
 
@@ -2680,6 +2329,48 @@ nothing to inflate.
 (`0037`) is `security definer` and returns rows only to somebody holding a like
 *from* this person or a conversation *with* them. A page reachable from two
 buttons is a drawing; a function that returns nothing is a rule.
+
+**And for months that rule consulted no state, which `0122` fixes.** The like
+clause tested only that a row existed — `likes.status` is
+`pending | accepted | declined` and it read none of it — so **declining an
+invitation left the sender's school and bio readable to the person who declined
+it, permanently.** Those are exactly the two fields kept off `discovery_cards`
+on purpose, so the gate that makes them narrower was leaking through a state
+nobody intended. Now `pending` (an open invitation is the *reason* the page
+exists — nobody can decide about a person they may not look at) and `accepted`
+authorise; `declined` is history. Only the recipient may set that status
+(`0009` grants back `status, responded_at` narrowly), so `declined` here always
+means *I* answered *them*. **The conversation clause is untouched and is the
+second place blocking will have to be consulted**, after `private.is_blocked` in
+`0120` — `conversations` carries no ended or blocked state, so its existence
+*is* the current authorisation.
+
+**`-probe-match <uuid>` exists because no screen can check this.** The gated page
+is reachable only from an admirer row or a chat banner, and declining destroys
+the first while creating no second — so the state the fix is about has no button
+left to press. What `0122` closes is the direct RPC call, which is what a rule
+must defend against and what no screen exercises. **The RPC's answer alone still
+proves nothing**, since zero rows means both *refused* and *filled in neither
+field*; the probe therefore prints the like and conversation rows beside it,
+which the caller may read under their own RLS. `0 rows` + `like from them:
+declined` is the fix working; `0 rows` + `pending` is a bug. **Probe somebody who
+has a school or a bio**, or the two cannot be told apart — the first attempt to
+test `0122` on a device proved nothing for exactly that reason, because the
+target's profile was empty.
+
+**Proven on a device 2026-08-12**: against a target holding both fields,
+`match_profile: 0 rows` beside `like them -> you: declined` and no conversation.
+Under `0037` that same call returned the school and the bio to somebody who had
+declined the invitation.
+
+**Two things the probe cost, both worth keeping.** An **alert is a single-shot
+surface**: writing `result` twice — a "reading…" placeholder before the await,
+the answer after — left SwiftUI showing the first message, so dismissing it
+discarded the result and the probe reported only that it had *started*. It
+prints to the console as well now, which cannot be swallowed. And **a launch
+argument only exists when Xcode launches the app** — from the home screen or the
+app switcher the scheme passes nothing, so every probe silently does nothing.
+All three probes share both traps.
 
 **The split is by how identifying a field is.** Name, age, district, photographs
 and the ontology mix are on `discovery_cards`, which every signed-in account may
@@ -2716,114 +2407,39 @@ thing where anybody can see it is wrong.
 
 ### Phase 3: Memories draws assertions, and the legacy cards stay beside it
 
-**Built 2026-08-12, and the server half already existed.** `0048` had shipped
-the whole narrow-RPC surface §8 asks for — `api.list_assertions`,
-`confirm_assertion`, `add_assertion`, `suppress_assertion`, `restore_assertion`
-and `record_assertion_exposure`, every one `security definer` and scoped to
-`auth.uid()` with no parameter for whose. Phase 3 was pointing the app at them.
+**Built 2026-08-12**, against a surface `0048` had already shipped whole:
+`api.list_assertions`, `confirm_assertion`, `add_assertion`,
+`suppress_assertion`, `restore_assertion` and `record_assertion_exposure`, every
+one `security definer` and scoped to `auth.uid()` with no parameter for whose.
+Phase 3 was pointing the app at them. The rules governing it are in *The
+surfaces* above; `semantic/JOURNAL.md` has how it was arrived at, including
+three defects of this codebase's recurring shape that made every confirm and
+suppress fail silently from the moment they were written.
 
-**The difference from the legacy cards below is what a row *is*.** There a row
-is a string a source produced, filed under a domain `Ontology.classify` guessed
-at by substring, and striking one off goes through `BanList.Kind`, which removes
+**The difference from the legacy cards below is what a row *is*.** There a row is
+a string a source produced, filed under a domain `Ontology.classify` guessed at
+by substring, and striking one off goes through `BanList.Kind`, which removes
 **every row whose name matches** — so banning an artist also bans a YouTube
 channel called the same thing. Here a row is a concept with an id, and
 `suppress_assertion` names one assertion. The contract forbids a title ban
 becoming a concept-level negative; this is what makes that true rather than
-intended. Both are on screen at once deliberately: §8 cuts Memories over while
-discovery, the bio and the icebreaker stay legacy, so the two readings can be
+merely intended.
+
+**Both readings are on screen at once deliberately**: §8 cuts Memories over
+while discovery, the bio and the icebreaker stay legacy, so the two can be
 compared.
-
-**Two switches, and they are not redundant.**
-`AppConfig.semanticSurfacesEnabled` decides whether the app asks;
-`memories_reads` decides whether the server answers and is §9's rollback
-contract, throwable without a release. `0102` is what made the flags decide
-anything at all — they had existed since `0048` with **zero callers**, and
-`emergency_privacy_kill_switch` described itself as a master stop and stopped
-nothing.
-
-**The `api` schema had to be exposed by hand**, which no migration can do:
-Settings → API → Exposed schemas. Until it was, every RPC answered `PGRST202`
-naming **`public.list_assertions`** — which reads as a missing function rather
-than an unexposed schema. Found with one request from outside the app, before
-any Swift was written, precisely so it would not be diagnosed from inside it.
-`PostgREST.callFunction` sends both `Content-Profile` and `Accept-Profile`,
-because an RPC is a POST that reads and setting one sends half the calls to
-`public`.
-
-**Three defects, all the same shape, and each hid the next.** The recurring one
-this file names — *a call that can fail, a result nobody reads*:
-
-- A **required exposure passed as `NSNull`**. `suppress_assertion` ends with
-  *"matching assertion exposure is required"*: an answer must name the exposure
-  it answers, so "I disagree" refers to a particular label at a particular rank
-  computed by a particular score version. `record_assertion_exposure` was never
-  called at all.
-- The exposure then **requested and unparseable**. A `uuid`-returning function
-  answers `"a1b2-…"`, a top-level JSON fragment, which `JSONSerialization`
-  refuses by default — so the id read as nothing and the answer never ran. The
-  request had succeeded; only the reading of it had not.
-- **Both invisible**, because the failure was stored on the service and drawn
-  nowhere. A refused removal looked exactly like an accepted one: the row
-  vanished optimistically, returned on the next load, and nothing said why.
-
-Every confirm and suppress failed from the moment they were written until the
-owner tapped remove and asked whether it had stuck. **A probe proved the reads
-and nothing proved the writes**, and the surface was called "behaving" on the
-strength of the half that could be seen.
-
-**`-probe-surface 1` is the read half's proof** and needs a device: a simulator
-holds no session, so it correctly answers *"could not ask"* there. It reads and
-never writes, unlike `-probe-ingest` — confirm and suppress are somebody's own
-answers about themselves, and a probe that recorded one to test a network call
-would be putting words in their mouth.
 
 **What the page shows is `concept_kind`, and the owner drew the line.** *"These
 blanket terms serve internal processing, but serve no purpose for user edit —
 the terms shown should be well defined enough to strike off or understand,
 either artists like Shiina Ringo or ABBA, or franchises like Re:Zero and
-Footloose."* So `0108` filters `list_assertions` to `creator`, `work` and
-`activity`, and the page went from 65 rows to 36.
+Footloose."* `0108` filters to `creator`, `work` and `activity`, and the page
+went from 65 rows to 36. The 13 genres and 16 scenes/spheres remain asserted,
+scored and evidenced, and are what Phase 4's server-owned discovery will match
+on — `sphere:korean` at 0.927 is in `user_assertions` untouched.
 
-**It filters one page and nothing else, which is worth stating because `0108`'s
-own comment overstates it.** That comment says suppressing a blanket term
-*"would quietly change how everything else is weighed"*. It would not:
-`assertion_preferences` is read by the six `api` functions and two Calendar
-guards, and **the scorer never reads it**, so a suppression removes a row from
-one page and does nothing else. The migration is left as the record of what was
-deployed — `supabase_migrations.schema_migrations` stores each migration's
-statements, and editing an applied file is the `ARCHIVED-YOUTUBE` drift one
-layer down — so the correction lives here. **The argument that survives is the
-owner's own and needed no help**: *"1990s English-language"* is not a
-well-defined thing a person can strike off or understand.
-
-The 13 genres and 16 scenes/spheres remain asserted, scored and evidenced, and
-are what Phase 4's server-owned discovery will match on. `sphere:korean` at
-0.927 is in `user_assertions` untouched.
-
-**An allowlist, so a new kind is withheld until somebody decides it belongs** —
-the Calendar classifier's shape, and for the same reason: an internal kind
-appearing on somebody's profile is worse than a nameable one being missed,
-because only the first is invisible to whoever added it. **A user's own term
-always survives it**, having no concept and therefore no kind, which is why the
-rule is written as *a user term or an allowed kind* and why addition needed no
-server change.
-
-**Restore can only be an undo, and that is a gap rather than a design.**
-`restore_assertion` takes three arguments where its siblings take four — no
-exposure, correctly, since a suppressed assertion is filtered out of
-`list_assertions` and was never on screen. But **nothing returns suppressed
-assertions at all**, so a person cannot see what they have hidden in order to
-press anything on it: a row hidden today cannot be recovered tomorrow.
-
-**The work bar is 0.25 and is a judgement, not a measurement.** A creator
-accumulates across everything they touch — Bach is on 417 mappings — while a
-work is attested only by the songs belonging to it, so the same strength means
-more evidence. Set from the owner's reading of three of their own: Footloose in
-at 0.266, BanG Dream! out at 0.237, Re:Zero out at 0.047. It went in at 0.20
-first, deliberately below both of the first two, on the grounds that seven
-mappings against six is not a difference the scale can resolve; **what was
-missing was a label on the second row, not a finer threshold**. One library and
-one reviewer.
+**Restore can only be an undo, and that is a gap rather than a design** — see
+Known gaps.
 
 ### Memories is the ontology's surface
 
@@ -3402,18 +3018,22 @@ this file is in `git log -p CLAUDE.md`.
   cantopop and mandopop, so it scores once for everything those four score for —
   the same tautology as `hub:music` one level down, and the hub rule cannot
   catch it because its kind is `genre`.
+- **Nothing enqueues a recompute when somebody answers a claim.** `0114` made
+  suppression a real scorer input — freed weight moves to the other named roles
+  on the row — and `0115` restored the revision bump to match, so a suppression
+  now correctly stales every inferred assertion. **But no trigger enqueues the
+  work**, so the Memories page stays blank until the worker is run by hand. The
+  trade was taken deliberately (showing the old score would be showing a number
+  the system no longer stands behind) and the enqueue is the half still owed.
+  Note the shape of the fix: one job per *user*, keyed on the revision and the
+  three analysis ids, not one per tap — ten confirmations must not queue ten
+  recomputations of the same answer.
 - **Whether HealthKit habit candidates are within the grant is unanswered.**
   The consent says *keep and use my activity to describe me to myself*, with all
   four booleans false; the next HealthKit unit computes fitness *assertions*.
   Keeping them off every surface is what the booleans do — whether computing
   them at all is inside what was agreed is a different question, and moot until
   a device records workouts.
-- **Eight ingestion runs are stuck `running`** from before finalization
-  existed, and one of them holds ~1,224 music rows that will never get an
-  observation: evidence belongs to the run that captured it, and that run will
-  never finalize. Deciding what to do with a zombie run is the prerequisite for
-  making `input_hash` content-based, which is the other half of
-  `ingestion_run_live_identity_idx` being able to fire at all.
 - **App Store privacy labels are not filled in.** The manifest declares eleven
   data types — it gained `PhoneNumber`, `PhotosorVideos` and
   `EmailsOrTextMessages` on 2026-08-05 — and the questionnaire still says

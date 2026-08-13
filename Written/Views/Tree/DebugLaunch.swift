@@ -135,6 +135,29 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "probe-isrc")
     }
 
+    /// `-probe-match <user-uuid>` → call `match_profile` on somebody and report
+    /// both what came back and the authorisation you hold over them.
+    ///
+    /// **`0122` cannot be checked through the app, and that is structural.**
+    /// The gated page is reachable only from an admirer row or a chat banner,
+    /// and declining destroys the first while creating no second — so the state
+    /// the fix is about has no button left to press. What `0122` closes is the
+    /// direct RPC call, which is exactly what a rule has to defend against and
+    /// exactly what no screen exercises.
+    ///
+    /// **Reporting the RPC alone would prove nothing**, because `match_profile`
+    /// returns zero rows for a refusal *and* for a match who filled in neither
+    /// field, deliberately — distinguishing them would disclose whether an
+    /// account exists. So the probe also reports the like and conversation rows
+    /// between the two people, which the caller may read under their own RLS,
+    /// and the reader compares the two halves.
+    ///
+    /// Reads only. There is nothing to write here and a probe that created a
+    /// like to test a read would be sending somebody an invitation.
+    static var probeMatch: String? {
+        UserDefaults.standard.string(forKey: "probe-match")
+    }
+
     /// `-probe-ingest 1` → send one envelope through the real ingestion
     /// endpoint and show the receipt.
     ///

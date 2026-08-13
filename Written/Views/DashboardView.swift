@@ -1210,6 +1210,7 @@ struct DashboardView: View {
                 cardLabel("WHAT YOUR DATA SAYS", icon: "sparkles")
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
 
+
                 // **Said out loud when an answer does not save.** Without this
                 // the row simply reappears on the next visit, which reads as the
                 // app forgetting rather than as the server refusing — and that

@@ -44,11 +44,76 @@ PROJECT_REF = "fwnezkbesjoazlpaflbq"
 BASE = f"https://{PROJECT_REF}.supabase.co"
 OUTPUT = "ontology-terms.csv"
 
-# Ordered by value per unit of effort rather than alphabetically: genres are
-# almost all prefilled and need confirming, composers and performers are the
-# subjects the product actually trades on, and titles are the long tail you may
+# Ordered by value per unit of effort rather than alphabetically, and the order
+# is the argument for the whole file: **the terms worth having are the most
+# downstream ones** — the specific, nameable things that can appear in somebody
+# else's dynamic bio or icebreaker. `LiSA`, `Augustin Hadelich`, `76ers`,
+# `bioinformatics` are that; `hub:music` and `sphere:anglophone` are not, which
+# is the same line `0108` drew for the Memories page.
+#
+# `booked_event` leads because a ticketed entry cost money and a Saturday, which
+# is the strongest claim any source here returns. Genres are nearly all
+# prefilled and need only confirming. Titles are the long tail you may
 # reasonably never finish.
-ROLE_ORDER = ["genre", "composer", "performer", "album", "title"]
+ROLE_ORDER = [
+    "booked_event",
+    "genre",
+    "yt_topic",
+    "yt_channel",
+    "uploader_tag",
+    "composer",
+    "performer",
+    "podcast_show",
+    "podcast_publisher",
+    "calendar_event",
+    "album",
+    "title",
+]
+
+# **A music library cannot supply the breadth the product needs.** Half of what
+# a dynamic bio would want to say — a sport somebody plays, a field they work
+# in, a team they follow, a cuisine they book — is never in Apple Music. These
+# are the sources that carry it and that this project may derive from:
+# `web/en-us/privacy/`'s list minus YouTube, which III.E.4.h forbids deriving
+# categories from at all, and minus HealthKit, which is aggregate-only and has
+# no workout on any test device.
+SOURCES = ["apple_music", "music_library", "apple_podcasts",
+           "apple_calendar", "google_calendar", "youtube"]
+
+# **YouTube is here for one reason: it is the only second independence group.**
+# `apple_music`, `music_library` and `spotify` all carry `music` by design, so
+# no music source can ever be the second witness, and `motif_rules` requires two
+# as a check constraint. `0078` measured `creator:le_sserafim` across nine
+# separate repost channels — evidence channel-name matching cannot see at all.
+#
+# **What may be taken from it, and the line is where the label comes from.**
+# `snippet.tags` and `brandingSettings.channel.keywords` are written by the
+# uploader and returned by the API, so matching a whole one against a controlled
+# vocabulary is *reading a supplied label*. That is the determination `0078`
+# recorded, and `allow_uploader_tags` has been true since.
+#
+# **Video titles are deliberately absent.** Producing a label from a title is
+# `written_title_tag`, gated behind `allow_title_tags`, which is false — and a
+# worksheet of titles for somebody to label is that same operation with a person
+# in the loop. It stays out until the §3 amendment is accepted.
+#
+# `min_tag_length` and whole-tag matching are `0078`'s own resolver parameters,
+# repeated here so a term too short to be evidence is never labelled: `creator:yg`
+# matched in that measurement, and YG Entertainment is a label, not an artist.
+MIN_TAG_LENGTH = 3
+
+# `Ontology.refusedTopics` — `Written/Services/Ontology.swift:729`. A content tag
+# is how a protected characteristic arrives without anybody deciding to collect
+# it: subscribe to a diocese's channel and a naive mapping writes down your
+# religion. Dropped at extraction so a refused topic never reaches a file
+# somebody is labelling.
+REFUSED_TOPICS = {"Religion", "Politics", "Health", "Military", "Society"}
+
+# **Not drawn, on the same reading rule the dashboard already applies.** A
+# birthday or a meeting is collected and synced and simply never *shown*, so a
+# worksheet of things to say about somebody is exactly where the rule belongs.
+# Matched on the lowercased title, as tokens rather than substrings.
+UNDRAWN_TITLE = ("birthday", "meeting", "生日")
 
 FIELDS = ["role", "term", "n", "resolves_today", "concept", "notes"]
 
@@ -116,8 +181,8 @@ def fetch_records(key: str) -> list[dict]:
     while True:
         page = get(
             "/rest/v1/distilled_records"
-            "?select=name,creator,extra"
-            "&source=in.(apple_music,music_library)"
+            "?select=source,data_type,name,creator,extra"
+            f"&source=in.({','.join(SOURCES)})"
             f"&limit={PAGE}&offset={offset}",
             key,
         )
@@ -140,10 +205,74 @@ def terms(records: list[dict]) -> dict[tuple[str, str], int]:
         extra = record.get("extra") or {}
         if not isinstance(extra, dict):
             extra = {}
+        source = record.get("source") or ""
+        data_type = record.get("data_type") or ""
+        name = (record.get("name") or "").strip()
+        creator = (record.get("creator") or "").strip()
+
+        if source in ("apple_podcasts",):
+            # A show is the nameable thing — *Acquired*, *Huberman Lab* — and
+            # its publisher is a second one. Episodes are not extracted: there
+            # is no play history on this source (`playCount` is 0 on episodes
+            # demonstrably played), so an episode title is evidence of a
+            # download and the show behind it is the interest.
+            if data_type == "podcast_show":
+                if name:
+                    counted[("podcast_show", name)] += 1
+                if creator:
+                    counted[("podcast_publisher", creator)] += 1
+            continue
+
+        if source == "youtube":
+            # A channel is the nameable thing on both row kinds: the channel
+            # somebody subscribed to, and the channel that uploaded a video they
+            # liked. `0078`'s finding was that these are *different* populations
+            # — LE SSERAFIM's nine reposters are uploaders and not one of them
+            # is subscribed to.
+            if data_type == "subscription" and name:
+                counted[("yt_channel", name)] += 1
+            elif data_type in ("liked_video", "playlist_item") and creator:
+                counted[("yt_channel", creator)] += 1
+
+            # Uploader-supplied labels. `tags` come from a liked video's
+            # snippet, `keywords` from the channel's branding — the same class
+            # one level up, and the half that reaches subscriptions.
+            for field in ("tags", "keywords"):
+                for tag in (extra.get(field) or "").split("|"):
+                    text = tag.strip()
+                    if len(text) >= MIN_TAG_LENGTH:
+                        counted[("uploader_tag", text)] += 1
+
+            # YouTube's own topics, for confirming coverage only —
+            # `tools/youtube_topics.py` owns the provider-topic mapping and a
+            # second copy of it here would be two things to keep in step.
+            for topic in (extra.get("topics") or "").split("|"):
+                text = topic.strip()
+                if text and text not in REFUSED_TOPICS:
+                    counted[("yt_topic", text)] += 1
+            continue
+
+        if source in ("apple_calendar", "google_calendar"):
+            # Containers are not terms, and an untyped row is not drawn — the
+            # same rule the dashboard applies, and the reason 95 rows on a real
+            # device were 88 holidays and 6 real events.
+            if data_type != "event" or not name:
+                continue
+            lowered = name.casefold()
+            if any(word in lowered for word in UNDRAWN_TITLE):
+                continue
+            # **Booked and typed are two different claims and get two roles.**
+            # A ticketing site wrote the booked one in by itself, which cost
+            # money and a Saturday; the other is what somebody typed for
+            # themselves. Both are wanted and the first is worth labelling
+            # first, which `ROLE_ORDER` acts on.
+            booked = str(extra.get("booked") or "") in ("1", "true", "True")
+            counted[("booked_event" if booked else "calendar_event", name)] += 1
+            continue
 
         for role, value in (
-            ("title", record.get("name")),
-            ("performer", record.get("creator")),
+            ("title", name),
+            ("performer", creator),
             ("composer", extra.get("composer")),
             ("album", extra.get("album")),
         ):

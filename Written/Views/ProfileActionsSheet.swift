@@ -14,6 +14,18 @@ import SwiftUI
 /// heavier thing it is. Putting them the other way round would invite a report
 /// from somebody who only meant "not for me", and a report is read by a person.
 ///
+/// **Blocking is deliberately absent, and that is a product decision rather than
+/// an omission.** It lives in one place — the block list in Settings — because
+/// it is the only one of these that can be undone, and a control you can undo
+/// wants a place where you can see what you have done. Removing and reporting
+/// are decisions about *this* profile taken in the moment; blocking is a list
+/// you keep. See `BlockService`.
+///
+/// **The first row is titled by the caller.** On a stranger it is "Remove"; on
+/// somebody you matched with it is "Unmatch", because those are different words
+/// for what is, underneath, the same local ban — and a match is a thing you
+/// leave rather than a card you take off a pile.
+///
 /// **Cancel is a card of its own**, separated by a gap. That is what makes it
 /// read as "none of these" rather than as a third choice — and it keeps the
 /// safe option a clear distance from the destructive one, which is the whole
@@ -25,6 +37,8 @@ import SwiftUI
 /// where the surrounding card is not available to read.
 struct ProfileActionsSheet: View {
     let name: String
+    /// "Remove" on a stranger, "Unmatch" on somebody you matched with.
+    var removeTitle: String = "Remove"
     let onRemove: () -> Void
     let onReport: () -> Void
     let onCancel: () -> Void
@@ -55,7 +69,7 @@ struct ProfileActionsSheet: View {
                     // says, on a sheet whose whole job is two decisions — and a
                     // heading above two buttons is a third thing to read before
                     // either can be pressed.
-                    row("Remove", tint: GardenPalette.ink, action: onRemove)
+                    row(removeTitle, tint: GardenPalette.ink, action: onRemove)
                         .accessibilityHint("Takes \(name) out of your Explore for good")
 
                     Divider().overlay(GardenPalette.ink.opacity(0.08))

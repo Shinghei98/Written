@@ -32,6 +32,11 @@ struct MatchProfileView: View {
     /// notified, and cannot read the row. See `0035`.
     @State private var isBookmarked = false
     @State private var isReporting = false
+    /// **The ellipsis used to *be* Report**, which left somebody who simply
+    /// wanted away from a match with only an accusation to make. It raises the
+    /// same three choices Explore does now, and Report is one of them rather
+    /// than all of them.
+    @State private var isChoosing = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -70,7 +75,7 @@ struct MatchProfileView: View {
                     opening: openPhoto,
                     isBookmarked: isBookmarked,
                     onBookmark: toggleBookmark,
-                    onMore: { isReporting = true },
+                    onMore: { isChoosing = true },
                     onClose: { self.openPhoto = nil }
                 )
                 .transition(.move(edge: .trailing))
@@ -80,6 +85,34 @@ struct MatchProfileView: View {
             // `DiscoveryCard.onMore` records: the sheet is centred on the
             // *screen*, and an overlay attached to a card centres on the card
             // and is clipped by its corner radius.
+            // **Unmatch and Report, and blocking is deliberately not here.**
+            // A block can be lifted and an unmatch cannot, so they belong on
+            // different surfaces: the one you can undo lives in the block list,
+            // where you can see what you have done, and the one you cannot lives
+            // in the moment. Offering both side by side would put two
+            // similar-sounding choices next to each other where only one is
+            // reversible, and the irreversible one is the shorter word.
+            if isChoosing {
+                ProfileActionsSheet(
+                    name: profile?.name ?? fallbackName,
+                    // **"Unmatch", not "Remove".** Underneath it is the same
+                    // local ban `banPerson` applies everywhere, but a match is
+                    // something you leave rather than a card you take off a
+                    // pile, and the word is the only thing that says so.
+                    removeTitle: "Unmatch",
+                    onRemove: {
+                        viewModel.banPerson(personID)
+                        isChoosing = false
+                        onClose()
+                    },
+                    onReport: {
+                        isChoosing = false
+                        isReporting = true
+                    },
+                    onCancel: { isChoosing = false }
+                )
+            }
+
             if isReporting {
                 ReportSheet(
                     name: profile?.name ?? fallbackName,

@@ -63,10 +63,22 @@ actor MatchProfileService {
             // The card and the gated half together — they are independent, and
             // waiting for one before asking for the other is a round trip on
             // the screen somebody is already staring at.
-            async let cardRows = PostgREST.rows("rest/v1/discovery_cards", query: [
-                "user_id": "eq.\(personID)",
-                "select": "user_id,display_name,age,district,photo_paths,interests,domains,top_subjects",
-            ])
+            // **`match_card`, not a direct read of `discovery_cards`.** That
+            // table's policy is *any signed-in user may read it*, so the card
+            // half of this page consulted nothing: `0123` hid a blocked
+            // person's school and bio and left their name and face. `0126`
+            // puts both halves behind one condition — `private.may_see_match`
+            // — so the two cannot disagree about who may see this profile.
+            //
+            // Unconditional, with no feature flag: the discovery flag decides
+            // whether the *feed* is server-owned, while this is an
+            // authorisation hole that exists today, and gating the fix on a
+            // rollout would be choosing to leave it open.
+            async let cardRows = PostgREST.insert(
+                "rest/v1/rpc/match_card",
+                body: ["target": personID],
+                prefer: "return=representation"
+            )
             async let gatedRows = PostgREST.insert(
                 "rest/v1/rpc/match_profile",
                 body: ["target": personID],
@@ -188,6 +200,95 @@ actor MatchProfileService {
         // photograph four keeps its own slot whether or not it has a line.
         return (0..<count).map { $0 < lines.count ? lines[$0] : nil }
     }
+
+    #if DEBUG
+    /// `-probe-match <user-uuid>` → call `match_profile` on somebody and report
+    /// it beside the authorisation you actually hold over them.
+    ///
+    /// ```
+    /// xcrun simctl launch <device> com.written.datingapp -probe-match <uuid>
+    /// ```
+    ///
+    /// **The RPC's answer alone proves nothing, and that is deliberate in the
+    /// function rather than a shortcoming here.** `match_profile` returns zero
+    /// rows for a refusal *and* for a match who filled in neither field,
+    /// because distinguishing them would tell a caller whether an account
+    /// exists. So a probe that only reported "0 rows" could never separate
+    /// `0122` working from the target having an empty profile — which is
+    /// exactly the ambiguity that made the first attempt to test `0122` on a
+    /// device prove nothing.
+    ///
+    /// The second half is what makes it readable: the like and conversation
+    /// rows between the two people, which the caller may read under their own
+    /// RLS without any special privilege. Put together:
+    ///
+    ///     rows 0, like from them `declined`   -> refused. 0122 working.
+    ///     rows 0, like from them `pending`    -> a bug, or an empty profile.
+    ///     rows 1                              -> authorised, and they filled
+    ///                                            something in.
+    ///
+    /// **For an unambiguous read, probe somebody who has a school or a bio.**
+    /// Against an empty profile the first two lines cannot be told apart, and
+    /// no amount of reporting here fixes that — the information is not the
+    /// caller's to have.
+    func probe(target: String) async -> String {
+        guard let me = await SupabaseAuth.shared.currentUserID() else {
+            return "no access token: you're signed out. A simulator holds no "
+                 + "session, so run this on a device."
+        }
+        if me == target {
+            return "target is you: match_profile returns early on me = target."
+        }
+
+        var lines: [String] = ["me:     \(me)", "target: \(target)"]
+
+        do {
+            let rows = try await PostgREST.insert(
+                "rest/v1/rpc/match_profile",
+                body: ["target": target],
+                prefer: "return=representation"
+            )
+            if let row = rows.first {
+                let school = (row["school"] as? String)?.nonEmptyValue ?? "—"
+                let bio = (row["bio"] as? String)?.nonEmptyValue ?? "—"
+                lines.append("match_profile: 1 row (school: \(school), bio: \(bio))")
+            } else {
+                lines.append("match_profile: 0 rows")
+            }
+        } catch {
+            lines.append("match_profile: failed — \(error.localizedDescription)")
+        }
+
+        // The authorisation half. Both directions, because which one authorises
+        // is the whole question: only a like *from* the target counts.
+        let likes = (try? await PostgREST.rows("rest/v1/likes", query: [
+            "or": "(and(liker_id.eq.\(me),liked_id.eq.\(target)),"
+                + "and(liker_id.eq.\(target),liked_id.eq.\(me)))",
+            "select": "liker_id,status",
+        ])) ?? []
+
+        if likes.isEmpty {
+            lines.append("likes: none either way")
+        } else {
+            for like in likes {
+                let from = (like["liker_id"] as? String) == me ? "you -> them" : "them -> you"
+                let status = (like["status"] as? String) ?? "?"
+                lines.append("like \(from): \(status)"
+                    + ((like["liker_id"] as? String) == target && status == "declined"
+                       ? "   <- 0122: this must NOT authorise" : ""))
+            }
+        }
+
+        let conversations = (try? await PostgREST.rows("rest/v1/conversations", query: [
+            "or": "(and(user_a.eq.\(me),user_b.eq.\(target)),"
+                + "and(user_a.eq.\(target),user_b.eq.\(me)))",
+            "select": "id",
+        ])) ?? []
+        lines.append("conversation: \(conversations.isEmpty ? "none" : "exists — authorises regardless of the like")")
+
+        return lines.joined(separator: "\n")
+    }
+    #endif
 }
 
 private extension String {
