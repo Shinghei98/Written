@@ -1957,7 +1957,7 @@ journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary** — several of these do until you know
 what they cost. What follows is what binds; the journal is what happened.
 
-**Migration head `0116`.** `db push` is the deployment mechanism and
+**Migration head `0138`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate. `0091`–`0116` are the ones whose rules
@@ -1965,6 +1965,116 @@ are written up below: the model-version discipline (`0092`–`0098`), the zombie
 runs (`0099`–`0100`), the review table (`0101`), the surface flags
 (`0102`–`0103`), the revision faults (`0104`–`0105`, `0111`–`0115`), the work bar
 (`0109`–`0110`) and the suppression transfer (`0114`, `0116`).
+
+### The second real account, and what it proved (2026-08-13)
+
+**A second person connected seven sources and the pipeline produced zero
+assertions.** Nothing failed — nine worker jobs succeeded, `rejected 0`. The
+resolver hit 12 of 20 YouTube topics and **3 of 152 uploader tags**.
+
+**The creator vocabulary *is* one person's Apple Music library**, minted by
+`0075`, and it does not generalise: of 20 artists the second account named,
+exactly two existed. The first diagnosis — that this was an alias problem — was
+drawn from three examples, two of which happened to be the two that existed. It
+is mostly a *concept* problem, and the tail is unbounded.
+
+`0134` publishes ontology **0.10.0** with a third CSV family,
+`semantic/ontology/youtube_terms_*.csv`. **Never add rows to `seed_*.csv`** —
+`test_seed_consistency` asserts those three mirror `0044_semantic_seed.sql`
+field for field, and sports broke that mirror by 66 differences once already.
+`tools/seed_from_csv.py` reads `FAMILIES`, and **does not emit the recompute
+enqueue** — that block is hand-added from `0097`.
+
+**It was necessary and not sufficient.** Unresolved terms went 191 → 159 and
+scored concepts 15 → 27; the account still has zero eligible assertions,
+because its whole vault is 50 YouTube observations. Vocabulary was never the
+binding constraint — evidence was.
+
+### YouTube channels are terms, and the flags that decide it
+
+**Everything below the flag was already built and had never been switched on.**
+`observation_mappings` has permitted `youtube_semantic_kind = 'channel_identity'`
+since `0045`, `ontology.youtube_channels.canonical_title` has existed since
+then, `youtube_channel_role_resolver` 0.2.0 is registered, and the projection has
+always carried `channel_id`. What was missing was a catalogued title, an
+approval, and worker code.
+
+**`ontology.youtube_policy_approvals` is a row of booleans, and a new row
+supersedes rather than an edit.** `initialize_youtube_run_policy` selects the
+most recently approved (`order by approved_at desc, approval_reference`) and
+copies it onto the run, so the older determination stays as history.
+`0135` adds `written:determination:channel-identity:2026-08-13`, granting
+`allow_channel_identity` and `allow_title_tags` alongside the uploader tags the
+2026-08-11 determination already allowed.
+
+**The trigger looks up `model_key = 'youtube_uploader_tag_resolver'` by
+literal.** Registering a differently-named resolver leaves that lookup empty and
+the trigger falls to its deny-all branch — every future run silently denied,
+nothing failing. Assert it rather than assume it.
+
+**Channel titles come from `distilled_records`, not the API** — 941 `liked_video`
+rows carry `channel_id` in `extra` and the title in `creator`; a `subscription`
+row *is* the channel, so its `item_id` is the id and its `name` the title. No
+key, no quota, no Lambda network call.
+
+**`VideoPayload` read `channel_id` from `extra` only**, so every subscription
+reached the vault with a null channel — invisible until `0135` gave channel ids
+a use, and then stark: 941 likes carried one, all 430 subscription rows carried
+none. A subscription is the stronger signal and was the half being dropped.
+
+Measured after: 191 channel titles loaded, **112 `channel_identity` mappings**,
+and **no new assertions** — they resolved to artists Apple Music had already
+proved. Three new ones (Kep1er, NewJeans, Hearts2Hearts) sat at 1–2 mappings.
+
+### Three levers force a re-score, and a policy is not one of them
+
+A run's identity is `(user, revision, ontology version, resolver, scorer)`.
+**`0135` granted a policy and enqueued zero jobs**, correctly:
+`enqueue_recompute_on_analysis_change` only enqueues where no run exists for
+that tuple, and `0134`'s recompute had already created runs at 0.10.0. The
+YouTube approval is not in the identity, and
+`semantic_run_live_identity_idx` would have deduped a forced run anyway.
+
+So a behaviour change needs a **model version**. `0136` publishes resolver
+0.4.0; `0138` publishes scorer 0.7.0. A model version that lags its code makes
+`semantic_runs` state something untrue.
+
+**And read the grants first, not sixth.** `0136` shipped a resolver reading
+`ontology.youtube_channels`, which `semantic_worker` could not see — three
+invocations answered `42501` before anybody looked. `semantic_worker` is
+`bypassrls`, and that is **not a grant**. `information_schema.table_privileges`
+shows only what the *querying* role can see and answers empty for `ontology`;
+ask `has_table_privilege` instead, as `0137` does.
+
+### Where the informative fields actually are
+
+Measured on one account's YouTube rows, for the repost case:
+
+| field | what it carried |
+|---|---|
+| channel name | `LisaEdit`, `Aexgrant` — meaningless |
+| topics | `Entertainment`, `Film`, `Television_program` — containers |
+| uploader tags | **null** on every repost channel |
+| title | *"Sheldon ran a red light… #youngsheldon"* |
+
+**The projection keeps the fields carrying nothing and excludes the one carrying
+everything.** Titles are omitted because III.E.4 requires them deleted or
+refreshed within 30 days and `guard_observation_immutable` freezes
+`normalized_payload`.
+
+**That objection is half right and was used to refuse the wrong thing.** The
+guard prevents *updates*; **no trigger on `observations` fires on delete**, so
+the obligation is satisfiable by a sweep that deletes rows — exactly what `0016`
+already does for `distilled_records`. The cost is real: YouTube evidence would
+become a rolling 30-day window, and a swept concept loses its support at the
+next re-score. That is the trade III.E.4 asks for, not a new concession.
+
+**Live defect:** scorer 0.7.0's co-attestation rule shipped reading
+`bool_or(subscription) and bool_or(liked)` across all mappings for a concept,
+which promoted `concept:fashion` (strength 0.190) and `medium:television`
+outright on incidental tags from *unrelated* channels. Fixed in the repository
+to intersect on channel id; **not deployed**, and both assertions are still
+eligible in production.
 
 ### The schema, and who may reach it
 
