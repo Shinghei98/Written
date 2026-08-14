@@ -19,6 +19,10 @@ two disagree, this file controls. The semantic pipeline's build history is
 `semantic/JOURNAL.md`, each migration's reasoning is in its own header comment,
 and anything cut from either file is in `git log -p`.
 
+**What happens next is `docs/NEXT-STEPS.md`** — the dyad test, the distillation
+it is waiting on, and the two one-line things that must not be missed at launch.
+It is a plan rather than a record: an entry is deleted when it stops being true.
+
 ## The prime design constraint: minimum friction
 
 Data extraction must feel like a **one-button experience** per app. OAuth is the

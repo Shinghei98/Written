@@ -1,0 +1,172 @@
+# What happens next: the dyad, and the distillation it is waiting on
+
+**Written 2026-08-14. Every number below was measured on that date rather than
+remembered.** Delete a section when it stops being true — this file is a plan,
+not a record, and the record is `semantic/JOURNAL.md` and `git log -p`.
+
+## Where things actually stand
+
+| | David | Timi | Demo |
+|---|---|---|---|
+| live assertions | **99** | **0** | 66 |
+| observations | 6,311 | 944 | 2,085 |
+| sources in the vault | apple_calendar, apple_music, google_calendar, music_library, outlook_calendar, spotify, youtube | apple_calendar, google_calendar, youtube | apple_calendar, apple_music, google_calendar, music_library, youtube |
+| last ingestion run | 2026-08-14, `ios-1.0+49` | 2026-08-13 | 2026-08-12 |
+
+The only authorised pair in the system is **David–Timi**: she liked him on
+2026-08-14, he accepted, and `public.conversations` went from zero rows to one.
+That match is the expensive part and it already exists.
+
+The one dyad run so far is `stale`, `general_social`, **0 alignment pairs** —
+correct rather than broken, because Timi has no assertions to align.
+
+## 1. Waiting on one tap
+
+**Timi has not installed 49.** Her newest run is the 13th and carries no
+`spotify`, which is the whole reason her page is empty: `dualWriteToVault` gates
+on `AppConfig.semanticIngestionSources`, Spotify entered that set at `a3a4c9c`
+on 2026-08-13, and her binary predates it. Her 593 Spotify rows are safe in
+`public.distilled_records` — append-only — but they have never reached the
+vault.
+
+**Her whole involvement is: install the TestFlight build, open it, tap Spotify
+once.** Nothing else.
+
+**Then confirm it landed**, which is now answerable from the database rather
+than inferable:
+
+```sql
+select connector_version, source_code, started_at, status
+from semantic_private.ingestion_runs
+where user_id = '7046df73-…'
+order by started_at desc limit 5;
+```
+
+Expect `ios-1.0+49` or later and `spotify`. Builds 47 and 48 were both
+ambiguous — 47 named two different codebases and 48 never appeared in any
+ingestion run nor in any commit — which is why 49 exists.
+
+Then let the worker drain: the EventBridge rule `written-semantic-worker-drain`
+fires every two minutes and is confirmed firing, so her assertions should appear
+without anybody invoking a Lambda.
+
+### The risk worth naming before it is measured
+
+**944 observations and zero assertions is not only a Spotify problem.** Her
+vault is calendar and YouTube, and neither can carry a claim alone: Calendar
+promotes a handful (5 of 101 for David — the `excluded_unknown` majority is the
+allowlist working), and YouTube may raise a concept's strength while never being
+the only reason it crosses to another person
+(`concept_has_non_video_witness`).
+
+So Spotify is what should give her a first witness — and **whether her music
+resolves at all is the open question.** The creator vocabulary was minted from
+one Apple Music library, David's, and when her account was first measured the
+resolver hit 3 of 152 uploader tags. If her taste overlaps his she will resolve
+well; if it does not, she may gain few concepts and the dyad may still be thin.
+
+**That is a finding either way**, and it is the other half of what `0134`
+settled: *vocabulary was never the binding constraint, evidence was.* This tests
+the sentence from the other end.
+
+## 2. Testing the dyad
+
+`produce_dyad` is worker-only and revoked from every client role, so it is run
+from a migration's `DO` block — MCP cannot execute it and neither can the app.
+
+```sql
+select semantic_private.produce_dyad(
+  'eb769605-…'::uuid,   -- viewer
+  '7046df73-…'::uuid,   -- subject
+  'icebreaker'
+);
+```
+
+**What to check, in order:**
+
+- the run reaches `succeeded` rather than `stale`, and writes alignment pairs;
+- `explanation_path` names a bridge and a term on either side;
+- David's assertion count stays at 99 — nothing else moved;
+- **`specificity` × `information_value` puts a specific creator above a
+  container.**
+
+That last one is the real test and the reason to look at the numbers rather than
+the count. A bridge on `genre:asian_music` is nearly free — anyone who likes
+K-pop *or* J-pop *or* Cantopop shares it, and it scores 0.942 as a parent of four
+genres it also scores alongside. **If a container outranks a named artist, the
+provisional formulas in `0164` need replacing before a single frame is
+rendered from them.**
+
+### The three questions the spec left open
+
+`semantic/docs/ICEBREAKER_FRAMES.md` is the full specification. Three decisions
+in it are still unmade and all three want real pairs to decide against:
+
+1. **What makes a bridge worth saying?** `information_value` is the column and
+   nothing computes it. A bridge four people in five share is not a
+   conversation.
+2. **How far may a bridge sit from a term?** One `broader` hop is *"you both
+   like anime"*; four reaches `hub:music`, which is true of everybody with a
+   library. `graph_distance` is recorded and the cap is undecided.
+3. **May both sides bridge on the same term?** The sentence shape assumes a
+   difference, and identical terms are exactly the case the legacy path handled
+   by collapsing — which is what made it dull.
+
+**A fourth is not open and must be honoured:** a bridge is shown to the *other*
+person, so III.E.3.b applies and `concept_has_non_video_witness` has to gate it,
+the same rule `matching_terms` follows rather than the looser one Memories gets
+as the owner's own page.
+
+## 3. Then Phase 5 and Phase 6
+
+- **Phase 5 — the frame builder.** Ingredients in SQL, language in Swift: the
+  producer does set intersection and knows no English, and the renderer picks
+  the verb. *"You both like Italy. Timi likes Italian food, ask her about it!"*
+  Provisional until seen and **frozen once exposed** — a frame somebody has read
+  is what they were told, and rewriting it later would make the record of a
+  conversation disagree with the conversation.
+- **Phase 6 — the cutover**, where the server-owned surfaces replace the legacy
+  ones and `api.discover_profiles` comes out of the dark. It ships behind
+  `discovery_profile_reads`, which is false, and **the asymmetry is the safety
+  property**: flag off falls back to the direct read, flag on and failing does
+  not, because a fallback on error would quietly restore the unauthorised path.
+
+## 4. The blocked decision, if she cannot install
+
+Getting her rows into the vault without her device is `tools/snapshot_distillation.py`
+for the reading half — committed and working — and then a way to write them,
+which is blocked on **one decision rather than on code**.
+
+Ingestion takes `user_id` only from a verified ES256 token carrying
+`role: authenticated`, and **both accounts are phone-only**, so no token can be
+minted for them (admin `generate_link` is email-only). The two ways in:
+
+- **a second auth door on ingestion**, gated on `private.collaborators` — the
+  shape `functions/push` already uses with `x-push-secret`; or
+- **temporarily attaching an email** to the account.
+
+The first is the one I would build, because it is reusable and the second is a
+change to somebody's identity made for our convenience. **It has not been
+decided and nothing should be built until it is.**
+
+**This whole section is a symptom of the standing rule** (owner, 2026-08-14):
+the team has consented to their data being used for training and **nobody
+re-distils for us**. Four changes in two days were paid for by asking somebody
+to open the app, and one of them silently did not work for a week. A change that
+needs data re-projected is ours to solve server-side; *"ask them to distil
+again"* is a bug report about us.
+
+## 5. Two things that must not be forgotten at launch
+
+Neither is next, and both are one line each, which is exactly why they are easy
+to miss.
+
+- **Spotify comes out of `AppConfig.semanticIngestionSources`.** It is live for
+  the data-collection prototype only. IV.2.1.a forbids ingesting Spotify Content
+  into any model and IV.2.5 closes the consent route explicitly — *"even if a
+  user consents"* — so a collaborator's agreement can never make it available
+  for training. Removing it is one line there; **deleting what was already
+  captured is separate and deliberate.**
+- **`AppShell`'s `.task { viewModel.purgeArchivedSources() }` is commented out**
+  and must be restored in the same breath, or it wipes each Spotify
+  distillation moments after it lands.
