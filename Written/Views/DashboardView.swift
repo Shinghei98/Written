@@ -1332,15 +1332,20 @@ struct DashboardView: View {
                                     remove { suppress(assertion, rank: rank) }
                                 }
                                 .editableOnLongPress($editingEntry, key: assertion.id.uuidString)
-                                // **Tap confirms, long-press removes**, the same
-                                // two verbs the term rows use, so the gesture
-                                // somebody already knows means the same thing on
-                                // a row that now carries a claim rather than a
-                                // string.
-                                .onTapGesture {
-                                    guard editingEntry == nil else { return }
-                                    confirm(assertion, rank: rank)
-                                }
+                                // **No tap-to-confirm, on the owner's ruling.**
+                                // Adding a term and striking one off is the
+                                // whole vocabulary a reader needs: the page
+                                // states what it believes, and the only thing
+                                // worth saying back is *that is wrong*. A tick
+                                // asks somebody to agree with a claim they were
+                                // never asked about, and agreeing changes
+                                // nothing they can see — `confirm_assertion`
+                                // sets a flag no surface reads.
+                                //
+                                // Long-press to remove stays, and is now the
+                                // only gesture on a row, which also removes the
+                                // ambiguity of a tap that did something
+                                // invisible.
                         }
                     }
 
@@ -1469,16 +1474,18 @@ struct DashboardView: View {
 
             Spacer(minLength: 8)
 
-            // **A tick only once somebody has agreed**, never as a default
-            // state. An unanswered claim and a confirmed one are different
-            // facts, and a page that marked everything would be putting words
-            // in their mouth — which is the same reason `-probe-surface` reads
-            // and never writes.
-            if assertion.isConfirmed {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(GardenPalette.gold)
-            }
+            // **No tick, because there is no longer a way to earn or clear
+            // one.** It was drawn for `display_state = 'confirmed'`, which only
+            // the tap gesture could set — and that gesture is gone on the
+            // owner's ruling that adding a term and striking one off is the
+            // whole vocabulary. A mark nothing can produce and nothing can
+            // remove is worse than no mark: rows confirmed by a stray tap while
+            // the gesture existed would wear it permanently, saying the person
+            // agreed to something they cannot now disagree with.
+            //
+            // The stored state is left alone. It is a record of what somebody
+            // did at the time, and rewriting history to match a change of
+            // design is the one thing this schema refuses everywhere else.
 
             // The bar is against 1.0 rather than against the strongest row:
             // `strength` already saturates, so it means the same thing on every

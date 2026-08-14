@@ -485,6 +485,126 @@ def _saturate(value: float, half: float) -> float:
     return value / (value + half)
 
 
+
+# **A trip somebody took, asserted without a single mapping.**
+#
+# Calendar observations may not enter `observation_mappings` — refused in Python
+# by `ObservationMapper._source_projection_is_valid`, again in the database by
+# `guard_calendar_observation_mapping`, and §7 licenses only the classifier over
+# calendar rows. None of that is bypassed here, and none of it needs to be:
+# `assertion_has_calendar_evidence` already has a branch matching on
+# `predicate_key` with no mapping join at all, so a calendar assertion is meant
+# to be recognised by its predicate rather than by evidence rows.
+#
+# The predicate is the classifier's own, `scheduled_travel_to`, and it has been
+# in `ontology.relation_types` all along.
+#
+# **The latest reading per item, never every reading.** Observations are
+# immutable, so a projector bump leaves the old projection in place beside the
+# new one — `place:saint_louis` from before the anchor rule still sits in the
+# vault next to the row that correctly omits it. Taking `distinct on
+# (source_item_hmac) … order by created_at desc` is what stops a superseded
+# reading resurrecting a base as a holiday.
+TRAVEL_PLACES = """
+select place_key, occurred_at from (
+  select distinct on (observation.source_item_hmac)
+         observation.normalized_payload ->> 'place_key' as place_key,
+         observation.occurred_at
+  from semantic_private.observations as observation
+  where observation.user_id = %(user_id)s
+    and semantic_private.is_private_calendar_source(observation.source_code)
+  order by observation.source_item_hmac, observation.created_at desc
+) as latest
+where place_key is not null
+"""
+
+TRAVEL_CONCEPT = """
+select concept.id
+from ontology.concepts as concept
+join ontology.concept_revisions as revision
+  on revision.concept_id = concept.id
+ and revision.ontology_version_id = %(version)s
+ and revision.status = 'active'
+where concept.concept_key = %(key)s
+"""
+
+# One booked trip is sufficient, which is the owner's rule and the classifier's
+# own — `scheduled_travel_to` carries `evidence_confidence` 0.92 off a single
+# strong ticket. There is no bar to clear and nothing to accumulate, so the
+# figures below are flat rather than computed: a second trip to the same place
+# says "again", not "more true".
+TRAVEL_STRENGTH = 0.5
+TRAVEL_CONFIDENCE = 0.92
+
+
+def assert_travel(connection, user_id: str, run_id: str, version: str,
+                  as_of: Any, policy_version: Any) -> list[str]:
+    """Assert a trip per place the calendar says somebody went to.
+
+    Returns the concept ids asserted. Writes no evidence rows, which is what
+    keeps every calendar guard satisfied rather than argued with.
+
+    **The caller must add these to `scored_concepts`.** The demotion sweep
+    retires every `affinity_to` assertion whose concept this run did not score,
+    and a trip is scored here rather than in the concept loop — so without that
+    the sweep sets each trip `inactive` moments after it is written, which is
+    exactly what happened the first time: two assertions, two current scores,
+    both dead on arrival and invisible to the page."""
+    with connection.cursor() as cursor:
+        cursor.execute(TRAVEL_PLACES, {"user_id": user_id})
+        places = {row["place_key"]: row["occurred_at"] for row in cursor.fetchall()}
+    if not places:
+        return []
+
+    asserted: list[str] = []
+    for place_key in sorted(places):
+        travel_key = "travel:" + place_key.split(":", 1)[1]
+        with connection.cursor() as cursor:
+            cursor.execute(TRAVEL_CONCEPT, {"version": version, "key": travel_key})
+            row = cursor.fetchone()
+        # A place with no minted trip resolves to nothing. Counted by its
+        # absence rather than raised: the vocabulary is authored, and a place the
+        # catalogue can name before the ontology can is an ordinary lag.
+        if row is None:
+            continue
+        concept_id = str(row["id"])
+
+        with connection.cursor() as cursor:
+            cursor.execute(FIND_ASSERTION, {
+                "user_id": user_id, "predicate": "affinity_to",
+                "concept": concept_id,
+            })
+            existing = cursor.fetchone()
+            if existing is None:
+                cursor.execute(INSERT_ASSERTION, {
+                    "user_id": user_id, "predicate": "affinity_to",
+                    "concept": concept_id, "version": version,
+                    "run": run_id, "state": "eligible",
+                })
+                assertion_id = str(cursor.fetchone()["id"])
+            else:
+                assertion_id = str(existing["id"])
+                cursor.execute(UPDATE_ASSERTION, {
+                    "id": assertion_id, "user_id": user_id, "state": "eligible",
+                })
+
+            # **A score with no evidence, and that is the whole point.**
+            # `list_assertions` withholds an inferred assertion whose score was
+            # not computed at the current revision, so a trip needs a score row
+            # to be visible at all — but every evidence guard fires on
+            # `assertion_evidence`, and there are no rows here to fire on.
+            cursor.execute(INSERT_SCORE_VERSION, {
+                "assertion": assertion_id, "user_id": user_id, "run": run_id,
+                "version": version, "strength": TRAVEL_STRENGTH,
+                "confidence": TRAVEL_CONFIDENCE, "breadth": 1,
+                "stability": 0.0, "surfacing": TRAVEL_STRENGTH,
+                "payload": "{}", "agreement": None, "quality": None,
+                "policy": policy_version, "as_of": as_of,
+            })
+        asserted.append(concept_id)
+    return asserted
+
+
 def score_user(connection, user_id: str, run_id: str, version: str,
                as_of: Any) -> dict[str, Any]:
     """Score every concept this run mapped, and assert the ones that clear the bar.
@@ -498,6 +618,7 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         "demoted": 0,
     }
     scored_concepts: list[str] = []
+    travel_concepts: list[str] = []
 
     with connection.cursor() as cursor:
         cursor.execute(RUN_POLICY_VERSION, {"run": run_id, "user_id": user_id})
@@ -507,6 +628,32 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         # that resolved to nothing is a real and uninteresting outcome.
         return counts
     policy_version = row["recency_policy_version"]
+
+    # **A trip is suggested, and the person strikes it off if it is wrong.**
+    # The owner's ruling: treat it exactly like a creator or a content creator —
+    # assert it, show it, and let suppression be the correction. Being wrong in
+    # public and corrected is how the model learns which evidence means what,
+    # and the long game is latent correlation that no hand-written rule would
+    # have found.
+    #
+    # **The predicate is `affinity_to`, and the choice is deliberate.**
+    # `travel_interest` is the semantically obvious one and its description
+    # forbids precisely this — *"never entailed by a booking alone"* — so using
+    # it would mean overriding a sentence written to stop it. `affinity_to` is
+    # `assertion_safe` and means *"defeasible or explicit user affinity"*:
+    # defeasible is exactly the model here, a claim that stands until the person
+    # overturns it. It is also the owner's own framing, that a place is an
+    # affinity.
+    #
+    # `scheduled_travel_to` is not used and cannot be: it is
+    # `relation_class = 'observed_action'` with `assertion_safe = false`, because
+    # what somebody did is evidence rather than a claim about them. Asserting it
+    # took the whole worker down once.
+    travel_concepts = assert_travel(
+        connection, user_id=user_id, run_id=run_id, version=version,
+        as_of=as_of, policy_version=policy_version,
+    )
+    counts["travel"] = len(travel_concepts)
 
     with connection.cursor() as cursor:
         cursor.execute(CONCEPT_LABELS, {"version": version})
@@ -741,6 +888,7 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     # somebody who likes nothing. `score_user` already returns early when a run
     # mapped nothing at all (that path never reaches here); this covers the
     # other shape, where the loop ran and produced no scores.
+    scored_concepts.extend(travel_concepts)
     if scored_concepts:
         with connection.cursor() as cursor:
             cursor.execute(DEMOTE_UNSCORED_ASSERTIONS, {
