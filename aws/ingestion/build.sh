@@ -19,7 +19,14 @@ OUT="$HERE/dist/ingestion.zip"
 
 trap 'rm -rf "$STAGE"' EXIT
 
-cp "$HERE/index.mjs" "$HERE/lib.mjs" "$HERE/supabase-ca.pem" "$HERE/package.json" "$STAGE/"
+# **Every local module `lib.mjs` imports must be named here.** The file list is
+# hand-written, so a new module is bundled only if somebody remembers — and the
+# failure is total rather than partial: Lambda resolves the import at load and
+# answers `Cannot find module`, so *every* ingestion call fails, not just the
+# rows using the new code. `work_titles.mjs` shipped missing exactly once, which
+# is why this comment exists.
+cp "$HERE/index.mjs" "$HERE/lib.mjs" "$HERE/work_titles.mjs" \
+   "$HERE/supabase-ca.pem" "$HERE/package.json" "$STAGE/"
 cp "$HERE/package-lock.json" "$STAGE/" 2>/dev/null || true
 
 ( cd "$STAGE" && npm ci --omit=dev --silent >/dev/null 2>&1 || npm install --omit=dev --silent >/dev/null 2>&1 )

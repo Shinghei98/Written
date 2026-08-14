@@ -7,10 +7,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createDecipheriv } from "node:crypto";
+import { createDecipheriv, createHmac } from "node:crypto";
 
 import {
-  canonicalize, consentPurposeFor, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, projectionDiagnostic, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections, CALENDAR_SOURCES,
+  canonicalize, consentPurposeFor, contentFingerprint, encryptPayload, fingerprintContent, ingestArguments, InvalidEnvelope, keyVersionFor, normalizedPayload, normalizeSource, projectionDiagnostic, recordFingerprint, scopeManifest, sourceItemHmac, toRecordRow, calendarEventsFor, applyCalendarProjections, CALENDAR_SOURCES,
 } from "../lib.mjs";
 
 const KEY = Buffer.alloc(32, 7);
@@ -623,4 +623,187 @@ test("a differing shape is reported separately", () => {
   const out = projectionDiagnostic([base, { ...base, action_type: "scheduled" }]);
   assert.equal(out.length, 2, "a different action is a different shape");
   assert.deepEqual(out.map((o) => o.action).sort(), ["booked", "scheduled"]);
+});
+
+test("a title yields its hashtags and never itself", () => {
+  // The whole point: the sentence is read and dropped, the tokens are kept.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: 'Sheldon ran a red light and received a court summons #youngsheldon #shorts',
+    topics: ["Entertainment"],
+  }});
+  assert.deepEqual(projected.title_hashtags, ["youngsheldon", "shorts"]);
+  assert.equal(JSON.stringify(projected).includes("court summons"), false);
+  assert.equal("title" in projected, false);
+});
+
+test("hashtags carry Hangul and CJK, and repeat only once", () => {
+  // `르세라핌` is the commonest tag on the account this was built from, and a
+  // JavaScript \w would have dropped every one of them.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "#르세라핌 #LE_SSERAFIM #르세라핌 #le_sserafim #安可",
+  }});
+  assert.deepEqual(projected.title_hashtags,
+    ["르세라핌", "LE_SSERAFIM", "安可"]);
+});
+
+test("a title with no hashtag projects no field at all", () => {
+  // An empty array would be a claim that the uploader tagged nothing, which is
+  // different from a title that simply is not tagged.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "Beethoven Symphony No. 9", topics: ["Music"],
+  }});
+  assert.equal("title_hashtags" in projected, false);
+});
+
+test("a hashtag alone is a label, so the row is an observation", () => {
+  // `youtubeLabels` refuses a projection with no label — an id identifies
+  // without saying anything. A hashtag says something, so it must count.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    channelID: "UCabc123", title: "#babymonster",
+  }});
+  assert.notEqual(projected, null);
+  assert.deepEqual(projected.title_hashtags, ["babymonster"]);
+});
+
+test("the real SAO video yields the work and never the sentence", () => {
+  // The exact title measured on the account this lane was built for, and the
+  // reason it exists: nothing else in the projection says Sword Art Online.
+  // The channel is Netflix Japan, the topics are containers, the tags empty.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "名戦3選 - 黒の剣士キリトと閃光のアスナの軌跡 | ソードアート・オンライン | Netflix Japan",
+    channelID: "UCnetflixjp",
+  }});
+  assert.deepEqual(projected.title_works, ["work:sword_art_online"]);
+  assert.equal(JSON.stringify(projected).includes("キリト"), false);
+  assert.equal(JSON.stringify(projected).includes("Netflix"), false);
+  assert.equal("title" in projected, false);
+});
+
+test("a work alone is a label, so the row is an observation", () => {
+  // The SAO row carries no tags, no topics and no category. Leaving
+  // `title_works` out of the guard would drop the one row this lane is for.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "ソードアート・オンライン", channelID: "UCabc123",
+  }});
+  assert.notEqual(projected, null);
+  assert.deepEqual(projected.title_works, ["work:sword_art_online"]);
+});
+
+test("the most specific work wins, so one video is not counted twice", () => {
+  // Every title naming SAO II also names SAO. Emitting both would inflate a
+  // work whose whole difficulty is that it sits just under the bar.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "Sword Art Online II - Best Fights", channelID: "UCx",
+  }});
+  assert.deepEqual(projected.title_works, ["work:sword_art_online_ii"]);
+});
+
+test("a word that is also a work is not a work", () => {
+  // `bleach`, `fate` and `persona` are ordinary words. Matching them would
+  // attach a series to somebody who never watched it, which is the failure
+  // this catalogue refuses by leaving the bare forms out.
+  for (const title of [
+    "How to clean grout with bleach and baking soda",
+    "The fate of the Roman Republic, explained",
+    "Carl Jung and the persona - a short introduction",
+  ]) {
+    const projected = normalizedPayload("youtube", { kind: "video", value: {
+      title, topics: ["Education"],
+    }});
+    assert.equal("title_works" in projected, false, title);
+  }
+});
+
+test("a Latin work title is matched at its edges", () => {
+  // `swords art online` is not the show, and a containment test would say
+  // it was.
+  const projected = normalizedPayload("youtube", { kind: "video", value: {
+    title: "Crosswords art online puzzle stream", topics: ["Gaming"],
+  }});
+  assert.equal("title_works" in projected, false);
+});
+
+test("a projector bump re-stores one source and leaves the others alone", () => {
+  // **The property that makes this safe to run against production.** A source
+  // absent from PROJECTOR_VERSIONS must hash exactly as it did before the map
+  // existed, or a change aimed at YouTube re-stores every music row too.
+  const key = Buffer.from("k".repeat(32));
+  const base = {
+    userId: "u", dataType: "liked_video", providerItemId: "vid1",
+    occurredAt: "2026-08-14T00:00:00Z", payload: { a: 1 },
+  };
+  const expectedWithout = createHmac("sha256", key)
+    .update(`written:record:v1\nu\napple_music\nliked_video\nvid1\n` +
+            `2026-08-14T00:00:00Z\n${canonicalize({ a: 1 })}`)
+    .digest("hex");
+  assert.equal(
+    recordFingerprint(key, { ...base, sourceCode: "apple_music" }),
+    expectedWithout,
+    "an unregistered source must hash as if the map did not exist");
+
+  const expectedWith = createHmac("sha256", key)
+    .update(`written:record:v1\nu\nyoutube\nliked_video\nvid1\n` +
+            `2026-08-14T00:00:00Z\n${canonicalize({ a: 1 })}\nprojector:2`)
+    .digest("hex");
+  assert.equal(
+    recordFingerprint(key, { ...base, sourceCode: "youtube" }), expectedWith,
+    "a registered source carries its projector version into the hash");
+  assert.notEqual(expectedWith, expectedWithout);
+});
+
+test("the projector suffix separates, and never merges", () => {
+  // A suffix can only split inputs that were equal. Two payloads that already
+  // differed must still differ, which is the collision this hash fears most.
+  const key = Buffer.from("k".repeat(32));
+  const one = recordFingerprint(key, {
+    userId: "u", sourceCode: "youtube", dataType: "liked_video",
+    providerItemId: "vid1", occurredAt: null, payload: { title: "x" },
+  });
+  const two = recordFingerprint(key, {
+    userId: "u", sourceCode: "youtube", dataType: "liked_video",
+    providerItemId: "vid1", occurredAt: null, payload: { title: "x", playCount: 3 },
+  });
+  assert.notEqual(one, two);
+  // And identical content still collides, which is what makes a re-distill of
+  // unchanged rows cheap.
+  const again = recordFingerprint(key, {
+    userId: "u", sourceCode: "youtube", dataType: "liked_video",
+    providerItemId: "vid1", occurredAt: null, payload: { title: "x" },
+  });
+  assert.equal(one, again);
+});
+
+test("content fingerprint ignores the projector, record fingerprint does not", () => {
+  // The pair is what lets the server separate "your data changed" from "our
+  // reading changed". Equal content plus differing record means a projection
+  // bump and nothing else, which is the only case safe to supersede.
+  const key = Buffer.from("k".repeat(32));
+  const parts = {
+    userId: "u", sourceCode: "youtube", dataType: "liked_video",
+    providerItemId: "vid1", occurredAt: null, payload: { a: 1 },
+  };
+  assert.notEqual(recordFingerprint(key, parts), contentFingerprint(key, parts),
+    "youtube is registered, so the two must differ");
+
+  const music = { ...parts, sourceCode: "apple_music" };
+  assert.equal(recordFingerprint(key, music), contentFingerprint(key, music),
+    "an unregistered source has no projector, so the two coincide");
+
+  // A real payload change moves both, which is what keeps history beside it.
+  const changed = { ...parts, payload: { a: 2 } };
+  assert.notEqual(contentFingerprint(key, parts), contentFingerprint(key, changed));
+});
+
+test("a record row carries both fingerprints", () => {
+  const row = toRecordRow(
+    { record_source_code: "youtube", data_type: "liked_video",
+      provider_item_id: "vid1", action_type: "liked_video",
+      occurred_at: "2026-08-14T00:00:00Z",
+      typed_payload: { kind: "video", value: { title: "#anime", channelID: "UCx" } } },
+    0, { userId: USER, hmacKey: KEY, dek: DEK }
+  );
+  assert.equal(typeof row.content_fingerprint, "string");
+  // YouTube is a registered projector, so the pair must differ — that gap is
+  // exactly what tells the server this was a re-projection.
+  assert.notEqual(row.content_fingerprint, row.record_fingerprint);
 });

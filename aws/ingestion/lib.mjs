@@ -8,6 +8,7 @@
 // would be caught by an integration test that only checks a row appeared.
 
 import { createHmac, randomBytes, createCipheriv } from "node:crypto";
+import { worksNamedIn } from "./work_titles.mjs";
 
 // The twelve `semantic_private.sources` rows, and the app-side names that map
 // onto them. `health` against `healthkit` is the only translation and it is
@@ -225,13 +226,74 @@ export function fingerprintContent(envelope) {
 // silent overwrite — the same append-only reading `append_source_records` takes
 // on the legacy path, where "we kept it, marked as removed" is the answer that
 // fails an audit. Re-sending unchanged content collides and is skipped.
-export function recordFingerprint(key, { userId, sourceCode, dataType, providerItemId, occurredAt, payload }) {
+// **How a projection change reaches rows that already exist.**
+//
+// The fingerprint is over the *source payload*, so re-distilling an unchanged
+// video produces an identical hash, no new raw row, and therefore no new
+// observation — and `guard_observation_immutable` freezes the one already
+// stored. That is correct for its purpose and it means a widened projection can
+// never reach history: `title_works` was added and the liked video that names
+// Sword Art Online kept the projection it was first stored with. 550 items
+// seen, 4 rows stored, nothing changed.
+//
+// Nor can a backfill do it, and the reason is structural rather than missing
+// code. The raw vault still holds every payload with its title, but ingestion
+// may write observations and holds no `Decrypt`, while the worker holds
+// `Decrypt` and may not write observations — `guard_observation_ingestion_run`
+// refuses any observation whose run is not still `running`. Each identity is
+// missing exactly what the other has, deliberately.
+//
+// So the projector version joins the hashed input. Bumping a source's entry
+// makes every row of that source look changed exactly once: it re-stores, it is
+// re-projected, and the new field reaches evidence collected before the field
+// existed. This is the same shape as renaming a `data_type`, which already
+// re-stores every row, rather than a new mechanism.
+//
+// **Scoped per source, and that is the point.** A global bump would re-store
+// every music row for a change that touched only YouTube. A source absent from
+// this map hashes byte-identically to before, so nothing else moves.
+//
+// **Added to the input, never restructured.** The worst failure this hash has is
+// two different records colliding — `{title}` and `{title, playCount}` reducing
+// alike once cost a lost record. A suffix can only ever separate inputs that
+// were previously equal; it can never merge two that differed.
+export const PROJECTOR_VERSIONS = {
+  // 2: `title_works` — a work named in a video title becomes a term.
+  youtube: 2,
+};
+
+function fingerprintOf(key, { userId, sourceCode, dataType, providerItemId, occurredAt, payload },
+                       projector) {
   return createHmac("sha256", key)
     .update(
       `written:record:v1\n${userId}\n${sourceCode}\n${dataType}\n` +
-        `${providerItemId}\n${occurredAt ?? ""}\n${canonicalize(payload)}`
+        `${providerItemId}\n${occurredAt ?? ""}\n${canonicalize(payload)}` +
+        (projector ? `\nprojector:${projector}` : "")
     )
     .digest("hex");
+}
+
+export function recordFingerprint(key, parts) {
+  return fingerprintOf(key, parts, PROJECTOR_VERSIONS[parts.sourceCode]);
+}
+
+/**
+ * The same row, without the projector version — *what the source said*, as
+ * opposed to *which reading of it this is*.
+ *
+ * **This is what separates two events the record fingerprint alone conflates.**
+ * A payload that genuinely changed has a new content fingerprint and belongs
+ * beside its predecessor, because that is real history about a person. A
+ * payload that is byte-identical under a bumped projector has the *same*
+ * content fingerprint and a different record fingerprint — nothing about the
+ * user changed, only our reading did, so the older reading is obsolete rather
+ * than historic and may be superseded.
+ *
+ * Without this the two are indistinguishable server-side, which is how one
+ * projector bump left 550 duplicate rows that nothing could safely retire.
+ */
+export function contentFingerprint(key, parts) {
+  return fingerprintOf(key, parts, null);
 }
 
 // AES-256-GCM, `iv || ciphertext || tag`.
@@ -294,6 +356,13 @@ const PROJECTION_SHAPE = {
   },
 };
 
+// A hashtag in a video title. Letters, digits and underscore only — the token
+// ends where the word does, so nothing after the `#` can be a phrase. CJK and
+// Hangul ranges are explicit because `\w` in JavaScript is ASCII-only and
+// `르세라핌` is the single commonest tag on the account this was measured on.
+const YOUTUBE_HASHTAG =
+  /#([A-Za-z0-9_\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]{2,60})/gu;
+
 /** Mirrors `0082`'s pattern: a Wikipedia slug, and nothing with a space in it. */
 const YOUTUBE_TOPIC = /^[A-Za-z0-9_()'.\-]{1,80}$/;
 
@@ -353,10 +422,75 @@ function youtubeLabels(value) {
     fields.subscriber_count = value.subscriberCount;
   }
 
+  // **The title is read here and never stored, which is the whole design.**
+  // A hashtag is a tag the uploader wrote — the same kind of object as
+  // `snippet.tags`, which this projection has carried since `0082` — and
+  // III.E.4 names "video titles, creator names, descriptions, and comment
+  // text" without naming tags. So the token is kept and the sentence it came
+  // from is dropped, inside this function, before anything is written.
+  //
+  // **Read-derive-discard is the only pattern available**, and not because of
+  // the clause: a title in `normalized_payload` would be *unremovable*.
+  // `guard_observation_immutable` freezes the payload and `ingestion_run_items`
+  // references observations `on delete no action` with the run items themselves
+  // append-only — proved when `0139`'s first draft tried exactly that delete and
+  // Postgres refused it. Whatever lands here lands forever, which is why a
+  // bounded token is safe where a free sentence is not.
+  //
+  // Measured on one account before building it: 983 of 1,570 liked videos carry
+  // a hashtag — 62.6% — and they carry group names in three scripts
+  // (`르세라핌`, `le_sserafim`, `lesserafim`) and member names the ontology has
+  // no other route to (`kimchaewon` 146, `kazuha` 91).
+  //
+  // Kept apart from `tags` deliberately: a token the uploader put in
+  // `snippet.tags` and one they put in the title are different acts, and
+  // collapsing them would make the provenance unrecoverable in a store that
+  // cannot be rewritten.
+  const hashtags = [];
+  const seenTags = new Set();
+  for (const match of String(value.title ?? "").matchAll(YOUTUBE_HASHTAG)) {
+    const tag = match[1];
+    const key = tag.toLowerCase();
+    if (!seenTags.has(key)) {
+      seenTags.add(key);
+      hashtags.push(tag);
+    }
+  }
+  if (hashtags.length) fields.title_hashtags = hashtags.slice(0, 12);
+
+  // **A work the title names outright, recognised here and the title dropped.**
+  // Measured on this account: one liked video, `名戦3選 - 黒の剣士キリトと閃光の
+  // アスナの軌跡 | ソードアート・オンライン | Netflix Japan`, is the only YouTube
+  // evidence for Sword Art Online that exists — and every field this projection
+  // keeps says nothing about it. The channel is `Netflix Japan`, the topics are
+  // containers, the uploader tags are empty. The work is named in the one field
+  // that may never be stored, so reading it here is the only place it can be
+  // reached at all.
+  //
+  // It is a concept key that leaves, never a phrase: `work:sword_art_online` is
+  // our vocabulary under the 2026-08-13 determination, and the title it came
+  // from is discarded with the rest of the payload. Kept apart from
+  // `title_hashtags` for the reason those are kept apart from `tags` — a work
+  // the uploader named and a token they tagged are different acts, and this
+  // store cannot be rewritten to separate them later.
+  const works = worksNamedIn(value.title);
+  if (works.length) fields.title_works = works;
+
   // A projection with no label describes nothing, and an observation that
   // describes nothing is not evidence. An id alone does not count — it
   // identifies without saying anything, which is `0082`'s rule too.
-  if (!fields.topics && !fields.tags && !fields.category_id) return null;
+  // `title_hashtags` counts, and an id still does not. A hashtag says something
+  // about the video; `channel_id` and `subscriber_count` identify it and its
+  // channel without describing either, which is `0082`'s rule and why they are
+  // absent from this test. Adding the field without adding it here would have
+  // dropped every video whose only signal is a tag in its title — caught by the
+  // test that asserts a hashtag-only row is still an observation.
+  // `title_works` counts for the same reason `title_hashtags` does, and for a
+  // stronger one: it is often the *only* thing a row says. The SAO video
+  // carries no tags and no uploader topics beyond containers, so omitting it
+  // here would drop the single observation this whole lane was built for.
+  if (!fields.topics && !fields.tags && !fields.category_id
+      && !fields.title_hashtags && !fields.title_works) return null;
 
   fields.schema_version = "youtube-v03";
   fields.record_kind = "youtube_labels";
@@ -643,6 +777,11 @@ export function toRecordRow(envelope, index, { userId, hmacKey, dek }) {
     occurred_at: occurredAt,
     source_item_hmac: sourceItemHmac(hmacKey, { userId, sourceCode, providerItemId }),
     record_fingerprint: recordFingerprint(hmacKey, {
+      userId, sourceCode, dataType, providerItemId, occurredAt,
+      payload: fingerprintContent(sealed),
+    }),
+    // Sent alongside so the server can tell a re-projection from a real change.
+    content_fingerprint: contentFingerprint(hmacKey, {
       userId, sourceCode, dataType, providerItemId, occurredAt,
       payload: fingerprintContent(sealed),
     }),

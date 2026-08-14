@@ -37,6 +37,7 @@ made. Dropping them would be dropping the ontology's growth path.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from typing import Any, NamedTuple
 
@@ -111,6 +112,12 @@ YOUTUBE_SOURCE = "youtube"
 # matches noise in any library. Duplicated as a constant only so a failure to
 # load the model is not a silently permissive default.
 MIN_TAG_LENGTH = 3
+
+# How a channel title is split for `written_title_tag`. Whitespace and the
+# punctuation that separates words in a channel name — never inside a word, so
+# `ritvikmath` stays one token and is aliased whole rather than being cut into
+# something that matches by accident.
+_TITLE_TOKEN = re.compile(r"[\s/|,:;()\[\]{}\u2013\u2014-]+")
 
 # Every source this resolver reads. YouTube joins music rather than
 # replacing it: independence is per source, and a concept reaching both
@@ -577,6 +584,7 @@ def youtube_terms_for(payload: dict[str, Any],
                       allow_uploader_tags: bool,
                       allow_channel_identity: bool = False,
                       channel_titles: dict[str, str] | None = None,
+                      allow_title_tags: bool = False,
                       ) -> tuple[Term, ...]:
     """The terms one YouTube observation supports.
 
@@ -639,6 +647,94 @@ def youtube_terms_for(payload: dict[str, Any],
         if len(text) >= MIN_TAG_LENGTH:
             terms.append(_term(text, "channel_identity", "channel_id", "creator"))
 
+    # **The same title again, read as a subject rather than as a name.**
+    # `channel_identity` above passes the type hint `creator`, so a title can
+    # only ever become evidence about a person or a band — which is correct for
+    # what it is for, and is why a bioinformatics channel resolved to nothing on
+    # an account with seventy of them. Measured 2026-08-13: those seventy carry
+    # YouTube's own topic `Knowledge`, which reaches `hub:ideas_learning` at a
+    # strength of 0.552 and is never asserted because a hub is a container. The
+    # signal was strong, correctly scored, and had nowhere assertable to land.
+    #
+    # **This is the level that needs the licence, and it has one.** Reading
+    # YouTube's labels onto our vocabulary needs nothing; assigning *our own*
+    # descriptive tags to a channel is what the Content Categorization and
+    # Tagging amendment §3 permits — "additive and distinct from YouTube's video
+    # categories", which `subject:bioinformatics` is against `Education`. Gated
+    # on the run's own `allow_title_tags` rather than on the approval row, for
+    # the reason the two gates above are: a run opened before the 2026-08-13
+    # determination existed is legitimately denied, and reading the approval
+    # directly would grant it retroactively.
+    #
+    # **Whole tokens, never substrings**, which is `domainForCreatorTag`'s
+    # restraint and the same rule `uploader_tag` follows. The title goes out
+    # whole *and* split, because the vocabulary needs both: `Bioinformatics
+    # DotCa` resolves on its token while `StatQuest with Josh Starmer` has no
+    # token worth having and is aliased entire. Anything matching no alias
+    # resolves to nothing, exactly as it does today — the controlled vocabulary
+    # is the guard, not a length test.
+    if allow_title_tags:
+        channel_id = payload.get("channel_id")
+        title = (channel_titles or {}).get(str(channel_id or "")) or ""
+        seen: set[str] = set()
+        for text in (title.strip(), *(_TITLE_TOKEN.split(title))):
+            text = text.strip()
+            # No `creator` hint: a subject is a `topic`, and passing the hint
+            # `channel_identity` uses would reject every one of these on type
+            # after resolving correctly — the trap `provider_topic` documents.
+            if len(text) >= MIN_TAG_LENGTH and text.casefold() not in seen:
+                seen.add(text.casefold())
+                terms.append(_term(text, "written_title_tag", "channel_id", None))
+
+    # **A hashtag is the uploader's own tag, so it takes `uploader_tag`'s
+    # treatment rather than the channel title's.** The two are both "title
+    # derived" and could not be more different in kind: a channel-title *token*
+    # is a word cut out of a name nobody wrote as a tag, which is why it is
+    # confined to `subject:` above; a hashtag was typed as a tag, deliberately,
+    # and `#le_sserafim` means the group.
+    #
+    # So it passes the `creator` hint exactly as `snippet.tags` does — the hint
+    # that stops the tag `music` reaching `hub:music` — and is not confined to a
+    # family. Measured before building: `르세라핌` 316 videos, `le_sserafim` 204,
+    # `kimchaewon` 146, all of which should reach a creator and none of which a
+    # channel-title token ever could.
+    #
+    # `written_title_tag` is the *stored* kind for both, because that is the one
+    # `0045` permits and `0135` licensed; the roles differ so the two readings
+    # stay separable here.
+    if allow_title_tags:
+        for tag in payload.get("title_hashtags") or []:
+            text = str(tag).strip()
+            if len(text) >= MIN_TAG_LENGTH:
+                terms.append(_term(text, "title_hashtag", "title_hashtags", "creator"))
+
+    # **A work the title named outright, already recognised at ingestion.**
+    # The other three lanes above resolve free text; this one resolves a key.
+    # The recognition happened where the title still existed — in the Lambda,
+    # against a bundled catalogue — because the title is discarded there and
+    # never reaches `normalized_payload`, so no later stage could do it. What
+    # arrives is `work:sword_art_online`, and `0149` gives every catalogue
+    # concept its own key as an `alternate` label, so the ordinary exact-alias
+    # path matches it as `curated_alias` at 1.000 with no new resolution code.
+    #
+    # **The `work` hint is the guard, not decoration.** It restricts the match
+    # to `work` concepts, so a key that somehow reached a creator or a genre is
+    # refused on type — the safety net that caught channel-title tokens landing
+    # on musicians who shared a forename. Here it should never fire, which is
+    # exactly when a type check earns its keep.
+    #
+    # Gated on `allow_title_tags` with the two lanes above, and for their
+    # reason: a run opened before the 2026-08-13 determination is legitimately
+    # denied, and reading the approval row directly would grant it backwards.
+    if allow_title_tags:
+        for key in payload.get("title_works") or []:
+            text = str(key).strip()
+            # A key of another family is not a work, and the projection guard
+            # refuses one at the door. Checked again here because this file also
+            # reads rows written before that guard existed.
+            if text.startswith("work:"):
+                terms.append(_term(text, "title_work", "title_works", "work"))
+
     return tuple(terms)
 
 
@@ -652,6 +748,21 @@ YOUTUBE_KIND_BY_ROLE = {
     # Permitted by `observation_mappings_youtube_semantic_v02_check` since
     # `0045`; granted by the 2026-08-13 determination in `0135`.
     "channel_identity": "channel_identity",
+    # Permitted by `observation_mappings_youtube_semantic_v02_check` since
+    # `0045` and granted by the 2026-08-13 determination in `0135`, which set
+    # `allow_title_tags` — read by `resolve.py` and, until now, used by nothing.
+    "written_title_tag": "written_title_tag",
+    # Same stored kind, different role — see `youtube_terms_for`. The gate is
+    # `title_tags` for both, which `guard_youtube_mapping_fusion` derives from
+    # the kind rather than the role, so nothing else needs to learn this.
+    "title_hashtag": "written_title_tag",
+    # Third role on the same stored kind. A work named in a title is a term we
+    # derived from a title, which is what `written_title_tag` names and what
+    # `allow_title_tags` gates — so `guard_youtube_mapping_fusion`, which reads
+    # the kind rather than the role, needs no change. The roles stay distinct
+    # here because a channel-title token, a hashtag and a named work are three
+    # different acts, and this store cannot be rewritten to separate them later.
+    "title_work": "written_title_tag",
 }
 
 
@@ -690,6 +801,7 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          eras: dict[str, tuple[str, ...]] | None = None,
                          allow_uploader_tags: bool = False,
                          allow_channel_identity: bool = False,
+                         allow_title_tags: bool = False,
                          channel_titles: dict[str, str] | None = None,
                          breadth: dict[str, int] | None = None,
                          spheres: dict[str, tuple[str, ...]] | None = None,
@@ -706,7 +818,8 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
         terms = youtube_terms_for(
             payload, allow_uploader_tags,
             allow_channel_identity=allow_channel_identity,
-            channel_titles=channel_titles)
+            channel_titles=channel_titles,
+            allow_title_tags=allow_title_tags)
     else:
         performer = payload.get("primary_performer") or ""
         key = normalized_song_key(payload.get("title") or "", performer)
@@ -964,15 +1077,17 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         policy = cursor.fetchone()
     allow_uploader_tags = bool(policy and policy["allow_uploader_tags"])
     allow_channel_identity = bool(policy and policy["allow_channel_identity"])
+    allow_title_tags = bool(policy and policy["allow_title_tags"])
     counts["youtube_policy"] = policy["policy_version"] if policy else "missing"
     counts["allow_uploader_tags"] = allow_uploader_tags
     counts["allow_channel_identity"] = allow_channel_identity
+    counts["allow_title_tags"] = allow_title_tags
 
     # Loaded once per run rather than per observation: a person's liked videos
     # concentrate heavily on a few channels, so the same title would otherwise
     # be fetched hundreds of times.
     channel_titles: dict[str, str] = {}
-    if allow_channel_identity:
+    if allow_channel_identity or allow_title_tags:
         with connection.cursor() as cursor:
             cursor.execute(SELECT_CHANNEL_TITLES, {"user_id": user_id})
             channel_titles = {
@@ -1003,6 +1118,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             row, source, facts.works, facts.eras,
             allow_uploader_tags=allow_uploader_tags,
             allow_channel_identity=allow_channel_identity,
+            allow_title_tags=allow_title_tags,
             channel_titles=channel_titles,
             breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes)
         if observation is not None:
@@ -1068,6 +1184,32 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 continue
             concept_id = concept_ids.get(candidate.concept_key)
             if concept_id is None:
+                continue
+            # **A channel title may only ever name a subject**, and without this
+            # it names whatever its words happen to spell. The title goes out
+            # token by token, so `StatQuest with Josh Starmer` offers `Josh` and
+            # `Starmer` to a creator vocabulary holding 1,111 performer names —
+            # and a match there is not a weak signal, it is a wrong one: a
+            # bioinformatics channel becomes YouTube evidence about a musician
+            # who shares a forename.
+            #
+            # It failed loudly rather than quietly, which was luck.
+            # `guard_youtube_assertion_evidence` refuses YouTube evidence on an
+            # assertion whose outward surfaces `0128` opened — every music-
+            # evidenced creator — so the first such mapping killed the whole
+            # run with `YouTube assertion evidence conflicts with surface
+            # policy`. Had those surfaces been shut, the mapping would have been
+            # written and nobody would have known.
+            #
+            # A `type_hint` cannot express this: the hint vocabulary is
+            # `{topic, genre, culture, cuisine}`, which would still admit
+            # `genre:pop` from the token `Pop` and every `scene:*`, all of them
+            # `topic` by kind. The family is the rule, so the family is what is
+            # tested.
+            if (candidate.term.role == "written_title_tag"
+                    and not candidate.concept_key.startswith("subject:")):
+                counts["title_tag_off_family"] = \
+                    counts.get("title_tag_off_family", 0) + 1
                 continue
             mapping_rows.append({
                     "run": run_id,
