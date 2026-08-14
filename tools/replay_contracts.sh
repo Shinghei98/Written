@@ -112,7 +112,13 @@ apply_through() {
 }
 
 apply() {
-  psql_app < "$MIGRATIONS/$1" >/dev/null 2>&1 || { echo "  APPLY FAILED  $1"; fail=1; return 1; }
+  local err; err="$(mktemp)"
+  psql_app < "$MIGRATIONS/$1" >/dev/null 2>"$err" || {
+    echo "  APPLY FAILED  $1"
+    sed -n 's/^/      /p' "$err" | grep -E "ERROR|DETAIL|CONTEXT|HINT" | head -4
+    rm -f "$err"; fail=1; return 1
+  }
+  rm -f "$err"
 }
 
 # Everything *after* `$1`, in order. The staged lanes above name their
@@ -125,7 +131,12 @@ apply_after() {
   known="$ROOT/tools/ci/unreplayable_migrations.txt"
   for f in $(cd "$MIGRATIONS" && ls ./*.sql | sed 's|^\./||' | sort); do
     [[ "$f" > "$from" ]] || continue
-    psql_app < "$MIGRATIONS/$f" >/dev/null 2>&1 && continue
+    # **Keep the error.** This read `2>&1` and threw psql's reason away, so a
+    # failing replay said only *that* five migrations failed — and diagnosing
+    # them meant guessing one per push. The reason a migration refuses is the
+    # single most useful line CI can print, and it costs a temp file.
+    err="$(mktemp)"
+    psql_app < "$MIGRATIONS/$f" >/dev/null 2>"$err" && { rm -f "$err"; continue; }
     # **Continues, and says so.** Thirteen migrations assert against production
     # data — eight runs by a named scorer, a flag that is false in production,
     # a likes table with rows — so they raise on an empty database before their
@@ -134,9 +145,12 @@ apply_after() {
     # from every replay until it is paid.
     if grep -qxF "$f" "$known" 2>/dev/null; then
       echo "  known unreplayable  $f"
+      rm -f "$err"
     else
       echo "  APPLY FAILED  $f  (not in tools/ci/unreplayable_migrations.txt)"
+      sed -n 's/^/      /p' "$err" | grep -E "ERROR|DETAIL|CONTEXT|HINT" | head -4
       unexpected=1
+      rm -f "$err"
     fi
   done
   if [ "$unexpected" = 1 ]; then fail=1; return 1; fi
