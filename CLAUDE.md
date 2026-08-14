@@ -1499,6 +1499,34 @@ filled in by hand, because a column on `public.users` would have been settable b
 the account it describes. The query, source exclusions included, is at the foot
 of that migration.
 
+**The development team has consented to their data being used for training, and
+that consent comes with a standing requirement: nobody re-distils for us.**
+(Owner, 2026-08-14.) Everything they have given must be stored, retained and
+re-usable for training and testing at any time, without asking them for a tap.
+Two things follow and both are rules rather than aspirations:
+
+- **A change that needs data re-projected is our problem to solve server-side.**
+  Four changes in two days were paid for by asking somebody to open the app —
+  `title_works`, `place_key` three times over, and Spotify's `top_track` weight.
+  Each cost a person's afternoon and one of them silently did not work for a
+  week, because a build gate nobody could see meant the tap did nothing. Design
+  the re-projection to run from stored data, and treat "ask them to distil
+  again" as a bug report about us.
+- **Losing a distillation is losing a person's afternoon.** Deleting or expiring
+  anything a collaborator has given needs a reason that outranks that, which
+  today only the retention obligations do.
+
+**Consent does not move the licensing line, and this is where the two meet.**
+`AppConfig.semanticIngestionSources` currently carries `spotify`, so Spotify
+Content is reaching the vault — enabled deliberately for the data-collection
+prototype and marked as the line to delete before launch. IV.2.1.a forbids
+ingesting it into a model and IV.2.5 says a user's consent does not cure that, so
+**a collaborator's agreement makes their Apple Music, Podcasts, Calendar and
+HealthKit available for training and cannot make their Spotify or YouTube
+available.** Storing it for inspection and excluding it from a corpus are
+different acts; the corpus query at the foot of `0041` is where that exclusion
+lives, and it is the thing to check before any training set is built.
+
 **Never filter on a `data_type` no distiller emits.** `Ontology.subjects`
 filtered `"song"` while the distiller writes `library_song`, `heavy_rotation`,
 `playlist_item` and `recently_played`, so it answered `[]` for every real library
