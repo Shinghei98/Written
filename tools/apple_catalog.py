@@ -67,6 +67,23 @@ from music_dictionary import (  # noqa: E402
     UNMARKED_SPHERE_GENRES,
 )
 
+# **Imported rather than copied, and that is load-bearing.** An alias only ever
+# matches if its stored `normalized_label` is byte-identical to what the resolver
+# computes at read time, and `normalize_text` folds punctuation to spaces where
+# `str.lower()` keeps it. `seed_from_csv.py:179` uses `.lower()` and `0134:42-45`
+# records that trap; catalogue names arrive verbatim and are full of punctuation
+# — `P!nk`, `Tyler, The Creator`, `A$AP Rocky` — so a second implementation here
+# would mint every one of them unmatchable, with nothing reporting it.
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "semantic", "src",
+    ),
+)
+
+from written_ontology.normalize import normalize_text  # noqa: E402
+
 BASE = "https://fwnezkbesjoazlpaflbq.supabase.co"
 APPLE = "https://api.music.apple.com/v1/catalog"
 
@@ -131,8 +148,8 @@ def developer_token() -> str:
     )
 
 
-def spotify_isrcs(key: str, user_id: str | None) -> list[str]:
-    """Every distinct ISRC on a Spotify row, read from the legacy store.
+def library_isrcs(key: str, user_id: str | None) -> list[str]:
+    """Every distinct ISRC on a music row, read from the legacy store.
 
     **`public.distilled_records` rather than the vault**, for one reason that is
     not preference: `semantic_private` is not exposed to PostgREST, and the two
@@ -140,13 +157,21 @@ def spotify_isrcs(key: str, user_id: str | None) -> list[str]:
     `normalized_payload` unchanged. An account whose legacy rows have been
     deleted is simply not readable this way, which is a real limitation and the
     reason `--isrc-file` exists.
+
+    **Both music sources, not Spotify alone.** Apple Music stated no ISRC until
+    `include=catalog` was added to its library reads — 0 of 3,102 rows carried
+    one — so this could only ever have asked about Spotify. It now covers 319 of
+    320 library songs and 226 of 227 playlist items, and an Apple-only account is
+    the common case rather than the exotic one. Naming the two sources rather
+    than taking every row is deliberate: an ISRC is a *recording* identifier, and
+    only these two carry one.
     """
     found: list[str] = []
     seen: set[str] = set()
     offset = 0
     while True:
         query = {
-            "source": "eq.spotify",
+            "source": "in.(spotify,apple_music)",
             "select": "extra",
             "limit": str(PAGE),
             "offset": str(offset),
@@ -177,8 +202,8 @@ def spotify_isrcs(key: str, user_id: str | None) -> list[str]:
         offset += PAGE
 
 
-def catalogue(token: str, isrcs: list[str]) -> dict[str, dict]:
-    """Apple's answer for a batch, keyed by the ISRC it was asked about.
+def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, str]]:
+    """Apple's answer for a batch: songs keyed by ISRC, and the artists behind them.
 
     **No composer filter**, and that is deliberate rather than an omission.
     `ComposerService` drops any song whose `composerName` is empty
@@ -186,11 +211,23 @@ def catalogue(token: str, isrcs: list[str]) -> dict[str, dict]:
     wrote this classical piece" and fatal here: most pop has no stated composer,
     so carrying that filter over would discard the genre this whole tool exists
     to fetch.
+
+    **`include=artists` costs one query parameter on a request already being
+    made**, which is the `part=topicDetails` shape: quota is per call, not per
+    part. It is the whole of how a creator gets a stable identity — Apple's
+    artist id — rather than a normalised string, so `Leehom Wang`, `王力宏` and
+    `Wang Leehom` converge on one concept instead of fragmenting into three.
+    `include=albums` is deliberately not asked for: it answers 504 against a
+    `filter[isrc]` query, which `include=artists` does not.
     """
     answers: dict[str, dict] = {}
+    artists: dict[str, str] = {}
     for start in range(0, len(isrcs), ISRCS_PER_REQUEST):
         batch = isrcs[start:start + ISRCS_PER_REQUEST]
-        query = urllib.parse.urlencode({"filter[isrc]": ",".join(batch)})
+        query = urllib.parse.urlencode({
+            "filter[isrc]": ",".join(batch),
+            "include": "artists",
+        })
         url = f"{APPLE}/{STOREFRONT}/songs?{query}"
         request = urllib.request.Request(url, headers={
             "Authorization": f"Bearer {token}",
@@ -210,6 +247,13 @@ def catalogue(token: str, isrcs: list[str]) -> dict[str, dict]:
             )
         for item in body.get("data", []):
             attributes = item.get("attributes") or {}
+            # **Artists are collected from every song, including the ones whose
+            # ISRC we already hold.** The "first edition wins" rule below is
+            # about which row states the genre; it is not a reason to discard a
+            # credit. A remaster can name an artist the single did not.
+            for artist in artists_in(item):
+                identifier, name = artist
+                artists.setdefault(identifier, name)
             isrc = attributes.get("isrc")
             if not isrc or isrc in answers:
                 # **First edition wins.** One ISRC can return several songs — a
@@ -224,10 +268,30 @@ def catalogue(token: str, isrcs: list[str]) -> dict[str, dict]:
             }
         print(
             f"  batch {start // ISRCS_PER_REQUEST + 1}: asked {len(batch)}, "
-            f"hold {len(answers)}",
+            f"hold {len(answers)} songs, {len(artists)} artists",
             file=sys.stderr,
         )
-    return answers
+    return answers, artists
+
+
+def artists_in(item: dict) -> list[tuple[str, str]]:
+    """The `(id, name)` of every artist credited on one catalogue song.
+
+    `include=artists` embeds the artist resources inside the song's
+    `relationships`, so this reads them where the response puts them rather than
+    making a second call. **An artist with no id is skipped**: the id is the
+    whole point, and a nameless or idless credit would mint a concept keyed on
+    nothing.
+    """
+    relationships = item.get("relationships") or {}
+    artists = relationships.get("artists") or {}
+    found: list[tuple[str, str]] = []
+    for entry in artists.get("data") or []:
+        identifier = (entry.get("id") or "").strip()
+        name = ((entry.get("attributes") or {}).get("name") or "").strip()
+        if identifier and name:
+            found.append((identifier, name))
+    return found
 
 
 def report(isrcs: list[str], answers: dict[str, dict]) -> None:
@@ -275,7 +339,7 @@ def quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def emit(answers: dict[str, dict], description: str) -> None:
+def emit(answers: dict[str, dict], artists: dict[str, str], description: str) -> None:
     """The migration, on stdout.
 
     **`payload_hash` is what makes re-running safe.** The unique key is
@@ -312,6 +376,7 @@ begin;
 """)
     if not answers:
         print("-- Nothing to insert: no ISRC returned a catalogue answer.")
+        emit_artists(artists)
         print("\ncommit;")
         return
 
@@ -334,8 +399,52 @@ begin;
         )
     print(",\n".join(rows))
     print("on conflict (provider, external_id, payload_hash) do nothing;")
+    emit_artists(artists)
     print("""
 commit;""")
+
+
+def emit_artists(artists: dict[str, str]) -> None:
+    """The artists, as catalogue entities keyed on Apple's own id.
+
+    **The normalised label is computed here and carried in `raw_payload`.** The
+    migration that mints concepts from these rows runs in SQL, and SQL cannot
+    reproduce `normalize_text` — it is Unicode-category-driven, folding
+    punctuation and symbols to spaces while keeping every script. Precomputing
+    it is what lets the minting stay a set operation over data already in the
+    database, with one implementation of the rule rather than two.
+
+    `entity_kind='artist'` is what separates these from the `'song'` rows above;
+    both share the provider, so a later sweep or refresh sees one catalogue.
+    """
+    if not artists:
+        print("\n-- No artists returned: nothing to mint a vocabulary from.")
+        return
+    print(f"""
+-- {len(artists)} distinct artists, from the same responses. No extra request
+-- was made for these: `include=artists` rides on the ISRC query above.
+--
+-- **Identity is Apple's artist id, never the name.** A name is a label; an id
+-- is what makes `Leehom Wang`, `王力宏` and `Wang Leehom` one artist rather than
+-- three concepts that can never match each other.
+insert into ontology.external_entities
+  (id, provider, external_id, entity_kind, label, raw_payload,
+   payload_hash, license_code, retrieved_at)
+values""")
+    rows = []
+    for identifier in sorted(artists):
+        name = artists[identifier]
+        payload = {"name": name, "normalized": normalize_text(name)}
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        rows.append(
+            "  (gen_random_uuid(), 'apple_music_catalog', "
+            f"{quote(identifier)}, 'artist', {quote(name)}, "
+            f"{quote(encoded)}::jsonb, {quote(digest)}, "
+            "'apple_media_services', now())"
+        )
+    print(",\n".join(rows))
+    print("on conflict (provider, external_id, payload_hash) do nothing;")
 
 
 def main() -> int:
@@ -361,19 +470,20 @@ def main() -> int:
         with open(args.isrc_file, encoding="utf-8") as handle:
             isrcs = [line.strip() for line in handle if line.strip()]
     else:
-        isrcs = spotify_isrcs(secret_key(), args.user)
+        isrcs = library_isrcs(secret_key(), args.user)
 
     if not isrcs:
-        sys.exit("No Spotify ISRCs found. Nothing to look up.")
+        sys.exit("No ISRCs found on any Spotify or Apple Music row. Nothing to look up.")
     print(f"{len(isrcs)} distinct ISRCs to look up.", file=sys.stderr)
 
-    answers = catalogue(developer_token(), isrcs)
+    answers, artists = catalogue(developer_token(), isrcs)
     report(isrcs, answers)
+    print(f"distinct artists       {len(artists)}", file=sys.stderr)
 
     if args.dry_run:
         print("-- dry run: nothing emitted", file=sys.stderr)
         return 0
-    emit(answers, args.description)
+    emit(answers, artists, args.description)
     return 0
 
 
