@@ -131,6 +131,9 @@ struct GrowProfileView: View {
     /// property that outlives the run and is replaced only by the next attempt.
     @State private var lastAttempted: Modality?
     @State private var distillProgress: Double = 0
+    /// The sources running at the last `onChange`, so a new run can be told
+    /// from an old one ending.
+    @State private var watchedSources: Set<String> = []
     @State private var progressWalk: Task<Void, Never>?
 
     /// How far the arrow is lifted, in points. Driven a hop at a time by
@@ -577,8 +580,20 @@ struct GrowProfileView: View {
 #endif
         // The can goes on the moment the user connects, not when the records
         // come back, so it covers the whole wait — OAuth sheet included.
-        .onChange(of: viewModel.isDistilling) { running in
-            if running {
+        // **Watched as a set, because a boolean cannot say "a different one
+        // started".** `isDistilling` stays true from the first source's start
+        // to the last one's finish, so connecting Outlook while a calendar was
+        // still running changed nothing to observe and the can never appeared —
+        // reported as no animation when distilling several apps consecutively.
+        //
+        // `started` is what makes the difference readable: a set also changes
+        // when a source *finishes* while others carry on, and restarting the
+        // walk then would reset a bar that is mid-run for somebody else.
+        .onChange(of: viewModel.runningSources) { running in
+            let started = running.subtracting(watchedSources)
+            watchedSources = running
+            if !running.isEmpty {
+                guard !started.isEmpty else { return }
                 // What was asked for, falling back to the sequence for the
                 // paths that start a distillation without going through a
                 // picker — `-connect health` and the preview stepper.

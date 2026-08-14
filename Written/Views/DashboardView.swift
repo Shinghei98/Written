@@ -283,13 +283,22 @@ struct DashboardView: View {
                 // show claims the server has stopped standing behind.
                 .onChange(of: isVisible) { visible in
                     guard visible, AppConfig.semanticSurfacesEnabled else { return }
-                    Task { assertions = await SemanticSurfaceService.shared.assertions() }
+                    Task { await refreshMemories() }
                 }
                 .task {
                     guard isVisible, AppConfig.semanticSurfacesEnabled else { return }
-                    assertions = await SemanticSurfaceService.shared.assertions()
-                    isRecomputing =
-                        await SemanticSurfaceService.shared.isRecomputing() ?? false
+                    await refreshMemories()
+                }
+                // **A disconnect happens on this screen, so the page cannot wait
+                // for the next visit.** *Disconnect all* is in Settings, raised
+                // from this header — the person is looking at these blocks when
+                // they press it, and the reload above only fires on becoming
+                // visible, which never happens because Memories never went
+                // away. That is the whole of why the terms appeared to survive
+                // the button even once the server had retired them.
+                .onChange(of: viewModel.distillationCleared) { _ in
+                    guard AppConfig.semanticSurfacesEnabled else { return }
+                    Task { await refreshMemories() }
                 }
 #if DEBUG
                 // `-bio education`; see `DebugLaunch`. The rows only open to a
@@ -1233,6 +1242,41 @@ struct DashboardView: View {
     /// `domainSections` drawing exactly as before, which is §8's requirement
     /// that Memories cut over while discovery, bio and the icebreaker stay on
     /// the legacy path.
+    /// The terms and whether the scores behind them are still catching up.
+    ///
+    /// **Both, on every visit, because the second is what explains the first.**
+    /// The status was read only on `.task`, which fires once — so returning to
+    /// Memories after a distillation reloaded the (correctly withheld) terms
+    /// and left `isRecomputing` at whatever it was on launch. The page went
+    /// empty with no hourglass, which is the exact state the card was built for.
+    ///
+    /// **Then it keeps asking.** The worker drains on a two-minute schedule, so
+    /// a page that asked only on arrival would sit under an hourglass that
+    /// never clears while promising "this page fills in shortly". Bounded at
+    /// five minutes: a loop that outlives the reason for it is worse than a
+    /// card that goes stale, and leaving the tab ends it either way.
+    ///
+    /// A dropped request keeps the current answer rather than clearing it —
+    /// `nil` is *could not ask*, and answering "done" to that would empty the
+    /// card while the work carries on.
+    private func refreshMemories() async {
+        assertions = await SemanticSurfaceService.shared.assertions()
+        isRecomputing = await SemanticSurfaceService.shared.isRecomputing() ?? false
+
+        var checks = 0
+        while isRecomputing, checks < 60, isVisible, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard isVisible, !Task.isCancelled else { return }
+            let stillRunning =
+                await SemanticSurfaceService.shared.isRecomputing() ?? isRecomputing
+            if !stillRunning {
+                assertions = await SemanticSurfaceService.shared.assertions()
+            }
+            isRecomputing = stillRunning
+            checks += 1
+        }
+    }
+
     /// The card that says the page is provisional rather than empty.
     ///
     /// **Drawn above the terms, not instead of them.** A recompute leaves the

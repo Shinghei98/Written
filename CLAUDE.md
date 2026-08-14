@@ -399,6 +399,29 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   `appendingPathComponent` escapes the `?` and asks for a table named
   `distilled_records?source=eq.youtube`; the unlucky failure is a DELETE with no
   filter.
+- **Anything that removes a person's data has two halves, and one of them is
+  easy to forget.** *Disconnect all* emptied four tables in `public` and named
+  none of the ones Memories reads, so every term stayed on the page after the
+  sources behind it were gone — it deleted the copy the user could see and kept
+  the one they could not, which is the worse of the two arrangements. The vault
+  half is `api.forget_distillation`; **the rule is that a deletion control names
+  both schemas or it is not finished.**
+- **In the vault an erasure *redacts*: `lifecycle_state = 'deleted'` with both
+  payload columns nulled, never a row delete.** `ingestion_run_items` refuses
+  every operation that is not an `INSERT` and references observations and raw
+  rows `on delete no action`, so a delete either raises or destroys evidence the
+  policy permits keeping. `sweep_youtube_vault_retention` and
+  `invalidate_healthkit_use_on_revocation` are the two precedents, and
+  `raw_source_records_payload_location_check` is what stops the state and the
+  redaction disagreeing. **A deletion cannot be checked by inspection** — the
+  first version of `forget_distillation` walked nine tables in correct
+  foreign-key order and raised on its first statement.
+- **Retiring is not deleting, and inferred claims are retired.** `machine_state
+  = 'inactive'` is what `api.list_assertions` filters on, and the scorer writes
+  whichever state a run computes — so reconnecting and distilling revives a
+  term rather than needing a repair. **`explicit_addition` survives a
+  disconnect**, being the same fact as a `source = 'user'` row: what somebody
+  typed is not what was read off their phone.
 - **Read through the `summary_*` views, never the tables.** They return the
   latest row per item across runs — a union, deliberately **not** a sum. They are
   `security_invoker = on`; without it a view runs as its owner and bypasses RLS.

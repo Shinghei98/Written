@@ -143,6 +143,37 @@ actor SemanticSurfaceService {
         }
     }
 
+    /// Retires every inferred claim and redacts YouTube's captured payloads.
+    /// `nil` on success, a reason on failure.
+    ///
+    /// **The half of *Disconnect all* that never existed.** That control calls
+    /// `SyncService.deleteEverything`, which empties four tables in `public` and
+    /// names none of the ones Memories reads — so the blocks stayed on the page
+    /// after every source had been disconnected, drawn from a vault the button
+    /// had never reached. Reported 2026-08-14, and it reads as the control not
+    /// working.
+    ///
+    /// **Not gated on `semanticSurfacesEnabled`, unlike every other call
+    /// here.** That flag decides whether the app *asks* for the Memories page;
+    /// the assertions exist either way, and a read switch that also disabled
+    /// somebody's erasure would be a retention decision wearing a feature
+    /// flag's clothes. Erasure has to work on the worst day.
+    ///
+    /// **A reason, not a `Bool`.** The caller draws it: an erasure that failed
+    /// silently would leave a person believing their terms were gone while the
+    /// page still lists them, which is the same failure the legacy half already
+    /// reports through `saveError`.
+    func forgetDistillation() async -> String? {
+        do {
+            _ = try await PostgREST.callFunction("forget_distillation")
+            lastError = nil
+            return nil
+        } catch {
+            lastError = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
     func assertions() async -> [Assertion]? {
         guard AppConfig.semanticSurfacesEnabled else { return [] }
         do {

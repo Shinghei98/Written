@@ -101,6 +101,16 @@ final class DistillViewModel: ObservableObject {
     /// Guards the one action here that must not be started twice.
     @Published private(set) var isDisconnectingAll = false
 
+    /// Bumped when a disconnect has finished retiring the server's claims.
+    ///
+    /// **A counter rather than a flag, because the event is the signal.** A
+    /// `Bool` would have to be set and then unset by whoever read it, which is
+    /// two writers for one fact and the shape that makes a second disconnect
+    /// silently do nothing. Memories holds its own copy of the assertions and
+    /// cannot see this view model's records, so it has to be told the ground
+    /// moved rather than left to notice on the next appearance.
+    @Published private(set) var distillationCleared: UInt = 0
+
     /// The example match on the profile screen. Derived from `identity` and the
     /// records together, so it is recomputed alongside everything else rather
     /// than being built in the view — a `body` that ranks songs would rebuild
@@ -186,14 +196,30 @@ final class DistillViewModel: ObservableObject {
 
     var hasRecords: Bool { !records.isEmpty }
 
-    var isDistilling: Bool {
-        youtubeStatus.isRunning || appleMusicStatus.isRunning
-            || healthStatus.isRunning || calendarStatus.isRunning
-            || googleCalendarStatus.isRunning
-            || outlookCalendarStatus.isRunning
-            || podcastStatus.isRunning
-            || spotifyStatus.isRunning
+    /// Which sources are running, rather than whether any is.
+    ///
+    /// **A boolean cannot say "a different one started".** The watering can is
+    /// driven by `onChange`, and `isDistilling` stays `true` from the first
+    /// source's start to the last one's finish — so connecting Outlook while a
+    /// calendar was still going changed nothing to observe, and the can never
+    /// appeared. Reported as no animation when distilling several apps one
+    /// after another, which is exactly the case where the boolean is already
+    /// true when the next run begins.
+    ///
+    /// A set changes when a source is added *or* removed, so the view can tell
+    /// a new run starting from an old one ending and only restart for the
+    /// former.
+    var runningSources: Set<String> {
+        var running: Set<String> = []
+        for source in ["youtube", "apple_music", "health", "apple_podcasts",
+                       "apple_calendar", "google_calendar", "outlook_calendar",
+                       "spotify"] where status(for: source).isRunning {
+            running.insert(source)
+        }
+        return running
     }
+
+    var isDistilling: Bool { !runningSources.isEmpty }
 
     func status(for source: String) -> SourceStatus {
         switch source {
@@ -308,6 +334,11 @@ final class DistillViewModel: ObservableObject {
         // store on this device with somebody else's data in it. If this line is
         // ever dropped it becomes the only thing that survives a sign-out.
         ChatStore.clear()
+        // And their faces, which is the same argument one step further: the
+        // photo cache holds pictures fetched under an authorisation that ends
+        // with the session, from a bucket that is private precisely so a face
+        // cannot escape it.
+        ProfilePhotoCache.clear()
         UserDefaults.standard.removeObject(forKey: Self.treeSeedKey)
         // Unsent work rather than a cache, so keeping it would be defensible —
         // but signing out leaves nothing on this device, and of everything here
@@ -2448,14 +2479,36 @@ final class DistillViewModel: ObservableObject {
                 return
             }
 
-            records.removeAll()
-            knownConnections.removeAll()
+            // **The vault half, which for a long time did not exist.** The call
+            // above empties four tables in `public` and names none of the ones
+            // Memories draws from, so every term stayed on that page after the
+            // sources behind them were gone. It retires the inferred claims and
+            // redacts YouTube's captured payloads the way the 30-day sweep
+            // does — the second is an obligation rather than a preference,
+            // since the Developer Policies allow 7 days for a revocation made
+            // in the client and a 30-day sweep cannot meet that.
+            //
+            // **Ordered after the legacy delete and reported separately.** A
+            // failure here leaves the connections gone and the terms standing,
+            // which is worth saying in those words rather than folding into the
+            // sentence above — and the local clearing below still runs, because
+            // the sources really are disconnected.
+            let vaultFailure = await SemanticSurfaceService.shared.forgetDistillation()
+
+            // **The same line the server draws, drawn again here.** Wiping the
+            // local copy wholesale emptied the profile even where the rows had
+            // been kept in Postgres — the page reads `records`, so a person saw
+            // their school and occupation vanish and would only get them back
+            // on the next hydrate. `user` rows are what somebody typed; they
+            // are not a distillation and *Disconnect all* does not mean them.
+            records.removeAll { $0.source != "user" }
+            knownConnections = knownConnections.filter { $0 == "user" }
             chronotype = nil
             hourlyActivity = []
             sports = []
             averageDailySteps = nil
-            ConnectionStore.clear()
-            RecordStore.clear()
+            ConnectionStore.save(knownConnections)
+            RecordStore.save(records)
             LifestyleStore.clear()
             // Back to bare soil: the plant is drawn from the connected
             // modalities, so emptying those is what returns it to stage zero.
@@ -2464,7 +2517,14 @@ final class DistillViewModel: ObservableObject {
             // face and are still in the pool — they simply have nothing to say
             // about themselves yet, which is where everybody starts.
             publishDiscoveryCard()
-            saveError = nil
+            // **The one thing that must outlive a success.** Everything else
+            // here clears local state; this reports a server that kept the
+            // claims, and clearing it would say the page is empty when it is
+            // not.
+            saveError = vaultFailure.map { "Disconnected, but your terms are still there — \($0)" }
+            // The page holds its own copy, so it has to be told rather than
+            // left to notice. `distillationCleared` is what Memories watches.
+            distillationCleared &+= 1
             isDisconnectingAll = false
         }
     }

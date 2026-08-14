@@ -518,8 +518,35 @@ actor SyncService {
             return lastError
         }
 
-        for table in ["distilled_records", "source_connections",
-                      "health_signals", "health_sports"] {
+        // **`user` rows are kept, and the distinction is the whole point of the
+        // control.** *Disconnect all* means every distillation — what the app
+        // read out of other apps — and not the profile somebody typed into this
+        // one. `IdentitySummary` builds age, gender, education, occupation, bio
+        // and both communication bands from `source == "user"` records, so
+        // deleting them signed a person out of their own answers: they came
+        // back to a profile with no school and no occupation, having asked only
+        // for their music and calendar to go.
+        //
+        // Health's `age` and `biological_sex` *are* distilled and do go, along
+        // with the derived figures below; the entered values outrank them in
+        // `IdentitySummary` anyway, so what a person typed still shows.
+        for table in ["distilled_records", "source_connections"] {
+            do {
+                _ = try await delete(
+                    table: table, filter: ("user_id", userID),
+                    excluding: ("source", "user"), token: token
+                )
+            } catch {
+                lastError = error.localizedDescription
+                return lastError
+            }
+        }
+
+        // Neither table has a `source` column, and both hold only derived
+        // Health figures — the raw samples were never uploaded, so without
+        // these a disconnected Health account keeps answering for the
+        // chronotype and the sport levels.
+        for table in ["health_signals", "health_sports"] {
             do {
                 _ = try await delete(table: table, filter: ("user_id", userID), token: token)
             } catch {
@@ -538,15 +565,26 @@ actor SyncService {
     private func delete(
         table: String,
         filter: (column: String, value: String),
+        excluding: (column: String, value: String)? = nil,
         token: String
     ) async throws -> Data {
         var components = URLComponents(
             url: AppConfig.supabaseURL.appendingPathComponent("rest/v1/\(table)"),
             resolvingAgainstBaseURL: false
         )
+        // **`URLComponents`, and both filters go through it.** The `?` in a
+        // PostgREST query is not a path component: `appendingPathComponent`
+        // escapes it and asks for a table with a question mark in its name,
+        // which 404s. The unlucky version of that mistake is a DELETE that
+        // reaches the table with no filter at all.
         components?.queryItems = [
             URLQueryItem(name: filter.column, value: "eq.\(filter.value)")
         ]
+        if let excluding {
+            components?.queryItems?.append(
+                URLQueryItem(name: excluding.column, value: "neq.\(excluding.value)")
+            )
+        }
         guard let url = components?.url else {
             throw SyncError.server("Could not form the delete request.")
         }
