@@ -75,6 +75,15 @@ struct DashboardView: View {
     /// `-probe-surface` exists to keep distinguishable.
     @State private var assertions: [SemanticSurfaceService.Assertion]?
 
+    /// Whether the scores behind this page are catching up with the data.
+    ///
+    /// **Empty and recalculating look identical, and that has been mistaken for
+    /// a broken page three times.** A distillation bumps the account's revision
+    /// and `list_assertions` correctly withholds every score computed before it,
+    /// so the page empties until the worker runs. Without this the reader is
+    /// told, in effect, that they are about nothing.
+    @State private var isRecomputing = false
+
     /// Why the last answer did not save.
     ///
     /// **Drawn, which is the whole point of it existing.** The first version of
@@ -279,6 +288,8 @@ struct DashboardView: View {
                 .task {
                     guard isVisible, AppConfig.semanticSurfacesEnabled else { return }
                     assertions = await SemanticSurfaceService.shared.assertions()
+                    isRecomputing =
+                        await SemanticSurfaceService.shared.isRecomputing() ?? false
                 }
 #if DEBUG
                 // `-bio education`; see `DebugLaunch`. The rows only open to a
@@ -1222,8 +1233,55 @@ struct DashboardView: View {
     /// `domainSections` drawing exactly as before, which is §8's requirement
     /// that Memories cut over while discovery, bio and the icebreaker stay on
     /// the legacy path.
+    /// The card that says the page is provisional rather than empty.
+    ///
+    /// **Drawn above the terms, not instead of them.** A recompute leaves the
+    /// old scores in place until the new ones land, so there is often something
+    /// to read while this is up; hiding it would replace a partial answer with
+    /// no answer. When the page really is empty this is the only card, which is
+    /// the case it was built for.
+    ///
+    /// **The hourglass turns on a clock, never on `repeatForever`.** A repeating
+    /// animation started in `onAppear` is replaced permanently by any other
+    /// explicit transaction touching the view — the defect that made the garden
+    /// badges stop floating — so this reads the time and is a pure function of
+    /// it. `TimelineView(.animation)` idles when the tab is not visible.
+    @ViewBuilder
+    private var recomputingCard: some View {
+        if isRecomputing {
+            card {
+                HStack(spacing: 12) {
+                    TimelineView(.animation) { context in
+                        let seconds = context.date.timeIntervalSinceReferenceDate
+                        // One half-turn every two seconds, eased at the ends so
+                        // it reads as sand running out rather than a spinner.
+                        let phase = (seconds / 2).truncatingRemainder(dividingBy: 2)
+                        let turn = phase < 1
+                            ? 180 * (1 - cos(phase * .pi)) / 2
+                            : 180
+                        Image(systemName: "hourglass")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(GardenPalette.muted)
+                            .rotationEffect(.degrees(turn))
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Working out what you're about")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(GardenPalette.ink)
+                        Text("Your new data is in. This page fills in shortly.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(GardenPalette.muted)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
     @ViewBuilder
     private var assertionSection: some View {
+        recomputingCard
         if let assertions, !assertions.isEmpty {
             let blocks = assertionBlocks(assertions)
             ForEach(Array(blocks.enumerated()), id: \.element.id) { position, block in

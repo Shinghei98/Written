@@ -117,6 +117,32 @@ actor SemanticSurfaceService {
     /// A **disabled surface answers `[]`, not `nil`** — the server was reached
     /// and it declined, which is a real answer and the one the legacy path
     /// should be drawn for.
+    /// Whether the scores behind the page are still catching up.
+    ///
+    /// **A blank page and a recalculating page are the same picture**, and the
+    /// difference matters to the person looking at it. `list_assertions`
+    /// withholds every inferred assertion whose score predates the account's
+    /// current revision — right, because the alternative is showing numbers the
+    /// system no longer stands behind — so a distillation empties the page until
+    /// the worker catches up. Zero rows cannot say which of those it is; this
+    /// can.
+    ///
+    /// `nil` for *could not ask*, never `false`. Answering false on a dropped
+    /// request would draw "you have nothing" over an account that is merely
+    /// mid-recompute, which is the exact confusion this exists to end.
+    func isRecomputing() async -> Bool? {
+        guard AppConfig.semanticSurfacesEnabled else { return false }
+        do {
+            let rows = try await PostgREST.callFunction("memories_status")
+            lastError = nil
+            guard let row = rows.first,
+                  let recomputing = row["recomputing"] as? Bool else { return nil }
+            return recomputing
+        } catch {
+            return nil
+        }
+    }
+
     func assertions() async -> [Assertion]? {
         guard AppConfig.semanticSurfacesEnabled else { return [] }
         do {

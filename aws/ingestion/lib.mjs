@@ -260,6 +260,23 @@ export function fingerprintContent(envelope) {
 export const PROJECTOR_VERSIONS = {
   // 2: `title_works` — a work named in a video title becomes a term.
   youtube: 2,
+  // 2: `place_key` — the terminal place of a journey, transit legs excluded.
+  // 3: the base anchor is suppressed, and a ticket names a place with no flight
+  //    in front of it. Both change which rows carry a place rather than the
+  //    shape of the payload, so the projection is identical for every row that
+  //    was already right and differs only where the rules now disagree with it.
+  //
+  // All three calendars together, because the projection is the classifier's
+  // and it does not vary by connector: bumping one and not the others would
+  // re-project an Apple flight and leave the same trip's Google copy reading
+  // the old way, which is the sort of split nothing downstream could explain.
+  //
+  // This is the first bump since `content_fingerprint` shipped, so it is also
+  // the first that supersedes rather than duplicates: the rows it replaces stop
+  // being active instead of sitting beside their replacements forever.
+  apple_calendar: 3,
+  google_calendar: 3,
+  outlook_calendar: 3,
 };
 
 function fingerprintOf(key, { userId, sourceCode, dataType, providerItemId, occurredAt, payload },
