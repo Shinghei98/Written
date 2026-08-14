@@ -277,6 +277,18 @@ class IOSEnvelopeContractTests(unittest.TestCase):
                            "own concepts server-side",
                 "track": "undecided — a track number, and `MusicPayload` has no "
                          "field for one",
+                "catalog_id": "**deliberately legacy-only.** Apple's own id for "
+                              "the catalogue song a library row stands for, kept "
+                              "so `tools/apple_catalog.py` can look an artist up "
+                              "by identifier rather than by name — which is what "
+                              "`sources.online_resolution_policy = "
+                              "'catalog_ids_only'` means. It stays out of the "
+                              "projection because it identifies without "
+                              "describing, which is `0082`'s rule and the same "
+                              "reason YouTube's `video_id` is excluded. The "
+                              "`isrc` beside it *is* projected, because it is "
+                              "the identifier Spotify also states and is what "
+                              "joins the two libraries.",
             },
             "MusicLibraryDistiller": {
                 "subject": "as above",

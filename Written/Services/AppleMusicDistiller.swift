@@ -90,7 +90,19 @@ struct AppleMusicDistiller {
         //
         // Phase one: everything that depends on nothing. `async let` starts all
         // nine immediately and the awaits below collect them.
-        async let songsTask = fetchAllPages(path: "/v1/me/library/songs?limit=100")
+        // **`include=catalog`, and it is one parameter on a request already being
+        // made** — the same shape as YouTube's `part=topicDetails`, quota being
+        // per call rather than per part.
+        //
+        // A `library-songs` resource states no ISRC; only its catalogue
+        // counterpart does, reached through the `catalog` relationship. Measured
+        // 2026-08-14: **0 of 3,102 Apple Music observations carry an ISRC** while
+        // Spotify carries one on 1,910 of 2,080, so the one identifier the two
+        // catalogues share was missing from exactly the source that needs it —
+        // Apple's own. Without it an Apple-only library cannot be resolved
+        // against a catalogue at all, and `sources.online_resolution_policy` is
+        // `catalog_ids_only`: an id may be sent, a performer's name may not.
+        async let songsTask = fetchAllPages(path: "/v1/me/library/songs?limit=100&include=catalog")
         async let albumsTask = fetchAllPages(path: "/v1/me/library/albums?limit=100")
         async let artistsTask = fetchAllPages(path: "/v1/me/library/artists?limit=100")
         async let videosTask = fetchAllPages(path: "/v1/me/library/music-videos?limit=100")
@@ -251,7 +263,10 @@ struct AppleMusicDistiller {
             // Best effort: an empty playlist returns 404, which must not sink
             // the whole distillation.
             guard let tracks = try? await fetchAllPages(
-                path: "/v1/me/library/playlists/\(playlist.id)/tracks?limit=100"
+                // `include=catalog` for the same reason as the library songs
+                // call: a playlist's tracks are `library-songs` and state no
+                // ISRC of their own.
+                path: "/v1/me/library/playlists/\(playlist.id)/tracks?limit=100&include=catalog"
             ) else { return [] }
             return tracks.map {
                 makeRecord(dataType: "playlist_item", resource: $0, detailOverride: "playlist=\(playlist.name)")
@@ -340,10 +355,34 @@ struct AppleMusicDistiller {
 
             guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else { break }
             resources += json["data"] as? [[String: Any]] ?? []
-            nextPath = json["next"] as? String
+            nextPath = (json["next"] as? String).map { carrying(queryOf: path, onto: $0) }
             if nextPath == nil { break }
         }
         return resources
+    }
+
+    /// Apple's `next` states the offset and forgets everything else.
+    ///
+    /// **Measured 2026-08-14: `include=catalog` reached exactly 100 of 320
+    /// library songs — one page.** The paging link comes back as
+    /// `/v1/me/library/songs?offset=100` with no `include`, so every page after
+    /// the first returned library resources with no catalogue relationship and
+    /// therefore no ISRC. Nothing failed; the field was simply absent for 69% of
+    /// the library, which reads exactly like Apple not having the data.
+    ///
+    /// Carried generically rather than by re-appending the one parameter,
+    /// because the next `include` or `extend` added here would land the same way
+    /// and the symptom is a quietly incomplete answer rather than an error.
+    /// Anything the paging link states itself wins — the offset is its business.
+    private func carrying(queryOf original: String, onto next: String) -> String {
+        guard var components = URLComponents(string: next),
+              let originalItems = URLComponents(string: original)?.queryItems
+        else { return next }
+        var items = components.queryItems ?? []
+        let stated = Set(items.map(\.name))
+        items += originalItems.filter { !stated.contains($0.name) }
+        components.queryItems = items
+        return components.string ?? next
     }
 
     // MARK: - Normalization
@@ -411,6 +450,25 @@ struct AppleMusicDistiller {
                 extras.append("has_lyrics=\(hasLyrics ? 1 : 0)")
             }
 
+            // **The two catalogue identifiers, taken from whichever place the
+            // response put them.** `isrc` is the identifier Spotify also states,
+            // so it is what joins the two libraries; `catalog_id` is Apple's own
+            // and is what survives when a row has no ISRC. Both are read because
+            // a library resource states neither directly — the first arrives on
+            // the `catalog` relationship above, the second is on `playParams`,
+            // which was already in every response and discarded at this line.
+            //
+            // Named `isrc` because `SpotifyDistiller` already writes that key and
+            // `with_catalogue_genres` already reads it. A third spelling would be
+            // the `keywords`/`tags` defect again: a field present in the record
+            // and invisible to everything downstream.
+            if let isrc = catalogAttribute("isrc", of: resource), !isrc.isEmpty {
+                extras.append("isrc=\(isrc)")
+            }
+            if let catalogID = catalogIdentifier(of: resource), !catalogID.isEmpty {
+                extras.append("catalog_id=\(catalogID)")
+            }
+
             // **What this row is *about*, decided once, here.**
             //
             // For almost all music that is the performer. For classical it is
@@ -467,6 +525,72 @@ struct AppleMusicDistiller {
 
     private func attribute(_ key: String, of resource: [String: Any]) -> String {
         (resource["attributes"] as? [String: Any])?[key] as? String ?? ""
+    }
+
+    /// The catalogue resource behind a library row, when `include=catalog`
+    /// brought one back.
+    ///
+    /// **Absent is a normal answer, not a failure.** A song a person added from
+    /// a CD rip or a file has no catalogue counterpart at all, and the
+    /// relationship is simply missing — which is why every caller here is
+    /// optional and nothing is stamped when it is.
+    private func catalogResource(of resource: [String: Any]) -> [String: Any]? {
+        guard let relationships = resource["relationships"] as? [String: Any],
+              let catalog = relationships["catalog"] as? [String: Any],
+              let data = catalog["data"] as? [[String: Any]] else { return nil }
+        return data.first
+    }
+
+    /// A catalogue field, from the resource itself or from the one behind it.
+    ///
+    /// **Half these endpoints already return catalogue resources.**
+    /// `recently-added`, `recent/played/tracks`, `heavy-rotation` and
+    /// `recommendations` answer with `songs`, not `library-songs`, so their
+    /// catalogue attributes are on the row rather than behind a `catalog`
+    /// relationship — reading only the relationship found nothing on 452 rows
+    /// that were stating the answer outright.
+    private func catalogAttribute(_ key: String, of resource: [String: Any]) -> String? {
+        if let own = (resource["attributes"] as? [String: Any])?[key] as? String,
+           !own.isEmpty {
+            return own
+        }
+        guard let catalog = catalogResource(of: resource),
+              let attributes = catalog["attributes"] as? [String: Any] else { return nil }
+        return attributes[key] as? String
+    }
+
+    /// Whether a resource is itself a catalogue row rather than a library one.
+    ///
+    /// Library types are `library-songs`, `library-albums`, `library-playlists`;
+    /// catalogue types carry the bare name. Testing the prefix rather than
+    /// listing the types means a resource kind added later is read correctly by
+    /// default instead of silently answering nothing.
+    private func isCatalogResource(_ resource: [String: Any]) -> Bool {
+        guard let type = resource["type"] as? String else { return false }
+        return !type.hasPrefix("library-")
+    }
+
+    /// Apple's own id for the catalogue song a library row stands for.
+    ///
+    /// **Two places state it and the cheaper one is tried second.**
+    /// `playParams.catalogId` rides on every response already and costs nothing,
+    /// but it is absent for anything not catalogue-backed; the `catalog`
+    /// relationship's `id` is authoritative and only present with
+    /// `include=catalog`. Reading both means a row keeps an identifier whichever
+    /// way the response is shaped, and a future call that drops the `include`
+    /// degrades rather than going silent.
+    private func catalogIdentifier(of resource: [String: Any]) -> String? {
+        // A catalogue resource *is* the thing being identified; its own id is
+        // the catalogue id, and there is no relationship to follow.
+        if isCatalogResource(resource), let id = resource["id"] as? String, !id.isEmpty {
+            return id
+        }
+        if let id = catalogResource(of: resource)?["id"] as? String, !id.isEmpty {
+            return id
+        }
+        guard let attributes = resource["attributes"] as? [String: Any],
+              let playParams = attributes["playParams"] as? [String: Any] else { return nil }
+        return playParams["catalogId"] as? String
     }
 }
 
