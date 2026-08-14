@@ -533,10 +533,22 @@ class LibraryFacts(NamedTuple):
     scenes: dict[str, tuple[str, ...]]
 
 
-def with_catalogue_genres(
-    rows: list[dict[str, Any]], genres_by_isrc: dict[str, list[str]]
+def with_catalogue_metadata(
+    rows: list[dict[str, Any]], catalogue_by_isrc: dict[str, dict[str, Any]]
 ) -> int:
-    """Fill in a genre the source did not state, from Apple's catalogue.
+    """Fill in what the source did not state, from Apple's catalogue.
+
+    **Genre, composer and release date — not the genre alone.** The tool has
+    stored all three since it was written; this join read one of them and
+    silently ignored the other two, which were sitting in the same row of the
+    same table having been fetched by the same request. A Spotify row enriched
+    with all three is, in content, an Apple Music row: `terms_for` cannot tell
+    them apart, and that is the point.
+
+    The composer is the one that buys the most on a classical library. Spotify
+    returns none anywhere, so `_is_classical` falls back to a catalogue number
+    and the whole repertoire resolves to whoever performed it — Bach's partita
+    filed under the ensemble. This is the field that separates them.
 
     **Why any of this exists.** Measured 2026-08-14: Apple Music stamps a genre
     on every song row a library has — 641 of 641 library songs — and Spotify
@@ -574,16 +586,45 @@ def with_catalogue_genres(
         payload = row.get("normalized_payload")
         if not isinstance(payload, dict):
             continue
-        stated = payload.get("genres")
-        if isinstance(stated, list) and stated:
-            continue
         isrc = payload.get("isrc")
         if not isinstance(isrc, str):
             continue
-        genres = genres_by_isrc.get(isrc)
-        if not genres:
+        answer = catalogue_by_isrc.get(isrc)
+        if not answer:
             continue
-        row["normalized_payload"] = {**payload, "genres": list(genres)}
+
+        # **The source always outranks the catalogue.** A field the row already
+        # states is never overwritten — Apple's answer is for the recording, and
+        # where the two disagree the one that came off the person's own library
+        # is the one about them. Only an absence is filled.
+        additions: dict[str, Any] = {}
+
+        stated_genres = payload.get("genres")
+        genres = answer.get("genreNames")
+        if not (isinstance(stated_genres, list) and stated_genres) and genres:
+            additions["genres"] = list(genres)
+
+        # **Composer, and it is worth as much as the genre on a classical row.**
+        # Apple states one on 8% of a classical library and `classical_composer`
+        # recovers it from the title for the rest, but neither can fire on a
+        # Spotify row: Spotify returns no composer anywhere, so `_is_classical`
+        # falls back to a catalogue number and the repertoire resolves entirely
+        # to whoever played it. This is the field that tells Bach from the
+        # ensemble.
+        stated_composer = payload.get("composer")
+        composer = (answer.get("composerName") or "").strip()
+        if not (isinstance(stated_composer, str) and stated_composer.strip()) and composer:
+            additions["composer"] = composer
+
+        # `music_works.artist_eras` takes `released[:4]`, so any precision works.
+        stated_release = payload.get("release_date")
+        released = (answer.get("releaseDate") or "").strip()
+        if not (isinstance(stated_release, str) and stated_release.strip()) and released:
+            additions["release_date"] = released
+
+        if not additions:
+            continue
+        row["normalized_payload"] = {**payload, **additions}
         filled += 1
     return filled
 
@@ -1127,18 +1168,106 @@ select distinct ch.youtube_channel_id, ch.canonical_title
    and ch.canonical_title is not null
 """
 
-SELECT_CATALOGUE_GENRES = """
+INSERT_MENTION = """
+insert into semantic_private.observation_mentions (
+  observation_id, user_id, mention_text, normalized_text, mention_role,
+  locale, type_hint, source_field, extraction_method, confidence,
+  safe_for_global_mining, safe_for_external_resolution)
+values (
+  %(observation_id)s, %(user_id)s, %(mention_text)s, %(normalized_text)s,
+  %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, 'projection_field',
+  1.0, false, false)
+on conflict do nothing
+"""
+
+# **An allow-list, because the failure mode of a deny-list is silence.**
+#
+# A mention is a raw string out of somebody's library, so the question is not
+# whether it is useful but whether storing it discloses anything not already
+# stored. For these four the answer is no: the string is public catalogue
+# metadata already sitting in `observations.normalized_payload`, and none of them
+# carries a term restricting downstream use.
+#
+# The three refusals, each for its own reason and none of them "we forgot":
+#
+# * **`spotify`** — IV.2.1.a forbids ingesting Spotify Content into an ML/AI
+#   model and IV.2.5 says a user's consent does not cure it. Growing vocabulary
+#   from Spotify strings is exactly that. It is the source with the worst
+#   resolution rate (5%) and the one that most needs the vocabulary grown, and it
+#   still may not feed it; its route is catalogue identity, which reads and
+#   discards rather than learning from Content.
+# * **`youtube`** — III.E.4 gives titles and creator names 30 days, and
+#   `sweep_youtube_vault_retention` covers `observations` and
+#   `raw_source_records`. A mentions row would be the same strings outside the
+#   sweep, which is how a retention obligation stops being true without anybody
+#   deciding to break it.
+# * **every calendar** — titles never reach the vault at all; the stored payload
+#   is at most four keys. There is nothing here to index, and a table that could
+#   hold one is what that design refuses.
+MINEABLE_SOURCES = frozenset({
+    "apple_music",
+    "music_library",
+    "apple_podcasts",
+    "podcast",
+})
+
+
+def record_mentions(
+    connection, user_id: str, unresolved: list[tuple[Any, Any]]
+) -> int:
+    """Write down the terms that matched nothing, before they are discarded.
+
+    **The only place these strings still exist.** `exact_terms_only` drops every
+    term absent from the alias graph and the sole trace is an integer —
+    `no_exact_alias` was 2,881 on one run, which says how many were lost and
+    nothing about which. A system that cannot name what it failed to recognise
+    cannot learn to recognise it, and every route to growing the vocabulary
+    begins here.
+
+    **`safe_for_global_mining` is written `false` on every row.** Recording a
+    term and licensing its promotion into shared vocabulary are two decisions;
+    this is only the first, and `EmergentTermMiner`'s five-user privacy floor
+    sits behind the second.
+
+    Returns how many were written, so a run can say so rather than leaving
+    "nothing was unresolved" and "nothing was recorded" as the same observation.
+    """
+    rows = [
+        {
+            "observation_id": observation.id,
+            "user_id": user_id,
+            "mention_text": term.text,
+            "normalized_text": term.normalized,
+            "mention_role": term.role,
+            "type_hint": term.type_hint,
+            "source_field": term.source_field,
+        }
+        for observation, term in unresolved
+        if observation.source in MINEABLE_SOURCES and term.text and term.normalized
+    ]
+    if not rows:
+        return 0
+    with connection.cursor() as cursor:
+        cursor.executemany(INSERT_MENTION, rows)
+    return len(rows)
+
+
+SELECT_CATALOGUE_METADATA = """
 select distinct on (e.external_id)
-       e.external_id, e.raw_payload->'genreNames' as genres
+       e.external_id, e.raw_payload
   from ontology.external_entities e
   join semantic_private.observations o
     on o.normalized_payload->>'isrc' = e.external_id
  where o.user_id = %(user_id)s
    and o.lifecycle_state = 'active'
    and e.provider = 'apple_music_catalog'
-   and jsonb_array_length(coalesce(e.raw_payload->'genreNames', '[]'::jsonb)) > 0
+   and e.entity_kind = 'song'
  order by e.external_id, e.retrieved_at desc
 """
+# **The genre-presence filter is gone deliberately.** A recording Apple answered
+# for with a composer and no genre was excluded by it, which threw away the field
+# that matters most on a classical row. `entity_kind = 'song'` replaces it,
+# because the same provider now also stores artists.
 
 FINALIZE_RUN = "select semantic_private.finalize_semantic_run(%(run)s) as finalized"
 
@@ -1268,17 +1397,19 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # on `semantic_run_live_identity_idx` while the first held its transaction
     # open for the entire resolution.
     mapping_rows: list[dict[str, Any]] = []
+    # Terms that matched no alias, kept only long enough to be written down.
+    unresolved: list[tuple[Observation, Term]] = []
 
     # **Before the facts, and that ordering is the whole of it.** `library_facts`
     # derives eras, spheres and scenes from the genres on each row, so a genre
     # merged afterwards would reach `genre:*` and none of the three — which is
     # the same shape as having no genre at all for everything a person sees.
     with connection.cursor() as cursor:
-        cursor.execute(SELECT_CATALOGUE_GENRES, {"user_id": user_id})
-        catalogue_genres = {
-            row["external_id"]: row["genres"] or [] for row in cursor.fetchall()
+        cursor.execute(SELECT_CATALOGUE_METADATA, {"user_id": user_id})
+        catalogue = {
+            row["external_id"]: row["raw_payload"] or {} for row in cursor.fetchall()
         }
-    counts["catalogue_genres"] = with_catalogue_genres(rows, catalogue_genres)
+    counts["catalogue_fields"] = with_catalogue_metadata(rows, catalogue)
 
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
@@ -1295,10 +1426,22 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             channel_titles=channel_titles,
             breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes)
         if observation is not None:
+            kept_terms = exact_terms_only(observation, graph)
             before = len(observation.terms)
-            observation = exact_terms_only(observation, graph)
-            after = len(observation.terms) if observation is not None else 0
+            after = len(kept_terms.terms) if kept_terms is not None else 0
             counts["no_exact_alias"] = counts.get("no_exact_alias", 0) + before - after
+            # **Written down before being discarded.** Everything below deletes
+            # these strings; this is the only place they still exist. See
+            # `MINEABLE_SOURCES` for which of them may be kept and why the list
+            # is short.
+            if before > after:
+                resolved = {term.normalized for term in (kept_terms.terms if kept_terms else ())}
+                unresolved.extend(
+                    (observation, term)
+                    for term in observation.terms
+                    if term.normalized not in resolved
+                )
+            observation = kept_terms
             if observation is None:
                 counts["no_terms"] += 1
                 continue
@@ -1320,11 +1463,24 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 as_of=as_of,
             )
         except RecencyPolicyError:
-            # **`recommendation` is the only action this hits, and skipping it is
-            # the policy speaking rather than a gap.** Apple chose the track, so
-            # it is not the user's act — `action_weights` gives it exactly 0 and
-            # the recency policy declines to give it a rule. Counted, never
-            # silently dropped.
+            # **An action with no recency rule is dropped here, and the count is
+            # the only trace.** For `recommendation` that is the policy speaking
+            # rather than a gap: Apple chose the track, so it is not the user's
+            # act, `action_weights` gives it exactly 0 and the policy declines to
+            # give it a rule.
+            #
+            # **It was not the only action this hit, and saying so cost 560
+            # observations.** `0139` weighed Spotify's `top_track` and
+            # `top_artist` in the database and left `SOURCE_ACTION_WEIGHTS` and
+            # this policy untouched, so every one of them landed here — correctly
+            # weighted, correctly projected, silently discarded — while the
+            # sentence above said that could not be happening. A comment naming
+            # the one case it knows about reads as an exhaustive list to the next
+            # person, and this counter is otherwise indistinguishable from a
+            # policy working as intended.
+            #
+            # If this number is larger than the `recommendation` rows in a run,
+            # something is being dropped that nobody decided to drop.
             counts["unweighted_action"] += 1
             continue
 
@@ -1421,6 +1577,8 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     if mapping_rows:
         with connection.cursor() as cursor:
             cursor.executemany(INSERT_MAPPING, mapping_rows)
+
+    counts["mentions_recorded"] = record_mentions(connection, user_id, unresolved)
 
     # **Scoring runs inside this run, not a second one.** A score belongs to the
     # mappings it was computed from, and `finalize_semantic_run`'s staleness

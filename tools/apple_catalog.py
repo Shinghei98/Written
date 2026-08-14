@@ -251,9 +251,17 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
             # ISRC we already hold.** The "first edition wins" rule below is
             # about which row states the genre; it is not a reason to discard a
             # credit. A remaster can name an artist the single did not.
-            for artist in artists_in(item):
-                identifier, name = artist
-                artists.setdefault(identifier, name)
+            for identifier, name, genres in artists_in(item):
+                # **First edition wins for the name; genres accumulate.** One
+                # artist appears on many songs and Apple does not always repeat
+                # the full genre list, so a union across appearances is a fuller
+                # answer than whichever song happened to be seen first.
+                existing = artists.setdefault(
+                    identifier, {"name": name, "genres": []}
+                )
+                for genre in genres:
+                    if genre not in existing["genres"]:
+                        existing["genres"].append(genre)
             isrc = attributes.get("isrc")
             if not isrc or isrc in answers:
                 # **First edition wins.** One ISRC can return several songs — a
@@ -274,23 +282,36 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
     return answers, artists
 
 
-def artists_in(item: dict) -> list[tuple[str, str]]:
-    """The `(id, name)` of every artist credited on one catalogue song.
+def artists_in(item: dict) -> list[tuple[str, str, list[str]]]:
+    """The `(id, name, genres)` of every artist credited on one catalogue song.
 
     `include=artists` embeds the artist resources inside the song's
     `relationships`, so this reads them where the response puts them rather than
     making a second call. **An artist with no id is skipped**: the id is the
     whole point, and a nameless or idless credit would mint a concept keyed on
     nothing.
+
+    **The genres are what give a minted concept a parent.** A creator with no
+    `broader` edge is a floating node — `concept_block` answers null, so the term
+    lands under "Other" and belongs to no hub. That is the difference between
+    minting vocabulary and minting *structure*, and it is why `0162` had to exist
+    for eight k-pop members who had been minted without one. An artist resource
+    states its own `genreNames`; taking them costs nothing here and saves a
+    hand-written migration per artist later.
+
+    An artist without stated genres is still returned — it is a real artist, it
+    simply gets no parent, and that is a better answer than dropping them.
     """
     relationships = item.get("relationships") or {}
     artists = relationships.get("artists") or {}
-    found: list[tuple[str, str]] = []
+    found: list[tuple[str, str, list[str]]] = []
     for entry in artists.get("data") or []:
         identifier = (entry.get("id") or "").strip()
-        name = ((entry.get("attributes") or {}).get("name") or "").strip()
+        attributes = entry.get("attributes") or {}
+        name = (attributes.get("name") or "").strip()
+        genres = [g for g in (attributes.get("genreNames") or []) if g]
         if identifier and name:
-            found.append((identifier, name))
+            found.append((identifier, name, genres))
     return found
 
 
@@ -433,8 +454,18 @@ insert into ontology.external_entities
 values""")
     rows = []
     for identifier in sorted(artists):
-        name = artists[identifier]
-        payload = {"name": name, "normalized": normalize_text(name)}
+        entry = artists[identifier]
+        name = entry["name"]
+        # **Both the genre and its normalised form**, because the migration that
+        # mints `broader` edges runs in SQL and SQL cannot reproduce
+        # `normalize_text`. Same reason the artist's own normalised name is
+        # carried: one implementation of the fold, computed where the fold lives.
+        payload = {
+            "name": name,
+            "normalized": normalize_text(name),
+            "genres": list(entry["genres"]),
+            "genres_normalized": [normalize_text(g) for g in entry["genres"]],
+        }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
         rows.append(

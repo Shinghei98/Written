@@ -10,7 +10,7 @@ the root of everything a person can see. `artist_spheres` reads nothing else,
 Every Spotify track carries an ISRC (500 of 500, measured), which is the one
 identifier Apple's catalogue shares, so the catalogue can answer for rows
 Spotify left bare. `tools/apple_catalog.py` fetches the answers into
-`ontology.external_entities`; `with_catalogue_genres` is the read-time join.
+`ontology.external_entities`; `with_catalogue_metadata` is the read-time join.
 
 What is pinned here is the *shape* of that join rather than any arithmetic: who
 gets filled, who does not, and that nothing the vault holds is altered on the
@@ -56,7 +56,7 @@ def test_a_bare_row_with_an_isrc_is_filled(resolve):
     """The case the whole exercise exists for: a Spotify top track."""
     rows = [row(title="小小蟲", primary_performer="Khalil Fong",
                 album="橙月", isrc="HKI490867403", release_date="2010-05-18")]
-    filled = resolve.with_catalogue_genres(rows, {"HKI490867403": ["Mandopop"]})
+    filled = resolve.with_catalogue_metadata(rows, {"HKI490867403": {"genreNames": ["Mandopop"]}})
     assert filled == 1
     assert rows[0]["normalized_payload"]["genres"] == ["Mandopop"]
     # Everything else survives untouched — the join adds, it does not rewrite.
@@ -72,7 +72,7 @@ def test_a_stated_genre_is_never_overwritten(resolve):
     silently, on rows that were already resolving correctly.
     """
     rows = [row(title="again - EP", genres=["J-Pop"], isrc="JPB600901234")]
-    assert resolve.with_catalogue_genres(rows, {"JPB600901234": ["Rock"]}) == 0
+    assert resolve.with_catalogue_metadata(rows, {"JPB600901234": {"genreNames": ["Rock"]}}) == 0
     assert rows[0]["normalized_payload"]["genres"] == ["J-Pop"]
 
 
@@ -81,7 +81,7 @@ def test_an_empty_genre_list_counts_as_unstated(resolve):
     not arrive — but if one does it means the same thing as a missing key, and
     treating the two differently is how a row silently misses a fill."""
     rows = [row(title="Anything", genres=[], isrc="USUM71805757")]
-    assert resolve.with_catalogue_genres(rows, {"USUM71805757": ["K-Pop"]}) == 1
+    assert resolve.with_catalogue_metadata(rows, {"USUM71805757": {"genreNames": ["K-Pop"]}}) == 1
     assert rows[0]["normalized_payload"]["genres"] == ["K-Pop"]
 
 
@@ -89,7 +89,7 @@ def test_a_row_with_no_isrc_is_left_alone(resolve):
     """Artist rows carry no ISRC — 0 of 80, measured — and there is nothing to
     join them on. They are not a failure, they are simply not this lane's."""
     rows = [row(title="Aimer", primary_performer="Aimer")]
-    assert resolve.with_catalogue_genres(rows, {"HKI490867403": ["Mandopop"]}) == 0
+    assert resolve.with_catalogue_metadata(rows, {"HKI490867403": {"genreNames": ["Mandopop"]}}) == 0
     assert "genres" not in rows[0]["normalized_payload"]
 
 
@@ -98,7 +98,7 @@ def test_an_isrc_the_catalogue_never_answered_for_is_left_alone(resolve):
     was rather than stamping an empty genre, which would then read downstream as
     *"this song has no genre"* — a claim nobody made."""
     rows = [row(title="Obscure", isrc="ZZZ000000000")]
-    assert resolve.with_catalogue_genres(rows, {}) == 0
+    assert resolve.with_catalogue_metadata(rows, {}) == 0
     assert "genres" not in rows[0]["normalized_payload"]
 
 
@@ -112,7 +112,7 @@ def test_the_source_is_not_named(resolve):
     """
     rows = [{"source_code": "some_future_source",
              "normalized_payload": {"title": "x", "isrc": "HKI490867403"}}]
-    assert resolve.with_catalogue_genres(rows, {"HKI490867403": ["Mandopop"]}) == 1
+    assert resolve.with_catalogue_metadata(rows, {"HKI490867403": {"genreNames": ["Mandopop"]}}) == 1
 
 
 def test_the_loaded_payload_is_not_mutated(resolve):
@@ -123,7 +123,7 @@ def test_the_loaded_payload_is_not_mutated(resolve):
     """
     original = {"title": "小小蟲", "isrc": "HKI490867403"}
     rows = [{"source_code": "spotify", "normalized_payload": original}]
-    resolve.with_catalogue_genres(rows, {"HKI490867403": ["Mandopop"]})
+    resolve.with_catalogue_metadata(rows, {"HKI490867403": {"genreNames": ["Mandopop"]}})
     assert original == {"title": "小小蟲", "isrc": "HKI490867403"}
     assert rows[0]["normalized_payload"] is not original
 
@@ -137,7 +137,7 @@ def test_a_malformed_row_does_not_raise(resolve):
         {"source_code": "spotify", "normalized_payload": {"isrc": 12345}},
         {"source_code": "spotify"},
     ]
-    assert resolve.with_catalogue_genres(rows, {"HKI490867403": ["Mandopop"]}) == 0
+    assert resolve.with_catalogue_metadata(rows, {"HKI490867403": {"genreNames": ["Mandopop"]}}) == 0
 
 
 def test_genres_reach_a_sphere_and_a_scene_once_filled(resolve):
@@ -159,10 +159,69 @@ def test_genres_reach_a_sphere_and_a_scene_once_filled(resolve):
     assert bare.spheres.get("Khalil Fong", ()) == ()
     assert bare.scenes.get("Khalil Fong", ()) == ()
 
-    resolve.with_catalogue_genres(rows, {
-        "HKI490867403": ["Mandopop"], "HKI490867404": ["Mandopop"],
+    resolve.with_catalogue_metadata(rows, {
+        "HKI490867403": {"genreNames": ["Mandopop"]},
+        "HKI490867404": {"genreNames": ["Mandopop"]},
     })
     facts = resolve.library_facts(rows)
     assert "sphere:mandarin" in facts.spheres.get("Khalil Fong", ())
     assert facts.scenes.get("Khalil Fong", ()) != ()
     assert facts.eras.get("Khalil Fong", ()) != ()
+
+
+def test_the_composer_is_filled_and_it_is_the_classical_case(resolve):
+    """**The field that tells Bach from the ensemble.**
+
+    Spotify returns no composer anywhere, so `_is_classical` falls back to a
+    catalogue number and a whole classical library resolves to whoever performed
+    it. Apple states one, and the tool has been storing it in the same row as the
+    genre since it was written — this join simply never read it.
+    """
+    rows = [row(title="Partita No. 2 in D Minor, BWV 1004",
+                primary_performer="Itzhak Perlman", isrc="USSM10000001")]
+    filled = resolve.with_catalogue_metadata(rows, {
+        "USSM10000001": {
+            "genreNames": ["Classical"],
+            "composerName": "Johann Sebastian Bach",
+            "releaseDate": "1987-01-01",
+        },
+    })
+    assert filled == 1
+    payload = rows[0]["normalized_payload"]
+    assert payload["composer"] == "Johann Sebastian Bach"
+    assert payload["genres"] == ["Classical"]
+    assert payload["release_date"] == "1987-01-01"
+
+
+def test_a_stated_composer_and_release_date_are_never_overwritten(resolve):
+    """The same rule as the genre, applied to the two fields joining it."""
+    rows = [row(title="x", primary_performer="y", isrc="USSM10000002",
+                composer="Somebody Else", release_date="1999-01-01",
+                genres=["Rock"])]
+    assert resolve.with_catalogue_metadata(rows, {
+        "USSM10000002": {
+            "genreNames": ["Classical"],
+            "composerName": "Johann Sebastian Bach",
+            "releaseDate": "1987-01-01",
+        },
+    }) == 0
+    payload = rows[0]["normalized_payload"]
+    assert payload["composer"] == "Somebody Else"
+    assert payload["release_date"] == "1999-01-01"
+    assert payload["genres"] == ["Rock"]
+
+
+def test_a_recording_with_a_composer_and_no_genre_is_still_filled(resolve):
+    """**The row the old genre-presence filter threw away.**
+
+    `SELECT_CATALOGUE_METADATA` used to require a non-empty `genreNames`, which
+    excluded exactly the classical recordings whose composer was the reason to
+    ask. Asserted here rather than trusted to the SQL, because the filter and
+    this function are edited by different people on different days.
+    """
+    rows = [row(title="x", primary_performer="y", isrc="USSM10000003")]
+    assert resolve.with_catalogue_metadata(rows, {
+        "USSM10000003": {"genreNames": [], "composerName": "Claude Debussy"},
+    }) == 1
+    assert rows[0]["normalized_payload"]["composer"] == "Claude Debussy"
+    assert "genres" not in rows[0]["normalized_payload"]

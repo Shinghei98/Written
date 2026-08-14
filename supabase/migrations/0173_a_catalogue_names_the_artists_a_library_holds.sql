@@ -289,7 +289,54 @@ select new_v.id, c.id, p.name, p.normalized, 'und',
  where p.disposition = 'mint'
 on conflict do nothing;
 
--- 4. Provenance, for both the minted and the merely linked.
+-- 4. The parent. **A concept without one is a floating node, and minting
+--    thousands of those is not growth.**
+--
+--    `concept_block` answers null for a creator with no `broader` edge, so the
+--    term lands under "Other" on Memories, belongs to no hub, and is invisible
+--    to anything that reasons over the hierarchy. `0162` exists precisely
+--    because eight k-pop members were minted without one and had to be given
+--    parents by hand afterwards — which does not scale to a catalogue.
+--
+--    Apple states an artist's own `genreNames`, so the parent arrives in the
+--    same response as the identity. The genre is matched by its **normalised**
+--    form, precomputed by the tool for the same reason the artist's name is:
+--    SQL cannot reproduce a Unicode-category fold.
+--
+--    **Only where the genre resolves to exactly one concept.** An unrecognised
+--    genre yields no edge rather than a guessed one, and an ambiguous one is
+--    refused for the same reason a colliding label is.
+insert into ontology.concept_edges (
+  ontology_version_id, subject_concept_id, predicate_key, object_concept_id,
+  confidence, provenance_type, provenance, status)
+select distinct new_v.id, c.id, 'broader', g.concept_id, 1.0, 'provider',
+       jsonb_build_object('source', '0173', 'provider', 'apple_music_catalog'),
+       'active'
+  from mint_plan p
+  join ontology.concepts c on c.concept_key = 'creator:apple_' || p.apple_id
+  join ontology.external_entities e on e.id = p.entity_id
+  cross join lateral jsonb_array_elements_text(
+    coalesce(e.raw_payload -> 'genres_normalized', '[]'::jsonb)
+  ) as stated(genre)
+  join (
+    select l.normalized_label,
+           min(l.concept_id::text)::uuid as concept_id
+      from ontology.concept_labels l
+      join ontology.versions v
+        on v.id = l.ontology_version_id and v.version = '0.22.0'
+      join ontology.concept_revisions r
+        on r.ontology_version_id = v.id and r.concept_id = l.concept_id
+     where l.status = 'active'
+       and r.status = 'active'
+       and r.concept_kind = 'genre'
+     group by l.normalized_label
+    having count(distinct l.concept_id) = 1
+  ) g on g.normalized_label = stated.genre
+ cross join (select id from ontology.versions where version = '0.22.0') new_v
+ where p.disposition = 'mint'
+on conflict do nothing;
+
+-- 5. Provenance, for both the minted and the merely linked.
 --
 --    **This is what `external_concept_links` is for**, and it is the reason the
 --    catalogue is auditable rather than folklore: every concept here can name
@@ -313,6 +360,7 @@ declare
   sample record;
   resolved integer;
   minted integer;
+  parented integer;
   unresolvable text;
 begin
   -- **Resolvability, not a count.** `0096` is the precedent: 35 concepts, all
@@ -368,6 +416,24 @@ begin
   end if;
 
   raise notice '0173: % creators minted and resolvable, no collisions', minted;
+
+  -- **Parent coverage, said out loud.** An artist Apple states no genre for
+  -- legitimately has no parent, so this is a notice rather than a failure — but
+  -- a run where *nothing* got one means the genre join is broken, and a number
+  -- nobody prints is a number nobody checks. If `parented` is 0 while `minted`
+  -- is large, `genres_normalized` is missing from the catalogue payload and the
+  -- vocabulary is growing flat.
+  select count(distinct e.subject_concept_id) into parented
+    from ontology.concept_edges e
+    join ontology.versions v
+      on v.id = e.ontology_version_id and v.version = '0.22.0'
+    join mint_plan p
+      on p.disposition = 'mint'
+    join ontology.concepts c
+      on c.concept_key = 'creator:apple_' || p.apple_id
+     and c.id = e.subject_concept_id
+   where e.predicate_key = 'broader';
+  raise notice '0173: % of % minted creators have a genre parent', parented, minted;
 
   for sample in
     select p.name from mint_plan p where p.disposition = 'link' limit 3

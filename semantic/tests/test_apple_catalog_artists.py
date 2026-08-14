@@ -91,7 +91,9 @@ def test_an_artist_without_an_id_is_refused():
         "relationships": {
             "artists": {
                 "data": [
-                    {"id": "159260351", "attributes": {"name": "Taylor Swift"}},
+                    {"id": "159260351",
+                     "attributes": {"name": "Taylor Swift",
+                                    "genreNames": ["Pop", "Country"]}},
                     {"id": "", "attributes": {"name": "Nameless"}},
                     {"id": "412778295", "attributes": {"name": ""}},
                     {"attributes": {"name": "No id at all"}},
@@ -99,7 +101,42 @@ def test_an_artist_without_an_id_is_refused():
             }
         }
     }
-    assert module.artists_in(song) == [("159260351", "Taylor Swift")]
+    assert module.artists_in(song) == [
+        ("159260351", "Taylor Swift", ["Pop", "Country"])
+    ]
+
+
+def test_an_artist_with_no_stated_genre_is_still_returned():
+    """It gets no parent, which is a better answer than dropping the artist.
+
+    A creator with no `broader` edge is a floating node, but a creator that was
+    never minted is invisible. The first is a gap somebody can see.
+    """
+    module = tool()
+    song = {"relationships": {"artists": {"data": [
+        {"id": "1", "attributes": {"name": "Unclassified"}},
+    ]}}}
+    assert module.artists_in(song) == [("1", "Unclassified", [])]
+
+
+def test_the_genres_that_give_a_minted_creator_its_parent_are_normalized():
+    """**The join that places a new artist in the hierarchy is a string match.**
+
+    `0173` matches `genres_normalized` against `concept_labels.normalized_label`
+    to mint the `broader` edge, and SQL cannot reproduce a Unicode-category fold
+    — so the fold happens here or the artist is minted parentless with nothing
+    saying why. `j pop` is the shape that matters: the vocabulary holds
+    `genre:j_pop` under exactly that alias.
+    """
+    import contextlib
+    import io
+
+    module = tool()
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        module.emit_artists({"1": {"name": "Aimer", "genres": ["J-Pop", "Anime"]}})
+    emitted = buffer.getvalue()
+    assert '"genres_normalized": ["j pop", "anime"]' in emitted
 
 
 def test_a_song_with_no_artist_relationship_is_not_an_error():
@@ -144,7 +181,7 @@ def test_emitted_artist_rows_carry_the_normalized_label():
     module = tool()
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        module.emit_artists({"412778295": "P!nk"})
+        module.emit_artists({"412778295": {"name": "P!nk", "genres": []}})
     emitted = buffer.getvalue()
 
     assert "'artist'" in emitted
@@ -153,5 +190,5 @@ def test_emitted_artist_rows_carry_the_normalized_label():
     # The apostrophe path, which is the one that would end a migration midway.
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        module.emit_artists({"1": "O'Brien"})
+        module.emit_artists({"1": {"name": "O'Brien", "genres": []}})
     assert "'O''Brien'" in buffer.getvalue()
