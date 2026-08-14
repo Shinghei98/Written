@@ -82,24 +82,50 @@ gap `hasGoogleAccountOnDevice()` was meant to prevent. **Any repetition test
 must dedupe by title and start before counting**, or three trips read as six
 and a hub becomes a base twice as fast.
 
-## What the calendar does not yet carry
+## What the calendar carries about booking
 
-**`booked` and `recurring` are not stamped on this library.** All 324 rows carry
-`start`, `end`, `hour`, `weekday`, `weekend`, `all_day`, `duration_min`,
-`cal_type` and `calendar` — and **zero** carry `booked=1` or `recurring=1`.
+An earlier draft of this spec said `booked` and `recurring` were not stamped at
+all. That was wrong, and wrong in an instructive way: the check looked for
+`booked=1` in an `extra` column that stores `{"booked": "1"}`, so it could not
+have matched anything. Both flags are stamped and both fire — 57 booked and 51
+recurring across 1,356 calendar rows on three accounts.
 
-That matters because the whole design leans on both:
+**What was actually broken is what `booked` meant.** It was stamped whenever the
+event carried a URL, and measured against this library that caught the wrong
+things in both directions:
 
-- `booked=1` separates *a ticket somebody paid for* from *a reminder they
-  typed*, which is the difference between `travel:cancun` and a note that says
-  "Cancun??". It is decided by an organiser and a ticketing URL, and Outlook's
-  `$select` asks for neither.
-- `recurring=1` separates a festival from a weekly spa — the one-time versus
-  recurring distinction this spec needs to tell `event:` from `activity:`.
+| Event | Was | Should be |
+|---|---|---|
+| `Ticket: Chichén Itzá Premier Tour` | booked | booked |
+| `All of Us meeting 03/10` | booked | **not** — the URL is a Zoom link |
+| `Flight to Hong Kong (CX 883)` | not booked | **booked** |
+| `Flight to Los Angeles (CX 880)` | not booked | **booked** |
 
-**So the first unit of work is the distiller, not the ontology.** Until those
-two flags reach the vault, the recognition below can classify what an event
-*is* but not how strongly it counts.
+A conference call was a purchase and every flight was a typed reminder — and the
+flights are the strongest travel evidence a calendar holds.
+
+**Three states, not two**, because *somebody else put this in my diary* and *I
+paid for this* are different facts and only the second is a preference:
+
+    typed    no organizer, no url — the person wrote it themselves
+    invited  an organizer exists — somebody else's meeting
+    booked   a ticket, a flight, a reservation
+
+`invited` comes from the organizer's *existence*, which is a fact rather than a
+reading. A colleague's recurring Zoom says something about a working week and
+nothing about what somebody chose to spend a Saturday on.
+
+**A flight is booked whether or not anything wrote a URL back.** Apple parses
+airline mail into `Flight to Los Angeles (CX 880)` and leaves the organizer as
+`Unknown Organizer` with no url. The carrier code is what makes it a booking:
+`Flight to Los Angeles` is a note, `Flight to Los Angeles (CX 880)` is a
+boarding pass. The space inside the parentheses is load-bearing, since
+`[A-Z0-9]{2,3}` is greedy — the same trap `_FLIGHT_TITLE_RE` already records.
+
+**Outlook still cannot stamp `booked`.** Its `$select` asks for neither
+`organizer` nor `webLink`, so its 45 rows carry `recurring` and nothing else.
+Adding `organizer` is possible under `Calendars.Read` and remains a decision
+rather than a consequence.
 
 ## Recognition: read, derive, discard
 

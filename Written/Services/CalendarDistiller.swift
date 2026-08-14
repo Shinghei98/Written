@@ -300,15 +300,46 @@ struct CalendarDistiller {
         }
         if event.isAllDay { extras.append("all_day=1") }
         if event.hasRecurrenceRules { extras.append("recurring=1") }
-        // The two fields that tell a booked ticket from a typed reminder.
-        // Eventbrite, Ticketmaster and Dice all write a URL back; almost nothing
-        // a person types by hand has one.
+        // **`booked` means a transaction happened, not that a URL exists.**
+        //
+        // Measured on a real library: of four events carrying a URL, one was
+        // `Ticket: Chichén Itzá Premier Tour` — the thing this flag is for —
+        // and another was `All of Us meeting 03/10`, whose URL is a Zoom link.
+        // Meanwhile all four flights, which cost money and a Saturday and are
+        // the strongest travel evidence a calendar holds, carried no URL at all
+        // and were not flagged. So the old test caught a conference call and
+        // missed every flight.
+        //
+        // Three states rather than two, because "somebody else put this in my
+        // diary" and "I paid for this" are different facts and only the second
+        // is a preference:
+        //
+        //   typed    — no organizer, no url: the person wrote it themselves
+        //   invited  — an organizer exists: somebody else's meeting
+        //   booked   — a ticket, a flight, a reservation
+        //
+        // `invited` is stamped from the organizer's *existence*, which is a
+        // fact rather than a reading. It is deliberately not `booked`: a
+        // colleague's recurring Zoom says something about a working week and
+        // nothing about what somebody chose to spend a Saturday on.
         if let url = event.url?.absoluteString, !url.isEmpty {
             extras.append("url=\(url)")
-            extras.append("booked=1")
+            if !Self.isConferencingURL(url) { extras.append("booked=1") }
         }
         if let organizer = event.organizer?.name, !organizer.isEmpty {
             extras.append("organizer=\(organizer)")
+            extras.append("invited=1")
+        }
+        // **A flight is booked whether or not anything wrote a URL back.**
+        // Apple parses airline mail into `Flight to Los Angeles (CX 880)` and
+        // leaves the organizer as `Unknown Organizer` with no url — so without
+        // this the four clearest purchases in the library read as typed
+        // reminders. The pattern is the canonical title and nothing else,
+        // matching `_FLIGHT_TITLE_RE` in the classifier: the space in `(UA 1103)`
+        // is load-bearing, and "Flight to Los Angeles" without a carrier code
+        // does not match, because that is somebody's note rather than a booking.
+        if !extras.contains("booked=1"), Self.isBookedTravelTitle(event.title) {
+            extras.append("booked=1")
         }
         if event.status == .canceled { extras.append("cancelled=1") }
 
@@ -324,6 +355,44 @@ struct CalendarDistiller {
             extra: extras.joined(separator: ";"),
             collectedAt: Date()
         )
+    }
+
+    /// Hosts whose URL means "join this call", never "you bought a thing".
+    ///
+    /// **Matched on the host, never on the whole string.** A ticket confirmation
+    /// can legitimately mention a meeting elsewhere in its URL, and a substring
+    /// test would refuse it — the same restraint `domainForCreatorTag` uses for
+    /// tags. Incomplete by construction, like every list of this shape here: a
+    /// conferencing host nobody has met yet reads as booked, which costs one
+    /// false positive rather than a missed purchase.
+    private static let conferencingHosts: Set<String> = [
+        "zoom.us", "teams.microsoft.com", "teams.live.com", "meet.google.com",
+        "webex.com", "gotomeeting.com", "whereby.com", "chime.aws",
+        "bluejeans.com", "skype.com", "discord.com", "slack.com",
+    ]
+
+    static func isConferencingURL(_ raw: String) -> Bool {
+        guard let host = URL(string: raw)?.host?.lowercased() else { return false }
+        return conferencingHosts.contains { host == $0 || host.hasSuffix(".\($0)") }
+    }
+
+    /// A title that names a flight Apple parsed out of an airline's mail.
+    ///
+    /// **The carrier code is what makes it a booking.** `Flight to Los Angeles`
+    /// is a note somebody typed; `Flight to Los Angeles (CX 880)` is a boarding
+    /// pass Apple read. The space inside the parentheses is load-bearing —
+    /// `[A-Z0-9]{2,3}` is greedy and would otherwise swallow the digits — which
+    /// is the same trap `_FLIGHT_TITLE_RE` records in the classifier, and this
+    /// pattern deliberately mirrors it so the two cannot drift into disagreeing
+    /// about what a flight is.
+    private static let flightTitle = try? NSRegularExpression(
+        pattern: "^Flight to .+ \\([A-Z0-9]{2,3} [0-9]{1,4}\\)$")
+
+    static func isBookedTravelTitle(_ title: String?) -> Bool {
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty, let flightTitle else { return false }
+        let range = NSRange(title.startIndex..<title.endIndex, in: title)
+        return flightTitle.firstMatch(in: title, range: range) != nil
     }
 
     private static func record(for calendar: EKCalendar) -> DistilledRecord {
