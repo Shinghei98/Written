@@ -40,9 +40,23 @@ class SourcePolicyTests(unittest.TestCase):
                 self.assertEqual(SOURCE_ACTION_PAIRS[source], expected)
 
     def test_high_risk_source_action_sets_are_exact(self) -> None:
+        # `top_artist` and `top_track` were added here on 2026-08-14, six
+        # migrations after `0139` gave them a weight in the database. Until then
+        # the two answers disagreed and only this one was consulted by
+        # `ObservationMapper`, so 560 correctly-weighted observations mapped to
+        # nothing. **The exact set is the point**: it is what makes adding an
+        # action to one side and not the other fail here rather than in a run
+        # nobody reads.
         self.assertEqual(
             set(SOURCE_ACTION_WEIGHTS["spotify"]),
-            {"followed_artist", "recently_played", "saved_album", "saved_track"},
+            {
+                "followed_artist",
+                "recently_played",
+                "saved_album",
+                "saved_track",
+                "top_artist",
+                "top_track",
+            },
         )
         self.assertEqual(
             set(SOURCE_ACTION_WEIGHTS["music_library"]),

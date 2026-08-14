@@ -298,6 +298,82 @@ SQL
 fi
 
 echo
+echo "########## the package's action weights against the schema's ##########"
+# **The direction the envelope check above does not look.** That one asks
+# whether the schema weighs everything the app claims, and it passed throughout
+# — the schema was right. What nothing asked was whether the *package* weighs
+# everything the schema does.
+#
+# `0139` weighed Spotify's `top_track` at 0.78 and `top_artist` at 0.55 here in
+# the database and left `written_ontology.source_policy.SOURCE_ACTION_WEIGHTS`
+# untouched, because a migration cannot reach into the package. Both copies are
+# consulted: the schema's is stamped onto each observation at ingestion, the
+# package's derives `SOURCE_ACTION_PAIRS`, and `ObservationMapper` refuses any
+# action absent from it. 560 correctly weighted observations mapped to nothing
+# for six migrations, and every run reported success.
+#
+# **A weight of 0 is not drift.** `recommendation`, `playlist`, `entered_by_user`
+# and the rest are registered in the schema precisely to say the source knows the
+# act and does not weigh it; the package omits them for the same reason.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  SKIP  python3 not available for the action-weight agreement check"
+else
+  drift=$( { PYTHONPATH="$ROOT/semantic/src" python3 - <<'PY'
+from written_ontology.source_policy import SOURCE_ACTION_WEIGHTS
+
+print("create temporary table package_action_weights "
+      "(source_code text, action_type text, weight double precision);")
+rows = [
+    "('%s','%s',%r)" % (source, action, float(weight))
+    for source, weights in SOURCE_ACTION_WEIGHTS.items()
+    for action, weight in weights.items()
+]
+if rows:
+    print("insert into package_action_weights values " + ",".join(rows) + ";")
+PY
+             cat <<'SQL'
+select coalesce(string_agg(msg, ', '), '') from (
+  select format('%s/%s: schema %s, package %s', s.source_code, w.key, w.value,
+                coalesce(p.weight::text, 'absent')) as msg
+    from semantic_private.sources s
+    cross join lateral jsonb_each_text(s.action_weights) as w(key, value)
+    left join package_action_weights p
+      on p.source_code = s.source_code and p.action_type = w.key
+   where w.value::double precision > 0
+     and (p.weight is null or abs(p.weight - w.value::double precision) > 1e-9)
+     -- ONE KNOWN GAP, named rather than tolerated silently.
+     -- 0133 registered outlook_calendar and weighed scheduled at 0.90; the
+     -- package has no entry for that source at all, so its action pair set is
+     -- empty and every one of its observations is refused. 44 active, 0 mapped,
+     -- measured 2026-08-14. The identical defect this check was written for.
+     --
+     -- Excluded here rather than fixed in passing because closing it makes a
+     -- calendar events mappable, and the calendar lane is where 0133 spent a
+     -- whole migration replacing source literals with is_private_calendar_source.
+     -- The package names calendars by literal in SOURCE_ACTION_PAIRS, which is
+     -- the same hazard one layer up, and that deserves a decision.
+     --
+     -- DELETE THIS CLAUSE when that decision is made, in either direction.
+     and not (s.source_code = 'outlook_calendar' and w.key = 'scheduled')
+  union all
+  select format('%s/%s: package %s, schema absent or zero',
+                p.source_code, p.action_type, p.weight)
+    from package_action_weights p
+    left join semantic_private.sources s on s.source_code = p.source_code
+   where coalesce((s.action_weights ->> p.action_type)::double precision, 0) <= 0
+) d;
+SQL
+           } | docker exec -i "$CONTAINER" psql -U postgres -tA -v ON_ERROR_STOP=1 2>&1 | tail -1 )
+  if [ -n "$drift" ]; then
+    echo "  FAIL  the package and the schema disagree about what an act is worth: $drift"
+    fail=1; fail_count=$((fail_count + 1))
+  else
+    echo "  PASS  every weighted action agrees between the package and the schema"
+    pass_count=$((pass_count + 1))
+  fi
+fi
+
+echo
 echo "########## LANE B — Calendar upgrade fixture (gates 0046) ##########"
 reset_schema
 apply_through "0045_z"

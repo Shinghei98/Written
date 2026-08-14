@@ -71,6 +71,22 @@ SOURCE_ACTION_WEIGHTS = MappingProxyType(
                 "recently_played": 0.78,
                 "saved_album": 0.55,
                 "saved_track": 0.60,
+                # **The database has weighed these since `0139` and this table
+                # never learned of them.** `sources.action_weights` carries
+                # `top_track` 0.78 and `top_artist` 0.55, so ingestion stamps a
+                # real weight on every such observation — but `SOURCE_ACTION_PAIRS`
+                # derives from *this* mapping, and `ObservationMapper` refuses an
+                # action the pair set does not contain. One fact in two places,
+                # and the migration moved only one of them.
+                #
+                # Measured 2026-08-14: 500 `top_track` and 60 `top_artist`
+                # observations, correctly weighted, correctly projected, mapping
+                # to **nothing** — while `saved_track` beside them, identical in
+                # shape, mapped 73. The values here mirror the database exactly,
+                # because two answers to "what is this act worth" is the defect
+                # rather than either number.
+                "top_artist": 0.55,
+                "top_track": 0.78,
             }
         ),
         "youtube": _weights(

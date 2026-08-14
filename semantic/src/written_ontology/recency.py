@@ -470,6 +470,31 @@ MUSIC_RECENT = _historical(
     freshness_window_days=14.0,
     expiry_days=1095.0,
 )
+MUSIC_TOP = _historical(
+    # **A ranking of a window, never an event, so it carries no timestamp at
+    # all.** Spotify's `/me/top/*` returns a `medium_term` ordering — roughly six
+    # months of actual listening — with no dates on it, and it is regenerated on
+    # every distillation. So `unknown_timestamp_weight` is not a fallback here;
+    # it is the only value this rule will ever produce, and the historical
+    # parameters exist for the day the endpoint states a date rather than for
+    # today.
+    #
+    # **0.70 rather than something higher, deliberately.** A top track is the
+    # strongest listening signal any music source gives us, and
+    # `SOURCE_ACTION_WEIGHTS` already says so — 0.78, above `saved_track`'s 0.60.
+    # Recency answers *how stale is this*, not *how much does it mean*; raising
+    # the weight here would encode the same judgement twice and neither copy
+    # would say it was doing so. Matched to `ENDURING_LIBRARY` so recency stays
+    # neutral between the two.
+    "music.top.medium_term",
+    half_life_days=180.0,
+    peak_weight=0.95,
+    minimum_weight=0.25,
+    unknown_timestamp_weight=0.70,
+    unknown_timestamp_quality=0.75,
+    freshness_window_days=180.0,
+    expiry_days=1095.0,
+)
 MUSIC_ADDED = _historical(
     "music.added.medium",
     half_life_days=540.0,
@@ -568,6 +593,8 @@ def _default_rules() -> Mapping[RecencyKey, RecencyRule]:
         MUSIC_RECENT,
     )
     register("music", ("apple_music",), ("recently_added",), MUSIC_ADDED)
+    # Spotify only: Apple Music states no equivalent ranking.
+    register("music", ("spotify",), ("top_artist", "top_track"), MUSIC_TOP)
 
     register(
         "podcast",
