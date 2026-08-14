@@ -78,9 +78,19 @@ actor PhotoService {
             return lastError
         }
         let payload = (data: data, ext: "jpg", mime: "image/jpeg")
-        guard await send(payload, position: position, userID: userID, token: token) != nil else {
+        guard let path = await send(
+            payload, position: position, userID: userID, token: token
+        ) else {
             return lastError ?? "The photo didn't save."
         }
+        // **The one case staleness is unacceptable, and the one case the device
+        // knows about.** `ProfilePhotoCache` draws its disk copy first and
+        // checks afterwards, which is right for other people's faces and wrong
+        // for the picture somebody just took — they chose it, they expect to see
+        // it, and *"my new photo didn't save"* is what a stale cache would look
+        // like. Re-picking a slot overwrites the object at the same path, so
+        // nothing else could tell the two apart.
+        await ProfilePhotoCache.shared.forget(path)
         lastError = nil
         return nil
     }
@@ -110,6 +120,9 @@ actor PhotoService {
                 url: URL(string: "\(AppConfig.supabaseURL.absoluteString)/storage/v1/object/\(Self.bucket)/\(path)"),
                 token: token
             )
+            // Same reasoning as `upload`, and here the cached copy would outlive
+            // the object it is a copy of.
+            await ProfilePhotoCache.shared.forget(path)
         }
 
         var components = URLComponents(

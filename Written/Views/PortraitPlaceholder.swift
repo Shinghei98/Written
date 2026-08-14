@@ -152,24 +152,132 @@ struct ProfilePhotoView: View {
     }
 }
 
-/// Object path to image, once per path.
+/// Object path to image, once per path — and once per *install*, not per launch.
 ///
 /// Keyed by **path, not URL**, because a signed URL is different on every
 /// request — caching by it would mean every appearance of the same face is a
-/// fresh download. The same trap `MediaService` records for chat attachments.
+/// fresh download. The same trap `MediaService` records for chat attachments,
+/// and the reason `URLCache` cannot help here at all.
+///
+/// **The memory-only version is why the app opened slowly.** Every face cost
+/// two sequential round trips behind the token refresh — a POST to sign a URL,
+/// because the bucket is private and asking for the URL *is* the permission
+/// check, then the download — and the dictionary died with the process, so a
+/// chat list of six faces paid twelve requests on every cold launch. Apps that
+/// feel instant are showing bytes they already had.
+///
+/// **Stale-while-revalidate, because there is no version to key on.**
+/// `public.photos` carries `created_at` and no `updated_at`, and re-picking a
+/// slot overwrites the object at the same path — so a path cannot tell you
+/// whether its bytes changed. The disk copy is therefore drawn *immediately*
+/// and checked *afterwards*: a conditional GET carrying the stored `ETag`
+/// answers 304 when nothing moved, and the picture is replaced quietly when it
+/// did. The cost of being wrong is one stale face for one appearance; the cost
+/// of waiting instead is the delay this exists to remove.
+///
+/// **Account-scoped, and cleared on sign-out.** These are other people's faces
+/// held on disk under an authorisation that ends when the session does —
+/// `AccountScope` keys the directory, and `signOutLocalState()` empties it, for
+/// the same reason the record and ban stores are cleared there.
 actor ProfilePhotoCache {
 
     static let shared = ProfilePhotoCache()
 
     private var cached: [String: UIImage] = [:]
+    /// Paths already revalidated this launch, so scrolling a list past the same
+    /// face twenty times asks once.
+    private var revalidated: Set<String> = []
+
+    /// `Caches`, not Application Support: this is derived data that can always
+    /// be fetched again, and the OS may evict it under pressure. Putting it in
+    /// Application Support would ask the system to preserve somebody else's
+    /// face forever.
+    private static var directory: URL? {
+        guard let base = FileManager.default.urls(
+            for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let url = base.appendingPathComponent("photo-cache/\(AccountScope.current)",
+                                              isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// A file name that cannot collide or escape the directory: an object path
+    /// contains a slash, and `<user>/0.jpg` written literally would be a write
+    /// into a subdirectory that may not exist.
+    private static func fileName(for path: String) -> String {
+        String(path.map { $0 == "/" ? "_" : $0 })
+    }
+
+    private static func fileURL(for path: String) -> URL? {
+        directory?.appendingPathComponent(fileName(for: path))
+    }
+
+    private static func etagURL(for path: String) -> URL? {
+        directory?.appendingPathComponent(fileName(for: path) + ".etag")
+    }
 
     func image(at path: String) async -> UIImage? {
-        if let hit = cached[path] { return hit }
-        guard let url = await PhotoService.shared.readURL(for: path),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = UIImage(data: data)
-        else { return nil }
+        if let hit = cached[path] {
+            Task { await revalidateOnce(path) }
+            return hit
+        }
+        if let url = Self.fileURL(for: path),
+           let data = try? Data(contentsOf: url),
+           let image = UIImage(data: data) {
+            cached[path] = image
+            // Drawn now, checked after. The whole point of the disk copy is
+            // that nobody waits on the check.
+            Task { await revalidateOnce(path) }
+            return image
+        }
+        return await download(path, etag: nil)
+    }
+
+    /// Evict one path, for when this device is the thing that changed it.
+    ///
+    /// A person replacing their own photograph is the one case where staleness
+    /// is unacceptable — they took the picture, they expect to see it — and it
+    /// is also the one case the device knows about without asking anybody.
+    func forget(_ path: String) {
+        cached[path] = nil
+        revalidated.remove(path)
+        if let url = Self.fileURL(for: path) { try? FileManager.default.removeItem(at: url) }
+        if let url = Self.etagURL(for: path) { try? FileManager.default.removeItem(at: url) }
+    }
+
+    /// Everything, for sign-out.
+    static func clear() {
+        guard let directory else { return }
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func revalidateOnce(_ path: String) async {
+        guard !revalidated.contains(path) else { return }
+        revalidated.insert(path)
+        let etag = Self.etagURL(for: path).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        _ = await download(path, etag: etag)
+    }
+
+    @discardableResult
+    private func download(_ path: String, etag: String?) async -> UIImage? {
+        guard let url = await PhotoService.shared.readURL(for: path) else { return nil }
+        var request = URLRequest(url: url)
+        if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return nil }
+        // 304 is the good answer: the bytes on disk are current and cost
+        // nothing to keep.
+        if http.statusCode == 304 { return cached[path] }
+        guard (200..<300).contains(http.statusCode), let image = UIImage(data: data) else {
+            return nil
+        }
+
         cached[path] = image
+        if let fileURL = Self.fileURL(for: path) { try? data.write(to: fileURL, options: .atomic) }
+        if let tag = http.value(forHTTPHeaderField: "ETag"), let tagURL = Self.etagURL(for: path) {
+            try? tag.write(to: tagURL, atomically: true, encoding: .utf8)
+        }
         return image
     }
 }
