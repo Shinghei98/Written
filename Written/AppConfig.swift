@@ -21,7 +21,25 @@ enum AppConfig {
 
     /// Read-only scopes covering written_api.xlsx: top artists/tracks,
     /// recently played, followed artists, playlists.
-    static let spotifyScope = "user-top-read user-read-recently-played user-follow-read playlist-read-private"
+    /// **`user-library-read` is the person's own saved library**, and its
+    /// absence was the largest structural difference between the two music
+    /// sources. Measured 2026-08-14: Apple Music's `library_song` is 641 rows
+    /// and every one states a genre; the Spotify counterpart — `/v1/me/tracks`
+    /// — had never been asked for, so what was being compared was Apple's
+    /// *library* against Spotify's *top charts*. `/v1/me/albums` comes with the
+    /// same scope and is `library_album`'s counterpart.
+    ///
+    /// **The cost is one reconnection each, and it is worth saying out loud.**
+    /// A token already granted carries the scopes it was granted; widening the
+    /// list does not widen an existing token. Everyone who has connected
+    /// Spotify has to do it again, or the two new endpoints answer 403 and the
+    /// source looks smaller than it is for no visible reason.
+    ///
+    /// Still one button and no extra tap — one more line on the same consent
+    /// screen — but it is a permission, and the extraction rule does not
+    /// license asking for those on its own. Decided deliberately (owner,
+    /// 2026-08-14) for the data-collection prototype.
+    static let spotifyScope = "user-top-read user-read-recently-played user-follow-read playlist-read-private user-library-read"
 
     // MARK: Supabase
 

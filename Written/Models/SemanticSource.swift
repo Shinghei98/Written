@@ -148,6 +148,13 @@ enum SemanticAction: String, Codable, Sendable {
     /// and not yet used — a rank-1 track and a rank-500 track weigh the same.
     case topTrack = "top_track"
     case topArtist = "top_artist"
+    /// **Both were already weighed by the server before anything emitted
+    /// them** — `spotify.action_weights` has carried `saved_track` 0.6 and
+    /// `saved_album` 0.55 since the source was registered. What was missing was
+    /// the `user-library-read` scope, so the app never asked for the library
+    /// these describe and the weights had nothing to weigh.
+    case savedTrack = "saved_track"
+    case savedAlbum = "saved_album"
 }
 
 /// Why a row carries no action, when the absence is structural rather than an
@@ -243,6 +250,13 @@ extension SemanticSource {
             // say the server ignores what it weighs.
             "top_track": .actions([.topTrack]),
             "top_artist": .actions([.topArtist]),
+            // The person's own library, which this source could not reach until
+            // `user-library-read` joined `AppConfig.spotifyScope`. These are the
+            // counterparts of Apple Music's `library_song` and `library_album`
+            // — and the comparison that had been made until now was Apple's
+            // library against Spotify's top charts.
+            "saved_track": .actions([.savedTrack]),
+            "saved_album": .actions([.savedAlbum]),
             "playlist": .notAnAction(.container),
         ],
         .applePodcasts: [
