@@ -161,11 +161,12 @@ rewritten client.
 
 ## What is deliberately excluded
 
-- **Medical events.** The four most frequent titles on this library are a
-  surgery, an outpatient appointment and two clinic visits. They are health
-  data, they are not affinities, and no recogniser may touch them. The
-  allowlist's default of `excluded_unknown` already does this — do not add a
-  recogniser broad enough to catch them.
+- **Medical events.** The most frequent titles on the library this was measured
+  against are medical appointments. They are health data, they are not
+  affinities, and no recogniser may touch them. The allowlist's default of
+  `excluded_unknown` already does this — do not add a recogniser broad enough to
+  catch them, and note that this is the *commonest* category rather than a rare
+  edge case, so a widened recogniser meets them first.
 - **Public holidays.** `PublicHolidays` already strips these from what is drawn,
   and 49 of 77 surviving events on a real device were holidays. A holiday is not
   a trip and a festival in a holiday calendar is not attendance.
