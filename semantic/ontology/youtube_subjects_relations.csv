@@ -1,0 +1,15 @@
+subject_key,predicate_key,object_key,confidence,provenance_type,status
+subject:bioinformatics,broader,hub:ideas_learning,1.0,curated,active
+subject:computational_biology,broader,hub:ideas_learning,1.0,curated,active
+subject:genomics,broader,hub:ideas_learning,1.0,curated,active
+subject:neuroscience,broader,hub:ideas_learning,1.0,curated,active
+subject:statistics,broader,hub:ideas_learning,1.0,curated,active
+subject:mathematics,broader,hub:ideas_learning,1.0,curated,active
+subject:machine_learning,broader,hub:ideas_learning,1.0,curated,active
+subject:data_science,broader,hub:ideas_learning,1.0,curated,active
+subject:medicine,broader,hub:ideas_learning,1.0,curated,active
+subject:science,broader,hub:ideas_learning,1.0,curated,active
+subject:economics,broader,hub:ideas_learning,1.0,curated,active
+subject:law,broader,hub:ideas_learning,1.0,curated,active
+subject:programming,broader,hub:ideas_learning,1.0,curated,active
+subject:language_learning,broader,hub:ideas_learning,1.0,curated,active

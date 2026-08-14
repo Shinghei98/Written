@@ -1,0 +1,8 @@
+concept_key,preferred_label,concept_kind,sensitivity,inference_policy,status,notes
+creator:kim_chaewon,Kim Chaewon,creator,ordinary,inferable,active,"146 videos tagged `#kimchaewon`, 122 `#김채원`, 47 `#chaewon` on one account. A member of LE SSERAFIM, minted as her own creator rather than as an alias of the group — the recorded decision of 2026-08-13: aliasing a member to the group would assert a membership fact the data does not state, and the tag is about her."
+creator:kazuha,Kazuha,creator,ordinary,inferable,active,"91 `#kazuha`, 72 `#카즈하`."
+creator:hong_eunchae,Hong Eunchae,creator,ordinary,inferable,active,"35 `#hongeunchae`."
+creator:ahyeon,Ahyeon,creator,ordinary,inferable,active,"73 `#ahyeon`. BABYMONSTER."
+creator:ruka,Ruka,creator,ordinary,inferable,active,"57 `#ruka`. BABYMONSTER."
+creator:chiquita,Chiquita,creator,ordinary,inferable,active,"42 `#chiquita`. BABYMONSTER."
+creator:asa,Asa,creator,ordinary,inferable,active,"39 `#asa`. BABYMONSTER. Three characters, so it clears `MIN_TAG_LENGTH` by one — and it is a real stage name rather than a fragment, which is the distinction that bound matters for."

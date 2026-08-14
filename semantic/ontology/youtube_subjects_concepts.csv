@@ -1,0 +1,15 @@
+concept_key,preferred_label,concept_kind,sensitivity,inference_policy,status,notes
+subject:bioinformatics,Bioinformatics,topic,ordinary,inferable,active,"Minted because a real account's YouTube was 70 subscriptions deep in computational biology and resolved to nothing. YouTube's own label for every one of them is the single word `Knowledge`, which reaches `hub:ideas_learning` and is never asserted because a hub is a container."
+subject:computational_biology,Computational biology,topic,ordinary,inferable,active,"Kept distinct from bioinformatics rather than aliased into it: the two are used differently by the people who do them, and collapsing them would decide a disciplinary question this ontology has no business deciding."
+subject:genomics,Genomics,topic,ordinary,inferable,active,"Narrower than computational biology and reached by different channels."
+subject:neuroscience,Neuroscience,topic,ordinary,inferable,active,"A channel named for the field, not a person working in it."
+subject:statistics,Statistics,topic,ordinary,inferable,active,"Separate from mathematics because the channels are: a statistics channel and a pure-maths channel share almost no audience."
+subject:mathematics,Mathematics,topic,ordinary,inferable,active,
+subject:machine_learning,Machine learning,topic,ordinary,inferable,active,"Not aliased to `subject:statistics` even though the channels overlap heavily; the terms are not interchangeable to anybody who uses them."
+subject:data_science,Data science,topic,ordinary,inferable,active,
+subject:medicine,Medicine,topic,ordinary,inferable,active,"**Deliberately not sensitive, and the distinction is worth stating.** Watching a medical-education channel is an interest in a field. It is not a health status, which `refusedTopics` drops YouTube's `Health` topic to avoid — that exclusion stays exactly as it is."
+subject:science,Science,topic,ordinary,inferable,active,"The broad one, for channels that are unambiguously science communication and nothing narrower. Kept because the alternative is filing them under a specific field they do not claim."
+subject:economics,Economics,topic,ordinary,inferable,active,
+subject:law,Law,topic,ordinary,inferable,active,
+subject:programming,Programming,topic,ordinary,inferable,active,
+subject:language_learning,Language learning,topic,ordinary,inferable,active,"The act of learning a language, not the language itself — a channel teaching French says its viewer is learning, and says nothing about which languages they already speak."

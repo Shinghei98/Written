@@ -126,6 +126,10 @@ struct DashboardView: View {
     /// Which "what did we miss" sheet is open, by the kind it asks about —
     /// "artist", "podcast". Nil is closed.
     @State private var favouriteKind: String?
+    /// Which block's card raised the add sheet, so a typed term can be
+    /// disambiguated against the heading somebody had in mind. `nil` for the
+    /// legacy domain rows, which carry no block.
+    @State private var pendingBlock: String?
     @State private var favouriteText = ""
     @FocusState private var isFavouriteFocused: Bool
 
@@ -166,7 +170,22 @@ struct DashboardView: View {
                         // two readings are compared — which is what the shadow
                         // comparison is for and what a hard swap would end.
                         assertionSection
-                        domainSections
+                        // **`domainSections` is retired from the page and kept
+                        // compiled**, the same shape as every other held-back
+                        // feature here: restoring it is uncommenting one line
+                        // rather than rebuilding it.
+                        //
+                        // It drew one card per `Ontology.Domain` over
+                        // `Ontology.terms` — strings a source produced, filed
+                        // by a substring match, where striking one off removed
+                        // *every* row whose name matched. The blocks above are
+                        // the replacement and are strictly better on both
+                        // counts: a row is a concept with an id, and removing
+                        // one names a single assertion. §8's shadow period is
+                        // what kept the two on screen together, and it has
+                        // served its purpose.
+                        //
+                        // domainSections
                         // The readings, which are not terms — a chronotype has
                         // no entry behind it to agree with.
                         lifestyleSection
@@ -891,7 +910,7 @@ struct DashboardView: View {
                 confirmTitle: "Save",
                 onConfirm: {
                     if kind == Self.assertionKind {
-                        addAssertion(favouriteText)
+                        addAssertion(favouriteText, block: pendingBlock)
                     } else {
                         viewModel.addFavourite(kind: kind, favouriteText)
                     }
@@ -1206,66 +1225,180 @@ struct DashboardView: View {
     @ViewBuilder
     private var assertionSection: some View {
         if let assertions, !assertions.isEmpty {
-            card {
-                cardLabel("WHAT YOUR DATA SAYS", icon: "sparkles")
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
+            let blocks = assertionBlocks(assertions)
+            ForEach(Array(blocks.enumerated()), id: \.element.id) { position, block in
+                card {
+                    cardLabel(block.label.uppercased(), icon: Self.blockIcon(block.id))
+                    Divider().overlay(GardenPalette.ink.opacity(0.08))
 
+                    // **On the first card only.** They are messages about the
+                    // page rather than about a block, and repeating them under
+                    // every heading would say the same thing six times.
+                    if position == 0 {
+                        // **Said out loud when an answer does not save.**
+                        // Without this the row simply reappears on the next
+                        // visit, which reads as the app forgetting rather than
+                        // as the server refusing — and that is precisely how a
+                        // broken write path survived from the moment it was
+                        // written until somebody asked whether a removal stuck.
+                        if let assertionFailure {
+                            Text(assertionFailure)
+                                .font(.system(size: 12))
+                                .foregroundStyle(GardenPalette.muted)
+                                .padding(.vertical, 6)
+                        }
 
-                // **Said out loud when an answer does not save.** Without this
-                // the row simply reappears on the next visit, which reads as the
-                // app forgetting rather than as the server refusing — and that
-                // is precisely how a broken write path survived from the moment
-                // it was written until somebody asked whether a removal stuck.
-                if let assertionFailure {
-                    Text(assertionFailure)
-                        .font(.system(size: 12))
-                        .foregroundStyle(GardenPalette.muted)
-                        .padding(.vertical, 6)
-                }
-
-                if let undoable {
-                    HStack(spacing: 8) {
-                        Text("Removed \(undoable.assertion.label).")
-                            .font(.system(size: 12))
-                            .foregroundStyle(GardenPalette.muted)
-                        Button("Undo") { undo() }
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(GardenPalette.gold)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 6)
-                }
-
-                entryStack {
-                    ForEach(Array(assertions.enumerated()), id: \.element.id) { index, assertion in
-                        if index > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
-                        assertionRow(assertion)
-                            .removable(editing: editingEntry == assertion.id.uuidString, index: index) {
-                                remove { suppress(assertion, rank: index) }
+                        if let undoable {
+                            HStack(spacing: 8) {
+                                Text("Removed \(undoable.assertion.label).")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(GardenPalette.muted)
+                                Button("Undo") { undo() }
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(GardenPalette.gold)
+                                Spacer(minLength: 0)
                             }
-                            .editableOnLongPress($editingEntry, key: assertion.id.uuidString)
-                            // **Tap confirms, long-press removes**, the same two
-                            // verbs the term rows use, so the gesture somebody
-                            // already knows means the same thing on a row that
-                            // now carries a claim rather than a string.
-                            .onTapGesture {
-                                guard editingEntry == nil else { return }
-                                confirm(assertion, rank: index)
-                            }
+                            .padding(.vertical, 6)
+                        }
                     }
-                }
 
-                // **The fourth verb.** §8 asks for confirmation, addition,
-                // removal and restoration; until this the page could only
-                // subtract. A row somebody types has no concept and therefore
-                // no `concept_kind`, which is why `0108`'s filter is written as
-                // *a user's own term or an allowed kind* rather than as a kind
-                // test alone.
-                Divider().overlay(GardenPalette.ink.opacity(0.08))
-                addYourOwn(kind: Self.assertionKind)
+                    entryStack {
+                        ForEach(Array(block.rows.enumerated()), id: \.element.assertion.id) { row, entry in
+                            let assertion = entry.assertion
+                            // The rank is the row's place on the *page*, not in
+                            // the block — see `assertionBlocks`.
+                            let rank = entry.rank
+                            if row > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                            assertionRow(assertion)
+                                .removable(editing: editingEntry == assertion.id.uuidString, index: row) {
+                                    remove { suppress(assertion, rank: rank) }
+                                }
+                                .editableOnLongPress($editingEntry, key: assertion.id.uuidString)
+                                // **Tap confirms, long-press removes**, the same
+                                // two verbs the term rows use, so the gesture
+                                // somebody already knows means the same thing on
+                                // a row that now carries a claim rather than a
+                                // string.
+                                .onTapGesture {
+                                    guard editingEntry == nil else { return }
+                                    confirm(assertion, rank: rank)
+                                }
+                        }
+                    }
+
+                    // **The fourth verb, once.** §8 asks for confirmation,
+                    // addition, removal and restoration; until this the page
+                    // could only subtract. A row somebody types has no concept
+                    // and therefore no block, so it belongs to the page rather
+                    // than to any heading — drawn on the last card, where the
+                    // list ends.
+                    // **On every card, not once at the end.** Adding is a
+                    // thing you do *to a block* — the card you tapped tells the
+                    // server which heading you had in mind, which is what
+                    // disambiguates a term matching two concepts. A single
+                    // control at the bottom of the page could carry no such
+                    // hint and made the last block look like the only one that
+                    // accepted anything.
+                    Divider().overlay(GardenPalette.ink.opacity(0.08))
+                    addYourOwn(kind: Self.assertionKind, block: block.id)
+                }
+                // `-scroll` anchors follow the block, so a hub is addressable
+                // the way a domain used to be.
+                .id(block.id)
             }
-            .id("assertions")
         }
+    }
+
+    /// The symbol for a block heading.
+    ///
+    /// **Keyed on the hub, with a default that is deliberately dull.** A hub
+    /// nobody has drawn an icon for gets a plain tag rather than a guess at
+    /// what it means — the same reasoning that leaves an unparented term in
+    /// "Other" instead of filing it somewhere plausible.
+    private static func blockIcon(_ blockKey: String) -> String {
+        switch blockKey {
+        case "hub:music": return "music.note"
+        case "hub:ideas_learning": return "books.vertical"
+        case "hub:film_video": return "film"
+        case "hub:games_play": return "gamecontroller"
+        case "hub:news_current_affairs": return "newspaper"
+        case "hub:food_drink": return "fork.knife"
+        case "hub:arts_live": return "theatermasks"
+        case "hub:places_cultures": return "globe"
+        case "hub:sports_movement": return "figure.run"
+        case "hub:nature_outdoors": return "leaf"
+        case "hub:animals_pets": return "pawprint"
+        case "hub:money_business": return "chart.line.uptrend.xyaxis"
+        case "hub:work_study_making": return "hammer"
+        case "hub:social_community": return "person.2"
+        case "hub:daily_rhythms": return "sun.max"
+        default: return "tag"
+        }
+    }
+
+    /// The terms grouped under the hub each one sits beneath.
+    ///
+    /// **Grouped by first appearance rather than sorted**, so the server's
+    /// ordering survives: `list_assertions` returns strongest first, which puts
+    /// the block somebody is most about at the top and keeps the rows inside it
+    /// in the same order they would have had on a flat page.
+    ///
+    /// **`rank` is the position on the whole page, not within the block.** It
+    /// is recorded with every exposure, and an answer means "this row, at this
+    /// place, in what I was shown" — renumbering per block would quietly change
+    /// what a confirmation refers to.
+    ///
+    /// A term with no block is grouped as itself and drawn last. Four of one
+    /// account's channels are deliberately unparented, and dropping them here
+    /// would hide real terms because nobody had decided which drawer they go
+    /// in.
+    private struct AssertionBlock: Identifiable {
+        let id: String
+        let label: String
+        var rows: [(assertion: SemanticSurfaceService.Assertion, rank: Int)]
+    }
+
+    private func assertionBlocks(
+        _ assertions: [SemanticSurfaceService.Assertion]
+    ) -> [AssertionBlock] {
+        var order: [String] = []
+        var byKey: [String: AssertionBlock] = [:]
+        for (rank, assertion) in assertions.enumerated() {
+            let key = assertion.blockKey ?? "__unblocked"
+            if byKey[key] == nil {
+                order.append(key)
+                byKey[key] = AssertionBlock(
+                    id: key,
+                    label: assertion.blockLabel ?? "Other",
+                    rows: []
+                )
+            }
+            byKey[key]?.rows.append((assertion, rank))
+        }
+        // The unplaced ones last, whatever order they arrived in: they are the
+        // only group whose heading is ours rather than the ontology's.
+        //
+        // **Partitioned, not sorted.** `Array.sort` is not stable in Swift, and
+        // this comparator answers `false` for every pair of real blocks — so a
+        // sort is free to reorder them against each other, which is precisely
+        // the first-appearance ordering the comment above promises to keep. The
+        // page would then open on a block that is not the one somebody is most
+        // about, and it would not do it every time.
+        let placed = order.filter { $0 != "__unblocked" }
+        let unplaced = order.filter { $0 == "__unblocked" }
+        return (placed + unplaced).compactMap { byKey[$0] }
+    }
+
+    private func blockHeading(_ label: String) -> some View {
+        HStack(spacing: 0) {
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(GardenPalette.muted)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 
     /// One claim: what it is, how strongly, and whether its owner has said so.
@@ -1360,12 +1493,13 @@ struct DashboardView: View {
     /// id, a display state — and guessing at it would mean drawing a row that
     /// might not match the one that exists. The list is short and the round
     /// trip is one call.
-    private func addAssertion(_ text: String) {
+    private func addAssertion(_ text: String, block: String? = nil) {
         let label = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty else { return }
         undoable = nil
         Task {
-            let added = await SemanticSurfaceService.shared.add(label)
+            let added = await SemanticSurfaceService.shared.add(
+                label, blockKey: block == "__unblocked" ? nil : block)
             let reason = await SemanticSurfaceService.shared.lastError
             let refreshed = added ? await SemanticSurfaceService.shared.assertions() : nil
             await MainActor.run {
@@ -1513,8 +1647,12 @@ struct DashboardView: View {
     /// the end of a list of two hundred artists is somewhere nobody goes. It is
     /// the one control in these cards that adds rather than removes, and it is
     /// the only way anything a phone cannot observe gets into a profile.
-    private func addYourOwn(kind: String) -> some View {
+    private func addYourOwn(kind: String, block: String? = nil) -> some View {
         Button {
+            // Recorded before the sheet opens, because the sheet has no idea
+            // which card raised it and the answer must not depend on what is
+            // scrolled into view when it closes.
+            pendingBlock = block
             favouriteKind = kind
         } label: {
             Image(systemName: "plus.circle")

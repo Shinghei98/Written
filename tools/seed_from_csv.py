@@ -102,7 +102,7 @@ def q(value: str) -> str:
 # were added to those files once and broke the mirror by 66 differences.
 # `youtube_terms_*` is vocabulary a second real account named and the ontology
 # lacked — see `0134`.
-FAMILIES = ("seed", "sports", "youtube_terms")
+FAMILIES = ("seed", "sports", "youtube_terms", "youtube_subjects", "youtube_creators", "blocks", "kpop_members")
 
 
 def rows(kind: str) -> list[dict[str, str]]:

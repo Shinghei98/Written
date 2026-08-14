@@ -44,6 +44,21 @@ actor SemanticSurfaceService {
         let strength: Double?
         let confidence: Double?
         let scoreVersionID: UUID?
+        /// The hub this term sits under, and the heading a person reads.
+        ///
+        /// **Both, because one of them is not enough.** `blockKey` is the
+        /// stable identifier to group and sort on; `blockLabel` is the words —
+        /// returning only the key would put `hub:ideas_learning` on screen or
+        /// make this file hold a second copy of the labels, which is the drift
+        /// the ontology exists to prevent.
+        ///
+        /// `nil` where nobody authored a parent. Four of one account's channels
+        /// are deliberately unplaced, because a term in the wrong block is a
+        /// false claim about somebody where an unblocked one is merely
+        /// unsorted — so this must be drawn as its own group rather than
+        /// dropped.
+        let blockKey: String?
+        let blockLabel: String?
 
         var isConfirmed: Bool { displayState == "confirmed" }
         var isSuppressed: Bool { displayState == "suppressed" }
@@ -59,7 +74,8 @@ actor SemanticSurfaceService {
             Assertion(
                 id: id, predicate: predicate, label: label, origin: origin,
                 displayState: state, strength: strength, confidence: confidence,
-                scoreVersionID: scoreVersionID
+                scoreVersionID: scoreVersionID,
+                blockKey: blockKey, blockLabel: blockLabel
             )
         }
     }
@@ -237,16 +253,63 @@ actor SemanticSurfaceService {
     /// shown, so there is nothing this could be answering. It is a statement
     /// rather than a reply.
     @discardableResult
-    func add(_ label: String, surface: String = "memories") async -> Bool {
+    /// A term somebody typed, attached to the vocabulary where it matches it.
+    ///
+    /// **`add_assertion` has always accepted either a concept or a label, and
+    /// this only ever sent the label.** So every typed term became a
+    /// `user_term`: a private string with no concept, no kind and no block,
+    /// unrelated to the identical concept the machine may already assert about
+    /// the same person. Typing `Hearthstone` produced a second, unconnected row.
+    ///
+    /// The lookup is exact and server-side. A miss is the ordinary case and
+    /// falls through to the free label, which is exactly today's behaviour —
+    /// nothing a person types can be refused because the ontology has not heard
+    /// of it.
+    ///
+    /// `blockKey` is a hint for disambiguation and cannot move a term: the
+    /// ontology decides where a concept lives, and a tap on a card is not an
+    /// argument about that.
+    func add(
+        _ label: String,
+        blockKey: String? = nil,
+        surface: String = "memories"
+    ) async -> Bool {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+
+        let concept = await motherConcept(for: trimmed, blockKey: blockKey)
         return await call("add_assertion", [
             "p_client_event_id": UUID().uuidString.lowercased(),
-            "p_target_concept_id": NSNull(),
-            "p_new_label": trimmed,
+            "p_target_concept_id": concept.map { $0 as Any } ?? NSNull(),
+            // **Exactly one of the two, which the server enforces.**
+            // `add_assertion` raises on `num_nonnulls(...) <> 1`, so sending
+            // both would refuse the addition outright.
+            "p_new_label": concept == nil ? trimmed : NSNull(),
             "p_linked_observation_ids": [String](),
             "p_surface_name": surface,
         ])
+    }
+
+    /// The concept a typed term names, or `nil` when the ontology has not heard
+    /// of it.
+    ///
+    /// **A failed lookup is not a failed addition.** Anything other than a
+    /// confident match returns `nil` and the caller adds the term as its own
+    /// string, so an outage or an unexposed schema costs the link rather than
+    /// the term — and `lastError` is deliberately left alone, because the
+    /// person's action succeeded.
+    private func motherConcept(for text: String, blockKey: String?) async -> String? {
+        do {
+            let rows = try await PostgREST.callFunction("resolve_term_for_addition", arguments: [
+                "p_text": text,
+                "p_block_key": blockKey.map { $0 as Any } ?? NSNull(),
+            ])
+            guard let first = rows.first,
+                  let id = first["concept_id"] as? String else { return nil }
+            return id
+        } catch {
+            return nil
+        }
     }
 
     @discardableResult
@@ -371,7 +434,9 @@ actor SemanticSurfaceService {
             strength: row["strength"] as? Double,
             confidence: row["confidence"] as? Double,
             scoreVersionID: (row["assertion_score_version_id"] as? String)
-                .flatMap(UUID.init(uuidString:))
+                .flatMap(UUID.init(uuidString:)),
+            blockKey: row["block_key"] as? String,
+            blockLabel: row["block_label"] as? String
         )
     }
 }

@@ -1,0 +1,30 @@
+concept_key,alias,locale,alias_type,confidence
+subject:bioinformatics,Bioinformatics,en,preferred,1.0
+subject:bioinformatics,Bioinformagician,en,alternate,1.0
+subject:bioinformatics,Sanbomics,en,alternate,1.0
+subject:bioinformatics,Bioinformatics DotCa,en,alternate,1.0
+subject:bioinformatics,Swiss Institute of Bioinformatics,en,alternate,1.0
+subject:bioinformatics,SIB - Swiss Institute of Bioinformatics,en,alternate,1.0
+subject:computational_biology,Computational biology,en,preferred,1.0
+subject:computational_biology,Computational Biology,en,alternate,1.0
+subject:genomics,Genomics,en,preferred,1.0
+subject:neuroscience,Neuroscience,en,preferred,1.0
+subject:neuroscience,NeuroscIQ,en,alternate,1.0
+subject:statistics,Statistics,en,preferred,1.0
+subject:mathematics,Mathematics,en,preferred,1.0
+subject:mathematics,Math,en,alternate,1.0
+subject:mathematics,Maths,en,alternate,1.0
+subject:mathematics,Mu Prime Math,en,alternate,1.0
+subject:machine_learning,Machine learning,en,preferred,1.0
+subject:machine_learning,Machine Learning,en,alternate,1.0
+subject:data_science,Data science,en,preferred,1.0
+subject:data_science,Data Science,en,alternate,1.0
+subject:medicine,Medicine,en,preferred,1.0
+subject:science,Science,en,preferred,1.0
+subject:science,The Sheekey Science Show,en,alternate,1.0
+subject:economics,Economics,en,preferred,1.0
+subject:economics,Historical Economics,en,alternate,1.0
+subject:law,Law,en,preferred,1.0
+subject:law,Quimbee,en,alternate,1.0
+subject:programming,Programming,en,preferred,1.0
+subject:language_learning,Language learning,en,preferred,1.0

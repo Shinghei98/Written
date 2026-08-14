@@ -170,6 +170,26 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
             message = getattr(diag, "message_primary", None)
             if message:
                 diagnostic["denied"] = message[:200]
+        # **`P0001` is the second, and it is safe for a different reason.**
+        # `raise_exception` is only ever raised by a function in this
+        # repository, and every such message is a hand-written string naming a
+        # schema object, a gate or a count — `YouTube mapping semantic kind is
+        # not approved for this run`, `user assertion predicate % must be a
+        # user_claim`. Where they interpolate at all they interpolate
+        # vocabulary: a predicate key, a source code, a number. None reads a
+        # payload, which is what makes this different from the constraint
+        # violations the rule above exists to keep out of logs.
+        #
+        # **It is a convention rather than a mechanism, and that is the risk.**
+        # A guard written later that interpolates a title would put it here.
+        # Worth the trade because the alternative is measured: an opaque P0001
+        # cost two long rounds of reading trigger definitions in one afternoon,
+        # once for a job pinned to a retired scorer and once for a refused
+        # mapping — and in both cases the message would have said it outright.
+        if sqlstate == "P0001" and diag is not None:
+            message = getattr(diag, "message_primary", None)
+            if message:
+                diagnostic["refused"] = message[:200]
         frame = error.__traceback__
         while frame and frame.tb_next:
             frame = frame.tb_next

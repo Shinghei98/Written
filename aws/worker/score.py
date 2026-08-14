@@ -293,7 +293,23 @@ select
      filter (where o.source_code = 'youtube'
                 and o.action_type in ('liked', 'liked_video')
                 and o.normalized_payload ? 'channel_id'))
-                                               as youtube_co_attested
+                                               as youtube_co_attested,
+  -- **The channel is the creator, and subscribing is the whole statement.**
+  -- A `channel_identity` mapping off a `subscription` is a 1:1 declaration —
+  -- this person follows this creator — resolved by an exact alias match at
+  -- `evidence_weight` 1.000. Measured on a real account: `creator:onion_man`,
+  -- `creator:kripparrian`, `creator:pewdiepie` and `creator:statquest` each
+  -- carry exactly one such mapping and score 0.032-0.036.
+  --
+  -- **The curve punishes them for a property of the act rather than of the
+  -- confidence.** `w/(w+6)` rewards accumulation, which is right for a
+  -- musician — liking more of their songs really is more evidence — and
+  -- meaningless here, because you cannot subscribe twice. There is nothing
+  -- further to accumulate, so a bar calibrated on accumulation can never be
+  -- reached, at any weight. That is `0138`'s argument applied to the case
+  -- where the conjunction is unavailable.
+  bool_or(m.youtube_semantic_kind = 'channel_identity'
+          and o.action_type = 'subscription')  as youtube_channel_declared
 from semantic_private.observation_mappings m
 join semantic_private.observations o on o.id = m.observation_id
 join semantic_private.sources s on s.source_code = o.source_code
@@ -599,7 +615,30 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             if co_attested and strength < bar:
                 counts["subscribed_and_liked"] = \
                     counts.get("subscribed_and_liked", 0) + 1
-            state = "eligible" if (strength >= bar or co_attested) else "candidate"
+
+            # **A subscribed channel asserts its own creator, and nothing
+            # else.** Restricted to `creator` on purpose: subscribing to
+            # Bioinformagician declares that you follow Bioinformagician, and
+            # it does *not* declare bioinformatics — a subject is something you
+            # would have to aggregate across channels, and it still has to,
+            # which is why `subject:*` keeps accumulating past this rule.
+            #
+            # It is bounded by what the alias set holds. `channel_identity`
+            # resolves only on an exact curated alias, so this cannot admit an
+            # arbitrary channel name; it admits the ones somebody catalogued.
+            # The cost is real and accepted: a person with sixty catalogued
+            # subscriptions gets sixty terms, every one of them true, ranked by
+            # strength so the strongest reads first.
+            channel_declared = (
+                kind == "creator" and bool(agg.get("youtube_channel_declared"))
+            )
+            if channel_declared and strength < bar:
+                counts["subscribed_channel"] = \
+                    counts.get("subscribed_channel", 0) + 1
+
+            state = ("eligible"
+                     if (strength >= bar or co_attested or channel_declared)
+                     else "candidate")
         counts[state] += 1
         if state != "eligible":
             # Scored and inspectable, asserting nothing. Promote narrowly — and

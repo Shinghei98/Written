@@ -1,0 +1,3 @@
+concept_key,preferred_label,concept_kind,sensitivity,inference_policy,status,notes
+hub:news_current_affairs,News & current affairs,hub,ordinary,review_required,active,"The thirteen hubs had no home for a news organisation, and `CBS News` sat unblocked. `review_required` rather than `inferable` because news adjoins politics, which `refusedTopics` drops outright — a channel being a news channel is a fact, and what somebody reads into it is not."
+hub:money_business,"Money, work & business",hub,ordinary,inferable,active,"Minted with nothing under it. `EmergentTermMiner`'s five-user floor is about vocabulary emerging from user data; an authored hub is minted whole precisely so the concept set does not differ per install, and investing is a block real people have."
