@@ -33,6 +33,30 @@ SEMANTIC_SOURCE_SWIFT = "Written/Models/SemanticSource.swift"
 INGESTION_LIB = "aws/ingestion/lib.mjs"
 DISTILLER_GLOB = "Written/Services/*Distiller*.swift"
 EXTRA_RECORD_SOURCES = ["Written/ViewModels/DistillViewModel.swift"]
+LEGACY_BRIDGE_SWIFT = "Written/Models/SourcePayload+Legacy.swift"
+
+# **Which payload each writer's rows become, because text cannot decide it.**
+#
+# `SourcePayload.init(record:source:)` switches on the *source*, and a distiller
+# is not one-to-one with a source — `AppleMusicDistiller` also writes the `user`
+# row for the subscription state, and `HealthKitDistiller` writes `age` as a
+# profile rather than a fitness reading. So the pairing is written down here,
+# and the reader below checks each writer's `extra` keys against the union of
+# the payloads its rows can become. Getting this map wrong makes the check
+# *weaker*, never louder: an extra payload only adds keys to the read set.
+PAYLOADS_BY_WRITER = {
+    "AppleMusicDistiller": ("MusicPayload", "ProfilePayload"),
+    "MusicLibraryDistiller": ("MusicPayload",),
+    "SpotifyDistiller": ("MusicPayload",),
+    "PodcastDistiller": ("PodcastPayload",),
+    "CalendarDistiller": ("CalendarPayload",),
+    "GoogleCalendarDistiller": ("CalendarPayload",),
+    "OutlookCalendarDistiller": ("CalendarPayload",),
+    "HealthKitDistiller": ("FitnessPayload", "ProfilePayload"),
+    "YouTubeDistiller": ("VideoPayload",),
+    "LocationDistiller": ("PlacePayload",),
+    "DistillViewModel": ("ProfilePayload",),
+}
 
 
 # --------------------------------------------------------------------------
@@ -253,6 +277,83 @@ def ingestion_source_codes(repo: pathlib.Path) -> set[str]:
     return set(re.findall(r'"([a-z0-9_]+)"', match.group(1)))
 
 
+def _writer_paths(repo: pathlib.Path) -> dict[str, pathlib.Path]:
+    paths = sorted(repo.glob(DISTILLER_GLOB))
+    paths += [repo / name for name in EXTRA_RECORD_SOURCES]
+    return {path.stem: path for path in paths}
+
+
+def written_extra_keys(repo: pathlib.Path) -> dict[str, set[str]]:
+    """Every `key=` a writer stamps into a record's `extra`, per writer.
+
+    `extra` is a `key=value;key=value` string, so the keys are literals and a
+    text reader can find them: `"topics="`, `"channel_id="`, `"keywords="`.
+    DEBUG blocks are stripped for the same reason `distiller_data_types` strips
+    them — a preview fixture's keys describe a row that cannot ship.
+    """
+    found: dict[str, set[str]] = {}
+    for name, path in _writer_paths(repo).items():
+        text = strip_debug_blocks(strip_comments(path.read_text(encoding="utf-8")))
+        keys = set(re.findall(r'"([a-z0-9_]+)=', text))
+        if keys:
+            found[name] = keys
+    return found
+
+
+def read_extra_keys(repo: pathlib.Path) -> dict[str, set[str]]:
+    """Every `extra` key each payload initializer reads, per payload type.
+
+    The other half of the pair above. `SourcePayload+Legacy.swift` is the seam
+    where a legacy record becomes an envelope, and it reads `extra` by name —
+    `extraValue`, `extraList`, `extraInt`, `extraDouble`, `extraHour`,
+    `extraFlag`. A name written under one spelling and read under another is
+    this seam's characteristic defect: it has happened three times, to
+    `channel_id` (`item_id` on a subscription), to `first_move` (`extraInt`
+    refusing `06:00`), and to `keywords` (written `keywords=`, read as `tags`),
+    and each time the symptom was a field silently absent from the vault rather
+    than an error anywhere.
+    """
+    text = strip_comments((repo / LEGACY_BRIDGE_SWIFT).read_text(encoding="utf-8"))
+    found: dict[str, set[str]] = {}
+    for match in re.finditer(r"extension (\w+Payload) \{(.*?)\n\}", text, re.S):
+        found[match.group(1)] = set(
+            re.findall(
+                r'extra(?:Value|List|Int|Double|Hour|Flag)\("([a-z0-9_]+)"\)',
+                match.group(2),
+            )
+        )
+    if not found:  # pragma: no cover - the file's shape changed, and that is a fail
+        raise ValueError("no payload extensions found — the parser is broken")
+    return found
+
+
+def unprojected_extra_keys(repo: pathlib.Path) -> dict[str, list[str]]:
+    """Per writer, the `extra` keys no payload it feeds ever reads.
+
+    Not an error list. Most of these are deliberate — an artwork URL identifies
+    without describing, and `0082` says an id alone is not an observation — and
+    the point of computing it is that a *decision* and an *oversight* look
+    identical from here, so the classification has to be written down somewhere
+    a person maintains. That is the test, not this function.
+    """
+    written = written_extra_keys(repo)
+    read = read_extra_keys(repo)
+    gaps: dict[str, list[str]] = {}
+    for name, keys in written.items():
+        payloads = PAYLOADS_BY_WRITER.get(name)
+        if payloads is None:
+            raise ValueError(f"{name} writes extra keys and is in no payload map")
+        reachable: set[str] = set()
+        for payload in payloads:
+            if payload not in read:
+                raise ValueError(f"{name} maps to unknown payload {payload}")
+            reachable |= read[payload]
+        missing = sorted(keys - reachable)
+        if missing:
+            gaps[name] = missing
+    return gaps
+
+
 def load(repo: pathlib.Path) -> dict:
     text = strip_comments((repo / SEMANTIC_SOURCE_SWIFT).read_text(encoding="utf-8"))
     return {
@@ -267,6 +368,7 @@ def load(repo: pathlib.Path) -> dict:
             for name, types in distiller_data_types(repo).items()
         },
         "distiller_source_codes": sorted(distiller_source_codes(repo)),
+        "unprojected_extra_keys": unprojected_extra_keys(repo),
     }
 
 

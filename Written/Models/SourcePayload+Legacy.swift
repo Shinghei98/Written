@@ -272,7 +272,31 @@ extension VideoPayload {
             description: record.detail.isEmpty ? nil : record.detail,
             // Read, never computed. See `VideoPayload`.
             topics: record.extraList("topics"),
-            tags: record.extraList("tags"),
+            // **A channel's keywords arrive under `keywords=`, and reading only
+            // `tags` is the whole of why they have never reached the vault.**
+            // The same defect as `channelID` above, in the same initializer and
+            // for the same reason: `YouTubeDistiller` writes the field under
+            // the name that fits the row it came from — `tags=` on a liked
+            // video (`snippet.tags`), `keywords=` on a subscription
+            // (`brandingSettings.channel.keywords`) — and this read knew one
+            // name. Measured 2026-08-14 on the owner's account: 2,134
+            // `uploader_tag` mappings from liked videos and **zero** from
+            // subscriptions, across 466 subscription observations that carry
+            // keywords in `distilled_records` and none in the vault.
+            //
+            // The distiller already intended one lane — it pipe-joins the
+            // keywords "to match `tags=` on liked videos, so one parser serves
+            // both" — so this is that parser finally serving both. Both fields
+            // are the uploader's own keyword list, which is what `uploader_tag`
+            // is licensed to read under `0078`; neither is a category anybody
+            // inferred.
+            //
+            // A union rather than a branch on `dataType`. Today it is exact —
+            // a liked video never carries `keywords=` and a subscription never
+            // carries `tags=` — and if either row ever gains the other field a
+            // union keeps it, where a branch would drop it silently, which is
+            // the failure this comment exists to describe.
+            tags: record.extraList("tags") + record.extraList("keywords"),
             categoryID: record.extraValue("category_id"),
             playlistTitle: record.extraValue("playlist"),
             subscriberCount: record.extraValue("subscriber_count")

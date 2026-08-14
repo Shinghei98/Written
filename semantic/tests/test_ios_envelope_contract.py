@@ -239,6 +239,124 @@ class IOSEnvelopeContractTests(unittest.TestCase):
             ],
         )
 
+    def test_every_extra_key_is_projected_or_classified(self) -> None:
+        """**A field written under one name and read under another.**
+
+        `SourcePayload+Legacy.swift` is the seam where a legacy record becomes
+        an envelope, and it reads `extra` by name. Three times now a distiller
+        has written a key the seam did not read, and every time the symptom was
+        the same — a field silently absent from the vault, no error at either
+        end, invisible until something downstream wanted it:
+
+          * `channel_id`, which a subscription carries as `item_id`. All 430
+            subscriptions reached the vault with a null channel.
+          * `first_move`, written `06:00`, read with `extraInt`, which refuses
+            the colon.
+          * `keywords`, the channel's own keyword list, written `keywords=` and
+            read as `tags`. 2,134 `uploader_tag` mappings came from liked
+            videos and **zero** from subscriptions — the one field naming what
+            a channel is about never left the phone.
+
+        So the pairing is checked rather than remembered. Every `extra` key a
+        writer stamps must either be read by a payload that writer's rows
+        become, or be classified below.
+
+        **The classification is judgement and the notes are the point.** A
+        deliberate omission and an oversight look identical to the reader; what
+        tells them apart is somebody having written down which this is.
+        `undecided` is a real answer and means the question is open — it is
+        the same distinction `actionsByDataType` draws between `unweighted` and
+        `notAnAction`, and collapsing it would make the backlog disappear
+        rather than shrink. **Adding a key to a distiller fails this test until
+        it is classified**, which is the whole mechanism.
+        """
+        classified = {
+            "AppleMusicDistiller": {
+                "measured": "a marker on a derived row, not a fact about a song",
+                "subject": "the legacy `Ontology` field; the vault derives its "
+                           "own concepts server-side",
+                "track": "undecided — a track number, and `MusicPayload` has no "
+                         "field for one",
+            },
+            "MusicLibraryDistiller": {
+                "subject": "as above",
+                "added": "**suspected defect** — `MusicPayload` reads "
+                         "`date_added`, this writes `added`",
+                "genre": "**suspected defect** — `MusicPayload` reads `genres`, "
+                         "this writes `genre`",
+                "plays": "**suspected defect** — `MusicPayload` reads "
+                         "`play_count`, this writes `plays`",
+                "rating": "undecided — the library's own star rating, no field",
+                "skips": "undecided — a real behavioural signal, no field",
+                "local": "downloaded rather than cloud; a storage fact about "
+                         "the copy, not about the person",
+            },
+            "SpotifyDistiller": {
+                "subject": "as above",
+                "played_at": "undecided — `recently_played` timestamps, and "
+                             "`MusicPayload` has only `last_played`",
+                "track_count": "a playlist's size; a container's shape rather "
+                               "than an act",
+            },
+            "CalendarDistiller": {
+                "account": "undecided — which account owns the calendar",
+                "invited": "undecided — that others were invited, which is a "
+                           "fact about other people before it is one about this "
+                           "person",
+                "type": "on the `calendar` row, not an event; `cal_type` is "
+                        "what an event carries and is read",
+            },
+            "GoogleCalendarDistiller": {"type": "as above"},
+            "OutlookCalendarDistiller": {
+                "type": "as above",
+                "categories": "undecided — the tenant's own labels",
+                "show_as": "undecided — busy/free, a real signal with no field",
+                "tz_unresolved": "a capture-quality marker, not an observation",
+            },
+            "HealthKitDistiller": {
+                "raw": "biological sex's raw value. **It never leaves the "
+                       "device** — `SyncService.localOnlyTypes` refuses the row "
+                       "at the wire, and this is the second place that holds.",
+                "birth_year": "undecided — the `age` row's year; "
+                              "`pushDemographics` sends it by another route",
+            },
+            "DistillViewModel": {
+                "birth_year": "as above",
+                "entered_by_user": "provenance of an answer somebody typed; the "
+                                   "envelope records that another way",
+                "position": "the raw slider fraction. Nobody places themselves "
+                            "at 0.62 of a flirt, which is why four bands are "
+                            "what everything else reads.",
+            },
+            "LocationDistiller": {
+                "city": "undecided — `PlacePayload` carries a name and a "
+                        "detail, and all four of these are dropped",
+                "country": "undecided — as above",
+                "district": "undecided — as above",
+                "region": "undecided — as above",
+            },
+            "YouTubeDistiller": {
+                "artwork": "an avatar URL. `0082`'s rule: something that "
+                           "identifies without describing is not an observation.",
+                "video_id": "as above — an id alone does not count",
+                "subscribed_at": "undecided — when the subscription began",
+                "added_at": "undecided — when a playlist item was added",
+                "duration": "undecided — a video's length",
+                "item_count": "a playlist's size; a container's shape",
+                "total_items": "a channel's upload count; the channel's shape",
+                "new_items": "unwatched count, which is a state of the feed "
+                             "rather than an act",
+                "like_count": "undecided — a public statistic, the same class "
+                              "as `subscriber_count`, which *is* projected",
+                "view_count": "undecided — as above",
+            },
+        }
+        gaps = self.data["unprojected_extra_keys"]
+        self.assertEqual(
+            {name: sorted(keys) for name, keys in gaps.items()},
+            {name: sorted(keys) for name, keys in classified.items()},
+        )
+
     def test_debug_fixtures_are_not_counted(self) -> None:
         """`DistillViewModel`'s preview records emit a `preview` data type and
         several real-looking ones inside `#if DEBUG`. None ships, none syncs,
