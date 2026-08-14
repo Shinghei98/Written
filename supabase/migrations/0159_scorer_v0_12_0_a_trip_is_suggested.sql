@@ -47,9 +47,14 @@ insert into ontology.model_versions (
   'active'
 ) on conflict (id) do nothing;
 
+-- **Retired by role, not by name.** Naming the predecessor is the house style
+-- and it is not replay-safe: if an earlier scorer migration is skipped, the
+-- retire matches nothing, two versions stay active, and the assertion below
+-- fails on a clean chain while passing in production. The intent — exactly one
+-- active scorer — is stated directly instead.
 update ontology.model_versions
    set status = 'retired'
- where model_role = 'scorer' and version = '0.11.0' and status = 'active';
+ where model_role = 'scorer' and status = 'active' and version <> '0.12.0';
 
 do $$
 declare

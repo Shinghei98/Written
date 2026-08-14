@@ -130,7 +130,19 @@ begin
     and m.mapping_state = 'accepted'
     and o.action_type = 'subscription'
     and r.concept_kind = 'creator';
-  if declarable = 0 then
+  -- **Only where there is something to assert against.** This counts production
+  -- evidence, so on an empty database it is vacuously zero and the migration
+  -- refuses to apply — which stops the whole chain replaying and hides every
+  -- schema change after it. Guarded on the mapping table having rows at all:
+  -- with data the check is exactly as strict as it was, and without data there
+  -- is no claim to be wrong about.
+  --
+  -- This is the weaker form of `0118`'s rule — a predicate should answer both
+  -- ways over real data — and it is weaker on purpose: a replay has no real
+  -- data, and the alternative is a migration that can never be replayed.
+  if declarable = 0 and exists (
+    select 1 from semantic_private.observation_mappings limit 1
+  ) then
     raise exception
       'no accepted channel_identity subscription mapping resolves to a creator; the rule would assert nothing';
   end if;

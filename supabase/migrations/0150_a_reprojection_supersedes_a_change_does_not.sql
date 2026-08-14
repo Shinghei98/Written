@@ -453,6 +453,13 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'semantic_private'
       and p.proname <> 'ingest_source_records_v031'
+      -- **Normal functions only.** `pg_get_functiondef` raises outright on an
+      -- aggregate — *"array_agg is an aggregate function"* — so an unfiltered
+      -- scan of a schema fails on whatever aggregate happens to live there
+      -- rather than answering the question. Production has none in this schema
+      -- and a clean replay does, which is exactly the difference a replay
+      -- exists to find.
+      and p.prokind = 'f'
       and pg_get_functiondef(p.oid) like '%lifecycle_state = ''superseded''%'
   ) then
     raise exception 'another function writes the superseded state';
