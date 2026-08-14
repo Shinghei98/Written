@@ -38,6 +38,16 @@
 -- this does what the sweep does, now, for one person, and the two agree about
 -- what erasure means.
 --
+-- **Corrected after CI, and the correction is only to the exercise.** The
+-- proof at the foot of this file first asserted that YouTube records and
+-- inferred claims still *existed* afterwards — which passes against a database
+-- with data in it and fails against a clean replay, where zero is the right
+-- answer. It now compares the counts taken before the exercise with the ones
+-- taken after, which holds on both and asserts the stronger thing: not
+-- *"something is left"* but *"nothing moved"*. The function body is untouched
+-- by that edit, so what production applied and what replays from this file
+-- agree about behaviour.
+--
 -- **What is left standing, deliberately.** The observations, which carry
 -- topics, tags, a category id and a channel id and **no title, channel name or
 -- description** — the projection excludes them by construction, which is the
@@ -136,7 +146,29 @@ declare
   hand_added_after integer := -1;
   retirement_walked boolean := false;
   refused boolean := false;
+  youtube_before integer;
+  youtube_after integer;
+  claims_before integer;
+  claims_after integer;
 begin
+  -- **Counted before anything runs, and compared after.**
+  --
+  -- The first version of this asserted the counts were *non-zero* afterwards,
+  -- which passes on a database with data and fails on a clean replay where
+  -- zero is the correct answer — CI found it on the first push, having no
+  -- YouTube records and no assertions at all. That is this project's own rule
+  -- read backwards: a check resting on data existing is a check that reports
+  -- the state of the fixture rather than the state of the code.
+  --
+  -- Comparing against what stood a moment ago holds on both, and asserts the
+  -- stronger thing anyway: not "something is left" but "nothing moved".
+  select count(*) into youtube_before
+    from semantic_private.raw_source_records
+   where source_code = 'youtube' and lifecycle_state <> 'deleted';
+  select count(*) into claims_before
+    from semantic_private.user_assertions
+   where assertion_origin = 'inferred' and machine_state <> 'inactive';
+
   -- 1. **The refusal, first.** The function takes no user id and reads
   --    `auth.uid()`; a migration has none, so it must refuse rather than act on
   --    whatever null resolves to. A deletion that treats "nobody" as a caller
@@ -231,30 +263,25 @@ begin
   raise notice
     '0167: retirement clears % inferred claims and leaves % hand-added, and is rolled back',
     retired, hand_added_after;
-end;
-$$;
 
--- **Proof the rollback held**, rather than a comment claiming it did. Had
--- either subtransaction committed, this migration would be the thing that
--- erased a person's vault.
-do $$
-declare
-  live_youtube integer;
-  live_assertions integer;
-begin
-  select count(*) into live_youtube
+  -- **Proof the rollback held**, rather than a comment claiming it did. Had
+  -- either subtransaction committed, this migration would be the thing that
+  -- erased a person's vault — so the count that matters is the one taken
+  -- before it started.
+  select count(*) into youtube_after
     from semantic_private.raw_source_records
    where source_code = 'youtube' and lifecycle_state <> 'deleted';
-  select count(*) into live_assertions
+  select count(*) into claims_after
     from semantic_private.user_assertions
    where assertion_origin = 'inferred' and machine_state <> 'inactive';
 
-  if live_youtube = 0 or live_assertions = 0 then
-    raise exception '0167: the exercise did not roll back — % live records, % live claims',
-      live_youtube, live_assertions;
+  if youtube_after <> youtube_before or claims_after <> claims_before then
+    raise exception
+      '0167: the exercise did not roll back — YouTube % to %, claims % to %',
+      youtube_before, youtube_after, claims_before, claims_after;
   end if;
-  raise notice '0167: after the exercise, % YouTube records and % inferred claims stand',
-    live_youtube, live_assertions;
+  raise notice '0167: nothing moved — % YouTube records and % inferred claims, as before',
+    youtube_after, claims_after;
 end;
 $$;
 
