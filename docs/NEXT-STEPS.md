@@ -29,8 +29,34 @@ on 2026-08-13, and her binary predates it. Her 593 Spotify rows are safe in
 `public.distilled_records` — append-only — but they have never reached the
 vault.
 
-**Her whole involvement is: install the TestFlight build, open it, tap Spotify
-once.** Nothing else.
+**She has installed 50 and tapped, and the vault still received nothing.**
+Measured 2026-08-14 17:00: she distilled Spotify at **16:53:45** — the legacy
+path recorded it (`source_connections.spotify.last_distilled_at` moved, and
+nothing appended, the 593 rows being unchanged) — and the vault has no
+`spotify` ingestion run, no `raw_source_records`, and **944 observations,
+unchanged**.
+
+**The fact that narrows it: no ingestion run has ever been stamped
+`ios-1.0+50`, by anybody.** `connector_version` is
+`ios-<CFBundleShortVersionString>+<CFBundleVersion>`
+(`SemanticIngestionService.swift:194`), the highest recorded is `+49` from
+David at 15:04 on the 14th, and Timi's newest is `+47` from the 13th. So either
+the binary is not 50, or a build-50 dual-write is failing before it reaches the
+endpoint. `reportCoverage` is `#if DEBUG` print-only, so a refusal leaves no
+server trace to read.
+
+**The next move is one launch, not one tap.** A transiently failed batch
+persists in `PendingEnvelopeStore` and `flush()` retries on the next launch. So
+ask her to open the app and nothing else:
+
+- an `ios-1.0+50` spotify run appears → it was transient and she is unblocked;
+- nothing appears → the batch was refused permanently (a 4xx is dropped by
+  design) or the binary is not 50, and the next thing needed is a console log
+  from her device rather than another tap.
+
+**`AppShell`'s `.task { viewModel.purgeArchivedSources() }` must stay commented
+out** (`Views/AppShell.swift:209`). It is, and has been since `f63f338` on the
+10th. Live, it wipes each Spotify distillation moments after it lands.
 
 **Then confirm it landed**, which is now answerable from the database rather
 than inferable:
