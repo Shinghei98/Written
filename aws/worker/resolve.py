@@ -533,6 +533,61 @@ class LibraryFacts(NamedTuple):
     scenes: dict[str, tuple[str, ...]]
 
 
+def with_catalogue_genres(
+    rows: list[dict[str, Any]], genres_by_isrc: dict[str, list[str]]
+) -> int:
+    """Fill in a genre the source did not state, from Apple's catalogue.
+
+    **Why any of this exists.** Measured 2026-08-14: Apple Music stamps a genre
+    on every song row a library has — 641 of 641 library songs — and Spotify
+    stamps one on none, because its API states no genre at track level. A genre
+    is the root of everything a person can see. `artist_spheres` reads nothing
+    else, `artist_scenes` needs a sphere, and `takes_decades` gates the era, so
+    a row without one reaches a bare `genre:` concept at best and usually
+    nothing: 1,522 terms, 6 accepted mappings, 0 eligible assertions on a
+    593-row library.
+
+    **One place rather than two.** The genre feeds two families down two
+    different paths — `terms_for` emits `genre:*` directly, `library_facts`
+    computes `sphere:*`, `scene:*` and `era:*` per performer — and merging at
+    each would be two copies of one decision, with the failure mode that the
+    second gets forgotten. Both read the payload, so the payload is where the
+    join belongs.
+
+    **Not restricted to Spotify, though only Spotify needs it today.** The
+    condition is *"this row states no genre and names an ISRC"*, which is a
+    description of the gap rather than a list of the sources that have it —
+    naming `spotify` here would be a deny-list, and the failure mode of a
+    deny-list is silence.
+
+    **A new dict, never a mutation of the loaded payload.** Nothing writes these
+    rows back, and `guard_observation_immutable` would refuse it if anything
+    tried: the catalogue is not the person's evidence and has no business in
+    their vault. This is a read-time join that lives exactly as long as the run.
+
+    Returns how many rows were filled, so a run can say so out loud rather than
+    leaving "the catalogue was empty" and "the join never fired" as the same
+    observation.
+    """
+    filled = 0
+    for row in rows:
+        payload = row.get("normalized_payload")
+        if not isinstance(payload, dict):
+            continue
+        stated = payload.get("genres")
+        if isinstance(stated, list) and stated:
+            continue
+        isrc = payload.get("isrc")
+        if not isinstance(isrc, str):
+            continue
+        genres = genres_by_isrc.get(isrc)
+        if not genres:
+            continue
+        row["normalized_payload"] = {**payload, "genres": list(genres)}
+        filled += 1
+    return filled
+
+
 def library_facts(rows: list[dict[str, Any]]) -> LibraryFacts:
     """The five things a single row cannot decide.
 
@@ -1072,6 +1127,19 @@ select distinct ch.youtube_channel_id, ch.canonical_title
    and ch.canonical_title is not null
 """
 
+SELECT_CATALOGUE_GENRES = """
+select distinct on (e.external_id)
+       e.external_id, e.raw_payload->'genreNames' as genres
+  from ontology.external_entities e
+  join semantic_private.observations o
+    on o.normalized_payload->>'isrc' = e.external_id
+ where o.user_id = %(user_id)s
+   and o.lifecycle_state = 'active'
+   and e.provider = 'apple_music_catalog'
+   and jsonb_array_length(coalesce(e.raw_payload->'genreNames', '[]'::jsonb)) > 0
+ order by e.external_id, e.retrieved_at desc
+"""
+
 FINALIZE_RUN = "select semantic_private.finalize_semantic_run(%(run)s) as finalized"
 
 CURRENT_REVISION = """
@@ -1200,6 +1268,17 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # on `semantic_run_live_identity_idx` while the first held its transaction
     # open for the entire resolution.
     mapping_rows: list[dict[str, Any]] = []
+
+    # **Before the facts, and that ordering is the whole of it.** `library_facts`
+    # derives eras, spheres and scenes from the genres on each row, so a genre
+    # merged afterwards would reach `genre:*` and none of the three — which is
+    # the same shape as having no genre at all for everything a person sees.
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_CATALOGUE_GENRES, {"user_id": user_id})
+        catalogue_genres = {
+            row["external_id"]: row["genres"] or [] for row in cursor.fetchall()
+        }
+    counts["catalogue_genres"] = with_catalogue_genres(rows, catalogue_genres)
 
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
