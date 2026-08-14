@@ -309,7 +309,22 @@ select
   -- reached, at any weight. That is `0138`'s argument applied to the case
   -- where the conjunction is unavailable.
   bool_or(m.youtube_semantic_kind = 'channel_identity'
-          and o.action_type = 'subscription')  as youtube_channel_declared
+          and o.action_type = 'subscription')  as youtube_channel_declared,
+  -- **And the works that channel's own keywords name.** The same argument as
+  -- the clause above, reaching one object further: a subscription is a
+  -- standing choice, `Kripparrian` and `Hearthstone` are both read off the
+  -- same declaration, and neither can be accumulated by subscribing twice.
+  --
+  -- **`uploader_tag` here means the work reading, and the type system is what
+  -- makes that exact.** `0168` gives the two readings two roles but one stored
+  -- kind, so the kind alone cannot tell them apart — the concept's *kind* can.
+  -- The creator-hinted term is refused on type against a `work` concept by
+  -- `_type_compatible`, and `title_work` stores `written_title_tag`, so an
+  -- `uploader_tag` mapping on a subscription that reached a work can only have
+  -- come from `uploader_tag_work`. Read together with the `kind == 'work'`
+  -- test in the promotion below; either alone would be wrong.
+  bool_or(m.youtube_semantic_kind = 'uploader_tag'
+          and o.action_type = 'subscription')  as youtube_tag_declared
 from semantic_private.observation_mappings m
 join semantic_private.observations o on o.id = m.observation_id
 join semantic_private.sources s on s.source_code = o.source_code
@@ -783,8 +798,45 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                 counts["subscribed_channel"] = \
                     counts.get("subscribed_channel", 0) + 1
 
+            # **A subscribed channel also asserts the works its own keywords
+            # name.** The rule above reaches the channel; this one reaches what
+            # the channel says it is about, and stops there.
+            #
+            # **Why this is not the `subject` case the rule above refuses.**
+            # That refusal is exact and stands: *"subscribing to
+            # Bioinformagician declares that you follow Bioinformagician, and
+            # it does not declare bioinformatics — a subject is something you
+            # would have to aggregate across channels."* A work is the other
+            # thing. `Hearthstone` in Kripparrian's keyword list is not a theme
+            # abstracted from what he posts; it is the name of the object the
+            # channel is about, written by its owner, and reading it aggregates
+            # nothing. Whether somebody *plays* it is a different claim and is
+            # not made here — the assertion is `affinity_to`, which is what it
+            # already means for a creator nobody claims you have met.
+            #
+            # **Bounded twice over, and the bounds are what make it safe.**
+            # `GAME_TAG_CATALOGUE` is a list somebody authored, so this cannot
+            # admit an arbitrary keyword; and the same curve argument applies —
+            # one subscription is one lineage at strength ~0.035 against a work
+            # bar of 0.25, so no weight in `action_weights` reaches it and this
+            # has to be a rule or nothing.
+            #
+            # **The cost, stated rather than discovered.** A person subscribed
+            # to a games channel gets that game as a term whether they play it
+            # or watch it, which is the same trade the creator rule already
+            # accepted for sixty catalogued subscriptions — every one of them
+            # true, ranked by strength so the strongest reads first, and struck
+            # off in one tap by the person if wrong.
+            tag_declared = (
+                kind == "work" and bool(agg.get("youtube_tag_declared"))
+            )
+            if tag_declared and strength < bar:
+                counts["subscribed_work"] = \
+                    counts.get("subscribed_work", 0) + 1
+
             state = ("eligible"
-                     if (strength >= bar or co_attested or channel_declared)
+                     if (strength >= bar or co_attested or channel_declared
+                         or tag_declared)
                      else "candidate")
         counts[state] += 1
         if state != "eligible":

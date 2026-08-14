@@ -113,6 +113,41 @@ YOUTUBE_SOURCE = "youtube"
 # load the model is not a silently permissive default.
 MIN_TAG_LENGTH = 3
 
+# **Games an uploader's own channel keywords may name, and nothing else.**
+#
+# The one rule governing what may be added here, borrowed whole from
+# `aws/ingestion/work_titles.mjs` because it is the same hazard one layer down:
+# **an alias must not be a word.** `wow` is an exclamation before it is
+# Warcraft, and a term in the wrong place is a false claim about a person — so
+# `World of Warcraft` is listed under names nobody types by accident and is
+# simply unreachable from the abbreviation everybody uses. Losing a true term is
+# the cheaper mistake.
+#
+# **Why a list here rather than the ontology's own aliases.** Measured
+# 2026-08-14: 50 active `work` aliases, three of them ordinary English words —
+# `bleach`, `wicked`, `overlord` — each minted from a music library and each
+# defined *"Read from a music library; never inferred from a title."* Matching
+# free text against the whole `work` vocabulary would hand a Broadway cast
+# recording to anyone whose channel tags `wicked`, and those aliases cannot be
+# withdrawn because they are how the music lane reaches those works correctly.
+# A per-lane vocabulary is the house pattern for exactly this: `provider_topic`
+# resolves against `tools/youtube_topics.py`, `title_work` against the bundled
+# catalogue in the ingestion Lambda.
+#
+# **Every value must already exist in `ontology.concepts` as a `work`, with its
+# own key as an `alternate` label** — `0149`'s arrangement, which is what lets
+# the ordinary exact-alias path resolve a key with no new resolution code. A key
+# that does not exist is not an error here: it resolves to nothing, silently,
+# which is why `0168` asserts the three from the other end.
+GAME_TAG_CATALOGUE = {
+    "hearthstone": "work:hearthstone",
+    "world of warcraft": "work:world_of_warcraft",
+    "warcraft": "work:world_of_warcraft",
+    "final fantasy xiv": "work:final_fantasy_xiv",
+    "ffxiv": "work:final_fantasy_xiv",
+    "ff14": "work:final_fantasy_xiv",
+}
+
 # How a channel title is split for `written_title_tag`. Whitespace and the
 # punctuation that separates words in a channel name — never inside a word, so
 # `ritvikmath` stays one token and is aliased whole rather than being cut into
@@ -629,6 +664,59 @@ def youtube_terms_for(payload: dict[str, Any],
             # the only thing needed here is the length floor.
             if len(text) >= MIN_TAG_LENGTH:
                 terms.append(_term(text, "uploader_tag", "tags", "creator"))
+                # **The same tag again, read as a work rather than as a name.**
+                #
+                # A hint admits one family, so `creator` alone meant a tag could
+                # only ever be evidence about a person or a band, and a game
+                # named outright had nowhere to land. Measured 2026-08-14: an
+                # account subscribes to Kripparrian, whose channel keywords are
+                # `Hearthstone|HS|Meta|Lucky Hearthstone|…`, and the only games
+                # vocabulary the ontology held was four `genre:*` concepts —
+                # withheld from Memories by `list_assertions`' kind allowlist,
+                # and 43 accepted mappings that asserted nothing.
+                #
+                # **A catalogue rather than the whole `work` vocabulary, and the
+                # measurement is why.** The first version of this passed the raw
+                # tag with the hint `work`, which reaches every active `work`
+                # alias. There are 50, and three of them are ordinary English
+                # words — `bleach`, `wicked`, `overlord` — each minted from a
+                # music library and each carrying the definition *"Read from a
+                # music library; never inferred from a title."* One account's
+                # own subscriptions already collide: `Anime Man Talks` tags
+                # `Bleach`, which is right, and any channel tagging `wicked`
+                # would have been handed a Broadway cast recording. Withdrawing
+                # those aliases is not available — `work:wicked` stands at 0.683
+                # on 30 music rows *because* of that alias — so the lane narrows
+                # instead of the vocabulary. This is `work_titles.mjs`'s rule
+                # applied one layer down: **an alias must not be a word**, and
+                # where the ontology holds one anyway, free text may not reach
+                # it.
+                #
+                # **So this emits a key, not the tag**, exactly as `title_work`
+                # does, and for the same reason the type hint is a guard rather
+                # than a widening: `0149` gives every catalogue concept its own
+                # key as an `alternate` label, so the ordinary exact-alias path
+                # matches it at 1.000 with no new resolution code, and a key
+                # that somehow reached a creator is refused on type.
+                #
+                # **Two roles rather than one**, which is the shape
+                # `title_hashtag` already uses against `written_title_tag`: the
+                # two readings stay separable in `observation_mappings` so a
+                # later change can weigh a work differently from a creator
+                # without unpicking history. Both carry the stored kind
+                # `uploader_tag` and both are gated on `allow_uploader_tags`,
+                # because both are the same act — the uploader's own keyword —
+                # and `0078` licenses the act, not a family of concept.
+                #
+                # **This estimates nothing**, which is the line III.E.4.h draws.
+                # `Hearthstone` is matched whole against a list we authored;
+                # deciding what a channel is *about* from its topics would be
+                # the other thing, and is not done here or anywhere.
+                game = GAME_TAG_CATALOGUE.get(text.casefold())
+                if game is not None:
+                    terms.append(
+                        _term(game, "uploader_tag_work", "tags", "work")
+                    )
 
     # **The channel, named rather than identified.** The projection carries only
     # `channel_id` — an opaque string that resolves to nothing — so the title
@@ -763,6 +851,12 @@ YOUTUBE_KIND_BY_ROLE = {
     # here because a channel-title token, a hashtag and a named work are three
     # different acts, and this store cannot be rewritten to separate them later.
     "title_work": "written_title_tag",
+    # Second role on `uploader_tag`, and the same argument one layer down: a
+    # keyword read as a name and the same keyword read as a work are two
+    # readings of one act, so the stored kind — and therefore the gate
+    # `guard_youtube_mapping_fusion` derives from it — is unchanged, while the
+    # roles stay apart so the two can be weighed separately later.
+    "uploader_tag_work": "uploader_tag",
 }
 
 

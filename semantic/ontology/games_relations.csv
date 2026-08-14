@@ -1,0 +1,4 @@
+subject_key,predicate_key,object_key,confidence,provenance_type,status
+work:hearthstone,broader,hub:games_play,1.0,curated,active
+work:world_of_warcraft,broader,hub:games_play,1.0,curated,active
+work:final_fantasy_xiv,broader,hub:games_play,1.0,curated,active

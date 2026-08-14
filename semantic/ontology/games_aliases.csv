@@ -1,0 +1,7 @@
+concept_key,alias,locale,alias_type,confidence
+work:hearthstone,Hearthstone,en,preferred,1.0
+work:hearthstone,work:hearthstone,und,alternate,1.0
+work:world_of_warcraft,World of Warcraft,en,preferred,1.0
+work:world_of_warcraft,work:world_of_warcraft,und,alternate,1.0
+work:final_fantasy_xiv,Final Fantasy XIV,en,preferred,1.0
+work:final_fantasy_xiv,work:final_fantasy_xiv,und,alternate,1.0
