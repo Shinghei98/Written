@@ -139,6 +139,23 @@ extension SourceEnvelope {
         /// `SemanticSource.actionsByDataType` has no entry and nobody has
         /// decided what it means.
         case unmappedDataType(source: SemanticSource, dataType: String)
+        /// A row with no `item_id`, which the vault requires as
+        /// `provider_item_id` and refuses the **whole batch** without.
+        ///
+        /// **Measured 2026-08-15 on a real account**: one Spotify
+        /// `playlist_item` — a local file or an unavailable track — carried an
+        /// empty id, and the ingestion endpoint answered
+        /// `400 records[109]: provider_item_id is required`. A 4xx is dropped
+        /// rather than retried, by design, so that one row cost the other 143
+        /// in its batch *and* the run's finalization: no `p_final`, no
+        /// finalize, no recompute, and 1,500 observations left unscored in a
+        /// run stuck `running`.
+        ///
+        /// Refused here rather than sent, because an id is identity: without
+        /// one a row cannot be deduplicated, superseded, or pointed at by a run
+        /// item, so there is nothing the vault could do with it even if it
+        /// accepted it.
+        case missingItemID(source: SemanticSource, dataType: String)
 
         /// Short and stable, for counting refusals by kind during shadow.
         /// **Names the source and type rather than the row**, because the
@@ -149,6 +166,8 @@ extension SourceEnvelope {
             case .unknownSource(let code): return "unknown source: \(code)"
             case .unmappedDataType(let source, let dataType):
                 return "unmapped: \(source.rawValue)/\(dataType)"
+            case .missingItemID(let source, let dataType):
+                return "no item id: \(source.rawValue)/\(dataType)"
             }
         }
     }
@@ -176,6 +195,11 @@ extension SourceEnvelope {
         }
         guard let mapping = recordSource.mapping(for: record.dataType) else {
             return .failure(.unmappedDataType(source: recordSource, dataType: record.dataType))
+        }
+        // **Before anything else is built.** One row without this refuses the
+        // batch it travels in, and the batch carrying `final` refuses the run.
+        guard !record.itemID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.missingItemID(source: recordSource, dataType: record.dataType))
         }
 
         var action: SemanticAction?
