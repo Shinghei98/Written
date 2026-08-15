@@ -477,6 +477,45 @@ actor SyncService {
                 return lastError
             }
         }
+
+        // **The vault half, and its absence is what this comment exists for.**
+        // Until `0185` this function stopped at the two tables above, which are
+        // both in `public`. Measured 2026-08-15 on a real account that had
+        // disconnected Spotify: `source_connections` empty, `distilled_records`
+        // empty, and **580 observations and 593 encrypted records still live in
+        // the vault** — still resolved, still scored, still read by the
+        // catalogue mint. CLAUDE.md states the rule in one line: *a deletion
+        // control names both schemas or it is not finished.*
+        //
+        // **The vault's own code is what goes over the wire**, not the app's.
+        // `semantic_private` says `healthkit` where this layer says `health`,
+        // and `SemanticSource.forAppSource` is where that translation lives —
+        // *"a second translation anywhere else is a bug waiting for the day the
+        // two disagree."* `0185`'s first draft learned this the hard way by
+        // joining the two vocabularies by name in SQL and reading HealthKit as
+        // disconnected.
+        //
+        // **A source the vault has never heard of is skipped, not defaulted.**
+        // `forAppSource` answers nil deliberately, and nothing can be stranded
+        // in a schema that never held it.
+        //
+        // **A failure is returned, never swallowed.** A deletion somebody asked
+        // for and did not get is the one failure here that must not be silent —
+        // the tenth time this codebase has had to learn that, per the note
+        // above. The public half has already succeeded by this point, so the
+        // wording says the erasure was partial rather than that it failed.
+        if let vaultSource = SemanticSource.forAppSource(source)?.rawValue {
+            do {
+                _ = try await PostgREST.callFunction(
+                    "forget_source", arguments: ["p_source": vaultSource]
+                )
+            } catch {
+                lastError = "Removed from your library, but the semantic copy "
+                    + "could not be erased: \(error.localizedDescription)"
+                return lastError
+            }
+        }
+
         lastError = nil
         return nil
     }
