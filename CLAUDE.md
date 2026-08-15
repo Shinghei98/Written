@@ -1072,7 +1072,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0200`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0201`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1612,14 +1612,46 @@ engagement — `0200`, scorer `0.15.0`:
   while `affinity_to` was all the scorer wrote; left that way, an engagement
   claim would have been unwithdrawable.
 - **It ships ahead of its data and the measurement says so**: zero mappings onto
-  any activity concept, zero HealthKit observations in the vault, and
-  `healthkit.workout` weighted **0.0** — raising that is a separate decision.
-  Both branches are exercised in `test_engagement_predicate.py` instead, because
-  a rule that has only ever answered one way is not one to believe. `0198`
-  records each concept's slice and source id in `metadata` for the same reason.
+  any activity concept and zero HealthKit observations in the vault. Both
+  branches are exercised in `test_engagement_predicate.py` instead, because a
+  rule that has only ever answered one way is not one to believe. `0198` records
+  each concept's slice and source id in `metadata` for the same reason.
+- **The participation branch fires from `routine`, never from `workout`, and
+  that is structural** — see below. Both are marked `participation` because both
+  mean it; only one can ever arrive.
 - **The app draws it or it is half-built.** `Assertion.engagement` renders
   *Does* / *Follows* beside the term and `nil` for `affinity_to`, which is every
   row today.
+
+### A workout is not the evidence; the habit derived from it is
+
+**`action_weights` for HealthKit is `{activity_day: 0, activity_hour: 0,
+workout: 0, sleep: 0, routine: 0.85}`, and raising any of the zeros changes
+nothing.** The weight multiplies a mapping that cannot exist, refused twice
+over: `ObservationMapper._source_projection_is_valid` admits a HealthKit
+observation only where `data_type = 'fitness_habit'` and `action = 'routine'`
+(plus the sanitised privacy class and an exact metadata shape), and
+`guard_healthkit_observation_mapping` independently requires every HealthKit
+mapping to match a **current validated fitness habit candidate** with
+`evidence_weight` pinned to 1.0.
+
+**A zero here is a decision and not an unset default**, which is why the keys
+stay: `coalesce(action_weights ->> …, 0.0)` answers the same for an absent key,
+so deleting them would lose the only place the refusal is written as data.
+`0201` says so in a column comment, beside the number.
+
+**The dial that means "how much does a workout count" is
+`workout_min_sessions` / `workout_min_weeks` on
+`healthkit_fitness_habit_builder`** — 4 sessions across 3 distinct weeks in a
+42-day window today. What clears it arrives as `routine` at **0.85**, above all
+but seven of the ~50 action weights in the system. **Moving those thresholds
+needs a device that has recorded workouts**; there are none, and a threshold
+fitted to no data points is the mistake the `work` bar avoided by waiting for
+three labelled rows.
+
+The same shape holds for calendars — `booked`, `cancelled` and `entered_by_user`
+are zero because calendar rows reach the scorer through the classifier and never
+through the generic mapper.
 
 ### Which sources may feed a model, and who may say so
 
