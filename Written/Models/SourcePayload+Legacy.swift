@@ -155,12 +155,26 @@ extension MusicPayload {
             creditedArtists: credits,
             composer: record.extraValue("composer"),
             album: record.extraValue("album"),
-            genres: record.extraList("genres"),
+            // **The same defect as `tags`/`keywords` below, third and fourth
+            // and fifth instances.** `AppleMusicDistiller` writes `genres=`,
+            // `play_count=` and `date_added=`; `MusicLibraryDistiller` writes
+            // `genre=`, `plays=` and `added=` for the same three facts, and this
+            // read knew only the cloud spelling. So every song in a device
+            // library reached the vault with no genre, no play count and no
+            // added date — and genre is what feeds sphere, scene and era, so the
+            // loss is not one field but the whole reading of that library.
+            //
+            // A union, for the reason the `tags` comment gives: today each key
+            // belongs to exactly one distiller, and if either ever gained the
+            // other's spelling a union keeps it where a branch would drop it.
+            // `genre=` is one name rather than a list, which `extraList` returns
+            // as a list of one.
+            genres: record.extraList("genres") + record.extraList("genre"),
             releaseDate: record.extraValue("released"),
             durationSeconds: record.extraDouble("duration_s"),
             isrc: record.extraValue("isrc"),
             resourceType: record.extraValue("resource_type"),
-            playCount: record.extraInt("play_count"),
+            playCount: record.extraInt("play_count") ?? record.extraInt("plays"),
             lastPlayedAt: record.extraValue("last_played").flatMap(DistilledRecord.parseDate),
             rank: record.extraInt("rank"),
             // Apple Music's like/dislike arrives as `value=1` / `value=-1` on a
@@ -172,7 +186,8 @@ extension MusicPayload {
             shelf: record.extraValue("shelf"),
             contentRating: record.extraValue("content_rating"),
             hasLyrics: record.extraFlag("has_lyrics"),
-            addedAt: record.extraValue("date_added").flatMap(DistilledRecord.parseDate),
+            addedAt: (record.extraValue("date_added") ?? record.extraValue("added"))
+                .flatMap(DistilledRecord.parseDate),
             artworkURL: record.extraValue("artwork")
         )
     }

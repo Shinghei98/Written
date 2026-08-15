@@ -292,12 +292,14 @@ class IOSEnvelopeContractTests(unittest.TestCase):
             },
             "MusicLibraryDistiller": {
                 "subject": "as above",
-                "added": "**suspected defect** — `MusicPayload` reads "
-                         "`date_added`, this writes `added`",
-                "genre": "**suspected defect** — `MusicPayload` reads `genres`, "
-                         "this writes `genre`",
-                "plays": "**suspected defect** — `MusicPayload` reads "
-                         "`play_count`, this writes `plays`",
+                # `added`, `genre` and `plays` were the three **suspected
+                # defects** this classification recorded, and they were real:
+                # every device-library song reached the vault with no genre, no
+                # play count and no added date. `MusicPayload` now reads both
+                # spellings — a union, as it does for `tags`/`keywords` — so
+                # they are projected and no longer belong in this list. The
+                # entries are removed rather than reworded, because a key that
+                # is read is not a gap.
                 "rating": "undecided — the library's own star rating, no field",
                 "skips": "undecided — a real behavioural signal, no field",
                 "local": "downloaded rather than cloud; a storage fact about "
