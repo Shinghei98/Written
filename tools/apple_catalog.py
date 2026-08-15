@@ -94,9 +94,19 @@ APPLE = "https://api.music.apple.com/v1/catalog"
 # every sphere and scene for anybody outside those two locales.
 STOREFRONT = "us"
 
-# Matching `ComposerService.isrcsPerRequest`, which is the same request against
-# the same endpoint from the other end of the system.
-ISRCS_PER_REQUEST = 100
+# **Apple's own cap, measured rather than chosen.** `filter[isrc]` refuses more
+# than 25 values with `40005 Invalid Parameter Value` — *"the isrc filter only
+# accepts 25 value(s) to filter on but 100 values were passed"* — so a batch of
+# 100 is not slow, it is a 400 on the first request and no catalogue answer at
+# all. Found the first time the worker ran with a developer token present, which
+# is why it survived this long: with no token the call never reaches Apple.
+#
+# **`ComposerService.isrcsPerRequest` is 100 and this no longer matches it.**
+# That is the app asking the same filter on the same endpoint, so it is subject
+# to the same cap — see the note in `docs/NEXT-STEPS.md`. Deliberately not
+# changed from here: it is a separate target needing a build and a device to
+# verify, and matching a value that is wrong is not agreement.
+ISRCS_PER_REQUEST = 25
 
 PAGE = 1000
 

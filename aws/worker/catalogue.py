@@ -32,10 +32,17 @@ from apple_catalog import ISRCS_PER_REQUEST, artists_in, catalogue
 from written_ontology.normalize import normalize_text
 
 
-# Bounded per job. A first-time library is ~1,300 ISRCs and Apple takes 100 per
-# request, so this is thirteen calls; the ceiling exists so one enormous library
-# cannot spend a whole Lambda timeout, and what it leaves behind is picked up by
-# the next distillation rather than lost.
+# Bounded per job. A first-time library is ~1,300 ISRCs and Apple takes **25**
+# per request, so this is fifty-two calls rather than the thirteen this comment
+# claimed while `ISRCS_PER_REQUEST` was 100 — the cap is Apple's and is measured,
+# not chosen. The ceiling exists so one enormous library cannot spend a whole
+# Lambda timeout, and what it leaves behind is picked up by the next
+# distillation rather than lost.
+#
+# **2,000 is eighty calls against a 300-second timeout**, so the headroom is the
+# per-call latency staying under ~3.5s. That is comfortable today and is the
+# number to revisit first if a mint ever times out, since lowering it costs a
+# person nothing but another distillation.
 MAX_ISRCS_PER_JOB = 2_000
 
 
