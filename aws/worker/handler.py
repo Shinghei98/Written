@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import traceback
 import uuid
 from typing import Any
 
@@ -291,6 +292,20 @@ def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
             connection.rollback()
             print(json.dumps({"mint_vocabulary": {"declined": str(reason)}}))
             return {"status": "no_op", "item_count": 0}
+        except Exception as failure:
+            # **Said out loud before it is re-raised.** `SemanticWorker` catches
+            # everything at its boundary and records the literal string
+            # `handler_error` — no message, no traceback, not even to stdout —
+            # so a mint that dies leaves a queued job, an attempt count and no
+            # way to tell a bad batch size from a bad grant. Twice tonight that
+            # cost a redeploy to find out. The re-raise is what keeps the
+            # retry: this only adds the sentence, it does not handle anything.
+            connection.rollback()
+            print(json.dumps({"mint_vocabulary": {
+                "failed": f"{type(failure).__name__}: {failure}",
+                "traceback": traceback.format_exc(),
+            }}))
+            raise
 
         connection.commit()
 
