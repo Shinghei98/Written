@@ -1072,7 +1072,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0138`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0199`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1376,10 +1376,20 @@ re-score at the revision that now stands.
 - **An answer must name the exposure it answers** — "I disagree" refers to a
   particular label at a particular rank computed by a particular score version.
 - **`list_assertions` is an allowlist of `concept_kind`** (`creator`, `work`,
-  `activity`), so a new kind is withheld until somebody decides it belongs: an
-  internal kind appearing on a profile is worse than a nameable one being missed,
-  because only the first is invisible to whoever added it. **A user's own term
-  always survives it**, having no concept and therefore no kind.
+  `activity`, `topic`), so a new kind is withheld until somebody decides it
+  belongs: an internal kind appearing on a profile is worse than a nameable one
+  being missed, because only the first is invisible to whoever added it. **A
+  user's own term always survives it**, having no concept and therefore no kind.
+  - **`topic` is admitted less three key prefixes**, and the exclusion is the
+    whole of the change: `era:`, `sphere:` and `scene:` are *also*
+    `concept_kind = 'topic'`, and every topic assertion in the database is one
+    of them, so widening on kind alone would have restored exactly the set
+    `0108` removed and added nothing. **The kind cannot separate the axis from
+    the claim** — `score.py`'s `NEVER_ASSERTED_KEY_PREFIXES` says the same from
+    the scorer's side. `genre` and `place` stay out.
+  - It admitted nothing on the day it shipped: the 14 `subject:*` concepts it
+    exists for score 0.054 at best against a 0.35 bar. **It is a precondition
+    for imported vocabulary, not a release of withheld terms.**
 - **YouTube may raise a concept's strength and may never be the only reason it
   crosses to another user.** "Concepts are ours so anything goes" is the wrong
   answer — a concept only YouTube witnesses still discloses YouTube data.
@@ -1486,8 +1496,9 @@ row is a concept with an id and `suppress_assertion` names one assertion — whi
 is what makes "a title ban never becomes a concept-level negative" true rather
 than merely intended.
 
-**What the page shows is `concept_kind`**, filtered to `creator`, `work` and
-`activity` on the owner's judgement: *"the terms shown should be well defined
+**What the page shows is `concept_kind`**, filtered to `creator`, `work`,
+`activity` and `topic` (less `era:`/`sphere:`/`scene:`, `0197`) on the owner's
+judgement: *"the terms shown should be well defined
 enough to strike off or understand."* Genres, scenes and spheres remain asserted,
 scored and evidenced, and are what Phase 4's discovery matches on. **Both
 readings are on screen at once deliberately**, so the two can be compared.
@@ -1511,6 +1522,70 @@ of somebody's data rather than labels applied to them.
   sweep runs, and that must never be drawn as a failure.
 - **The readings are not terms and stayed behind** — the chronotype and step
   average have no entry behind them for anybody to agree with.
+
+### Growing the vocabulary: slices, offline, bounded by what the source states
+
+`tools/wikidata_vocab.py` imports whole domains from Wikidata (CC0) on a laptop.
+**It is not the resolver calling out, and nothing about the egress posture
+changed**: `allow_external_resolution` is still written `false`, six projection
+guards still refuse a row where it is not, an external hit is still permanently
+`CANDIDATE`, and `resolve.py` still constructs no provider. What makes an
+offline import honest is that **the query names the slice, never a user's
+string** — `observation_mentions` is read locally to decide *which* slice is
+worth having.
+
+- **Notability is a number the source states** — sitelink count, the same shape
+  as `subscriber_count` in `0195`. **And it only works for things whose fame is
+  their own.** An `athletes` slice was written and removed: at any selective
+  bound it returns the most famous *humans* who happen to have a sport recorded
+  — Plato, Joe Biden, two Bushes, Gerald Ford — and requiring a sportsperson
+  occupation does not help, because Camus kept goal. The next step would have
+  been a deny-list of occupations, and **the failure mode of a deny-list is
+  silence**. A person-shaped slice needs a signal *about the thing*, not a
+  louder measure of fame.
+- **A titled work hides its name in the article title.** Wikidata stores no
+  English *label* for Minecraft, GTA V, Tetris, Roblox or Fortnite — the English
+  Wikipedia title carries it — so `SERVICE wikibase:label` answers with the bare
+  QID and `0198` dropped 90 of 304 games without saying so. `0199` reads
+  `schema:about`/`schema:isPartOf <https://en.wikipedia.org/>` as a fallback.
+  Common nouns are unaffected; **any future slice of works must ask for both.**
+- **Refuse at both ends.** `subject:health` passed every key check — the word
+  *health* contains no prohibited fragment — and was caught only by the
+  migration's read-back, which rolled a 724-concept import back. `refusedTopics`
+  now refuses in the tool as well. **It refuses the container, not the field**:
+  `subject:medicine` has been vocabulary since `0134`.
+- **Two entities with one name mint neither**, the key-level form of the rule
+  the resolver already applies to ambiguous labels. **A duplicate is not an
+  ambiguity**, though: an entity satisfying two slices is claimed by the more
+  specific one and reported, or the first run silently loses both — which is how
+  League of Legends became a sport and a work and then neither.
+- **A merge list is authored and stays short.** Six proposals named something
+  already held under another name (`association football` → `activity:soccer`);
+  minting them would split one interest across two concepts with the evidence
+  for each never reaching the other.
+- **Every imported concept must reach a hub** — asserted through
+  `concept_block`, which is what Memories calls. A floating concept lands under
+  "Other" and one parented to a guess is a false claim.
+- **Vocabulary is still not the binding constraint.** `0198`/`0199` added 779
+  concepts across five domains; over both live accounts they drew **6
+  observation mappings and no assertions**. That is the expected shape, not a
+  failure: these libraries are music. Breadth makes an interest *nameable* and
+  manufactures no evidence for it.
+
+### An activity can be watched or done, and the predicate is where that lives
+
+`ontology.relation_types` already separates them — `completed_activity` (*"from
+a structured fitness source"*), `watched`, `attended_activity_at`,
+`booked_activity_at` (*"not attendance or liking"*), `likes_activity` — and
+**every assertion in production carries `affinity_to`**, so the distinction is
+modelled and unused.
+
+**Two concepts per sport is the wrong repair**: it splits the evidence and still
+cannot say which was meant, because **the evidence decides, not the concept**. A
+HealthKit workout is involvement; a subscription to a football channel is
+viewing. `0198` records the slice and source id in each revision's `metadata` so
+the rule that eventually picks the predicate has something to read, and guesses
+no engagement mode itself.
 
 ### Which sources may feed a model, and who may say so
 

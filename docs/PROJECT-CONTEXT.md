@@ -1468,7 +1468,7 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0138`.** `db push` is the deployment mechanism and
+**Migration head `0199`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate.
@@ -1860,7 +1860,8 @@ revision that now stands.
   particular score version. A `uuid`-returning RPC answers a top-level JSON
   fragment, which `JSONSerialization` refuses by default.
 - **`list_assertions` is an allowlist of `concept_kind`** — `creator`, `work`,
-  `activity` — so a new kind is withheld until somebody decides it belongs. An
+  `activity`, and since `0197` `topic` less the `era:`/`sphere:`/`scene:` key
+  prefixes — so a new kind is withheld until somebody decides it belongs. An
   internal kind appearing on a profile is worse than a nameable one being missed,
   because only the first is invisible to whoever added it. **A user's own term
   always survives it**, having no concept and therefore no kind.
