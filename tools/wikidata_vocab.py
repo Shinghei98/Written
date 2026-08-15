@@ -61,7 +61,10 @@ from typing import Any
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "semantic" / "src"))
 
 from written_ontology.normalize import normalize_text  # noqa: E402
-from written_ontology.providers.wikidata import WikidataProvider  # noqa: E402
+from written_ontology.providers.wikidata import (  # noqa: E402
+    _INSTANCE_KIND,
+    WikidataProvider,
+)
 from written_ontology.safety import (  # noqa: E402
     PROHIBITED_INFERRED_KINDS,
     PROHIBITED_KEY_FRAGMENTS,
@@ -167,7 +170,20 @@ class Slice:
     kind: str
     prefix: str
     minimum_sitelinks: int
-    where: str
+    # **Either a hand-written pattern, or a seed resolved from our own
+    # vocabulary.** `where` is the older form and names a Wikidata class by QID,
+    # which means somebody had to go and find that QID — prior knowledge, and a
+    # new one needed for every medium. `seed_label` is the newer form and needs
+    # none: it takes a word this ontology already uses, resolves it to a Wikidata
+    # entity by ordinary search, and asks for works of that genre or that type.
+    #
+    # **Measured, and the seed wins.** Hand-picked `Q63952888` (anime television
+    # series) returned 501 entities above ten sitelinks; seeding the word `anime`
+    # resolves `Q1107` and returns **914**, because `P31/P279*` reaches anime
+    # films and OVAs that the hand-picked class excludes. The general rule beat
+    # the specific knowledge.
+    where: str = ""
+    seed_label: str = ""
     parent_key: str | None = None
     parent_property: str | None = None
     limit: int = 400
@@ -246,6 +262,76 @@ SLICES: tuple[Slice, ...] = (
         notes="video game (Q7889)",
         precedence=10,
     ),
+    # **The four media a song can come *from*, seeded from our own genres.**
+    #
+    # `music_works.py` already derives the source work — `From "X"` on the title
+    # or album, a stripped soundtrack album, a propagated sibling — and it is the
+    # dominant path to a work concept: **1,380 of 1,431 work mappings** carry a
+    # `source_work` evidence role. What it lacks is somewhere to land. Measured
+    # 2026-08-15: **32 shows named by Apple and resolving to nothing**, 500
+    # mentions.
+    #
+    # **Which media, decided by the data rather than by me.** The genres on the
+    # rows whose `source_work` failed are `soundtrack` (25 observations), `anime`
+    # (11) and `musicals` (9). The first of those is why film and television are
+    # here: a soundtrack genre says the song came from something without saying
+    # what, and seeding the word `soundtrack` resolves to Q217199 and returns
+    # *Arthur Honegger* — a composer. So the medium seeds stand in for it, and
+    # that substitution is the one judgement in this block.
+    #
+    # **Anime is deliberately the largest.** Six of the unresolved shows are
+    # anime and three are written in Japanese — `オーバーロードii` is `work:overlord_ii`,
+    # a concept we already hold with no `ja` label on it. For those the slice
+    # buys aliases rather than concepts, which is the cheaper half of the same
+    # fix.
+    Slice(
+        name="musicals",
+        kind="work",
+        prefix="work:",
+        minimum_sitelinks=10,
+        seed_label="musical",
+        parent_key="genre:musicals",
+        notes="seeded from genre:musicals",
+        limit=200,
+        precedence=11,
+    ),
+    Slice(
+        name="anime",
+        kind="work",
+        prefix="work:",
+        minimum_sitelinks=10,
+        seed_label="anime",
+        parent_key="genre:anime",
+        notes="seeded from genre:anime",
+        limit=350,
+        precedence=12,
+    ),
+    Slice(
+        name="films",
+        kind="work",
+        prefix="work:",
+        # **Films need a far higher bar than musicals for the same selectivity.**
+        # 25,011 films clear ten sitelinks against 110 musicals, because the
+        # medium is that much larger — so the bound is a property of the slice
+        # rather than a constant, and it is printed for that reason.
+        minimum_sitelinks=60,
+        seed_label="film",
+        parent_key="hub:film_video",
+        notes="seeded from hub:film_video",
+        limit=250,
+        precedence=13,
+    ),
+    Slice(
+        name="television",
+        kind="work",
+        prefix="work:",
+        minimum_sitelinks=40,
+        seed_label="television series",
+        parent_key="hub:film_video",
+        notes="seeded from hub:film_video",
+        limit=200,
+        precedence=14,
+    ),
     Slice(
         name="disciplines",
         kind="topic",
@@ -291,6 +377,32 @@ PROBE_EXAMPLES = {
 }
 
 
+
+def kind_contradicts(slice_kind: str, types: set[str]) -> str | None:
+    """Does the entity's own type say it is something else?
+
+    **A contradiction test, not a requirement.** `_INSTANCE_KIND` in the
+    provider maps eight Wikidata classes onto our kinds and knows nothing about
+    the rest, so demanding a *match* would refuse almost everything — an anime
+    television series is in no such map. Demanding merely that it does not say
+    the opposite is what the map can actually support.
+
+    **Written after the musicals slice returned Cole Porter.** Seeding a genre
+    finds humans as readily as works: `P136 = musical play` is a statement made
+    about Irving Berlin, Idina Menzel and Lin-Manuel Miranda, and 269 humans
+    carry it. Every one would have been minted as `work:cole_porter`. This is
+    the athletes lesson arriving from a different direction — a slice that
+    returns the wrong *kind* of thing rather than the wrong *fame* of thing.
+
+    The map is the provider's, reviewed and tested there, so no new class id is
+    introduced here.
+    """
+    for type_qid in types:
+        derived = _INSTANCE_KIND.get(type_qid)
+        if derived and derived != slice_kind:
+            return derived
+    return None
+
 def slug(label: str) -> str:
     """A concept key's tail: ASCII, lowercase, underscore-joined.
 
@@ -309,7 +421,43 @@ def sparql(query: str, provider: WikidataProvider) -> list[dict[str, Any]]:
     return payload.get("results", {}).get("bindings", [])
 
 
-def slice_query(item: Slice) -> str:
+# Resolved seeds, so one label costs one lookup however many slices use it, and
+# so the run can report which entity it actually chose.
+_SEEDS: dict[str, str] = {}
+
+
+def seed_entity(label: str, provider: WikidataProvider) -> str:
+    """A word this ontology already uses, resolved to a Wikidata entity.
+
+    **This is what replaces knowing a QID.** The seed is *our* vocabulary —
+    `genre:musicals` is called "musical", `genre:anime` is called "anime" — so
+    adding a genre to the ontology brings its slice with it, and nobody has to
+    go and look up what Wikidata calls the class this time.
+
+    **It is not a user's string.** The demand list is read locally to decide
+    *which* of our genres is worth seeding; the word that leaves is the one in
+    our own concept table, which is the same word for every install.
+
+    The first search hit is taken and **reported in the payload**, because a
+    seed that resolved to the wrong entity is the one way this can go quietly
+    wrong — `soundtrack` resolves to Q217199 and returns a composer, which is
+    how that slice came to be dropped.
+    """
+    if label in _SEEDS:
+        return _SEEDS[label]
+    url = f"{ENTITY_API}?" + urllib.parse.urlencode({
+        "action": "wbsearchentities", "format": "json", "search": label,
+        "language": "en", "type": "item", "limit": 1,
+    })
+    hits = provider._get_json(url).get("search", [])
+    if not hits or not _QID.fullmatch(hits[0].get("id", "")):
+        raise SystemExit(f"no Wikidata entity for the seed label {label!r}")
+    _SEEDS[label] = hits[0]["id"]
+    print(f"  seed {label!r} -> {hits[0]['id']} ({hits[0].get('label')})", file=sys.stderr)
+    return _SEEDS[label]
+
+
+def slice_query(item: Slice, where: str) -> str:
     """One slice, plus the two things every slice needs: a bound and a name.
 
     **The English Wikipedia title is asked for alongside the label, and it is not
@@ -325,8 +473,9 @@ def slice_query(item: Slice) -> str:
     """
     parent_select = " ?parent ?parentLabel" if item.parent_property else ""
     return f"""
-SELECT ?item ?itemLabel ?itemDescription ?sitelinks ?enwiki{parent_select} WHERE {{
-  {item.where}
+SELECT ?item ?itemLabel ?itemDescription ?sitelinks ?enwiki ?type{parent_select} WHERE {{
+  {where}
+  OPTIONAL {{ ?item wdt:P31 ?type . }}
   ?item wikibase:sitelinks ?sitelinks .
   FILTER(?sitelinks >= {item.minimum_sitelinks})
   OPTIONAL {{
@@ -355,8 +504,36 @@ def name_from(row: dict[str, Any]) -> str:
     return _TRAILING_PAREN.sub("", article).strip()
 
 
+def slice_pattern(item: Slice, provider: WikidataProvider) -> list[str]:
+    """The graph pattern for a slice: written out, or built from a seed.
+
+    A seeded slice asks for both readings, because Wikidata uses both and which
+    one a medium uses is exactly the prior knowledge this avoids needing:
+    `P136` for a work *of* that genre, `P31/P279*` for a work that *is* one.
+    """
+    if item.seed_label:
+        qid = seed_entity(item.seed_label, provider)
+        # **Two queries rather than one UNION**, because the UNION times the
+        # query service out on a large medium: films are 25,011 entities above
+        # ten sitelinks and the planner evaluates the whole pattern before the
+        # filter bites. Split, each half is cheap, and merging them here costs
+        # one extra request per slice.
+        return [f"?item wdt:P136 wd:{qid} .",
+                f"?item wdt:P31/wdt:P279* wd:{qid} ."]
+    return [item.where]
+
+
 def fetch_slice(item: Slice, provider: WikidataProvider) -> list[dict[str, Any]]:
-    rows = sparql(slice_query(item), provider)
+    rows: list[dict[str, Any]] = []
+    for pattern in slice_pattern(item, provider):
+        try:
+            rows += sparql(slice_query(item, pattern), provider)
+        except Exception as refusal:
+            # **A reading that times out is reported, never swallowed.** One of
+            # the two halves failing would otherwise look like a medium with
+            # fewer works in it than it has.
+            print(f"  {item.name}: a reading failed ({type(refusal).__name__}), "
+                  f"the slice is incomplete", file=sys.stderr)
     entities: dict[str, dict[str, Any]] = {}
     for row in rows:
         qid = row.get("item", {}).get("value", "").rsplit("/", 1)[-1]
@@ -377,8 +554,12 @@ def fetch_slice(item: Slice, provider: WikidataProvider) -> list[dict[str, Any]]
                 "description": row.get("itemDescription", {}).get("value") or None,
                 "sitelinks": int(row.get("sitelinks", {}).get("value", 0)),
                 "parents": [],
+                "types": set(),
             },
         )
+        type_qid = row.get("type", {}).get("value", "").rsplit("/", 1)[-1]
+        if _QID.fullmatch(type_qid):
+            record["types"].add(type_qid)
         if item.parent_property:
             parent_qid = row.get("parent", {}).get("value", "").rsplit("/", 1)[-1]
             parent_label = row.get("parentLabel", {}).get("value", "")
@@ -461,6 +642,14 @@ def build(provider: WikidataProvider) -> dict[str, Any]:
             merged_from = key if key in MERGE_INTO else None
             key = MERGE_INTO.get(key, key)
             reason: str | None = None
+
+            contradiction = kind_contradicts(item.kind, row.get("types") or set())
+            if contradiction:
+                refusals.append({
+                    "slice": item.name, "qid": row["qid"], "label": row["label"],
+                    "reason": f"its own type says {contradiction}, not {item.kind}",
+                })
+                continue
 
             if row["qid"] in claimed_by:
                 # **Reported, never silent.** One entity is one concept, and
@@ -690,6 +879,7 @@ def probe(provider: WikidataProvider) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe", action="store_true", help="check the slices reach the examples")
+    parser.add_argument("--only", help="comma-separated slice names, for a focused payload")
     parser.add_argument("--review", action="store_true", help="a table for a person to read")
     args = parser.parse_args()
 
@@ -708,6 +898,13 @@ def main() -> int:
 
     if args.probe:
         return 1 if probe(provider) else 0
+
+    if args.only:
+        wanted = {name.strip() for name in args.only.split(",") if name.strip()}
+        unknown = wanted - {s.name for s in SLICES}
+        if unknown:
+            raise SystemExit(f"no such slice: {', '.join(sorted(unknown))}")
+        globals()["SLICES"] = tuple(s for s in SLICES if s.name in wanted)
 
     payload = build(provider)
 
