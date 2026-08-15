@@ -196,3 +196,53 @@ to miss.
 - **`AppShell`'s `.task { viewModel.purgeArchivedSources() }` is commented out**
   and must be restored in the same breath, or it wipes each Spotify
   distillation moments after it lands.
+
+## 6. The mint runs, 2026-08-15
+
+`0176`–`0179` are applied, the worker carries the `mint_vocabulary` handler, and
+`APPLE_MUSIC_DEVELOPER_TOKEN` is set. **First successful mint: 599 identifiers
+looked up, 285 creators minted, 78 linked, 4 refused, ontology `0.22.1`
+published.** `ontology.external_entities` went from zero rows — it had never held
+one — to 931.
+
+**Provenance is being recorded and the skew is the launch plan's problem, not a
+bug**: 773 identifiers were named by Spotify and 160 by Apple Music. `0178`
+exists so that stays knowable; the plan of minting from Apple and only *reading
+against* it with Spotify needs those 773 to be reachable another way, and today
+they are not.
+
+Three things that fell out of getting there, none of them fixed by the fact that
+it now works:
+
+- **`APPLE_MUSIC_DEVELOPER_TOKEN` expires 2027-02-11.** It is a static ES256 JWT
+  minted from MusicKit key `AZ69CPT7DG` against team `947DHTL37S`. **An expired
+  token raises, where a missing one declines** — by design, since silently not
+  enriching is the failure this work removed — so expiry day is a day mint jobs
+  start dying. Minting per invocation from the `.p8` in Secrets Manager, the way
+  `DB_SECRET_ID` already works, removes the cliff and is a small change to
+  `catalogue.py`.
+- **`ComposerService.isrcsPerRequest` is 100 and Apple's cap on `filter[isrc]`
+  is 25.** `tools/apple_catalog.py` had the same value, took a `40005` on every
+  batch, and is fixed. The app asks the same filter on the same endpoint, so the
+  composer pass is very likely taking the same 400 on every real library.
+  **Unverified on device** and it needs a build to check.
+- **`SemanticWorker` records the literal string `handler_error` and discards the
+  exception** — no message, no traceback, not even to stdout. Two failures that
+  night were invisible until `mint_vocabulary` was made to print its own
+  traceback before re-raising. Every other handler still has that hole.
+
+### The guard that had never run
+
+`0179` is worth reading before anything else touches `publish_version`. Fourteen
+`broader` edges written by `0076` claimed `provenance_type = 'external'` with no
+external entity to resolve — in a table that had never held a row — and were
+carried into every version since 0.4.0. **`publish_version` had been called twice
+in the repository's history** (`0044` and `0177`); thirty-five migrations set
+`status = 'published'` directly. So the mint was the first thing to ask the guard
+a real question, and it answered correctly.
+
+**The repair could not be an `update`.** `guard_published_version` makes a
+published version immutable, correctly — it is what everything was scored
+against. So the fix is a version: `0.22.0` copies `0.21.0` forward with the
+fourteen retyped `curated`, published through the guard, at the cost of a
+recompute for every account that an in-place edit would not have charged.
