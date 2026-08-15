@@ -34,12 +34,36 @@ REFRESH = "select semantic_private.refresh_youtube_channels() as added"
 # before this existed has never been offered to the vocabulary, and the mint
 # refuses what already resolves — so passing the whole catalogue is how the
 # backlog is cleared, and it costs one pass over a few hundred rows.
+#
+# **The subscriber count rides along, and it is the whole of the notability
+# test.** `0084` stored it and wrote *"The number may be stored; the label may
+# not be made"*; `0142` named it as the right signal and declined to build it.
+# It is on every subscription observation and on no liked-video row, which is
+# exactly the distinction the rule needs: a channel somebody merely liked a
+# video from is content, not identity, and can never qualify.
+#
+# Newest subscription wins, because a count is a fact about a moment and the
+# recent one is the one worth judging against.
 SELECT_CHANNELS = """
-select youtube_channel_id, canonical_title
-  from ontology.youtube_channels
- where lifecycle_state = 'active'
-   and coalesce(btrim(canonical_title), '') <> ''
- order by youtube_channel_id
+select ch.youtube_channel_id,
+       ch.canonical_title,
+       sub.subscribers is not null as subscribed,
+       sub.subscribers
+  from ontology.youtube_channels ch
+  left join lateral (
+    select (o.normalized_payload ->> 'subscriber_count')::bigint as subscribers
+      from semantic_private.observations o
+     where o.source_code = 'youtube'
+       and o.data_type = 'subscription'
+       and o.lifecycle_state = 'active'
+       and o.normalized_payload ->> 'channel_id' = ch.youtube_channel_id
+       and o.normalized_payload ? 'subscriber_count'
+     order by o.created_at desc
+     limit 1
+  ) as sub on true
+ where ch.lifecycle_state = 'active'
+   and coalesce(btrim(ch.canonical_title), '') <> ''
+ order by ch.youtube_channel_id
 """
 
 MINT = "select semantic_private.mint_youtube_channels(%(channels)s::jsonb) as receipt"
@@ -69,6 +93,11 @@ def mint_channels(connection) -> dict[str, Any]:
             # `0184` is the migration that had to repair three concepts minted
             # without this.
             "normalized": normalize_text(row["canonical_title"]),
+            # The notability inputs. The gate itself is in SQL, where the
+            # threshold lives beside the mint it governs rather than in two
+            # places that can drift.
+            "subscribed": bool(row["subscribed"]),
+            "subscribers": int(row["subscribers"]) if row["subscribers"] else None,
         }
         for row in rows
         if row["canonical_title"] and normalize_text(row["canonical_title"])
