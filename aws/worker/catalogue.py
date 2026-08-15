@@ -28,7 +28,12 @@ import json
 import os
 from typing import Any
 
-from apple_catalog import ISRCS_PER_REQUEST, artists_in, catalogue
+from apple_catalog import (
+    ISRCS_PER_REQUEST,
+    CatalogueReadFailed,
+    artists_in,
+    catalogue,
+)
 from written_ontology.normalize import normalize_text
 
 
@@ -200,6 +205,23 @@ select semantic_private.mint_vocabulary_from_catalogue(
        ) as receipt
 """
 
+# **The genre mint, which `0191` said ran continuously and did not.**
+#
+# It reads the genre strings Apple stated on the artist rows already in
+# `ontology.external_entities` — no network, no token — and mints a genre named
+# after one we already hold (`british pop` under `pop`) by the suffix rule
+# argued in `0191`. Until `0202` it carried `revoke all` and no grant, so this
+# call could not have been written: `semantic_worker` was not permitted to make
+# it.
+#
+# **Without it an unmatched genre string is discarded in silence.**
+# `mint_vocabulary_from_catalogue` joins stated genres to *existing* genre
+# concepts and inserts none, so the artist simply gets no genre parent and
+# blocks to `hub:music`.
+MINT_GENRES = """
+select semantic_private.mint_genres_from_stated_strings() as receipt
+"""
+
 
 def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
     """Fetch what is missing for these users, then let the database mint.
@@ -215,7 +237,16 @@ def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
     artists: list[dict] = []
     provenance: list[dict] = []
     if sources_by_isrc:
-        songs, artists, provenance = fetch(developer_token(), sources_by_isrc)
+        try:
+            songs, artists, provenance = fetch(developer_token(), sources_by_isrc)
+        except CatalogueReadFailed as refusal:
+            # **A refused read is the same fact as an absent token**, and the
+            # handler already has a branch for that: roll back, say why, decline
+            # the job rather than retrying it forever against a credential that
+            # will not start working. Re-raised as the type that branch names,
+            # so there is one way to be unable to reach the catalogue rather
+            # than two.
+            raise CatalogueUnavailable(str(refusal)) from refusal
 
     # **Recorded before the mint, and separately from it.** Provenance is a fact
     # about the lookup, so it holds whether or not this pass ends in a published
@@ -230,6 +261,23 @@ def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
     else:
         provenance_written = 0
 
+    # **Genres first, and the order is the point.** This publishes a version if
+    # it mints anything, so the artist mint below then reads a vocabulary that
+    # already contains the genres — and an artist whose only genre is new gets
+    # its parent in the same pass. Reversed, the artist and its genre would need
+    # two distillations to meet, and the artist would sit under `hub:music`
+    # until the second.
+    #
+    # **After the fetch, so it sees the rows this pass just wrote.** The function
+    # itself needs no network and no token — it reads stored catalogue rows — but
+    # placing it here rather than at the top of `mint_for` is what lets a genre
+    # that arrived moments ago be minted now instead of next time. The cost is
+    # that a pass which fails on the token never reaches it, which is the right
+    # trade: that pass has learned nothing new to mint from.
+    with connection.cursor() as cursor:
+        cursor.execute(MINT_GENRES)
+        genre_receipt = cursor.fetchone()["receipt"]
+
     with connection.cursor() as cursor:
         cursor.execute(MINT, {
             "user_ids": user_ids,
@@ -238,6 +286,10 @@ def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
         })
         receipt = cursor.fetchone()["receipt"]
 
+    # Reported rather than folded in: a pass that minted three genres and no
+    # artists is a different fact from one that minted neither, and a single
+    # `minted` count would make them read the same.
+    receipt["genres"] = genre_receipt
     receipt["isrcs_looked_up"] = len(sources_by_isrc)
     receipt["isrcs_capped"] = len(sources_by_isrc) >= MAX_ISRCS_PER_JOB
     receipt["provenance_written"] = provenance_written

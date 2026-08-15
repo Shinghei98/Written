@@ -1072,7 +1072,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0201`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0202`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1522,6 +1522,68 @@ of somebody's data rather than labels applied to them.
   sweep runs, and that must never be drawn as a failure.
 - **The readings are not terms and stayed behind** — the chronotype and step
   average have no entry behind them for anybody to agree with.
+
+### What a music library can mint by itself, and what it cannot
+
+Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
+
+- **A new artist mints automatically, from Spotify as readily as Apple Music.**
+  `catalogue.py`'s `SELECT_MISSING_ISRCS` has **no `source_code` filter** —
+  `source_code` is recorded in an `array_agg`, never restricted on — so any
+  active observation carrying an `isrc` is looked up in Apple's catalogue and
+  its artists minted as `creator:apple_<id>`. Armed by a trigger on
+  `ingestion_runs.status = 'succeeded'` with a two-minute debounce, and with **no
+  user-count threshold**: one library is enough. Measured: 94% of Spotify rows
+  carry an ISRC, **89.8%** of its distinct ISRCs are in the catalogue, and
+  **374 concepts are attested by Spotify alone**. `0178` states the position —
+  *"the mint still considers every artist whatever source named them"* — and
+  `external_entity_sources` exists so a restriction is executable later.
+- **A new genre did not.** Both genre mints carried `revoke all` and no grant, so
+  `semantic_worker` could not call either, and an unmatched genre string is
+  silently dropped at the join in `0190:383` — the artist gets no genre parent
+  and blocks to `hub:music`. **`0191`'s header claimed the opposite** (*"the same
+  function is what a later mint calls"*), which was never true of the shipped
+  code. `0202` grants it and `catalogue.mint_for` calls it, **before** the artist
+  mint so an artist can take a genre minted in the same pass as its parent.
+- **It is inert on today's data and that is correct.** Nine stated genre strings
+  resolve to nothing and the suffix rule refuses all nine — `chinese hip hop`
+  because we hold `hip hop rap` and not `hip hop`, which is the synonymy `0191`
+  declined to guess. Coverage is high because `0188`/`0189` imported Apple's
+  whole taxonomy: **50 of 52** stated strings resolve.
+- **A non-game work never mints.** `work:apple_*` is minted only for `is_game`
+  soundtrack credits. 1,422 distinct unresolved `work` strings from Apple Music
+  is the largest single block of unresolved evidence.
+- **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
+  `auto_promote: false`, and a five-user floor a single library cannot reach.
+
+**Spotify emits no `observation_mentions`, and that is a licence rather than a
+gap.** `MINEABLE_SOURCES` in `resolve.py` is an allow-list: **IV.2.1.a** forbids
+ingesting Spotify Content into an ML/AI model and **IV.2.5** says consent does
+not cure it, so growing vocabulary *from Spotify strings* is precisely what may
+not happen. Its route is catalogue identity, which reads an ISRC and discards it
+rather than learning from Content. The consequence to remember: **the
+demand-driven loop is blind to Spotify by design**, so a coverage question about
+Spotify has to be answered by counting mappings, not by reading the mentions
+ledger.
+
+**Spotify `playlist_item` is refused and Apple Music's is not.** 540 rows, no
+mapping of any state. `/v1/me/playlists` returns followed playlists as well as
+owned ones and the item rows carry no owner, so admitting them would count
+Spotify's editorial curation as somebody's own — what `recommendation: 0.000`
+refuses for Apple. **Weighing them 0 while admitting them would be worse**: a
+zero-weight mapping still raises `observation_count`, which confidence saturates
+on. Pinned by a test, because the identical shape — one fact in
+`sources.action_weights` and in `SOURCE_ACTION_WEIGHTS` — already cost this
+project `top_track` and `top_artist` for months.
+
+**`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
+branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped
+`except Exception` in `handler.py`, taking the rollback and the payload-safe
+diagnostic with it, and an expired developer token killed the invocation
+silently. It raises `CatalogueReadFailed` now, which `mint_for` re-raises as
+`CatalogueUnavailable` so the handler declines the job instead of retrying
+against a dead credential. **Apple's response body is not carried** — it echoes
+the `filter[isrc]` it was asked about.
 
 ### Growing the vocabulary: slices, offline, bounded by what the source states
 

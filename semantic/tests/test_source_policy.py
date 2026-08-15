@@ -76,6 +76,47 @@ class SourcePolicyTests(unittest.TestCase):
         )
         self.assertNotIn(("activity_day", "activity_day"), SOURCE_ACTION_PAIRS["healthkit"])
 
+    def test_spotify_playlist_items_are_refused_and_apple_music_playlist_items_are_not(self):
+        """An asymmetry that reads as an oversight, pinned as a decision.
+
+        `/v1/me/playlists` returns what somebody follows as well as what they
+        made, and the `playlist_item` rows carry no owner — so a followed
+        editorial playlist would arrive as the person's own curation. Apple
+        Music's library playlists are theirs, and weigh 0.70.
+
+        This is the third time one fact has lived in two places here:
+        `sources.action_weights` in the database and `SOURCE_ACTION_WEIGHTS`
+        in this file. `top_track` and `top_artist` were weighed in one and
+        refused in the other for months. The test that would have caught that
+        is this shape.
+        """
+        self.assertNotIn(
+            ("playlist_item", "playlist_item"), SOURCE_ACTION_PAIRS["spotify"]
+        )
+        self.assertNotIn("playlist_item", SOURCE_ACTION_WEIGHTS["spotify"])
+        self.assertIn(
+            ("playlist_item", "playlist_item"), SOURCE_ACTION_PAIRS["apple_music"]
+        )
+        self.assertEqual(SOURCE_ACTION_WEIGHTS["apple_music"]["playlist_item"], 0.70)
+
+    def test_every_weighted_action_is_also_a_mappable_pair(self):
+        """The defect class itself, rather than one instance of it.
+
+        `SOURCE_ACTION_PAIRS` is derived from `SOURCE_ACTION_WEIGHTS`, so an
+        action carrying a real weight that no pair admits is impossible *here* —
+        but it was the live state for `top_track` for months, because the two
+        halves lived in two files. Asserting the derivation holds is what makes
+        the next divergence a database question rather than a silent one.
+        """
+        for source, weights in SOURCE_ACTION_WEIGHTS.items():
+            if source in {"apple_calendar", "google_calendar", "healthkit"}:
+                continue
+            for action in weights:
+                self.assertIn(
+                    (action, action), SOURCE_ACTION_PAIRS[source],
+                    f"{source}.{action} is weighed and cannot be mapped",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

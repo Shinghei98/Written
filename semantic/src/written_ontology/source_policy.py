@@ -87,6 +87,38 @@ SOURCE_ACTION_WEIGHTS = MappingProxyType(
                 # rather than either number.
                 "top_artist": 0.55,
                 "top_track": 0.78,
+                # **`playlist_item` is absent on purpose, and Apple Music's is
+                # not.** That asymmetry is the kind that reads as the oversight
+                # above, so it is written down rather than left to be rediscovered.
+                #
+                # Measured 2026-08-15: 540 Spotify `playlist_item` observations,
+                # **none of them with a mapping row of any state** — refused here,
+                # by `ObservationMapper`, because this table does not name the
+                # action. Apple Music's 227 map normally at 0.70.
+                #
+                # **The reason is whose playlist it is.** `/v1/me/playlists`
+                # returns what somebody *follows* as well as what they made, and
+                # a followed editorial playlist is Spotify's act rather than the
+                # person's — the same thing `recommendation` at 0.000 refuses for
+                # Apple. The `playlist` row carries the owner (`creator`); the
+                # `playlist_item` rows do not, so nothing here can tell the two
+                # apart.
+                #
+                # **And weighing it 0 while admitting it would be worse than
+                # refusing it.** A zero-weight mapping still counts toward
+                # `observation_count`, and confidence saturates on that count —
+                # so editorial playlists would raise the confidence of every
+                # artist they touch while contributing no strength.
+                #
+                # What would change it: stamping the playlist owner onto each
+                # item at distill time, then admitting only the ones somebody
+                # made. That needs an app change and a re-distill, so it is a
+                # decision rather than a fix waiting to happen.
+                #
+                # **These rows are not lost.** They are captured in the vault and
+                # carry ISRCs, so the catalogue mint still reads them and still
+                # mints the artists they name — *capture broadly, promote
+                # narrowly*, working exactly as intended.
             }
         ),
         "youtube": _weights(

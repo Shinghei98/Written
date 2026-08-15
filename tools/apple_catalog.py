@@ -87,6 +87,17 @@ from written_ontology.normalize import normalize_text  # noqa: E402
 BASE = "https://fwnezkbesjoazlpaflbq.supabase.co"
 APPLE = "https://api.music.apple.com/v1/catalog"
 
+
+class CatalogueReadFailed(RuntimeError):
+    """Apple refused the catalogue read.
+
+    A raisable error rather than `sys.exit`, because this module is both a CLI
+    and a file copied flat into the worker Lambda, where `SystemExit` is a
+    `BaseException` and escapes the handler's `except Exception` — rollback,
+    diagnostic and all. `aws/worker/catalogue.py` turns it into
+    `CatalogueUnavailable`, which the handler already declines cleanly.
+    """
+
 # **Pinned, and not the person's own storefront.** Genre names are localised, and
 # the tables below are Apple's English strings — a `tw` storefront answers
 # `華語流行` where `Mandopop` is wanted. `GENRE_TRANSLATIONS` covers 44 zh-Hant
@@ -247,14 +258,27 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
             with urllib.request.urlopen(request, timeout=30) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", "replace")[:400]
-            sys.exit(
-                f"Apple catalogue read failed on batch {start // ISRCS_PER_REQUEST}: "
-                f"HTTP {error.code}\n{detail}\n\n"
-                "A 401 here is the developer token — check it has not expired and\n"
-                "that the key has MusicKit enabled. A 403 is the key being valid\n"
-                "for something else."
-            )
+            # **Raised, never `sys.exit`, because this file runs in two places.**
+            # As a CLI, exiting is right and `main` still does it. Inside the
+            # worker Lambda `sys.exit` raises `SystemExit`, which is a
+            # `BaseException` — so it slipped past `except Exception` in
+            # `handler.py`, taking the explicit `connection.rollback()` and the
+            # payload-safe diagnostic with it. An expired developer token
+            # therefore killed the invocation with nothing said anywhere.
+            #
+            # **Apple's response body is deliberately not carried.** The old
+            # message pasted 400 characters of it, and that body echoes the
+            # `filter[isrc]` it was asked about — identifiers from somebody's
+            # library, which §12 does not allow into a log. The status code and
+            # the batch number are what an operator actually acts on.
+            error.read()
+            raise CatalogueReadFailed(
+                f"Apple catalogue read failed on batch "
+                f"{start // ISRCS_PER_REQUEST}: HTTP {error.code}. "
+                "A 401 is the developer token — check it has not expired and "
+                "that the key has MusicKit enabled. A 403 is the key being "
+                "valid for something else."
+            ) from error
         for item in body.get("data", []):
             attributes = item.get("attributes") or {}
             isrc = attributes.get("isrc")
@@ -611,7 +635,13 @@ def main() -> int:
         sys.exit("No ISRCs found on any Spotify or Apple Music row. Nothing to look up.")
     print(f"{len(isrcs)} distinct ISRCs to look up.", file=sys.stderr)
 
-    answers, artists = catalogue(developer_token(), isrcs)
+    # The CLI still exits on a refused read — `catalogue` raises now, because
+    # the worker copies this file and `SystemExit` escapes its handler, and this
+    # is where the exit belongs instead.
+    try:
+        answers, artists = catalogue(developer_token(), isrcs)
+    except CatalogueReadFailed as failure:
+        sys.exit(str(failure))
     report(isrcs, answers)
     print(f"distinct artists       {len(artists)}", file=sys.stderr)
 

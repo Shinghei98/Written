@@ -170,8 +170,8 @@ def test_no_isrcs_means_no_fetch_and_still_a_mint(catalogue, monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def execute(self, statement, params):
-            calls.append(params)
+        def execute(self, statement, params=None):
+            calls.append((statement, params))
 
         def fetchone(self):
             return {"receipt": {"minted": 0, "published": False}}
@@ -185,8 +185,21 @@ def test_no_isrcs_means_no_fetch_and_still_a_mint(catalogue, monkeypatch):
     assert receipt["isrcs_looked_up"] == 0
     assert receipt["isrcs_capped"] is False
     assert receipt["published"] is False
-    assert json.loads(calls[0]["songs"]) == []
-    assert json.loads(calls[0]["artists"]) == []
+
+    statements = [statement for statement, _ in calls]
+    artist_params = next(params for statement, params in calls
+                         if statement is catalogue.MINT)
+    assert json.loads(artist_params["songs"]) == []
+    assert json.loads(artist_params["artists"]) == []
+
+    # **Genres are minted, and before the artists.** The genre mint reads stored
+    # catalogue rows rather than the network, so it has work to do on exactly the
+    # pass this test describes — the one with no new ISRCs and no token. And the
+    # order is load-bearing: it publishes a version if it mints, so an artist
+    # minted below can take a genre minted above as its parent in the same pass.
+    # Reversed, the two would need a second distillation to meet.
+    assert catalogue.MINT_GENRES in statements
+    assert statements.index(catalogue.MINT_GENRES) < statements.index(catalogue.MINT)
 
 
 def test_the_bundle_copies_the_shared_fetch(catalogue):
@@ -265,3 +278,71 @@ def test_an_artist_named_only_by_one_source_records_only_that_one(catalogue, mon
 
     artist_rows = [row for row in provenance if row["entity_kind"] == "artist"]
     assert [row["source_code"] for row in artist_rows] == ["spotify"]
+
+
+def test_a_refused_catalogue_read_is_catchable(catalogue):
+    """`sys.exit` in a Lambda is a `BaseException`, and it escaped everything.
+
+    `tools/apple_catalog.py` is both a CLI and a file copied flat into the
+    worker bundle. Its HTTP failure branch called `sys.exit`, which raises
+    `SystemExit` — not an `Exception` — so it slipped past `except Exception` in
+    `handler.py`, taking the explicit `connection.rollback()` and the
+    payload-safe diagnostic with it. An expired developer token killed the
+    invocation and said nothing anywhere.
+
+    What must hold now: the failure is an ordinary exception, and `mint_for`
+    re-raises it as `CatalogueUnavailable` — the type the handler already
+    declines cleanly, so a dead credential stops the job rather than retrying
+    against something that will not start working.
+    """
+    import apple_catalog
+
+    assert issubclass(apple_catalog.CatalogueReadFailed, Exception)
+    assert not issubclass(apple_catalog.CatalogueReadFailed, SystemExit)
+
+    def refuse(token, isrcs):
+        raise apple_catalog.CatalogueReadFailed("HTTP 401")
+
+    original = catalogue.fetch
+    try:
+        catalogue.fetch = lambda token, sources: refuse(token, sources)
+        catalogue.missing_isrcs = lambda connection, users: {"GBAAA0000001": ["spotify"]}
+        os.environ["APPLE_MUSIC_DEVELOPER_TOKEN"] = "not-a-real-token"
+        with pytest.raises(catalogue.CatalogueUnavailable):
+            catalogue.mint_for(object(), ["11111111-1111-1111-1111-111111111111"])
+    finally:
+        catalogue.fetch = original
+
+
+def test_the_body_of_a_refusal_is_not_carried(monkeypatch):
+    """Apple's error body echoes the ISRCs it was asked about.
+
+    The old message pasted 400 characters of it into the exit string, and those
+    identifiers name recordings in somebody's library — which §12 does not allow
+    into a log. The status code and the batch are what an operator acts on.
+
+    **Asserted on the message the code actually raises, not on its source.** A
+    check that the file does not contain the string `sys.exit` passes the moment
+    somebody writes it in a comment, and fails for a comment that explains why it
+    is gone — which is what the first version of this test did.
+    """
+    import io
+    import urllib.error
+
+    import apple_catalog
+
+    body = b'{"errors":[{"detail":"filter[isrc]=GBAYE0601498 not found"}]}'
+
+    def refuse(request, timeout=None):
+        raise urllib.error.HTTPError(
+            request.full_url, 401, "Unauthorized", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(apple_catalog.urllib.request, "urlopen", refuse)
+
+    with pytest.raises(apple_catalog.CatalogueReadFailed) as raised:
+        apple_catalog.catalogue("token", ["GBAYE0601498"])
+
+    message = str(raised.value)
+    assert "401" in message
+    assert "GBAYE0601498" not in message
+    assert "not found" not in message
