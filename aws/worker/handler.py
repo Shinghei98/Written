@@ -319,6 +319,27 @@ def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
 
         connection.commit()
 
+        # **Channels ride the same job, and that is the cheapest correct
+        # place.** A distillation already arms `mint_vocabulary`; YouTube's
+        # vocabulary needs no network, no token and no quota, so giving it its
+        # own job type would mean a second handler, a second contract entry and
+        # a second thing to forget to register — which is exactly how
+        # `resolve_youtube_channel` came to be declared and never implemented.
+        #
+        # **Committed separately, because they are two conclusions.** A channel
+        # mint that fails must not roll back an Apple catalogue mint that
+        # succeeded — the same rule `recompute_user` follows between the fitness
+        # snapshot and the resolver.
+        try:
+            from channels import mint_channels
+
+            channel_receipt = mint_channels(connection)
+            connection.commit()
+            print(json.dumps({"mint_youtube_channels": channel_receipt}))
+        except Exception as failure:
+            connection.rollback()
+            print(json.dumps({"mint_youtube_channels": _diagnostic(failure)}))
+
         if siblings:
             with connection.cursor() as cursor:
                 cursor.execute(
