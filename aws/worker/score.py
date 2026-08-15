@@ -58,6 +58,43 @@ The predicate is `affinity_to` — user_claim, assertion-safe, zero inference ho
 vocabulary that means *this person likes this*, and its zero hops matter: an
 affinity does not propagate along `broader`, so liking one K-pop group never
 becomes liking Asian music by arithmetic.
+
+## Watching against doing, which `affinity_to` cannot say
+
+**An activity can be watched or done, and they are different facts about a
+person.** Somebody who plays football and somebody who follows it share a
+concept and share almost nothing else, and until now both arrived as
+`affinity_to activity:soccer`. The gap was already written down two hundred
+lines below this one, about a game named in a channel's keywords: *"Whether
+somebody plays it is a different claim and is not made here."*
+
+**The distinction belongs on the predicate, not on a second concept.** Minting
+`activity:soccer` twice would split the evidence between the two and still not
+say which was meant, because **the evidence decides, not the concept**. So one
+concept keeps accumulating and the claim about it names the engagement:
+
+    participates_in_activity   involvement evidence exists
+    follows_activity           only viewing evidence exists
+    affinity_to                evidence that says neither
+
+**Which evidence means which is a property of the source and the act**, so it
+is read from `semantic_private.sources.engagement_modes` — the column beside
+`action_weights`, where a later reader looks — rather than from a list in this
+file. A HealthKit workout is involvement; a YouTube subscription is viewing; a
+saved track is neither, and saying so is the point of leaving it unmarked.
+
+**Participation outranks viewing** where both exist, because it is a positive
+fact that watching does not contradict: somebody who plays and also watches
+plays. Only `concept_kind = 'activity'` is affected — for a creator, a work or
+a topic there is nothing to watch *or* do, and `affinity_to` remains the whole
+claim.
+
+**A concept whose predicate changes carries the person's answer with it.** The
+assertion is a different row under a different predicate, and both
+`assertion_preferences` (keyed on assertion id) and `user_suppressions` (keyed
+on predicate) would otherwise stop matching — so a "don't show me this" would be
+silently undone by a re-score. `carry_user_decisions` copies rather than
+invents, and copies nothing where there was no decision.
 """
 
 from __future__ import annotations
@@ -79,6 +116,35 @@ HALF_OBSERVATIONS = 4.0
 ELIGIBLE_STRENGTH = 0.35
 
 AFFINITY_PREDICATE = "affinity_to"
+
+# The two engagement predicates. Both are `user_claim` and `assertion_safe` in
+# `ontology.relation_types`, which is what `guard_user_assertion_relation_class`
+# demands of anything the scorer writes — the observed-action predicates
+# (`watched`, `completed_activity`, `attended_activity_at`) are deliberately not
+# assertion-safe, because what somebody did is evidence rather than a claim about
+# them, and asserting one took the whole worker down once.
+PARTICIPATION_PREDICATE = "participates_in_activity"
+SPECTATING_PREDICATE = "follows_activity"
+
+# Every predicate this scorer may write. The demotion sweep reads this: an
+# assertion left standing under a predicate the sweep does not name is one no
+# re-score can ever withdraw.
+ASSERTABLE_PREDICATES = (
+    AFFINITY_PREDICATE, PARTICIPATION_PREDICATE, SPECTATING_PREDICATE,
+)
+
+# **Only an activity can be watched or done.** A creator, a work, a genre or a
+# topic has no such distinction — you do not "participate in" Bach — so
+# everything else keeps `affinity_to` and the rule never has to guess.
+ENGAGEMENT_KINDS = frozenset({"activity"})
+
+# **A trip is an activity by kind and is not an engagement question.**
+# `travel:*` concepts are `concept_kind = 'activity'`, and `assert_travel` writes
+# them outside the concept loop with `affinity_to` for reasons of its own. They
+# carry no mappings — calendar observations may not enter `observation_mappings`
+# at all — so they cannot reach the rule below; this names them anyway, because
+# a rule that depends on another rule's side effect is one nobody can read.
+ENGAGEMENT_EXEMPT_KEY_PREFIXES = ("travel:",)
 
 # **Concept kinds that are scored and never asserted.**
 #
@@ -268,6 +334,16 @@ select
   )                                            as total_weight,
   avg(m.confidence)                            as mapping_agreement,
   avg(m.recency_quality * s.default_reliability) as evidence_quality,
+  -- **Did any evidence for this concept say the person does it, and did any say
+  -- they watch it.** Read from the source row rather than from a list in
+  -- Python, so the answer sits beside `action_weights` where the next reader
+  -- looks — and so an action nobody has classified stays *unmarked* rather than
+  -- defaulting to either. Both false is a real and common answer: a saved track
+  -- is neither watching nor doing.
+  bool_or(s.engagement_modes ->> o.action_type = 'participation')
+                                               as has_participation_evidence,
+  bool_or(s.engagement_modes ->> o.action_type = 'spectating')
+                                               as has_spectating_evidence,
   -- **The same channel must supply both, which is the whole claim.** A like is
   -- one act about one video; a subscription is a standing relationship somebody
   -- chose and has not undone. "Subscribed to them *and* liked their work" is a
@@ -423,10 +499,20 @@ where id = %(id)s and user_id = %(user_id)s
 # **`assertion_origin = 'inferred'` on both.** A declared assertion is something
 # a person said about themselves, and a scorer that could retire one would let
 # an absence of evidence overrule a statement.
+#
+# **Both statements name every assertable predicate, not one.** They took a
+# single `predicate` while `affinity_to` was the only thing the scorer wrote, and
+# leaving them that way would have made the engagement predicates unwithdrawable:
+# a concept promoted to `follows_activity` and later falling below the bar would
+# have kept its claim forever, because the statement meant to retire it was
+# looking somewhere else. **An assertion under a predicate the sweep does not
+# name is one no re-score can withdraw** — which is the same defect `0138`
+# records from the other direction, a scorer that could add a claim and not
+# remove one.
 DEMOTE_ASSERTION = """
 update semantic_private.user_assertions
 set machine_state = 'inactive', updated_at = now()
-where user_id = %(user_id)s and predicate_key = %(predicate)s
+where user_id = %(user_id)s and predicate_key = any(%(predicates)s::text[])
   and concept_id = %(concept)s
   and assertion_origin = 'inferred' and machine_state <> 'inactive'
 """
@@ -434,9 +520,64 @@ where user_id = %(user_id)s and predicate_key = %(predicate)s
 DEMOTE_UNSCORED_ASSERTIONS = """
 update semantic_private.user_assertions
 set machine_state = 'inactive', updated_at = now()
-where user_id = %(user_id)s and predicate_key = %(predicate)s
+where user_id = %(user_id)s and predicate_key = any(%(predicates)s::text[])
   and assertion_origin = 'inferred' and machine_state <> 'inactive'
   and not (concept_id = any(%(scored)s::uuid[]))
+"""
+
+# **The same concept, asserted under a predicate this run did not choose.**
+# An activity that used to be `affinity_to` and is now `follows_activity` would
+# otherwise stand twice on the page, saying two things about one concept with
+# only one of them current. Scoped to the concept, so it can never touch another.
+DEMOTE_OTHER_PREDICATES = """
+update semantic_private.user_assertions
+set machine_state = 'inactive', updated_at = now()
+where user_id = %(user_id)s and concept_id = %(concept)s
+  and predicate_key = any(%(predicates)s::text[])
+  and predicate_key <> %(keep)s
+  and assertion_origin = 'inferred' and machine_state <> 'inactive'
+returning id, predicate_key
+"""
+
+# **A person's answer follows their term to its new predicate.**
+#
+# Two tables record an answer and both are keyed in a way a predicate change
+# breaks: `assertion_preferences` on the assertion id, which is new, and
+# `user_suppressions` on the predicate itself. So a re-score that moved
+# `activity:soccer` from `affinity_to` to `follows_activity` would put a
+# suppressed term back on somebody's page — a decision undone by a background
+# job, which is the worst way for one to be undone.
+#
+# **It copies and never invents.** `select … where` finds nothing when there was
+# no decision, and both statements are no-ops then. Measured before writing:
+# every suppression and preference in the database today is on a `creator`, so
+# this repairs nothing that has happened yet and is written for the first time
+# an activity is suppressed.
+CARRY_PREFERENCE = """
+insert into semantic_private.assertion_preferences (
+  assertion_id, user_id, display_state, last_feedback_event_id
+)
+select %(to_assertion)s, %(user_id)s, old.display_state, old.last_feedback_event_id
+  from semantic_private.assertion_preferences as old
+ where old.assertion_id = %(from_assertion)s and old.user_id = %(user_id)s
+   and old.display_state <> 'default'
+on conflict (assertion_id, user_id) do nothing
+"""
+
+CARRY_SUPPRESSION = """
+insert into semantic_private.user_suppressions (
+  user_id, concept_id, user_term_id, predicate_key, surface,
+  source_feedback_event_id, active
+)
+select old.user_id, old.concept_id, old.user_term_id, %(keep)s, old.surface,
+       old.source_feedback_event_id, old.active
+  from semantic_private.user_suppressions as old
+ where old.user_id = %(user_id)s and old.concept_id = %(concept)s
+   and old.predicate_key = %(from_predicate)s and old.active
+   and not exists (
+     select 1 from semantic_private.user_suppressions as held
+      where held.user_id = old.user_id and held.concept_id = old.concept_id
+        and held.predicate_key = %(keep)s and held.surface = old.surface)
 """
 
 INSERT_SCORE_VERSION = """
@@ -550,6 +691,54 @@ where concept.concept_key = %(key)s
 # says "again", not "more true".
 TRAVEL_STRENGTH = 0.5
 TRAVEL_CONFIDENCE = 0.92
+
+
+def assertion_predicate(kind: str | None, concept_key: str, aggregate: Any) -> str:
+    """Which claim this evidence supports: doing it, watching it, or neither.
+
+    **The evidence decides, not the concept.** One `activity:soccer` accumulates
+    everything and this picks the sentence to put in front of it, so a person who
+    plays and a person who follows are told apart without splitting the term.
+
+    Participation wins where both are present: it is a positive fact that
+    watching does not contradict. Where neither is present the answer is
+    `affinity_to` — which is not a failure but the honest reading of evidence
+    that says nothing about engagement, and is what every non-activity concept
+    gets by construction.
+    """
+    if kind not in ENGAGEMENT_KINDS:
+        return AFFINITY_PREDICATE
+    if concept_key.startswith(ENGAGEMENT_EXEMPT_KEY_PREFIXES):
+        return AFFINITY_PREDICATE
+    if aggregate.get("has_participation_evidence"):
+        return PARTICIPATION_PREDICATE
+    if aggregate.get("has_spectating_evidence"):
+        return SPECTATING_PREDICATE
+    return AFFINITY_PREDICATE
+
+
+def carry_user_decisions(connection, *, user_id: str, concept_id: str,
+                         keep: str, retired: list[dict[str, Any]],
+                         assertion_id: str) -> int:
+    """Move a suppression or a confirmation onto the predicate now in use.
+
+    Returns how many decisions were carried, so a run that moved somebody's
+    answer says so rather than doing it quietly.
+    """
+    carried = 0
+    for row in retired:
+        with connection.cursor() as cursor:
+            cursor.execute(CARRY_PREFERENCE, {
+                "to_assertion": assertion_id, "from_assertion": row["id"],
+                "user_id": user_id,
+            })
+            carried += cursor.rowcount
+            cursor.execute(CARRY_SUPPRESSION, {
+                "user_id": user_id, "concept": concept_id, "keep": keep,
+                "from_predicate": row["predicate_key"],
+            })
+            carried += cursor.rowcount
+    return carried
 
 
 def assert_travel(connection, user_id: str, run_id: str, version: str,
@@ -842,18 +1031,25 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         if state != "eligible":
             # Scored and inspectable, asserting nothing. Promote narrowly — and
             # withdraw anything this concept was asserting before, since it no
-            # longer clears the bar it once cleared.
+            # longer clears the bar it once cleared. Every predicate, because
+            # the one it was asserting under is not necessarily the one this run
+            # would have chosen.
             with connection.cursor() as cursor:
                 cursor.execute(DEMOTE_ASSERTION, {
-                    "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                    "user_id": user_id,
+                    "predicates": list(ASSERTABLE_PREDICATES),
                     "concept": concept_id,
                 })
                 counts["demoted"] += cursor.rowcount
             continue
 
+        predicate = assertion_predicate(kind, key, agg)
+        if predicate != AFFINITY_PREDICATE:
+            counts[predicate] = counts.get(predicate, 0) + 1
+
         with connection.cursor() as cursor:
             cursor.execute(FIND_ASSERTION, {
-                "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                "user_id": user_id, "predicate": predicate,
                 "concept": concept_id,
             })
             existing = cursor.fetchone()
@@ -867,16 +1063,38 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         else:
             with connection.cursor() as cursor:
                 cursor.execute(INSERT_ASSERTION, {
-                    "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                    "user_id": user_id, "predicate": predicate,
                     "concept": concept_id, "version": version,
                     "run": run_id, "state": state,
                 })
                 assertion_id = cursor.fetchone()["id"]
 
+        # **One concept says one thing.** Anything this concept was asserting
+        # under another predicate is retired, and whatever the person had
+        # answered about it follows to the predicate now in use.
+        with connection.cursor() as cursor:
+            cursor.execute(DEMOTE_OTHER_PREDICATES, {
+                "user_id": user_id, "concept": concept_id,
+                "predicates": list(ASSERTABLE_PREDICATES), "keep": predicate,
+            })
+            superseded = cursor.fetchall()
+        if superseded:
+            counts["repredicated"] = counts.get("repredicated", 0) + len(superseded)
+            counts["decisions_carried"] = counts.get("decisions_carried", 0) + \
+                carry_user_decisions(
+                    connection, user_id=user_id, concept_id=concept_id,
+                    keep=predicate, retired=superseded, assertion_id=assertion_id,
+                )
+
         payload = {
             "concept_key": label.get("concept_key"),
             "label": label.get("preferred_label"),
             "kind": label.get("concept_kind"),
+            # **The claim, on the row the page reads.** `list_assertions` already
+            # returns `predicate_key`, but a display payload that named only the
+            # concept would leave a client unable to say *watches* rather than
+            # *likes* without a second lookup.
+            "predicate": predicate,
         }
         with connection.cursor() as cursor:
             cursor.execute(INSERT_SCORE_VERSION, {
@@ -944,7 +1162,8 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     if scored_concepts:
         with connection.cursor() as cursor:
             cursor.execute(DEMOTE_UNSCORED_ASSERTIONS, {
-                "user_id": user_id, "predicate": AFFINITY_PREDICATE,
+                "user_id": user_id,
+                "predicates": list(ASSERTABLE_PREDICATES),
                 "scored": scored_concepts,
             })
             counts["demoted"] += cursor.rowcount

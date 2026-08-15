@@ -1072,7 +1072,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0199`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0200`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1574,18 +1574,52 @@ worth having.
 
 ### An activity can be watched or done, and the predicate is where that lives
 
-`ontology.relation_types` already separates them — `completed_activity` (*"from
-a structured fitness source"*), `watched`, `attended_activity_at`,
-`booked_activity_at` (*"not attendance or liking"*), `likes_activity` — and
-**every assertion in production carries `affinity_to`**, so the distinction is
-modelled and unused.
-
 **Two concepts per sport is the wrong repair**: it splits the evidence and still
-cannot say which was meant, because **the evidence decides, not the concept**. A
-HealthKit workout is involvement; a subscription to a football channel is
-viewing. `0198` records the slice and source id in each revision's `metadata` so
-the rule that eventually picks the predicate has something to read, and guesses
-no engagement mode itself.
+cannot say which was meant, because **the evidence decides, not the concept**. So
+one concept accumulates everything and the *claim about it* names the
+engagement — `0200`, scorer `0.15.0`:
+
+    participates_in_activity   any evidence marked participation
+    follows_activity           any marked spectating, none participation
+    affinity_to                evidence that says neither
+
+- **The obvious predicates could not be used.** `completed_activity`, `watched`,
+  `attended_activity_at` and `booked_activity_at` are `observed_action` with
+  `assertion_safe = false` — what somebody did is evidence, not a claim about
+  them — and `guard_user_assertion_relation_class` refuses both properties.
+  *"Asserting it took the whole worker down once."* `likes_activity` is
+  `user_claim` and also refused, deliberately. The two new ones are `user_claim`,
+  `assertion_safe`, **zero inference hops** like `affinity_to`, or playing
+  five-a-side would become participating in sport by arithmetic.
+- **Which evidence means which lives in
+  `semantic_private.sources.engagement_modes`**, beside `action_weights` where
+  the next reader looks — never a list in `score.py`. Marked today: HealthKit
+  `workout`/`routine` as participation, YouTube `subscription`/`liked_video`/
+  `watched`/`video`/`liked`/`shared` as spectating. **Most sources are
+  deliberately unmarked and a migration assertion refuses a state where they are
+  not** — a saved track is neither, and booking a yoga class and booking a ticket
+  to a match are the same act on the same source, so calendars cannot be told
+  apart at the level of the action.
+- **Participation outranks spectating**, being a positive fact watching does not
+  contradict. **Only `concept_kind = 'activity'`** is asked the question, less
+  `travel:*`, which `assert_travel` writes outside the concept loop.
+- **A concept whose predicate changes is a new assertion row, and both records of
+  a person's answer are keyed on what just changed** — `assertion_preferences` on
+  the assertion id, `user_suppressions` on the predicate. Unhandled, a re-score
+  puts a suppressed term back on somebody's page. `carry_user_decisions` copies
+  and never invents.
+- **Every demotion statement names every assertable predicate.** They took one
+  while `affinity_to` was all the scorer wrote; left that way, an engagement
+  claim would have been unwithdrawable.
+- **It ships ahead of its data and the measurement says so**: zero mappings onto
+  any activity concept, zero HealthKit observations in the vault, and
+  `healthkit.workout` weighted **0.0** — raising that is a separate decision.
+  Both branches are exercised in `test_engagement_predicate.py` instead, because
+  a rule that has only ever answered one way is not one to believe. `0198`
+  records each concept's slice and source id in `metadata` for the same reason.
+- **The app draws it or it is half-built.** `Assertion.engagement` renders
+  *Does* / *Follows* beside the term and `nil` for `affinity_to`, which is every
+  row today.
 
 ### Which sources may feed a model, and who may say so
 

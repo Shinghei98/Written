@@ -1535,6 +1535,21 @@ struct DashboardView: View {
                 .foregroundStyle(GardenPalette.ink)
                 .lineLimit(1)
 
+            // **Watching against doing, where the evidence said which.**
+            // Absent for every row today — everything is `affinity_to` — and
+            // that is the right default rather than a gap: it appears only when
+            // a source actually distinguished the two, and a row that cannot
+            // say which must not imply either. `layoutPriority` keeps it whole
+            // and lets the term truncate instead, since "Soccer" truncated to
+            // "Socce" still reads and a truncated qualifier does not.
+            if let engagement = assertion.engagement {
+                Text(engagement)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(GardenPalette.ink.opacity(0.45))
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+
             Spacer(minLength: 8)
 
             // **No tick, because there is no longer a way to earn or clear

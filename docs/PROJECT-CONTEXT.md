@@ -1468,7 +1468,7 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0199`.** `db push` is the deployment mechanism and
+**Migration head `0200`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate.

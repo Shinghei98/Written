@@ -62,6 +62,28 @@ actor SemanticSurfaceService {
 
         var isConfirmed: Bool { displayState == "confirmed" }
         var isSuppressed: Bool { displayState == "suppressed" }
+
+        /// Whether the person does this or watches it, where the evidence said.
+        ///
+        /// **`nil` is the ordinary answer and must stay drawable.** Every
+        /// assertion in the database today is `affinity_to`, which says only
+        /// *this person likes this* — the engagement predicates are written by
+        /// the scorer when the evidence is marked `participation` or
+        /// `spectating`, and most evidence is marked neither. A saved track is
+        /// not watching or doing anything.
+        ///
+        /// The words are short because they sit beside a term rather than
+        /// replacing it: the row still says *Soccer*, and this says which
+        /// soccer. Deliberately not "Plays" and "Watches" — one is a sport's
+        /// word and the other a screen's, and this has to read as well of
+        /// pottery and the flute as of football.
+        var engagement: String? {
+            switch predicate {
+            case "participates_in_activity": return "Does"
+            case "follows_activity": return "Follows"
+            default: return nil
+            }
+        }
         /// Whether the machine claimed this or the person added it themselves.
         /// Worth drawing differently: one is a reading of somebody's data and
         /// the other is a statement they made.
