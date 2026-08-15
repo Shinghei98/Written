@@ -227,9 +227,38 @@ it now works:
   composer pass is very likely taking the same 400 on every real library.
   **Unverified on device** and it needs a build to check.
 - **`SemanticWorker` records the literal string `handler_error` and discards the
-  exception** — no message, no traceback, not even to stdout. Two failures that
-  night were invisible until `mint_vocabulary` was made to print its own
-  traceback before re-raising. Every other handler still has that hole.
+  exception** — right for a durable row that may hold no plaintext. `handler.py`
+  already compensated for `recompute_user` with `_diagnostic`, which logs type,
+  sqlstate, constraint name and the two messages that are safe to quote; the
+  mint had no such wrapper and its failures read as nothing at all. It uses the
+  same helper now. **The first version printed `traceback.format_exc()`**, which
+  is what `_diagnostic`'s own comments forbid — a traceback carries the failing
+  statement and psycopg quotes the offending value, and here that value is
+  somebody's decrypted library.
+
+### Hearthstone landed, after three walls
+
+Confirmed 2026-08-15 on David's account: `Hearthstone`, `work`, eligible, from
+Kripparrian's channel keywords — `memories` open, `matching`/`bio`/`icebreaker`
+shut. Build 52 was necessary and, on its own, insufficient; three separate
+things stood behind it, each hiding the next.
+
+- **`0182` — a veto cost the whole run.** `guard_youtube_assertion_evidence`
+  raised on a YouTube-witnessed assertion holding `can_select` on a shared
+  surface, aborting the transaction and freezing every assertion the account
+  had. It shuts the permission instead now, which is `0128`'s own principle one
+  table further along. **`work:hearthstone` is the first assertion this system
+  has ever had whose only witness is YouTube**, which is why it was the first to
+  reach that trigger with the permission still open.
+- **`0183` — the guard could not shut what it could see.** A trigger runs as its
+  caller and `semantic_worker` deliberately holds no `update` on
+  `assertion_surface_permissions`. The guard is `security definer` now; the
+  worker's grants are unchanged, asserted both ways.
+- **`0184` — the alias could never have matched.** `0149` stored each concept's
+  key as its own alias verbatim, so `work:hearthstone` sat where the resolver
+  computes `work hearthstone`. **All three game works have been unmatchable
+  since `0149`** and nothing reported it. Of 31 active colon-bearing labels
+  exactly three were wrong, which is how they were found.
 
 ### The guard that had never run
 

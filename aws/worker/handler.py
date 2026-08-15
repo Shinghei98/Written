@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import os
-import traceback
 import uuid
 from typing import Any
 
@@ -64,6 +63,76 @@ def database_url() -> str:
             f"?sslmode=verify-full&sslrootcert={root}"
         )
     return _database_url
+
+
+def _diagnostic(error: Exception) -> dict[str, Any]:
+    """What a failed handler may say in a log, and nothing more.
+
+    Extracted from `recompute_user` so the mint uses the same rules rather
+    than a second, laxer version of them — the first mint diagnostic printed
+    `traceback.format_exc()`, which is the thing the comments below exist to
+    forbid.
+    """
+    # **The queue is forbidden from carrying this, so the log has to.**
+    # `SemanticWorker` catches a handler exception and records the stable
+    # code `handler_error` and nothing else — right for a durable row that
+    # must never hold plaintext, and it left the first real failure with no
+    # explanation anywhere. Same shape as the ingestion endpoint's 401,
+    # which said nothing to the caller *or* the operator.
+    #
+    # **Type, sqlstate and constraint name only — never `str(error)`.** A
+    # database error quotes the offending value, and the offending value
+    # here is somebody's decrypted library. §12 is explicit that no
+    # plaintext may reach logs.
+    diagnostic = {"error_type": type(error).__name__}
+    sqlstate = getattr(error, "sqlstate", None)
+    if sqlstate:
+        diagnostic["sqlstate"] = sqlstate
+    diag = getattr(error, "diag", None)
+    for field in ("constraint_name", "table_name", "column_name"):
+        value = getattr(diag, field, None) if diag else None
+        if value:
+            diagnostic[field] = value
+    # **The one sqlstate whose message is safe to log.** `42501` is
+    # "permission denied for <object>": it names a relation, a function or a
+    # schema and never quotes a row, so it cannot carry a decrypted title
+    # the way a constraint violation or a type error can. Without it the
+    # diagnostic said `InsufficientPrivilege` and nothing else, which is
+    # true and useless — it took two rounds of guessing which grant was
+    # missing before this was worth adding.
+    if sqlstate == "42501" and diag is not None:
+        message = getattr(diag, "message_primary", None)
+        if message:
+            diagnostic["denied"] = message[:200]
+    # **`P0001` is the second, and it is safe for a different reason.**
+    # `raise_exception` is only ever raised by a function in this
+    # repository, and every such message is a hand-written string naming a
+    # schema object, a gate or a count — `YouTube mapping semantic kind is
+    # not approved for this run`, `user assertion predicate % must be a
+    # user_claim`. Where they interpolate at all they interpolate
+    # vocabulary: a predicate key, a source code, a number. None reads a
+    # payload, which is what makes this different from the constraint
+    # violations the rule above exists to keep out of logs.
+    #
+    # **It is a convention rather than a mechanism, and that is the risk.**
+    # A guard written later that interpolates a title would put it here.
+    # Worth the trade because the alternative is measured: an opaque P0001
+    # cost two long rounds of reading trigger definitions in one afternoon,
+    # once for a job pinned to a retired scorer and once for a refused
+    # mapping — and in both cases the message would have said it outright.
+    if sqlstate == "P0001" and diag is not None:
+        message = getattr(diag, "message_primary", None)
+        if message:
+            diagnostic["refused"] = message[:200]
+    frame = error.__traceback__
+    while frame and frame.tb_next:
+        frame = frame.tb_next
+    if frame:
+        diagnostic["at"] = (
+            f"{os.path.basename(frame.tb_frame.f_code.co_filename)}"
+            f":{frame.tb_lineno}"
+        )
+    return diagnostic
 
 
 def recompute_user(job: WorkerJob) -> dict[str, Any]:
@@ -140,66 +209,8 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
             # classifiers that genuinely need plaintext.
             mappings = resolve_user(connection, user_id, job.payload)
     except Exception as error:
-        # **The queue is forbidden from carrying this, so the log has to.**
-        # `SemanticWorker` catches a handler exception and records the stable
-        # code `handler_error` and nothing else — right for a durable row that
-        # must never hold plaintext, and it left the first real failure with no
-        # explanation anywhere. Same shape as the ingestion endpoint's 401,
-        # which said nothing to the caller *or* the operator.
-        #
-        # **Type, sqlstate and constraint name only — never `str(error)`.** A
-        # database error quotes the offending value, and the offending value
-        # here is somebody's decrypted library. §12 is explicit that no
-        # plaintext may reach logs.
-        diagnostic = {"error_type": type(error).__name__}
-        sqlstate = getattr(error, "sqlstate", None)
-        if sqlstate:
-            diagnostic["sqlstate"] = sqlstate
-        diag = getattr(error, "diag", None)
-        for field in ("constraint_name", "table_name", "column_name"):
-            value = getattr(diag, field, None) if diag else None
-            if value:
-                diagnostic[field] = value
-        # **The one sqlstate whose message is safe to log.** `42501` is
-        # "permission denied for <object>": it names a relation, a function or a
-        # schema and never quotes a row, so it cannot carry a decrypted title
-        # the way a constraint violation or a type error can. Without it the
-        # diagnostic said `InsufficientPrivilege` and nothing else, which is
-        # true and useless — it took two rounds of guessing which grant was
-        # missing before this was worth adding.
-        if sqlstate == "42501" and diag is not None:
-            message = getattr(diag, "message_primary", None)
-            if message:
-                diagnostic["denied"] = message[:200]
-        # **`P0001` is the second, and it is safe for a different reason.**
-        # `raise_exception` is only ever raised by a function in this
-        # repository, and every such message is a hand-written string naming a
-        # schema object, a gate or a count — `YouTube mapping semantic kind is
-        # not approved for this run`, `user assertion predicate % must be a
-        # user_claim`. Where they interpolate at all they interpolate
-        # vocabulary: a predicate key, a source code, a number. None reads a
-        # payload, which is what makes this different from the constraint
-        # violations the rule above exists to keep out of logs.
-        #
-        # **It is a convention rather than a mechanism, and that is the risk.**
-        # A guard written later that interpolates a title would put it here.
-        # Worth the trade because the alternative is measured: an opaque P0001
-        # cost two long rounds of reading trigger definitions in one afternoon,
-        # once for a job pinned to a retired scorer and once for a refused
-        # mapping — and in both cases the message would have said it outright.
-        if sqlstate == "P0001" and diag is not None:
-            message = getattr(diag, "message_primary", None)
-            if message:
-                diagnostic["refused"] = message[:200]
-        frame = error.__traceback__
-        while frame and frame.tb_next:
-            frame = frame.tb_next
-        if frame:
-            diagnostic["at"] = (
-                f"{os.path.basename(frame.tb_frame.f_code.co_filename)}"
-                f":{frame.tb_lineno}"
-            )
-        print(json.dumps({"handler_failed": diagnostic}))
+        # Type, sqlstate and constraint name only — see `_diagnostic`.
+        print(json.dumps({"handler_failed": _diagnostic(error)}))
         raise
 
     # **The result is a closed vocabulary, not free-form JSON**, and the first
@@ -293,18 +304,17 @@ def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
             print(json.dumps({"mint_vocabulary": {"declined": str(reason)}}))
             return {"status": "no_op", "item_count": 0}
         except Exception as failure:
-            # **Said out loud before it is re-raised.** `SemanticWorker` catches
-            # everything at its boundary and records the literal string
-            # `handler_error` — no message, no traceback, not even to stdout —
-            # so a mint that dies leaves a queued job, an attempt count and no
-            # way to tell a bad batch size from a bad grant. Twice tonight that
-            # cost a redeploy to find out. The re-raise is what keeps the
-            # retry: this only adds the sentence, it does not handle anything.
+            # **Said out loud before it is re-raised**, through the same
+            # payload-safe diagnostic `recompute_user` uses. The first version of
+            # this printed `traceback.format_exc()`, which is exactly what the
+            # comment on `_diagnostic` forbids: a traceback carries the failing
+            # statement and psycopg quotes the offending value, and here that
+            # value is somebody's decrypted library. §12 allows no plaintext in
+            # logs, and a mint handles more of it than anything else does.
+            #
+            # The re-raise keeps the retry; this only adds the sentence.
             connection.rollback()
-            print(json.dumps({"mint_vocabulary": {
-                "failed": f"{type(failure).__name__}: {failure}",
-                "traceback": traceback.format_exc(),
-            }}))
+            print(json.dumps({"mint_vocabulary": _diagnostic(failure)}))
             raise
 
         connection.commit()
