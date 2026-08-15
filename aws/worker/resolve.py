@@ -367,7 +367,8 @@ def terms_for(payload: dict[str, Any], action: str,
               work: str | None = None, eras: tuple[str, ...] = (),
               breadth: dict[str, int] | None = None,
               spheres: tuple[str, ...] = (),
-              scenes: tuple[str, ...] = ()) -> tuple[Term, ...]:
+              scenes: tuple[str, ...] = (),
+              games: frozenset[str] | None = None) -> tuple[Term, ...]:
     """The terms one music observation supports.
 
     Roles and type hints mirror `export_adapter._music_observation`, which is the
@@ -441,6 +442,23 @@ def terms_for(payload: dict[str, Any], action: str,
             # one recording; at 0.02 that is 1.4, which saturates to 0.19 —
             # under the 0.35 an assertion needs. At 0.05 it is 0.365 and still
             # clears it, which is why 0.3 did nothing.
+            # **A credit the catalogue calls a game is a work, not a person.**
+            # Apple lists a game soundtrack under an "artist" named after the
+            # game, so `Where Winds Meet` arrives here exactly as `Taylor Swift`
+            # does. `0180` routes the *concept* to `work:apple_…`; without this
+            # the term still arrives typed `creator`, the mapper's
+            # `_type_compatible` refuses a creator term against a work concept,
+            # and the game scores 0.055 against a 0.25 bar — present, correct,
+            # and invisible. Measured 2026-08-15, which is how this was found.
+            #
+            # The flag is the catalogue's, computed once from the album title
+            # that names the game (`apple_catalog.game_titles_in`), so this reads
+            # a stored answer rather than re-deciding per row.
+            if games and normalize_text(performer) in games:
+                terms.append(
+                    _term(performer, "source_work", "primary_performer", "work")
+                )
+                continue
             incidental = (classical
                           and breadth.get(normalize_text(performer), 0)
                               < CLASSICAL_PERFORMER_MIN_ALBUMS)
@@ -995,7 +1013,8 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
                          channel_titles: dict[str, str] | None = None,
                          breadth: dict[str, int] | None = None,
                          spheres: dict[str, tuple[str, ...]] | None = None,
-                         scenes: dict[str, tuple[str, ...]] | None = None) -> Observation | None:
+                         scenes: dict[str, tuple[str, ...]] | None = None,
+                         games: frozenset[str] | None = None) -> Observation | None:
     payload = row["normalized_payload"]
     if not isinstance(payload, dict):
         return None
@@ -1020,6 +1039,7 @@ def observation_from_row(row: dict[str, Any], source: dict[str, Any],
             breadth=breadth,
             spheres=(spheres or {}).get(performer, ()),
             scenes=(scenes or {}).get(performer, ()),
+            games=games,
         )
     if not terms:
         return None
@@ -1269,6 +1289,26 @@ select distinct on (e.external_id)
 # that matters most on a classical row. `entity_kind = 'song'` replaces it,
 # because the same provider now also stores artists.
 
+SELECT_CATALOGUE_GAMES = """
+select distinct on (e.external_id)
+       e.external_id,
+       coalesce((e.raw_payload ->> 'is_game')::boolean, false) as is_game,
+       e.raw_payload ->> 'normalized' as normalized
+  from ontology.external_entities e
+ where e.provider = 'apple_music_catalog'
+   and e.entity_kind = 'artist'
+   and coalesce(e.raw_payload ->> 'normalized', '') <> ''
+ order by e.external_id, e.retrieved_at desc
+"""
+# **`distinct on` first and the flag filtered after, never the other way round.**
+# An artist stored before `is_game` was kept has no such key, and a newer row
+# supersedes it — filtering inside the query would let the stale row win for any
+# artist whose latest answer is the flagged one.
+#
+# Not scoped to this user: the catalogue is shared vocabulary, the set is three
+# rows today, and scoping it would mean a game reads as a game for the person
+# whose library caused the lookup and as a person for everybody else.
+
 FINALIZE_RUN = "select semantic_private.finalize_semantic_run(%(run)s) as finalized"
 
 CURRENT_REVISION = """
@@ -1411,6 +1451,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         }
     counts["catalogue_fields"] = with_catalogue_metadata(rows, catalogue)
 
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_CATALOGUE_GAMES)
+        catalogue_games = frozenset(
+            row["normalized"] for row in cursor.fetchall()
+            if row["is_game"] and row["normalized"]
+        )
+    counts["catalogue_games"] = len(catalogue_games)
+
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
 
@@ -1424,7 +1472,8 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             allow_channel_identity=allow_channel_identity,
             allow_title_tags=allow_title_tags,
             channel_titles=channel_titles,
-            breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes)
+            breadth=facts.breadth, spheres=facts.spheres, scenes=facts.scenes,
+            games=catalogue_games)
         if observation is not None:
             kept_terms = exact_terms_only(observation, graph)
             before = len(observation.terms)

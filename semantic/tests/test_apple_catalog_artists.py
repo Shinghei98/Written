@@ -192,3 +192,48 @@ def test_emitted_artist_rows_carry_the_normalized_label():
     with contextlib.redirect_stdout(buffer):
         module.emit_artists({"1": {"name": "O'Brien", "genres": []}})
     assert "'O''Brien'" in buffer.getvalue()
+
+
+def test_a_game_is_recognised_from_the_album_and_a_composer_is_not():
+    """The one signal that separates a game from the person who scored it.
+
+    **Measured 2026-08-15.** Apple answers `Where Winds Meet` with
+    `genreNames: ["Video Game"]` — and answers `Yida`, who *composed* that
+    soundtrack, with exactly the same genre. Routing on the artist genre would
+    have minted a songwriter as a video game, and he is an eligible term on a
+    real account at 0.424. Only the album title names the game:
+
+        When the Wind Rises (Where Winds Meet Original Game Soundtrack (Qinghe))
+
+    Both directions are asserted, because a rule that only ever answers one way
+    has not been shown to discriminate.
+    """
+    module = tool()
+    album = ("When the Wind Rises "
+             "(Where Winds Meet Original Game Soundtrack (Qinghe))")
+    assert module.game_titles_in(album) == ["Where Winds Meet"]
+
+    games = {module._folded(t) for t in module.game_titles_in(album)}
+    assert module._folded("Where Winds Meet") in games      # the game
+    assert module._folded("Yida") not in games              # its composer
+
+
+def test_the_marker_is_read_in_both_album_shapes_and_never_from_a_film():
+    """Two shapes, one degenerate case, and one thing that must never match.
+
+    The marker either opens its own bracket or trails the game inside one, and
+    the shorter markers are substrings of the longer — so `Original Video Game
+    Soundtrack` searched for `game soundtrack` would leave `Original` as the
+    title. A film soundtrack must answer nothing at all.
+    """
+    module = tool()
+    assert module.game_titles_in(
+        "Final Fantasy XIV: Endwalker (Original Video Game Soundtrack)"
+    ) == ["Final Fantasy XIV: Endwalker"]
+    assert module.game_titles_in("Hearthstone Original Game Soundtrack") == ["Hearthstone"]
+    assert module.game_titles_in("The Last of Us (Video Game Soundtrack)") == ["The Last of Us"]
+    # Names that it is a soundtrack and never says to what.
+    assert module.game_titles_in("Original Game Soundtrack") == []
+    # Film, and an ordinary album.
+    assert module.game_titles_in("Interstellar (Original Motion Picture Soundtrack)") == []
+    assert module.game_titles_in("1989 (Taylor's Version)") == []

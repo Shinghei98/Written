@@ -63,6 +63,13 @@ select o.normalized_payload ->> 'isrc'      as isrc,
       where e.provider = 'apple_music_catalog'
         and e.entity_kind = 'song'
         and e.external_id = o.normalized_payload ->> 'isrc'
+        -- **A cached answer that predates a field we now read is not a
+        -- complete answer.** `albumName` is what tells a game soundtrack from
+        -- a person, and every row stored before it was kept lacks the key
+        -- entirely — so those ISRCs are asked again, once, and then satisfy
+        -- this clause forever. Self-limiting: it is a key test, not a
+        -- timestamp, so nothing re-fetches on a schedule.
+        and e.raw_payload ? 'albumName'
    )
  group by 1
  limit %(limit)s
@@ -159,6 +166,13 @@ def fetch(
             "normalized": normalize_text(entry["name"]),
             "genres": list(entry["genres"]),
             "genres_normalized": [normalize_text(g) for g in entry["genres"]],
+            # **What the mint routes on.** True when an album named this credit
+            # as the game it is the soundtrack to — Apple's own words, never a
+            # judgement about the name. Adding the key changes every artist's
+            # `payload_hash`, so each is stored once more and `mint_candidate`
+            # takes the newest by `retrieved_at`; that is the intended way a
+            # catalogue answer is superseded here.
+            "is_game": bool(entry.get("is_game")),
         })
         shaped.append({
             "external_id": identifier,

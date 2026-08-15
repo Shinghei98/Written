@@ -262,14 +262,25 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
             # ISRC we already hold.** The "first edition wins" rule below is
             # about which row states the genre; it is not a reason to discard a
             # credit. A remaster can name an artist the single did not.
+            # The games this song's album names, matched against each credit
+            # below. Computed once per song rather than per credit.
+            games = {_folded(title) for title in
+                     game_titles_in(attributes.get("albumName") or "")}
             for identifier, name, genres in artists_in(item):
                 # **First edition wins for the name; genres accumulate.** One
                 # artist appears on many songs and Apple does not always repeat
                 # the full genre list, so a union across appearances is a fuller
                 # answer than whichever song happened to be seen first.
                 existing = artists.setdefault(
-                    identifier, {"name": name, "genres": [], "isrcs": []}
+                    identifier,
+                    {"name": name, "genres": [], "isrcs": [], "is_game": False},
                 )
+                # **Sticky, and only ever set true.** One credit naming the game
+                # is enough; a later song whose album says nothing must not
+                # unsay it, which is the same union reasoning as the genres
+                # above.
+                if _folded(name) in games:
+                    existing["is_game"] = True
                 for genre in genres:
                     if genre not in existing["genres"]:
                         existing["genres"].append(genre)
@@ -291,6 +302,11 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
                 "genreNames": attributes.get("genreNames") or [],
                 "composerName": (attributes.get("composerName") or "").strip(),
                 "releaseDate": attributes.get("releaseDate") or "",
+                # **`albumName` is what tells a game from a person**, and it is a
+                # field on a response already being made — the `part=` shape the
+                # extraction rule licenses, costing no request and no quota.
+                # See `game_titles_in`.
+                "albumName": (attributes.get("albumName") or "").strip(),
             }
         print(
             f"  batch {start // ISRCS_PER_REQUEST + 1}: asked {len(batch)}, "
@@ -298,6 +314,76 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
             file=sys.stderr,
         )
     return answers, artists
+
+
+# **Longest first, and that ordering is load-bearing.** Searching for
+# `game soundtrack` inside *Where Winds Meet Original Game Soundtrack* leaves
+# `Original` on the end of the extracted title, so the specific markers must be
+# tried before the general ones.
+GAME_SOUNDTRACK_MARKERS = (
+    "original video game soundtrack",
+    "original game soundtrack",
+    "video game soundtrack",
+    "game soundtrack",
+)
+
+
+def _folded(text: str) -> str:
+    """Whitespace-collapsed casefold, for comparing a credit to a title."""
+    return " ".join((text or "").split()).casefold()
+
+
+def game_titles_in(album_name: str) -> list[str]:
+    """The game an album names, if its title says it is a game soundtrack.
+
+    **A read, not an inference.** Apple states the album as *"When the Wind
+    Rises (Where Winds Meet Original Game Soundtrack (Qinghe))"*, and the game
+    names itself immediately before the marker. Nothing here decides what a
+    thing is about; it takes the name Apple printed.
+
+    **Why not the artist's `genreNames`, which say `Video Game` outright.**
+    Because they say it of the *composer* too. Measured 2026-08-15: the three
+    catalogue artists carrying that genre are `Where Winds Meet` (the game),
+    `Yida` (the person who wrote its music) and `星戈音樂` (a studio). Routing on
+    the genre would have turned a songwriter into a video game, and he is
+    currently an eligible term on a real account at 0.424. The album title
+    separates them because only the game is named in it.
+
+    Returns a list because one album can name more than one marker form; the
+    caller matches a credit against any of them.
+    """
+    folded = _folded(album_name)
+    for marker in GAME_SOUNDTRACK_MARKERS:
+        index = folded.find(marker)
+        if index < 0:
+            continue
+        # **Present but naming nothing.** An album called exactly *Original Game
+        # Soundtrack* states that it is one and never says which, so there is no
+        # title to take. Returning here rather than continuing is the same rule
+        # as below: a longer marker having matched, a shorter one can only cut
+        # the same words in a worse place.
+        if index == 0:
+            return []
+        prefix = album_name[:index].rstrip()
+        # **Two shapes, and the second is not a special case.** Either the
+        # marker opens its own bracket — *Final Fantasy XIV: Endwalker (Original
+        # Video Game Soundtrack)* — in which case the game is everything before
+        # that bracket; or it trails the game inside one — *When the Wind Rises
+        # (Where Winds Meet Original Game Soundtrack (Qinghe))* — in which case
+        # the game begins at the last bracket that opened.
+        if prefix and prefix[-1] in "([{（【":
+            title = prefix[:-1]
+        else:
+            title = prefix
+            for opener in "([{（【":
+                title = title.rsplit(opener, 1)[-1]
+        title = title.strip(" -–—:,·|")
+        # **Return on the first marker, matched or not.** Falling through to the
+        # shorter markers after a match extracts from the wrong side of the same
+        # words: `Original Video Game Soundtrack` also contains `game
+        # soundtrack`, and searching for that leaves `Original` as the title.
+        return [title] if title else []
+    return []
 
 
 def artists_in(item: dict) -> list[tuple[str, str, list[str]]]:

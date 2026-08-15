@@ -279,3 +279,37 @@ def test_an_era_arrives_computed_rather_than_read_off_the_row(resolve):
         {"title": "First Love", "genres": ["J-Pop"]}, "library_song",
         eras=("era:1990s", "era:2000s"))
     assert sorted(t.text for t in terms if t.role == "era") == ["1990s", "2000s"]
+
+
+def test_a_catalogue_game_is_a_work_and_everyone_else_stays_a_creator(resolve):
+    """`Where Winds Meet` is a video game credited as an artist.
+
+    Apple lists a game soundtrack under an "artist" named after the game, so it
+    arrives in a music payload exactly as a person does. `0180` routes the
+    *concept* to `work:apple_…`, but a term typed `creator` cannot map onto a
+    work — the game scored 0.055 against a 0.25 bar, present and invisible.
+
+    Both directions, over the same call: the game becomes a `source_work`, and
+    the composer credited beside it on the very same soundtrack stays a creator.
+    """
+    from written_ontology.normalize import normalize_text
+    payload = {
+        "title": "Where Winds Meet_Login Screen_Yida",
+        "primary_performer": "Where Winds Meet",
+        "credited_artists": ["Where Winds Meet", "Yida"],
+    }
+    games = frozenset({normalize_text("Where Winds Meet")})
+    roles = {
+        (term.text, term.role, term.type_hint)
+        for term in resolve.terms_for(payload, "library_song", games=games)
+    }
+    assert ("Where Winds Meet", "source_work", "work") in roles
+    assert ("Where Winds Meet", "creator", "creator") not in roles
+    assert ("Yida", "creator", "creator") in roles
+
+    # With no catalogue answer nothing is reclassified — the flag is the only
+    # thing that moves a credit, never the name.
+    plain = {
+        (term.text, term.role) for term in resolve.terms_for(payload, "library_song")
+    }
+    assert ("Where Winds Meet", "creator") in plain
