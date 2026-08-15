@@ -247,6 +247,7 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
             )
         for item in body.get("data", []):
             attributes = item.get("attributes") or {}
+            isrc = attributes.get("isrc")
             # **Artists are collected from every song, including the ones whose
             # ISRC we already hold.** The "first edition wins" rule below is
             # about which row states the genre; it is not a reason to discard a
@@ -257,12 +258,19 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
                 # the full genre list, so a union across appearances is a fuller
                 # answer than whichever song happened to be seen first.
                 existing = artists.setdefault(
-                    identifier, {"name": name, "genres": []}
+                    identifier, {"name": name, "genres": [], "isrcs": []}
                 )
                 for genre in genres:
                     if genre not in existing["genres"]:
                         existing["genres"].append(genre)
-            isrc = attributes.get("isrc")
+                # **Which recordings named this artist**, so provenance can
+                # follow the chain source → ISRC → song → artist → concept. The
+                # artist step is the one that used to drop it, and the loss is
+                # unrecoverable: measured across both accounts, only 10 of 817
+                # artists are reachable from both Apple and Spotify, so which
+                # source supplied one cannot be inferred afterwards.
+                if isrc and isrc not in existing["isrcs"]:
+                    existing["isrcs"].append(isrc)
             if not isrc or isrc in answers:
                 # **First edition wins.** One ISRC can return several songs — a
                 # single, an album cut and a remaster share it — and they carry

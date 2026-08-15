@@ -106,10 +106,13 @@ def test_fetch_shapes_rows_the_minting_sql_will_accept(catalogue, monkeypatch):
             "composerName": "",
             "releaseDate": "2019-02-27",
         }},
-        {"1234567": {"name": "P!nk", "genres": ["Pop"]}},
+        {"1234567": {"name": "P!nk", "genres": ["Pop"],
+                     "isrcs": ["JPU901900060"]}},
     ))
 
-    songs, artists = catalogue.fetch("token", ["JPU901900060"])
+    songs, artists, _ = catalogue.fetch(
+        "token", {"JPU901900060": ["apple_music"]}
+    )
 
     assert len(songs) == 1
     song = songs[0]
@@ -138,6 +141,7 @@ def test_the_isrc_query_asks_only_for_ones_never_answered(catalogue):
     it left work behind rather than implying it finished.
     """
     statement = catalogue.SELECT_MISSING_ISRCS
+    assert "array_agg(distinct o.source_code)" in statement
     assert "not exists" in statement
     assert "'apple_music_catalog'" in statement
     assert "entity_kind = 'song'" in statement
@@ -155,7 +159,7 @@ def test_no_isrcs_means_no_fetch_and_still_a_mint(catalogue, monkeypatch):
     new artists.
     """
     monkeypatch.delenv("APPLE_MUSIC_DEVELOPER_TOKEN", raising=False)
-    monkeypatch.setattr(catalogue, "missing_isrcs", lambda connection, users: [])
+    monkeypatch.setattr(catalogue, "missing_isrcs", lambda connection, users: {})
 
     calls: list = []
 
@@ -194,3 +198,70 @@ def test_the_bundle_copies_the_shared_fetch(catalogue):
     """
     build = pathlib.Path(REPOSITORY) / "aws" / "worker" / "build.sh"
     assert "tools/apple_catalog.py" in build.read_text(encoding="utf-8")
+
+
+def test_an_identifier_seen_in_two_sources_records_both(catalogue, monkeypatch):
+    """**The case a "first source wins" implementation gets wrong.**
+
+    Measured across both accounts: only 10 of 817 artists are reachable from both
+    Apple and Spotify. Those ten are exactly the entries that are Apple-clean
+    *despite* Spotify also naming them, so collapsing them to one source would
+    report them as belonging to whichever was read first — and the mistake stays
+    invisible until the day the restriction is applied and the wrong entries are
+    pruned.
+    """
+    monkeypatch.setattr(catalogue, "catalogue", lambda token, isrcs: (
+        {"SHARED0000001": {"genreNames": ["Pop"], "composerName": "", "releaseDate": ""}},
+        {},
+    ))
+
+    _, _, provenance = catalogue.fetch(
+        "token", {"SHARED0000001": ["apple_music", "spotify"]}
+    )
+
+    songs = [row for row in provenance if row["entity_kind"] == "song"]
+    assert {row["source_code"] for row in songs} == {"apple_music", "spotify"}
+    assert all(row["external_id"] == "SHARED0000001" for row in songs)
+
+
+def test_an_artist_inherits_every_source_that_named_it(catalogue, monkeypatch):
+    """Provenance follows source → ISRC → song → artist, and unions at the end.
+
+    A performer on one Apple track and one Spotify track is supplied by both.
+    The artist step is the one that used to drop this entirely — `artists_in`
+    was called per song and the mapping back to the recording was discarded.
+    """
+    monkeypatch.setattr(catalogue, "catalogue", lambda token, isrcs: (
+        {
+            "APPLE00000001": {"genreNames": ["Rock"], "composerName": "", "releaseDate": ""},
+            "SPOT000000001": {"genreNames": ["Rock"], "composerName": "", "releaseDate": ""},
+        },
+        {"999": {"name": "Both Ways", "genres": ["Rock"],
+                 "isrcs": ["APPLE00000001", "SPOT000000001"]}},
+    ))
+
+    _, _, provenance = catalogue.fetch("token", {
+        "APPLE00000001": ["apple_music"],
+        "SPOT000000001": ["spotify"],
+    })
+
+    artist_rows = [row for row in provenance if row["entity_kind"] == "artist"]
+    assert {row["source_code"] for row in artist_rows} == {"apple_music", "spotify"}
+    assert all(row["external_id"] == "999" for row in artist_rows)
+
+
+def test_an_artist_named_only_by_one_source_records_only_that_one(catalogue, monkeypatch):
+    """The negative, which is what makes the positive worth anything.
+
+    If everything came back as "both", the record would be true and useless. A
+    Spotify-only artist must be recorded as Spotify-only — 461 of 817 are.
+    """
+    monkeypatch.setattr(catalogue, "catalogue", lambda token, isrcs: (
+        {"SPOT000000002": {"genreNames": [], "composerName": "", "releaseDate": ""}},
+        {"777": {"name": "Spotify Only", "genres": [], "isrcs": ["SPOT000000002"]}},
+    ))
+
+    _, _, provenance = catalogue.fetch("token", {"SPOT000000002": ["spotify"]})
+
+    artist_rows = [row for row in provenance if row["entity_kind"] == "artist"]
+    assert [row["source_code"] for row in artist_rows] == ["spotify"]

@@ -44,7 +44,8 @@ class CatalogueUnavailable(RuntimeError):
 
 
 SELECT_MISSING_ISRCS = """
-select distinct o.normalized_payload ->> 'isrc' as isrc
+select o.normalized_payload ->> 'isrc'      as isrc,
+       array_agg(distinct o.source_code)    as sources
   from semantic_private.observations o
  where o.user_id = any(%(user_ids)s)
    and o.lifecycle_state = 'active'
@@ -56,6 +57,7 @@ select distinct o.normalized_payload ->> 'isrc' as isrc
         and e.entity_kind = 'song'
         and e.external_id = o.normalized_payload ->> 'isrc'
    )
+ group by 1
  limit %(limit)s
 """
 
@@ -67,22 +69,31 @@ def developer_token() -> str:
     return token
 
 
-def missing_isrcs(connection, user_ids: list[str]) -> list[str]:
+def missing_isrcs(connection, user_ids: list[str]) -> dict[str, list[str]]:
     """ISRCs these users name that the catalogue has never answered for.
 
     **Asked of the vault, not of the job.** The payload carries a user and
     nothing else precisely so this question is answered when the work runs; a
     list computed at arming time would be stale by the time the debounce
     expired, which is the whole point of the debounce.
+
+    **Returns the sources each identifier was seen in, not a bare list.** One
+    recording can appear in two libraries, and which sources named it is only
+    knowable here — measured across both accounts, only 10 of 817 artists are
+    reachable from both Apple and Spotify, so this cannot be reconstructed later
+    by re-deriving from one of them and seeing what matches.
     """
     if not user_ids:
-        return []
+        return {}
     with connection.cursor() as cursor:
         cursor.execute(
             SELECT_MISSING_ISRCS,
             {"user_ids": user_ids, "limit": MAX_ISRCS_PER_JOB},
         )
-        return [row["isrc"] for row in cursor.fetchall() if row["isrc"]]
+        return {
+            row["isrc"]: list(row["sources"] or [])
+            for row in cursor.fetchall() if row["isrc"]
+        }
 
 
 def _hashed(payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -97,14 +108,23 @@ def _hashed(payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return payload, hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def fetch(token: str, isrcs: list[str]) -> tuple[list[dict], list[dict]]:
-    """Songs and artists, shaped for `mint_vocabulary_from_catalogue`.
+def fetch(
+    token: str, sources_by_isrc: dict[str, list[str]]
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Songs, artists, and which app source named each — shaped for the mint.
 
     The normalised forms are computed here rather than in SQL because
     `normalize_text` is a Unicode-category fold that Postgres cannot reproduce,
     and an alias whose stored form differs from what the resolver computes is
     minted unmatchable with nothing reporting it.
+
+    **An artist inherits the sources of every recording that named it**, which
+    is a union rather than a first-wins: a performer on one Apple track and one
+    Spotify track is supplied by both, and recording only the first would report
+    them as belonging to whichever happened to be read first. That mistake looks
+    correct until the day the restriction is applied.
     """
+    isrcs = sorted(sources_by_isrc)
     answers, artists = catalogue(token, isrcs)
 
     songs: list[dict[str, Any]] = []
@@ -116,6 +136,13 @@ def fetch(token: str, isrcs: list[str]) -> tuple[list[dict], list[dict]]:
             "payload_hash": digest,
             **payload,
         })
+
+    provenance: list[dict[str, str]] = [
+        {"external_id": isrc, "entity_kind": "song", "source_code": source}
+        for isrc in isrcs
+        for source in sources_by_isrc.get(isrc, ())
+        if isrc in answers
+    ]
 
     shaped: list[dict[str, Any]] = []
     for identifier in sorted(artists):
@@ -131,9 +158,20 @@ def fetch(token: str, isrcs: list[str]) -> tuple[list[dict], list[dict]]:
             "payload_hash": digest,
             **payload,
         })
+        inherited: set[str] = set()
+        for isrc in entry.get("isrcs", ()):
+            inherited.update(sources_by_isrc.get(isrc, ()))
+        provenance += [
+            {"external_id": identifier, "entity_kind": "artist", "source_code": source}
+            for source in sorted(inherited)
+        ]
 
-    return songs, shaped
+    return songs, shaped, provenance
 
+
+RECORD_PROVENANCE = """
+select ontology.record_catalogue_provenance(%(rows)s::jsonb) as written
+"""
 
 MINT = """
 select semantic_private.mint_vocabulary_from_catalogue(
@@ -151,11 +189,25 @@ def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
     split is deliberate — the thing reachable from a queue should not be able to
     rewrite shared vocabulary at will.
     """
-    isrcs = missing_isrcs(connection, user_ids)
+    sources_by_isrc = missing_isrcs(connection, user_ids)
     songs: list[dict] = []
     artists: list[dict] = []
-    if isrcs:
-        songs, artists = fetch(developer_token(), isrcs)
+    provenance: list[dict] = []
+    if sources_by_isrc:
+        songs, artists, provenance = fetch(developer_token(), sources_by_isrc)
+
+    # **Recorded before the mint, and separately from it.** Provenance is a fact
+    # about the lookup, so it holds whether or not this pass ends in a published
+    # version — and a mint that finds nothing new still learned which source
+    # named the recordings it asked about.
+    if provenance:
+        with connection.cursor() as cursor:
+            cursor.execute(RECORD_PROVENANCE, {
+                "rows": json.dumps(provenance, ensure_ascii=False),
+            })
+            provenance_written = cursor.fetchone()["written"]
+    else:
+        provenance_written = 0
 
     with connection.cursor() as cursor:
         cursor.execute(MINT, {
@@ -165,6 +217,7 @@ def mint_for(connection, user_ids: list[str]) -> dict[str, Any]:
         })
         receipt = cursor.fetchone()["receipt"]
 
-    receipt["isrcs_looked_up"] = len(isrcs)
-    receipt["isrcs_capped"] = len(isrcs) >= MAX_ISRCS_PER_JOB
+    receipt["isrcs_looked_up"] = len(sources_by_isrc)
+    receipt["isrcs_capped"] = len(sources_by_isrc) >= MAX_ISRCS_PER_JOB
+    receipt["provenance_written"] = provenance_written
     return receipt
