@@ -136,6 +136,7 @@ class JobType(StrEnum):
     RENDER_ICEBREAKER = "render_icebreaker"
     MINE_TERMS = "mine_terms"
     REFRESH_EXTERNAL_ENTITY = "refresh_external_entity"
+    MINT_VOCABULARY = "mint_vocabulary"
     DERIVE_FITNESS_HABITS = "derive_fitness_habits"
 
 
@@ -285,6 +286,25 @@ class RefreshExternalEntityPayload(_PayloadMixin):
 
 
 @dataclass(frozen=True, slots=True)
+class MintVocabularyPayload(_PayloadMixin):
+    """One user, and deliberately nothing else.
+
+    Every other per-user job pins the analysis it was queued against — a
+    revision, an ontology version, the model ids — so that claiming it late
+    cannot silently compute something other than what was asked for. This one
+    pins none of that, and the reason is the debounce in front of it: the job is
+    armed on a distillation and its start is pushed forward by every distillation
+    after it, so more revisions arrive *by design* between arming and claiming. A
+    pinned revision would be stale exactly when the window worked.
+
+    What is unresolved is therefore derived when the job runs, which is the only
+    moment the answer is true.
+    """
+
+    user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class DeriveFitnessHabitsPayload(_PayloadMixin):
     user_id: UUID
     input_revision: int
@@ -304,6 +324,7 @@ JobPayload: TypeAlias = (
     | RenderIcebreakerPayload
     | MineTermsPayload
     | RefreshExternalEntityPayload
+    | MintVocabularyPayload
     | DeriveFitnessHabitsPayload
 )
 
@@ -635,6 +656,13 @@ _CONTRACT_SEQUENCE: tuple[JobContract[Any], ...] = (
         "Mine review candidates from a pre-thresholded aggregate snapshot.",
     ),
     JobContract(
+        JobType.MINT_VOCABULARY,
+        MintVocabularyPayload,
+        _fields(user_id=_uuid),
+        _fields(),
+        "Mint vocabulary for one user's unresolved terms, after a quiet window.",
+    ),
+    JobContract(
         JobType.REFRESH_EXTERNAL_ENTITY,
         RefreshExternalEntityPayload,
         _fields(
@@ -751,6 +779,7 @@ __all__ = [
     "MineTermsPayload",
     "REQUIRED_JOB_TYPES",
     "RecomputeUserPayload",
+    "MintVocabularyPayload",
     "RefreshExternalEntityPayload",
     "RenderBioPayload",
     "RenderIcebreakerPayload",

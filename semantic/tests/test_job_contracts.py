@@ -18,6 +18,7 @@ from written_ontology.job_contracts import (
     MineTermsPayload,
     REQUIRED_JOB_TYPES,
     RecomputeUserPayload,
+    MintVocabularyPayload,
     RefreshExternalEntityPayload,
     RenderBioPayload,
     RenderIcebreakerPayload,
@@ -136,6 +137,10 @@ PAYLOAD_TYPES = {
     "render_icebreaker": RenderIcebreakerPayload,
     "mine_terms": MineTermsPayload,
     "refresh_external_entity": RefreshExternalEntityPayload,
+    # Armed by a distillation and started after a quiet window; carries a
+    # user and nothing else, because the debounce guarantees more revisions
+    # arrive between arming and claiming.
+    "mint_vocabulary": MintVocabularyPayload,
     "derive_fitness_habits": DeriveFitnessHabitsPayload,
 }
 
