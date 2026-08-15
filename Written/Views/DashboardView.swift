@@ -1418,12 +1418,28 @@ struct DashboardView: View {
 
     /// The symbol for a block heading.
     ///
-    /// **Keyed on the hub, with a default that is deliberately dull.** A hub
-    /// nobody has drawn an icon for gets a plain tag rather than a guess at
-    /// what it means — the same reasoning that leaves an unparented term in
-    /// "Other" instead of filing it somewhere plausible.
+    /// **A block is no longer a hub, and this map was written when it was.**
+    /// `0154` made the finer parent the block and `0190` added a tier beneath
+    /// the authored list, so a heading is now usually a `genre:` — of which
+    /// there are 105 after `0188` imported Apple's taxonomy, and the next
+    /// library will name more. Every one of them fell to `tag`.
+    ///
+    /// So the named cases are the ones worth distinguishing and the fallback is
+    /// **by prefix, not per key**: a genre nobody has drawn an icon for is still
+    /// music, and saying so is better than a plain tag. `tag` survives for a
+    /// block that is neither, which is the same reasoning that leaves an
+    /// unparented term in "Other" rather than filing it somewhere plausible.
     private static func blockIcon(_ blockKey: String) -> String {
         switch blockKey {
+        // The authored blocks, which are what `concept_block` reaches first.
+        case "genre:anime": return "sparkles"
+        case "genre:classical": return "pianokeys"
+        case "genre:musicals": return "theatermasks"
+        case "genre:video_game": return "gamecontroller"
+        case "subject:science": return "atom"
+        case "subject:language_learning": return "character.bubble"
+        case "subject:travel": return "airplane"
+        case "subject:content_creators": return "video"
         case "hub:music": return "music.note"
         case "hub:ideas_learning": return "books.vertical"
         case "hub:film_video": return "film"
@@ -1439,7 +1455,10 @@ struct DashboardView: View {
         case "hub:work_study_making": return "hammer"
         case "hub:social_community": return "person.2"
         case "hub:daily_rhythms": return "sun.max"
-        default: return "tag"
+        default:
+            // Every genre is music; a K-Pop or Afrobeats heading with a note
+            // beside it reads as a shelf, where a tag reads as an unplaced term.
+            return blockKey.hasPrefix("genre:") ? "music.note" : "tag"
         }
     }
 
