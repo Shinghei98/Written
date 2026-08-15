@@ -229,6 +229,90 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
     return result
 
 
+DUE_SIBLING_MINTS = """
+select id, user_id::text as user_id
+  from semantic_private.worker_jobs
+ where job_type = 'mint_vocabulary'
+   and status = 'queued'
+   and available_at <= now()
+   and id <> %(claimed)s::uuid
+ for update skip locked
+"""
+
+SETTLE_SIBLING_MINTS = """
+update semantic_private.worker_jobs
+   set status = 'succeeded'
+ where id = any(%(ids)s::uuid[])
+   and status = 'queued'
+"""
+
+
+def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
+    """`mint_vocabulary` — the job a distillation arms, two quiet minutes later.
+
+    **It mints for everybody currently due, not only the user who armed it.**
+    Publishing an ontology version copies the whole ontology forward and puts the
+    version into every user's run identity, so each publish forces a fresh run
+    for every account. One version per user per distillation is therefore
+    O(users²) across a signup wave. Because the mint outlives the two-minute
+    window, other users fall due while it runs and get swept into the same pass —
+    the batching is a consequence of the timing rather than a policy bolted on.
+
+    **Siblings are settled after the mint commits, never before.** If the settle
+    fails they stay `queued` and are minted again next pass, which is harmless:
+    an artist already minted is linked rather than duplicated. Marking them first
+    would record work that had not happened.
+
+    **A missing developer token is `no_op`, not a failure.** `CatalogueUnavailable`
+    means nobody configured the credential; retrying cannot fix that and a dead
+    job would read as a defect. An *expired* token raises from the fetch and is a
+    real error, which is the distinction worth keeping — silently not enriching
+    is the failure mode this whole exercise exists to remove.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from catalogue import CatalogueUnavailable, mint_for
+
+    with psycopg.connect(
+        database_url(), row_factory=dict_row, prepare_threshold=None
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(DUE_SIBLING_MINTS, {"claimed": job.id})
+            siblings = cursor.fetchall()
+
+        users = [job.payload["user_id"]]
+        users += [row["user_id"] for row in siblings if row["user_id"]]
+        users = list(dict.fromkeys(users))
+
+        try:
+            receipt = mint_for(connection, users)
+        except CatalogueUnavailable as reason:
+            connection.rollback()
+            print(json.dumps({"mint_vocabulary": {"declined": str(reason)}}))
+            return {"status": "no_op", "item_count": 0}
+
+        connection.commit()
+
+        if siblings:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    SETTLE_SIBLING_MINTS,
+                    {"ids": [row["id"] for row in siblings]},
+                )
+            connection.commit()
+
+    print(json.dumps({"mint_vocabulary": receipt}))
+    return {
+        "status": "succeeded" if receipt.get("published") else "no_op",
+        "item_count": int(receipt.get("isrcs_looked_up", 0)),
+        "created_count": int(receipt.get("minted", 0)),
+        "updated_count": int(receipt.get("linked", 0)),
+        "skipped_count": int(receipt.get("refused", 0)),
+        "changed": bool(receipt.get("published")),
+    }
+
+
 def handler(event, context):  # noqa: ANN001 - Lambda signature
     queue = PostgresJobQueue(
         database_url(),
@@ -240,7 +324,13 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         # empty one.
         schema="semantic_private",
     )
-    worker = SemanticWorker(queue, handlers={"recompute_user": recompute_user})
+    worker = SemanticWorker(queue, handlers={
+        "recompute_user": recompute_user,
+        # Registered here or the job is claimed and marked `dead` with
+        # `no_handler:mint_vocabulary` — which is why `0176` must not be applied
+        # before this ships.
+        "mint_vocabulary": mint_vocabulary,
+    })
     outcome = worker.run_once()
     print(json.dumps({"worker": outcome}))
     return outcome

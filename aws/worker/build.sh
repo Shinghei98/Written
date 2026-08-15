@@ -35,6 +35,17 @@ cp "$HERE"/*.py "$STAGE/"
 # the moment somebody names an artist in one of them. `music_works` imports
 # `music_dictionary` by module name, so both must land flat beside the handler.
 cp "$ROOT/tools/music_dictionary.py" "$ROOT/tools/music_works.py" "$STAGE/"
+
+# **`apple_catalog.py` for the same reason, and it is the same argument.** The
+# catalogue fetch now runs in the worker as well as by hand, and two copies of
+# "how we ask Apple about an ISRC" would drift the first time a query parameter
+# changed — `include=artists` was added to it days after the first version and a
+# second copy would still be asking without it. `catalogue.py` imports it by
+# module name, so it lands flat beside the handler.
+#
+# It reads its credentials inside functions, never at import, so copying it here
+# pulls in no environment requirement the worker does not already declare.
+cp "$ROOT/tools/apple_catalog.py" "$STAGE/"
 cp "$ROOT/aws/ingestion/supabase-ca.pem" "$STAGE/"
 
 # The vendored package itself — the queue, the worker loop and the job
