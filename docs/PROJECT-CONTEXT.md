@@ -1591,6 +1591,34 @@ production.
   written and follow what each trigger calls.** Five migrations each cost a
   deploy and a run to learn one statically-knowable fact.
 
+#### The append/change-only path, run for the first time (2026-08-17)
+
+The rule — *the device replaces, the server appends, and only changes are
+stored* — had never been exercised from the app against a real source. Every
+source on the live account had been distilled exactly once.
+
+Apple Music re-distilled on a physical iPhone against a 1,208-row library:
+
+| data_type | rows appended |
+|---|---|
+| `recommendation` | 96 |
+| `playlist_item` | 3 |
+| `recently_played` | 1 |
+| `library_song`, `album`, `artist`, `heavy_rotation`, `rating` | **0** |
+
+**100 appended, 0 identical to any existing row**, 97 items never seen before and
+3 whose content had changed. The stable library re-uploaded nothing, which is
+exactly what the comparison is for and what a naive implementation would have got
+wrong by 1,208 rows.
+
+Worth noting for the retention question: **96 of the 100 are `recommendation`,
+which carries `action_weight` 0.000.** The growth term is dominated by the one
+data type deliberately weighted at nothing — Apple's suggestion rather than the
+person's act — so repeated distillation accumulates rows that no score will ever
+read. That is correct capture under *capture broadly, promote narrowly*, and it
+is also the strongest argument for the retention rule this project has not yet
+written.
+
 #### The restore path, run for the first time (2026-08-17)
 
 `RestoreService` had only ever been read, never exercised on a device that did

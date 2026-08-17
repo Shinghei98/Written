@@ -393,7 +393,12 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
 - **The server is the source of truth; the device keeps a cache.**
   `RestoreService.hydrate()` is the read half.
 - **Nothing in Postgres is ever deleted, and only changes are stored.** The
-  device *replaces*; the server *appends*. Two things make
+  device *replaces*; the server *appends*. **Measured 2026-08-17 on a real
+  second distillation**: a 1,208-row Apple Music library re-distilled appended
+  **100 rows and zero duplicates** — 96 `recommendation`, 3 `playlist_item`,
+  1 `recently_played`, and *nothing* from `library_song`, `album`, `artist`,
+  `heavy_rotation` or `rating`. 97 were items never seen before and 3 were items
+  whose content had changed. Two things make
   `append_source_records` work and both are easy to break: the comparison is
   against the **latest** version, not any historical one, and it **excludes
   `collected_at` / `distilled_at` / `updated_at`**.
@@ -2136,12 +2141,6 @@ stops being true.**
 - **A declined Workouts toggle is indistinguishable from no workouts.**
   `health_sports` being empty is otherwise settled and correct. One line in the
   distiller's `Trail` would settle the rest.
-- **The append/change-only path has never run from the app *for a real source*.**
-  Distil Apple Music twice and confirm the second run writes only what moved.
-  Every source on the live account was distilled exactly once, all within one
-  minute, so nothing has yet exercised the comparison. What *has* been seen is
-  the `user` source pushed twice on two dates, and it revealed the defect below
-  rather than the behaviour this entry asks for.
 - **A clean-device sign-in writes nine duplicate `user` rows, and
   `append_source_records` cannot prevent it.** `flirt_level` and `response_time`
   are each pushed **three times in one batch**; because the batch shares a
