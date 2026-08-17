@@ -1675,6 +1675,50 @@ Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
       **a superseding rule takes a new key rather than an amendment.**
       Publication is a separate decision on a held-out population and nothing
       in `0223` performs it.
+    - **`0224` reports three flags that cannot be read optimistically.**
+      `population_gate_open` (enough accounts), `measurement_complete` (every
+      named measurement produced a value — **not** implied by the gate, and
+      `measurement_blockers` names what is outstanding so the flag is never a
+      bare false), and **`publication_ready`, which is never derived**. A
+      computed one would mean the system publishes vocabulary the moment
+      arithmetic crossed a line, which is the failure this whole apparatus
+      exists to prevent, one level up.
+      - **The attestation ledger is append-only and withdrawal is an event**, so
+        *attested then withdrawn* stays distinguishable from *never attested* —
+        two states one boolean column would collapse. `publication_ready` reads
+        the **latest** event, never `exists(attest)`, which would answer true
+        forever once anything had been attested.
+      - **`m5` was circular in the first draft** — it asked whether any inferred
+        assertion is eligible anywhere, true of 150 rows unrelated to the
+        experiment. A shadow candidate's weight is knowable now, so *would it
+        clear the bar* is computable without minting; the only precondition is
+        having candidates to divide by.
+
+### A song is a claim only where the evidence is preference, not presence
+
+`0221` removed recordings because **owning a track is not a trait**. That settles
+presence and not the narrower case: a song somebody **rated**, or that is their
+**top track**, or that they **play repeatedly**. `0225` registers that route the
+same way — frozen rule, shadow, gate, attestation — and mints nothing.
+
+- **The frozen rule is two *distinct* acts of preference** (`rating` 0.880,
+  `top_track` 0.780, `recently_played` 0.780, `heavy_rotation`), plus clearing
+  the 0.25 relief on those acts alone. **`saved_track` (0.600) is excluded**:
+  saving is acquisition, which is the presence `0221` already ruled out, at a
+  higher weight.
+- **Distinct acts, never repetition of one.** Playing something forty times is
+  one relationship observed repeatedly — the same reason forty tracks by one
+  ensemble are one opinion about baroque — and `recently_played` is bounded by
+  the API window, so counting plays measures how recently somebody opened the
+  app.
+- **It selects nothing today, and that is a result rather than a failure.** Of
+  1,345 (account, ISRC) pairs, **679 carry one act of preference and none carry
+  two**; the strongest reaches `strength` 0.104 on preference evidence.
+- **The near-miss is recorded so it is refused rather than unnoticed.** Counting
+  presence too, the strongest song in the database reaches **0.227** against the
+  0.25 bar. **The bar is not moved**, and `0225` asserts the disagreement would
+  raise: a bar that admits the best row in the current data is a bar fitted to
+  it.
 - **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
   `auto_promote: false`, and a five-user floor a single library cannot reach.
 
