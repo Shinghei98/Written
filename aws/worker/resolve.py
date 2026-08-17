@@ -1778,7 +1778,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 # `catalogue-drain` works through.
                 counts["isrc_catalog_pending"] = \
                     counts.get("isrc_catalog_pending", 0) + 1
-        if recording_concept is not None and identity(observation.id) not in current_observations:
+        # **Currency is a fact about the observation, not about the concept.**
+        # It used to be evaluated only where a recording concept existed, which
+        # was fine while the recording mapping was the only thing downstream of
+        # it. The genre rollup below now runs whether or not a recording was
+        # minted, and `guard_mapping_current_source_v031` refuses *any* mapping
+        # on an absent observation — so the test has to stand on its own.
+        observation_is_current = identity(observation.id) in current_observations
+        if recording_concept is not None and not observation_is_current:
             # **The source no longer lists this row, so it is not evidence.**
             # `guard_mapping_current_source_v031` refuses a `candidate` or
             # `accepted` mapping whose observation is not currently present, and
@@ -1838,39 +1845,51 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             counts["mappings"] += 1
             counts["accepted"] += 1
 
-            # **The rollup, registered here and emitted after the loop.** A
-            # recording is too fine a unit to assert — 1.31 observations each,
-            # strongest 0.148 against a 0.25 bar — and exactly the right size to
-            # aggregate. Measured over one real library, rolling to *creator*
-            # produced nothing (the lexical route had already found them all) and
-            # rolling to *genre* produced baroque at 29 independent artists,
-            # oratorio at 24, violin, chamber music, piano.
-            #
-            # Genre is stated at the recording level and the artist-level mint
-            # never saw it: `0202`'s nine stated artist genre strings resolved to
-            # nothing, while recording genres yield 48 strings matching 37
-            # concepts.
-            #
-            # **`upper()` on both sides, because this dict is keyed on it.**
-            # `recordings` above is keyed by the raw `external_id` and works
-            # because today's payloads and today's catalogue rows happen to agree
-            # in case. That is a property of the data, not of the code, and it is
-            # the same shape as the mixed-representation join that skipped 736
-            # rows in silence. This lookup normalizes where it enters instead.
-            artist, genre_names = recording_genres.get(row_isrc.upper(), (None, ()))
-            if artist:
-                for name in genre_names:
-                    concept = genre_concepts.get(normalize_text(name or ""))
-                    if concept is None:
-                        continue
-                    # First artist wins the anchor. Which observation carries it
-                    # does not matter — it must only be one this run already
-                    # mapped, so the currency guard and the policy filter have
-                    # both already accepted it.
-                    genre_evidence.setdefault((concept, artist), {
-                        "observation": observation.id,
-                        "recency": recency,
-                    })
+        # **The rollup, registered here and emitted after the loop.** A
+        # recording is too fine a unit to assert — 1.31 observations each,
+        # strongest 0.148 against a 0.25 bar — and exactly the right size to
+        # aggregate. Measured over one real library, rolling to *creator*
+        # produced nothing (the lexical route had already found them all) and
+        # rolling to *genre* produced baroque at 29 independent artists,
+        # oratorio at 24, violin, chamber music, piano.
+        #
+        # Genre is stated at the recording level and the artist-level mint
+        # never saw it: `0202`'s nine stated artist genre strings resolved to
+        # nothing, while recording genres yield 83 distinct strings of which
+        # 61 resolve to exactly one published genre concept.
+        #
+        # **It does not require a recording concept to exist, and that is the
+        # point of the split.** Recordings left the versioned ontology in `0221`;
+        # identity lives in `ontology.external_entities`, which holds a genre for
+        # 1,421 catalogued songs where only 560 recordings were ever minted.
+        # Gating this on a minted concept reached 245 of the 666 weight now
+        # available and cost one real crossing — a rollup anchored to vocabulary
+        # it does not use.
+        #
+        # **`upper()` on both sides, because this dict is keyed on it.**
+        # `recordings` above is keyed by the raw `external_id` and works
+        # because today's payloads and today's catalogue rows happen to agree
+        # in case. That is a property of the data, not of the code, and it is
+        # the same shape as the mixed-representation join that skipped 736
+        # rows in silence. This lookup normalizes where it enters instead.
+        artist, genre_names = (
+            recording_genres.get(row_isrc.upper(), (None, ()))
+            if row_isrc and observation_is_current else (None, ())
+        )
+        if artist:
+            for name in genre_names:
+                concept = genre_concepts.get(normalize_text(name or ""))
+                if concept is None:
+                    continue
+                # First artist wins the anchor. Which observation carries it
+                # does not matter, only that it is one a mapping may rest on —
+                # the recency `continue` above has already dropped the
+                # policy-ineligible, and `observation_is_current` is tested in
+                # the same expression that reads the genres.
+                genre_evidence.setdefault((concept, artist), {
+                    "observation": observation.id,
+                    "recency": recency,
+                })
 
         for candidate in mapper.map_observation(observation):
             # **Rejections are counted, not stored.** `resolve_alias` falls back

@@ -1646,6 +1646,44 @@ on. Pinned by a test, because the identical shape — one fact in
 `sources.action_weights` and in `SOURCE_ACTION_WEIGHTS` — already cost this
 project `top_track` and `top_artist` for months.
 
+### Identity is not vocabulary, and the two live in different layers
+
+**A globally identifiable thing is not automatically ontology vocabulary.** An
+ISRC identifies a recording exactly and permanently, which makes it a *verified
+shared catalogue entity* — nothing about that identity is provisional. What has
+not happened, and should not, is **promotion** into something the system may say
+about a person. `0221` separates the two:
+
+| layer | holds | versioned |
+|---|---|---|
+| identity registry — `ontology.external_entities` | ISRC → title, artist, genres | no |
+| semantic ontology | genres, creators, works, activities, topics | **yes** |
+| evidence — `observation_mappings` | which observation attests what | per run |
+
+- **The 560 recordings are not deleted; ontology 0.34.0 keeps every one.**
+  Published versions are immutable and their runs must stay reproducible, so the
+  only honest way to remove a concept is **not to carry it forward** — 0.35.0
+  simply does not have them. `ontology.is_identity_registry_concept` is the one
+  place a family is named.
+- **The split is structural, not a convention.** `observation_mappings`
+  references `concept_revisions (ontology_version_id, concept_id)`, so with no
+  recording revision in 0.35.0 a recording mapping is refused by a **foreign
+  key** rather than by code remembering not to write one.
+- **`ontology.copy_forward_version` is the copy-forward, once.** It was
+  hand-written in every version-publishing migration, and **`0213` exists
+  because one of them forgot the fifth table** and took 760 links down to 1. An
+  exclusion that also had to be remembered would be worse than that bug, since
+  forgetting it silently *restores* the concepts.
+- **Why it matters rather than being tidying:** a recording is
+  `concept_kind = 'work'`, and `work` is on the `api.list_assertions` allowlist
+  at the 0.25 relief — so the only thing keeping *"you own this track"* off a
+  profile was that recordings top out at `strength` 0.148. **That is a margin,
+  not a rule.**
+- **"Provisional" means uncertain identity, and an ISRC is not that.**
+  `semantic_private.provisional_entities` has a `music_recording` family and an
+  `identity_state` of `personal_provisional`; a title-and-artist string belongs
+  there, an ISRC-identified recording never does.
+
 ### A recording is not a trait, and it is evidence for a genre
 
 **Owning a track is not something to say about somebody.** The 560 minted
