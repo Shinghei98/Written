@@ -1351,6 +1351,41 @@ def identity(value: object) -> str:
     return str(value)
 
 
+#: **What Apple says a recording's genres are, with the artist that made it.**
+#:
+#: The artist is carried because it is the *independence unit* for a genre. Forty
+#: baroque tracks by one ensemble are one opinion about baroque; two ensembles
+#: agreeing are two. Rolling up per recording would make a boxed set look like a
+#: conviction.
+SELECT_RECORDING_GENRES = """
+select distinct on (upper(e.external_id))
+       upper(e.external_id)              as isrc,
+       lower(btrim(e.raw_payload ->> 'artistName')) as artist,
+       e.raw_payload -> 'genreNames'     as genres
+  from ontology.external_entities e
+ where e.provider = 'apple_music_catalog'
+   and e.entity_kind = 'song'
+   and e.raw_payload ? 'genreNames'
+   and coalesce(e.raw_payload ->> 'artistName', '') <> ''
+ order by upper(e.external_id), e.retrieved_at desc
+"""
+
+#: Genre concepts by normalized label, and only where the label names exactly one
+#: — an ambiguous genre string resolves to nothing rather than to a guess, the
+#: same rule the mention resolver applies.
+SELECT_GENRE_CONCEPTS = """
+select l.normalized_label, min(l.concept_id::text)::uuid as concept_id
+  from ontology.concept_labels l
+  join ontology.concept_revisions cr
+    on cr.concept_id = l.concept_id and cr.ontology_version_id = l.ontology_version_id
+  join ontology.versions v on v.id = l.ontology_version_id
+ where v.status = 'published' and l.status = 'active' and cr.status = 'active'
+   and cr.concept_kind = 'genre'
+ group by l.normalized_label
+having count(distinct l.concept_id) = 1
+"""
+
+
 #: The ISRCs the catalogue has given a complete answer for. `name` and
 #: `albumName` are the two keys `SELECT_MISSING_ISRCS` tests, and asking the same
 #: question keeps the two halves of "is this catalogued" from drifting apart.
@@ -1579,6 +1614,23 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     counts["catalogue_answered_isrcs"] = len(catalogued_isrcs)
 
     with connection.cursor() as cursor:
+        cursor.execute(SELECT_RECORDING_GENRES)
+        recording_genres = {
+            row["isrc"]: (row["artist"], tuple(row["genres"] or ()))
+            for row in cursor.fetchall()
+        }
+        cursor.execute(SELECT_GENRE_CONCEPTS)
+        genre_concepts = {
+            row["normalized_label"]: identity(row["concept_id"])
+            for row in cursor.fetchall()
+        }
+    counts["catalogue_genre_concepts"] = len(genre_concepts)
+
+    # One entry per (genre, artist). The dict *is* the damping: a second track by
+    # the same artist finds the key already present and adds nothing.
+    genre_evidence: dict[tuple[str, str], dict[str, Any]] = {}
+
+    with connection.cursor() as cursor:
         cursor.execute(SELECT_CURRENT_OBSERVATIONS, {"user_id": user_id})
         # **`str`, because `observation.id` is a string and this column is a
         # uuid.** psycopg returns `uuid` as a `UUID` object, and `str in
@@ -1786,6 +1838,40 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             counts["mappings"] += 1
             counts["accepted"] += 1
 
+            # **The rollup, registered here and emitted after the loop.** A
+            # recording is too fine a unit to assert — 1.31 observations each,
+            # strongest 0.148 against a 0.25 bar — and exactly the right size to
+            # aggregate. Measured over one real library, rolling to *creator*
+            # produced nothing (the lexical route had already found them all) and
+            # rolling to *genre* produced baroque at 29 independent artists,
+            # oratorio at 24, violin, chamber music, piano.
+            #
+            # Genre is stated at the recording level and the artist-level mint
+            # never saw it: `0202`'s nine stated artist genre strings resolved to
+            # nothing, while recording genres yield 48 strings matching 37
+            # concepts.
+            #
+            # **`upper()` on both sides, because this dict is keyed on it.**
+            # `recordings` above is keyed by the raw `external_id` and works
+            # because today's payloads and today's catalogue rows happen to agree
+            # in case. That is a property of the data, not of the code, and it is
+            # the same shape as the mixed-representation join that skipped 736
+            # rows in silence. This lookup normalizes where it enters instead.
+            artist, genre_names = recording_genres.get(row_isrc.upper(), (None, ()))
+            if artist:
+                for name in genre_names:
+                    concept = genre_concepts.get(normalize_text(name or ""))
+                    if concept is None:
+                        continue
+                    # First artist wins the anchor. Which observation carries it
+                    # does not matter — it must only be one this run already
+                    # mapped, so the currency guard and the policy filter have
+                    # both already accepted it.
+                    genre_evidence.setdefault((concept, artist), {
+                        "observation": observation.id,
+                        "recency": recency,
+                    })
+
         for candidate in mapper.map_observation(observation):
             # **Rejections are counted, not stored.** `resolve_alias` falls back
             # to fuzzy matching at 0.87 similarity when no exact alias matches,
@@ -1872,6 +1958,96 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             counts["mappings"] += 1
             if str(candidate.state) == "accepted":
                 counts["accepted"] += 1
+
+    # ------------------------------------------------------------------
+    # Genre rollup: one mapping per genre per independent artist.
+    # ------------------------------------------------------------------
+    #
+    # **How many artists it takes is set by the scorer, and it is not two.** The
+    # first version of this comment said a genre needed two independent artists,
+    # reasoning that `2/(2+6)` is exactly `0.25`. Both halves were wrong.
+    #
+    #   * **The bar is 0.35, not 0.25.** `ELIGIBLE_STRENGTH_BY_KIND` holds the
+    #     0.25 relief for `work` alone, and a genre concept's kind is `genre`, so
+    #     it falls to `ELIGIBLE_STRENGTH`. Saturating to 0.35 needs `w >= 3.23`.
+    #   * **`w` is not the artist count.** Each mapping contributes
+    #     `evidence_weight * recency_weight * default_reliability *
+    #     action_weight`, which over both live libraries averages about **0.6**
+    #     per artist. Six artists is nearer the real threshold than four, and
+    #     recency damping pushes it further out again.
+    #
+    # There is still no second threshold here, which was the point worth keeping:
+    # one mapping per artist and the existing curve decides. But **the number of
+    # artists that clears it is a consequence of weights set elsewhere, so it is
+    # not a constant to quote** — hence `test_genre_rollup_threshold.py`, which
+    # fails if the bar or the half-weight moves without this being re-read.
+    #
+    # Measured yield over both accounts, weighted rather than counted: **four new
+    # crossings** — `baroque` at 0.71, `oratorio` at 0.68 and `dance` at 0.65/0.45
+    # — against ~20 that a naive artist count would have predicted. Notably
+    # `genre:apple_19` ("Worldwide", the one real catalogue bucket) reaches four
+    # artists and **does not cross**, which is the container worry answering
+    # itself.
+    #
+    # **No parent is silenced, and that was measured rather than assumed.**
+    #
+    # This emitted a silencing rule first: skip a genre where the account also
+    # has evidence for something beneath it, on the theory that `genre:apple_19`
+    # — "Worldwide" — is a catalogue drawer rather than a taste, and that child
+    # count could not separate it from `genre:baroque`, which has 45 children and
+    # is a perfectly good thing to say about somebody.
+    #
+    # Run against both live accounts it was **wrong in both directions**. It let
+    # "Worldwide" through, because neither account holds any of its four
+    # children — the one case it existed for. And it struck out `genre:pop` at
+    # **227 independent artists** because five of them were also indie pop, and
+    # `genre:classical` at 98 because some were baroque. Those parents are not
+    # drawers; a person with 227 pop artists likes pop, and the taxonomy edge
+    # from mandopop to pop is ordinary genre structure rather than evidence that
+    # the parent was a container.
+    #
+    # The three `genre:apple_*` keys are not containers either, which is what
+    # settled it: 1004 is Indie Rock, 1185 Indian Pop, 1263 Bollywood. Only
+    # `apple_19` is a bucket, and it is the same defect already recorded against
+    # `genre:asian_music` — *a container in all but name, and the hub rule cannot
+    # catch it because its kind is `genre`*. **That is a vocabulary problem and
+    # belongs in the ontology**, where one correction fixes every reader. Fixing
+    # it here would be a deny-list inside a resolver, and the failure mode of a
+    # deny-list is silence.
+    for (concept, _artist), anchor_row in genre_evidence.items():
+        anchor_recency = anchor_row["recency"]
+        mapping_rows.append({
+            "run": run_id,
+            "observation": anchor_row["observation"],
+            "user_id": user_id,
+            "version": version,
+            "concept": concept,
+            # **`provider_metadata`, not `provider_id`.** Apple states this genre
+            # *about* the recording; it is not an identifier for the genre. The
+            # method has been in the column's allowlist since the schema was
+            # written and had never been used.
+            "method": "provider_metadata",
+            "state": "accepted",
+            "confidence": 1.0,
+            "rank": 1,
+            "margin": None,
+            "evidence_path": json.dumps(
+                [{"step": "genre_rollup", "from": "provider_id"},
+                 anchor_recency.evidence_step()]
+            ),
+            "evidence_weight": 1.0,
+            "recency_weight": anchor_recency.weight,
+            "recency_quality": anchor_recency.timestamp_quality_weight,
+            "recency_policy": anchor_recency.policy_version,
+            "recency_rule": anchor_recency.rule_id,
+            "recency_status": str(anchor_recency.temporal_status),
+            "recency_quality_label": str(anchor_recency.timestamp_quality),
+            "as_of": as_of,
+            "youtube_kind": None,
+        })
+        counts["genre_rolled_up"] = counts.get("genre_rolled_up", 0) + 1
+        counts["mappings"] += 1
+        counts["accepted"] += 1
 
     # `executemany` pipelines under psycopg 3, so this is one round trip rather
     # than one per row. Nothing about what is written changes — same statement,

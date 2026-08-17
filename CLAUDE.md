@@ -1646,6 +1646,44 @@ on. Pinned by a test, because the identical shape — one fact in
 `sources.action_weights` and in `SOURCE_ACTION_WEIGHTS` — already cost this
 project `top_track` and `top_artist` for months.
 
+### A recording is not a trait, and it is evidence for a genre
+
+**Owning a track is not something to say about somebody.** The 560 minted
+recordings average 1.31 observations each and the strongest reaches `strength`
+0.148 — correct rather than a shortfall, since a bar that admitted a single
+purchase would admit everything. So the question is what a recording is evidence
+*for*, and it was answered by measuring three rollups rather than by choosing:
+**creator yields nothing** (99 pairs reached, 0 new crossings — the lexical route
+had already found every one), **album is weak** (19 of 254 reach two recordings),
+**genre is the one that works** — because Apple states a genre on the *recording*
+and the artist-level mint never saw it (`0202` resolved none of its nine artist
+genre strings; recording genres resolve 61 of 83).
+
+- **The artist is the independence unit, and one mapping per (genre, artist) is
+  the whole of the damping.** Forty baroque tracks by one ensemble are one
+  opinion about baroque; two ensembles agreeing are two. `mapping_method` is
+  **`provider_metadata`** — Apple states the genre *about* the recording, which
+  is not an identifier *for* it.
+- **No threshold lives in the resolver; the scorer's curve decides** — and so
+  **the number of artists that clears it is not a constant this route may
+  quote.** Getting that wrong twice in one sitting turned four real crossings
+  into a predicted twenty: the bar for a genre is **`ELIGIBLE_STRENGTH` 0.35**
+  (the **0.25 relief is `concept_kind = 'work'` alone**), and **`w` is not the
+  artist count** — every mapping is multiplied by `recency_weight`,
+  `default_reliability` and `action_weight`, ~0.6 per artist on real libraries.
+  `test_genre_rollup_threshold.py` derives the boundary from the constants so
+  moving either one fails rather than quietly emptying the rollup.
+- **A container genre is a vocabulary problem, never a resolver deny-list.** A
+  rule silencing a parent whose child the account also holds was written,
+  measured against both accounts, and **was wrong in both directions**: it let
+  `genre:apple_19` ("Worldwide") through, the one case it existed for, and struck
+  out `genre:pop` at 227 independent artists and `genre:classical` at 98. The
+  opaque keys are not containers either — `apple_1004` is Indie Rock, `apple_1263`
+  Bollywood. Weighting disposes of the worry by itself: "Worldwide" reaches four
+  artists and does not cross. The residue is the same defect already recorded
+  against `genre:asian_music`, and it belongs in the ontology where one
+  correction serves every reader.
+
 **`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
 branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped
 `except Exception` in `handler.py`, taking the rollback and the payload-safe
