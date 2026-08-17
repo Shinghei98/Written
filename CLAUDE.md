@@ -1646,6 +1646,35 @@ Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
   - **What would change the answer**, and is worth re-running rather than
     re-deriving: works reaching two distinct performers within one library, or
     the same work held by several accounts. Neither needs new code to measure.
+  - **`0223` freezes the rule before the population exists**, which is the whole
+    of the method: *rule first, population second, decision last.* A threshold
+    fitted to the library it was read from looks right by construction, and
+    `0220` produced two live examples of that in one afternoon.
+    - **The frozen rule: three or more distinct `primary_performer`s, within
+      one account, on policy-eligible live observations.** Three is **frozen as
+      a literal and does not track `ELIGIBLE_STRENGTH` or `HALF_WEIGHT`** — a
+      rule that moved with the scorer's constants would silently redefine the
+      experiment. It is *derived from* them (`w >= 2.0` at the 0.25 relief, ~0.6
+      per mapping, so ~3.3) and rounded **down**, so the shadow set
+      over-collects: under-collection cannot be repaired afterwards.
+    - **The two qualifiers are `eligible_shadow`, which is not vocabulary** — no
+      concept, no revision, no version, nothing reads them. `0221` removed 560
+      recordings minted only because minting was the sole way to hold a handle
+      on something; this is that handle without the minting.
+    - **`evaluate_work_independence` refuses below five accounts rather than
+      caveating.** A printed number gets quoted, and a threshold read off too
+      little data is the failure being guarded. Five is `EmergentTermMiner`'s
+      floor, reused rather than reinvented.
+    - **The five measurements are named in the row, not chosen afterwards**:
+      works per user, recurrence across users, precision after review,
+      independence of the qualifying evidence, and ontology growth per useful
+      assertion — the last being the ratio that would have flagged `0198`/`0199`
+      early, 779 concepts for 6 mappings and no assertions. **Precision reports
+      `null` until review data exists, never `0`.**
+    - **A trigger enforces the freeze**; only `status` and `notes` may move, and
+      **a superseding rule takes a new key rather than an amendment.**
+      Publication is a separate decision on a held-out population and nothing
+      in `0223` performs it.
 - **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
   `auto_promote: false`, and a five-user floor a single library cannot reach.
 
