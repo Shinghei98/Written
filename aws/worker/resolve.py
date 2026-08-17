@@ -1334,6 +1334,23 @@ select e.external_id as isrc, x.concept_id
    and c.concept_key like 'recording:isrc_%'
 """
 
+#: **Which of a user's observations the source still lists.**
+#:
+#: `guard_mapping_current_source_v031` refuses a `candidate` or `accepted`
+#: mapping whose observation is not currently present — the rule being that a
+#: claim may not rest on something the provider has stopped reporting. The
+#: lexical routes satisfy it incidentally; the ISRC route had to be told.
+#:
+#: Loaded once per run rather than asked per row: this is consulted for every
+#: observation carrying an ISRC, which is thousands.
+SELECT_CURRENT_OBSERVATIONS = """
+select c.current_observation_id as observation_id
+  from semantic_private.current_source_items c
+ where c.user_id = %(user_id)s
+   and c.lifecycle_state = 'present'
+   and c.current_observation_id is not null
+"""
+
 SELECT_CATALOGUE_GAMES = """
 select distinct on (e.external_id)
        e.external_id,
@@ -1509,6 +1526,20 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         recordings = {row["isrc"]: row["concept_id"] for row in cursor.fetchall()}
     counts["catalogue_recordings"] = len(recordings)
 
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_CURRENT_OBSERVATIONS, {"user_id": user_id})
+        # **`str`, because `observation.id` is a string and this column is a
+        # uuid.** psycopg returns `uuid` as a `UUID` object, and `str in
+        # {UUID, ...}` is silently false for every row — so the first version of
+        # this skipped all 736 eligible observations as "not current" and
+        # produced no mappings at all, while every query it depends on returned
+        # exactly the right rows. The convention is already established at
+        # `observation_from_row` (`id=str(row["id"])`) and at the two concept
+        # lookups above it; this was the one place that did not follow it.
+        current_observations = {
+            str(row["observation_id"]) for row in cursor.fetchall()
+        }
+
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
 
@@ -1609,6 +1640,20 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         recording_concept = (
             recordings.get(recording_isrc) if isinstance(recording_isrc, str) else None
         )
+        if recording_concept is not None and observation.id not in current_observations:
+            # **The source no longer lists this row, so it is not evidence.**
+            # `guard_mapping_current_source_v031` refuses a `candidate` or
+            # `accepted` mapping whose observation is not currently present, and
+            # writing `candidate` instead would not help — it refuses both.
+            #
+            # Measured before this existed: of 736 observations carrying an ISRC
+            # with a minted recording, 735 were present and **one** was not. That
+            # one row raises, the job fails, `run_once` retries it five times and
+            # marks it `dead`. A batch of 735 correct mappings lost to a single
+            # row is the shape of failure this codebase keeps meeting, and the
+            # counter below is what makes the skip visible rather than silent.
+            counts["isrc_not_current"] = counts.get("isrc_not_current", 0) + 1
+            recording_concept = None
         if recording_concept is not None:
             mapping_rows.append({
                 "run": run_id,
@@ -1623,7 +1668,13 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 # the row. There is nothing to be uncertain about.
                 "state": "accepted",
                 "confidence": 1.0,
-                "rank": 0,
+                # **1, not 0.** `observation_mappings_candidate_rank_check` is
+                # `candidate_rank > 0`: ranks here are 1-based, and this route
+                # produces exactly one candidate, which is the first of one.
+                "rank": 1,
+                # No margin: a margin is the distance to the runner-up, and an
+                # identifier has no runner-up. Null says that; 0.0 would claim a
+                # tie with something that does not exist.
                 "margin": None,
                 "evidence_path": json.dumps(
                     [{"step": "provider_id", "identifier": "isrc"},
