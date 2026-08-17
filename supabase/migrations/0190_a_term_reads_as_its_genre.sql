@@ -485,6 +485,7 @@ declare
   source_edges    integer;
   added           integer;
   enqueued        integer;
+  has_catalogue_links boolean;
   block_taylor    text;
   block_oor       text;
   block_bach      text;
@@ -593,7 +594,24 @@ begin
   get diagnostics added = row_count;
 
   if added = 0 then
-    raise exception '0190: no linked creator gained a parent, which is not the measured state';
+    -- **"Nothing to do" is not "did nothing", and the first version could not
+    -- tell them apart.** This insert draws only from creators linked to
+    -- `apple_music_catalog` artist entities, which exist because
+    -- `tools/apple_catalog.py` has run — true of production, false of every
+    -- replay from empty. The rule it protects is that a database holding such
+    -- links must gain parents from them, and that is asked here directly.
+    if exists (
+      select 1
+        from ontology.external_concept_links link
+        join ontology.external_entities entity
+          on entity.id = link.external_entity_id
+         and entity.provider = 'apple_music_catalog'
+         and entity.entity_kind = 'artist'
+       where link.ontology_version_id = new_version_id
+    ) then
+      raise exception '0190: no linked creator gained a parent, which is not the measured state';
+    end if;
+    raise notice '0190: no apple_music_catalog creator links, so no genre parents to add';
   end if;
 
   perform ontology.publish_version(new_version_id);
@@ -605,10 +623,34 @@ begin
   select semantic_private.concept_block(c.id, new_version_id) into block_oor
     from ontology.concepts c where c.concept_key = 'creator:one_ok_rock';
 
-  if block_taylor is distinct from 'genre:pop' then
+  -- Both probes name catalogue-minted artists, so both are asked only where the
+  -- catalogue minted them. `concept_block` returning null for a concept that
+  -- does not exist is not the function failing to read a genre.
+  -- **Both probes read a genre parent that only the catalogue can supply.**
+  -- `creator:one_ok_rock` is authored vocabulary and exists everywhere, so
+  -- testing it for null does not distinguish "the function stopped reading
+  -- genres" from "this database states none" — it blocks as `hub:music`, which
+  -- is the correct answer when no genre was stated about it. The condition that
+  -- separates the two is whether any creator is linked to the catalogue at all,
+  -- which is what step 3 above inserts from.
+  select exists (
+    select 1
+      from ontology.external_concept_links link
+      join ontology.external_entities entity
+        on entity.id = link.external_entity_id
+       and entity.provider = 'apple_music_catalog'
+       and entity.entity_kind = 'artist'
+     where link.ontology_version_id = new_version_id
+  ) into has_catalogue_links;
+
+  if not has_catalogue_links then
+    raise notice '0190: no catalogue-linked creators, so the genre probes have no input';
+  end if;
+
+  if has_catalogue_links and block_taylor is distinct from 'genre:pop' then
     raise exception '0190: Taylor Swift blocks as %, expected genre:pop', block_taylor;
   end if;
-  if block_oor is distinct from 'genre:rock' then
+  if has_catalogue_links and block_oor is distinct from 'genre:rock' then
     raise exception '0190: ONE OK ROCK blocks as %, expected genre:rock', block_oor;
   end if;
 

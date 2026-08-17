@@ -461,7 +461,18 @@ begin
           and o.record_fingerprint = r.record_fingerprint
           and o.lifecycle_state = 'deleted');
   if blocked = 0 then
-    raise exception '0192: the measured collision is gone — this is not the state described';
+    -- **The probe needs the row it probes, and only one database has it.** This
+    -- exercises the predicate against a specific redacted Spotify run captured
+    -- on 2026-08-15; a replay from empty holds no such run, and no ingestion
+    -- run at all. Absent the fixture there is nothing to discriminate, which is
+    -- different from failing to discriminate — but only when the difference is
+    -- checked, so it is checked: the fixture's absence is permitted, and its
+    -- presence still demands the collision.
+    if exists (select 1 from semantic_private.raw_source_records
+                where ingestion_run_id = 'c0e5d6b7-2f94-4894-9188-10a494295634') then
+      raise exception '0192: the measured collision is gone — this is not the state described';
+    end if;
+    raise notice '0192: the measured run is absent, so the tombstone probe had no data';
   end if;
 
   -- Still exactly one live row per fingerprint.
@@ -479,7 +490,12 @@ begin
   select id into probe from semantic_private.observations
    where user_id = subject and source_code = 'spotify' and lifecycle_state = 'deleted'
    limit 1;
-  if probe is null then
+  -- Same fixture as the collision probe above: a redacted Spotify observation
+  -- belonging to one account on one date. Where the account has none, there is
+  -- nothing to test against, which is reported rather than failed.
+  if probe is null
+     and exists (select 1 from semantic_private.observations
+                  where user_id = subject and source_code = 'spotify') then
     raise exception '0192: no redacted observation to test against';
   end if;
 end;

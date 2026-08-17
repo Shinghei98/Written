@@ -282,7 +282,16 @@ begin
     from ontology.concepts where concept_key like 'creator:yt_%';
 
   if failing = 0 then
-    raise exception '0195: nothing fails the new rule, which is not the measured state';
+    -- **A rule that removes nothing is only wrong where there is something to
+    -- remove.** This narrows `creator:yt_*` concepts to channels a subscription
+    -- still attests at the subscriber floor; a database holding no YouTube
+    -- channel concepts fails nothing because it has nothing, which is not the
+    -- same as the rule having stopped discriminating. Asked directly, so a
+    -- production replay still demands the measured state.
+    if exists (select 1 from ontology.concepts where concept_key like 'creator:yt_%') then
+      raise exception '0195: nothing fails the new rule, which is not the measured state';
+    end if;
+    raise notice '0195: no creator:yt_* concepts, so the new rule has nothing to narrow';
   end if;
 
   next_version := split_part(current_version, '.', 1) || '.'

@@ -264,11 +264,24 @@ declare
   britpop text;
   chinese text;
   leaked  integer;
+  has_catalogue boolean;
 begin
-  receipt := semantic_private.mint_genres_from_stated_strings();
-  raise notice '0191: %', receipt;
+  -- **The mint names genres after strings the catalogue states, so a database
+  -- with no catalogue has nothing to name.** The three outcome assertions below
+  -- describe what production held on 2026-08-15 — four minted, britpop under
+  -- pop, chinese rock under rock — and are demanded only where the input they
+  -- describe exists. The refusal check at the foot is not conditioned, because
+  -- "these must not appear" is answerable everywhere and is the half that shows
+  -- the rule discriminates.
+  select exists (
+    select 1 from ontology.external_entities
+     where provider = 'apple_music_catalog' and entity_kind = 'artist'
+  ) into has_catalogue;
 
-  if (receipt ->> 'minted')::integer <> 4 then
+  receipt := semantic_private.mint_genres_from_stated_strings();
+  raise notice '0191: % (catalogue present: %)', receipt, has_catalogue;
+
+  if has_catalogue and (receipt ->> 'minted')::integer <> 4 then
     raise exception '0191: expected 4 genres named after ones we hold, got %',
       receipt ->> 'minted';
   end if;
@@ -280,7 +293,7 @@ begin
     join ontology.concepts p on p.id = e.object_concept_id
    where c.concept_key = 'genre:britpop' and e.predicate_key = 'broader'
      and e.status = 'active';
-  if britpop is distinct from 'genre:pop' then
+  if has_catalogue and britpop is distinct from 'genre:pop' then
     raise exception '0191: britpop parents to %, expected genre:pop', britpop;
   end if;
 
@@ -291,7 +304,7 @@ begin
     join ontology.concepts p on p.id = e.object_concept_id
    where c.concept_key = 'genre:chinese_rock' and e.predicate_key = 'broader'
      and e.status = 'active';
-  if chinese is distinct from 'genre:rock' then
+  if has_catalogue and chinese is distinct from 'genre:rock' then
     raise exception '0191: chinese rock parents to %, expected genre:rock', chinese;
   end if;
 

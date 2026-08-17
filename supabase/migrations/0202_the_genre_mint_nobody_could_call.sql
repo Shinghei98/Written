@@ -115,7 +115,16 @@ begin
 
   mintable := stated_strings - already_concepts;
 
-  if stated_strings = 0 then
+  -- **This assertion was mine and it had the same disease as six others.** It
+  -- demanded that the catalogue already state genre strings, which is true of
+  -- production and false of every replay from empty — so the migration that
+  -- exists to make a grant executable could not be applied to a fresh database.
+  -- The grant is worth making whether or not today's data exercises it; what is
+  -- worth refusing is a *populated* catalogue whose strings all fail to resolve,
+  -- and that is what is asked now.
+  if stated_strings = 0
+     and exists (select 1 from ontology.external_entities
+                  where provider = 'apple_music_catalog' and entity_kind = 'artist') then
     raise exception '0202: the genre mint has no input, so granting it says nothing';
   end if;
 

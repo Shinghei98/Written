@@ -156,13 +156,25 @@ declare
   total integer;
 begin
   select count(*) into total from mint_candidate;
+  -- **An empty catalogue is not the same as minting nothing, and the first
+  -- version of this guard could not tell them apart.** It raised whenever no
+  -- `apple_music_catalog` artist existed, which is true of production before
+  -- `tools/apple_catalog.py` has run and true of *every* replay from empty —
+  -- so the whole chain has been unreplayable past this point since it landed,
+  -- and `0174`–`0203` have never been applied to a fresh database.
+  --
+  -- The rule it was reaching for is that a *populated* catalogue must not pass
+  -- through silently, and that is answerable without knowing how many rows
+  -- production happens to hold. It is asserted below, where the dispositions
+  -- are counted. Same repair `0092` and `0128` took: assert against what was
+  -- found rather than against what one database contains.
   if total = 0 then
-    raise exception
-      '0173: no apple_music_catalog artist entities. Apply the migration from '
-      '`tools/apple_catalog.py` first — this migration mints from what that one '
-      'stores, and minting nothing while reporting success is worse than failing.';
+    raise notice
+      '0173: no apple_music_catalog artists, so nothing to mint. Run '
+      '`tools/apple_catalog.py` before expecting creators from this migration.';
+  else
+    raise notice '0173: % catalogue artists to consider', total;
   end if;
-  raise notice '0173: % catalogue artists to consider', total;
 end;
 $$;
 
@@ -231,13 +243,32 @@ select c.apple_id,
 do $$
 declare
   minting integer; linking integer; ambiguous integer; colliding integer;
+  planned integer; total integer;
 begin
   select count(*) filter (where disposition = 'mint'),
          count(*) filter (where disposition = 'link'),
          count(*) filter (where disposition like 'ambiguous%'),
-         count(*) filter (where disposition = 'would_collide')
-    into minting, linking, ambiguous, colliding
+         count(*) filter (where disposition = 'would_collide'),
+         count(*)
+    into minting, linking, ambiguous, colliding, planned
     from mint_plan;
+  select count(*) into total from mint_candidate;
+
+  -- **This is the guard the count-of-zero refusal was reaching for.** What must
+  -- never happen is a catalogue with artists in it passing through and
+  -- producing nothing; what is perfectly fine is a catalogue with no artists.
+  -- Both are stated here, and both are answerable on an empty database.
+  if planned <> total then
+    raise exception
+      '0173: % catalogue artists but % reached the plan — the join dropped %',
+      total, planned, total - planned;
+  end if;
+  if total > 0 and minting + linking + ambiguous + colliding = 0 then
+    raise exception
+      '0173: % catalogue artists and not one was minted, linked or refused. '
+      'Minting nothing while reporting success is worse than failing.', total;
+  end if;
+
   -- **Said out loud rather than left to inference.** A skipped artist is a
   -- person's term that will not resolve, and a silent cap reads as coverage.
   raise notice '0173: % to mint, % to link, % refused as ambiguous, % refused as colliding',

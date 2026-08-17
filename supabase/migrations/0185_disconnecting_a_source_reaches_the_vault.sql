@@ -193,7 +193,16 @@ declare
   redacted  integer := 0;
   remaining integer;
   enqueued  integer;
+  healthkit_before integer;
 begin
+  -- **Counted rather than remembered.** The check below used to compare against
+  -- 1202, which is what this database held on 2026-08-15 and nothing else ever.
+  -- The rule is that disconnecting Spotify moves no HealthKit row, and that is
+  -- answerable without knowing the number — the same repair `0092` and `0128`
+  -- took when they named production's own contents.
+  select count(*) into healthkit_before
+    from semantic_private.raw_source_records
+   where source_code = 'healthkit' and lifecycle_state <> 'deleted';
   perform set_config('written.forget_source_v031', '1', true);
 
   -- The state this repairs, asserted before it is repaired: a disconnect that
@@ -257,8 +266,9 @@ begin
   select count(*) into remaining
     from semantic_private.raw_source_records
    where source_code = 'healthkit' and lifecycle_state <> 'deleted';
-  if remaining <> 1202 then
-    raise exception '0185: healthkit raw records moved — expected 1202, found %', remaining;
+  if remaining <> healthkit_before then
+    raise exception '0185: healthkit raw records moved — % before, % after',
+      healthkit_before, remaining;
   end if;
 
   select semantic_private.enqueue_recompute_on_analysis_change(

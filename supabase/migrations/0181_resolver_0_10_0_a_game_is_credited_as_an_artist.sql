@@ -48,7 +48,25 @@ select gen_random_uuid(), 'ontology_first_resolver', '0.10.0', 'resolver', null,
        ),
        'active'
   from ontology.model_versions old
- where old.model_key = 'ontology_first_resolver' and old.version = '0.9.0';
+ where old.model_key = 'ontology_first_resolver' and old.version = '0.9.0'
+-- **`0174` mints this same version, and the two collide.** Both insert
+-- `ontology_first_resolver` 0.10.0 from 0.9.0, so on any database where `0174`
+-- ran this statement raises `duplicate key`. Production never noticed because
+-- `0174` was never applied there — it is marked applied in the ledger and its
+-- `spotify_top_items` parameter is absent from the live 0.10.0 row, which is
+-- how the collision stayed hidden until the chain was first replayed from
+-- empty. The package half of `0174` shipped independently and works (12,787 of
+-- 12,803 `top_track` observations are mapped); what was lost is the parameter
+-- describing it, and `0205` puts that back.
+--
+-- Merging rather than inserting is what makes the two composable: whichever
+-- runs second adds its parameter to the row instead of fighting for it, and a
+-- replay ends with both keys present, which is what the deployed resolver
+-- actually implements.
+on conflict (model_key, version) do update
+   set parameters = ontology.model_versions.parameters || excluded.parameters,
+       model_role = excluded.model_role,
+       status     = 'active';
 
 do $$
 declare

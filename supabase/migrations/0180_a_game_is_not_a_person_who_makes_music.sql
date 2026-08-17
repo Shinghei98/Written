@@ -416,6 +416,7 @@ declare
   old_version_id  uuid;
   new_version_id  uuid;
   wrong_concept   uuid;
+  minted_edges    integer;
   game_concept    uuid;
   hub_concept     uuid;
   source_edges    integer;
@@ -436,8 +437,20 @@ begin
     from ontology.concepts where concept_key = 'creator:apple_1849120613';
   select id into hub_concept
     from ontology.concepts where concept_key = 'hub:games_play';
-  if wrong_concept is null or hub_concept is null then
-    raise exception '0180: expected creator:apple_1849120613 and hub:games_play to exist';
+  -- **Two conditions with different standing, and they were checked as one.**
+  -- `hub:games_play` is seeded vocabulary and its absence is a broken ontology.
+  -- `creator:apple_1849120613` is a row `0173` minted from the Apple catalogue,
+  -- so it exists wherever `tools/apple_catalog.py` has run and nowhere else —
+  -- which made this migration unapplicable to a fresh database. Every later use
+  -- of `wrong_concept` is a `= wrong_concept` comparison that matches nothing
+  -- when it is null, so the deprecation simply has nothing to deprecate and the
+  -- work is still minted and parented.
+  if hub_concept is null then
+    raise exception '0180: hub:games_play is missing, which is a broken ontology';
+  end if;
+  if wrong_concept is null then
+    raise notice '0180: creator:apple_1849120613 was never minted here, so there is '
+                 'no misfiled creator to deprecate — the work is still minted';
   end if;
 
   select count(*) into source_edges
@@ -484,11 +497,20 @@ begin
 
   -- The work, keyed on the same Apple id the creator was keyed on: it is the
   -- same catalogue entry, read correctly.
-  insert into ontology.concepts (id, concept_key)
-  values (extensions.gen_random_uuid(), 'work:apple_1849120613')
-  on conflict (concept_key) do nothing;
-  select id into game_concept
-    from ontology.concepts where concept_key = 'work:apple_1849120613';
+  --
+  -- **Minted only where there is a misfiled creator to convert.** The revision
+  -- and the labels below are both copied *from* that creator, so without one
+  -- this used to leave a bare `ontology.concepts` row carrying no revision at
+  -- the new version — and the parent edge then failed its foreign key. A
+  -- concept with no revision is worse than no concept: it is invisible to every
+  -- reader that joins through `concept_revisions` and permanent.
+  if wrong_concept is not null then
+    insert into ontology.concepts (id, concept_key)
+    values (extensions.gen_random_uuid(), 'work:apple_1849120613')
+    on conflict (concept_key) do nothing;
+    select id into game_concept
+      from ontology.concepts where concept_key = 'work:apple_1849120613';
+  end if;
 
   insert into ontology.concept_revisions (ontology_version_id, concept_id, preferred_label, concept_kind, definition, sensitivity, inference_policy, status, metadata)
   select new_version_id, game_concept, r.preferred_label, 'work', null, 'ordinary', 'inferable', 'active',
@@ -509,10 +531,11 @@ begin
   get diagnostics labels_copied = row_count;
 
   insert into ontology.concept_edges (ontology_version_id, subject_concept_id, predicate_key, object_concept_id, confidence, provenance_type, provenance, status)
-  values (new_version_id, game_concept, 'broader', hub_concept, 1.0, 'provider',
-          jsonb_build_object('source', 'mint_vocabulary', 'provider', 'apple_music_catalog',
-                             'basis', 'album_names_the_game'),
-          'active')
+  select new_version_id, game_concept, 'broader', hub_concept, 1.0, 'provider',
+         jsonb_build_object('source', 'mint_vocabulary', 'provider', 'apple_music_catalog',
+                            'basis', 'album_names_the_game'),
+         'active'
+   where game_concept is not null
   on conflict do nothing;
 
   insert into ontology.external_concept_links (ontology_version_id, concept_id, external_entity_id, link_type, confidence, status)
@@ -530,9 +553,13 @@ begin
   -- 3. What must be true before this is published.
   select count(*) into copied_edges
     from ontology.concept_edges where ontology_version_id = new_version_id;
-  if copied_edges <> source_edges + 1 then
-    raise exception '0180: expected % edges (% carried forward plus the game''s parent), found %',
-      source_edges + 1, source_edges, copied_edges;
+  -- One new edge where the game was minted, none where there was no creator to
+  -- convert. Stated as arithmetic rather than as two branches, so the count is
+  -- still exact in both cases.
+  minted_edges := case when game_concept is null then 0 else 1 end;
+  if copied_edges <> source_edges + minted_edges then
+    raise exception '0180: expected % edges (% carried forward plus % for the game), found %',
+      source_edges + minted_edges, source_edges, minted_edges, copied_edges;
   end if;
 
   select count(*) into withheld
@@ -543,11 +570,11 @@ begin
     raise exception '0180: % label(s) of the deprecated creator are still active', withheld;
   end if;
 
-  if labels_copied = 0 then
+  if game_concept is not null and labels_copied = 0 then
     raise exception '0180: the work was minted with no label, which cannot resolve';
   end if;
 
-  if not exists (
+  if game_concept is not null and not exists (
     select 1 from ontology.concept_edges
      where ontology_version_id = new_version_id
        and subject_concept_id = game_concept and predicate_key = 'broader'
