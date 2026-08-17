@@ -1307,6 +1307,33 @@ select distinct on (e.external_id)
 # that matters most on a classical row. `entity_kind = 'song'` replaces it,
 # because the same provider now also stores artists.
 
+#: **The recording concepts, keyed by the ISRC that identifies them.**
+#:
+#: `0214` mints one `recording:isrc_*` concept per ISRC and links it to the
+#: catalogue entity it came from. This reads that link back at the published
+#: version, which is what turns a structured identifier on an observation into a
+#: concept without any string matching at all.
+#:
+#: **It joins through `external_concept_links`, not through the concept key.**
+#: Parsing `recording:isrc_<x>` back into an ISRC would work today and would be a
+#: second place that encodes the naming scheme — the link is the fact, and the
+#: key is a label for humans.
+SELECT_RECORDINGS_BY_ISRC = """
+select e.external_id as isrc, x.concept_id
+  from ontology.external_concept_links x
+  join ontology.external_entities e on e.id = x.external_entity_id
+  join ontology.versions v on v.id = x.ontology_version_id
+  join ontology.concepts c on c.id = x.concept_id
+  join ontology.concept_revisions cr
+    on cr.concept_id = c.id and cr.ontology_version_id = v.id
+ where v.status = 'published'
+   and x.status = 'active'
+   and cr.status = 'active'
+   and e.provider = 'apple_music_catalog'
+   and e.entity_kind = 'song'
+   and c.concept_key like 'recording:isrc_%'
+"""
+
 SELECT_CATALOGUE_GAMES = """
 select distinct on (e.external_id)
        e.external_id,
@@ -1477,6 +1504,11 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         )
     counts["catalogue_games"] = len(catalogue_games)
 
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_RECORDINGS_BY_ISRC)
+        recordings = {row["isrc"]: row["concept_id"] for row in cursor.fetchall()}
+    counts["catalogue_recordings"] = len(recordings)
+
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
 
@@ -1550,6 +1582,72 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             # something is being dropped that nobody decided to drop.
             counts["unweighted_action"] += 1
             continue
+
+        # ------------------------------------------------------------------
+        # The ISRC route: a structured identifier, not a string.
+        # ------------------------------------------------------------------
+        #
+        # **Placed after recency and before any lexical work**, and both halves
+        # of that matter.
+        #
+        # *After recency*, because an action with no recency rule has already
+        # `continue`d above — which is exactly the set that must not produce a
+        # mapping. Apple's `recommendation` carries `action_weight` 0.000 and the
+        # policy declines to give it a rule, so a recommendation can no more
+        # produce an ISRC mapping than it can produce a lexical one. That falls
+        # out of the ordering rather than needing a rule of its own.
+        #
+        # *Before the lexical candidates*, because this is not a fallback for
+        # them. An ISRC identifies the recording whatever its title matched; the
+        # two routes are separate evidence and `observation_mappings` is unique
+        # on `(run, observation, concept, method)`, so both may stand.
+        #
+        # `mapping_method = 'provider_id'` has been in the column's allowlist
+        # since the schema was written and had never been used. It is the right
+        # name for this: the provider stated the identity, we did not infer it.
+        recording_isrc = (row.get("normalized_payload") or {}).get("isrc")
+        recording_concept = (
+            recordings.get(recording_isrc) if isinstance(recording_isrc, str) else None
+        )
+        if recording_concept is not None:
+            mapping_rows.append({
+                "run": run_id,
+                "observation": observation.id,
+                "user_id": user_id,
+                "version": version,
+                "concept": recording_concept,
+                "method": "provider_id",
+                # **Accepted, not a candidate.** A candidate is a fuzzy
+                # near-miss the scorer discards; an ISRC is the rights holder's
+                # own identifier for the recording, stated by the provider on
+                # the row. There is nothing to be uncertain about.
+                "state": "accepted",
+                "confidence": 1.0,
+                "rank": 0,
+                "margin": None,
+                "evidence_path": json.dumps(
+                    [{"step": "provider_id", "identifier": "isrc"},
+                     recency.evidence_step()]
+                ),
+                # The observation's own weight, unmodified. There is no term
+                # here to carry a role weight, and inventing one would be a
+                # judgement about how much a recording counts that belongs in
+                # `action_weights` where the next reader looks.
+                "evidence_weight": 1.0,
+                "recency_weight": recency.weight,
+                "recency_quality": recency.timestamp_quality_weight,
+                "recency_policy": recency.policy_version,
+                "recency_rule": recency.rule_id,
+                "recency_status": str(recency.temporal_status),
+                "recency_quality_label": str(recency.timestamp_quality),
+                "as_of": as_of,
+                # Never YouTube: this route reads an ISRC, and YouTube states
+                # none.
+                "youtube_kind": None,
+            })
+            counts["isrc_mappings"] = counts.get("isrc_mappings", 0) + 1
+            counts["mappings"] += 1
+            counts["accepted"] += 1
 
         for candidate in mapper.map_observation(observation):
             # **Rejections are counted, not stored.** `resolve_alias` falls back
