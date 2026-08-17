@@ -4,6 +4,11 @@
 # Office lock files
 ~$*.xlsx
 
+# R console history. Written by the interpreter, not by anybody, and it records
+# whatever was typed at a prompt — which in this repository means queries
+# against real distillations.
+.Rhistory
+
 # Distillation exports (personal data — never commit)
 written-distillation-*.csv
 # The term-labelling sheet: one person's whole music library in plain text,
@@ -15,6 +20,13 @@ ontology-terms.csv
 # raw Calendar payloads in logs and traces; a file in the working tree is not
 # either of those, and it is not something to commit.
 calendar-review-*.md
+# **Rooted, so it does not swallow `semantic/ontology/terms.xlsx`**, which is
+# tracked vocabulary the seed consistency test reads. A `terms.xlsx` at the top
+# level is a working copy of that sheet or an export beside it, and both are the
+# `ontology-terms.csv` case in a different format: one person's library in plain
+# text. If a root copy ever *is* the vocabulary, it belongs at the tracked path
+# rather than here.
+/terms.xlsx
 
 # Credentials. None of these belong in a repository, and the reason this list
 # exists rather than trusting care is that an APNs key was committed by a
