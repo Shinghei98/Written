@@ -32,9 +32,13 @@
 
 begin;
 
-update ontology.model_versions set status = 'retired'
- where model_key = 'ontology_first_resolver' and status = 'active';
-
+-- **Insert first, retire second, and inherit from whichever version is latest
+-- rather than naming one.** The first version of this retired every active
+-- resolver and then selected its parameters `from ... where version = '0.11.0'`
+-- — so on a database where `0215` did not apply, the select matched nothing, the
+-- insert wrote nothing, and the migration left the system with *no* active
+-- resolver at all. Retiring before knowing a successor exists is how a
+-- precondition failure becomes an outage.
 insert into ontology.model_versions (id, model_key, version, model_role, code_hash, parameters, status)
 select extensions.gen_random_uuid(), 'ontology_first_resolver', '0.11.1', 'resolver', null,
        old.parameters || jsonb_build_object(
@@ -49,11 +53,20 @@ select extensions.gen_random_uuid(), 'ontology_first_resolver', '0.11.1', 'resol
          || 'did not execute. 0.11.1 is the same route with both fixed.'
        ),
        'active'
-  from ontology.model_versions old
- where old.model_key = 'ontology_first_resolver' and old.version = '0.11.0'
+  from (
+    select * from ontology.model_versions
+     where model_key = 'ontology_first_resolver'
+     order by string_to_array(version, '.')::integer[] desc
+     limit 1
+  ) old
 on conflict (model_key, version) do update
    set parameters = ontology.model_versions.parameters || excluded.parameters,
        status = 'active';
+
+update ontology.model_versions set status = 'retired'
+ where model_key = 'ontology_first_resolver'
+   and status = 'active'
+   and version <> '0.11.1';
 
 do $$
 declare
@@ -82,8 +95,13 @@ begin
     join ontology.concepts c on c.id = x.concept_id
    where c.concept_key like 'recording:isrc_%' and x.status = 'active'
      and e.entity_kind = 'song';
-  if reachable = 0 then
-    raise exception '0217: no linked recording for the route to reach';
+  -- Same treatment as `0215`: recordings exist where a catalogue does, and a
+  -- replay from empty has none. The rule is conditional on the input.
+  if reachable = 0 and exists (
+       select 1 from ontology.external_entities
+        where provider = 'apple_music_catalog' and entity_kind = 'song'
+          and raw_payload ? 'name') then
+    raise exception '0217: catalogued songs exist and no linked recording does';
   end if;
 
   select semantic_private.enqueue_recompute_on_analysis_change(

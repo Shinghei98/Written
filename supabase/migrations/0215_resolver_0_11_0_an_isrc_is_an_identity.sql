@@ -105,8 +105,20 @@ begin
     join ontology.external_concept_links x
       on x.concept_id = c.id and x.ontology_version_id = v.id and x.status = 'active'
    where c.concept_key like 'recording:isrc_%' and cr.status = 'active';
+  -- **Only where there was something to mint from.** `0214` mints recordings
+  -- from catalogued songs, and a replay from empty has no catalogue — the same
+  -- precondition defect repaired in eight other migrations today, written by
+  -- the same hand that repaired them. The rule is that a database holding
+  -- catalogued songs must have recordings reachable; one holding none must not
+  -- be required to.
+  if recordings = 0 and exists (
+       select 1 from ontology.external_entities
+        where provider = 'apple_music_catalog' and entity_kind = 'song'
+          and raw_payload ? 'name') then
+    raise exception '0215: catalogued songs exist and no linked recording does';
+  end if;
   if recordings = 0 then
-    raise exception '0215: no linked recording concept exists for the route to reach';
+    raise notice '0215: no catalogued recording to reach; the route will find none';
   end if;
 
   select semantic_private.enqueue_recompute_on_analysis_change(
