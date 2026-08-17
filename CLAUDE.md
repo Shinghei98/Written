@@ -420,6 +420,18 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
   redaction disagreeing. **A deletion cannot be checked by inspection** — the
   first version of `forget_distillation` walked nine tables in correct
   foreign-key order and raised on its first statement.
+- **A `before delete` guard on a table that cascades from `auth.users` must
+  permit the erasure case, or account deletion fails.** A row trigger fires on a
+  cascaded delete exactly as on a direct one, so six such guards made every
+  account in this database undeletable — an App Store requirement and one of the
+  three deletions this project calls an obligation. The pattern is
+  `guard_healthkit_grant_delete`'s and `0204` applies it to all of them:
+  **`if exists (select 1 from auth.users where id = old.user_id) then raise` —
+  refuse while the owner exists, permit once they are gone**, since the parent
+  row is deleted before its cascade fires. No flag, no privileged procedure and
+  no new grant. **A trigger fix alone is not enough**: `ingestion_run_items`
+  held two `no action` foreign keys that were not `deferrable`, so cascade order
+  could still raise with every trigger behaving perfectly.
 - **Retiring is not deleting, and inferred claims are retired.** `machine_state
   = 'inactive'` is what `api.list_assertions` filters on, and the scorer writes
   whichever state a run computes — so reconnecting and distilling revives a
@@ -1072,7 +1084,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0203`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0206`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1170,6 +1182,23 @@ assertions are still eligible in production.
 - **When a migration needs a grant, read `pg_trigger` for the tables being
   written and follow what each trigger calls.** That is the first move, not the
   sixth.
+- **`tools/replay_contracts.sh` applies the whole chain to a throwaway Postgres,
+  and `tools/ci/unreplayable_migrations.txt` is meant to stay empty.** A
+  migration that asserts against production's own contents cannot replay, and
+  the repair is always the same shape: **assert the transformation, not the
+  precondition.** `0173` refused an empty Apple catalogue and so blocked
+  `0174`–`0205` from ever being replay-tested; seven more behind it named a
+  count, a uuid or an artist that only one database holds. **A count of zero is
+  not a failure to act** — say what must be true *when* the input exists, and
+  the same assertion answers on an empty database and on production.
+- **The compiled contract's database gate runs there too**, fed by
+  `tools/read_live_catalog.py --emit-sql`, so its allowlists are a thing a
+  database said rather than a thing somebody typed. It refuses a snapshot with
+  no `constraint_oids` and no fingerprint. **The eight unregistered pipeline
+  jobs are reported as *pending* while the overlay is off and become failures
+  the moment it is on** — registering a `job_type` before its handler ships is
+  worse than leaving it out, since the job is claimed, found handler-less and
+  marked `dead` with no retry.
 
 ### Keys and crypto
 

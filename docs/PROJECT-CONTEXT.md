@@ -1468,7 +1468,7 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0203`.** `db push` is the deployment mechanism and
+**Migration head `0206`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate.
@@ -1590,6 +1590,98 @@ production.
 - **When a migration needs a grant, read `pg_trigger` for the tables being
   written and follow what each trigger calls.** Five migrations each cost a
   deploy and a run to learn one statically-knowable fact.
+
+#### Account deletion was broken for every account (`0204`)
+
+`delete-account` deletes the `auth.users` row and lets the cascade do the rest.
+**Six `before delete` guards on `semantic_private` tables sat in that cascade and
+refused unconditionally**, and all three live accounts held rows behind them —
+58,789 `ingestion_run_items`, 9,712 `current_source_items`. A row trigger fires
+on a cascaded delete exactly as on a direct one, so the first guarded child row
+raised and the whole erasure rolled back.
+
+Five predated `0203`; `0203` added the sixth. `0166` met the first of them and
+read it correctly at the time — *"refuses every operation that is not an
+`INSERT`, with no escape hatch of any kind"* — and concluded to redact instead of
+delete, which is right for `forget_distillation`, a call that keeps the account.
+It is not available to account deletion, where the `auth.users` row genuinely
+goes.
+
+- **The house had already solved it once**, in `guard_healthkit_grant_delete`:
+  refuse while `auth.users` still holds the owner, permit once it does not. The
+  parent row is deleted before its cascade fires. It needs no flag, no privileged
+  procedure and no grant — a `security definer` erasure path would be a fourth
+  mechanism where the schema has one, and a GUC a fifth that every future
+  deletion path has to remember to raise.
+- **The triggers were only half of it.** `ingestion_run_items` held
+  `(observation_id, user_id)` and `(raw_source_record_id, user_id)` with no
+  `on delete` clause and no `deferrable` — `no action`, checked immediately — so
+  an erasure reaching `observations` first would raise a foreign-key violation
+  with every trigger behaving perfectly. Both are now deferred, matching what
+  `observations → ingestion_runs` has always done.
+- **Proven against a real deletion.** The probe builds a throwaway account with a
+  miniature vault, asserts each guard still refuses a direct delete, then deletes
+  the account and asserts nine tables are empty — inside a block that unwinds, so
+  it re-runs on every replay and leaves nothing behind.
+
+#### The chain replays from empty again (`0173` and seven others)
+
+`tools/replay_contracts.sh` had been stopping at `0173` since it landed, with
+`unreplayable_migrations.txt` empty — so **`0174` through `0205` had never been
+applied to a fresh database.** Thirty-two migrations.
+
+Every one of the eight failures was the same disease in a different costume: a
+migration asserting the *precondition* it was written for rather than the
+*transformation* it performs. `0185` compared HealthKit against 1202. `0191`
+demanded four minted genres. `0192` named an ingestion run by uuid. `0180`
+required a catalogue-minted creator. **The repair is always to ask what must be
+true when the input exists**, which answers on an empty database and on
+production alike.
+
+Two findings fell out that were not that:
+
+- **`0174` never ran in production.** It and `0181` both mint
+  `ontology_first_resolver` 0.10.0 from 0.9.0 and collide by construction; the
+  live 0.10.0 row carries `0181`'s parameter and not `0174`'s. It is marked
+  applied in the ledger — repaired there on evidence (*"resolver 0.10.0 is
+  active"*) that `0181` satisfies equally well. The substance shipped anyway,
+  in the Python package: 12,787 of 12,803 `top_track` observations are mapped.
+  `0181` now merges rather than inserts, and `0205` records the missing
+  parameter, because **parameters live on the model row where a later reader
+  looks**.
+- **`0180` minted a concept with no revision.** Its work concept was created
+  unconditionally while its revision was copied *from* the creator being
+  deprecated, so where that creator did not exist the concept landed with no
+  revision at the published version and the parent edge failed its foreign key.
+  A concept with no revision is invisible to every reader that joins through
+  `concept_revisions`, and permanent.
+
+#### The five drafted hubs are published (`0206`, ontology 0.33.0)
+
+Ten of fifteen hubs were `active` and five had been `draft` since `0044`, whose
+`definition` column records why: *"Not directly observed in the current V1
+sources"*, *"Candidate hub"*, *"Confirmation-only in V0"*. `hub:games_play` was
+drafted for the same reason and has since been activated, which is the precedent.
+Two of the five now have children.
+
+- **The contract named one of them**, so the live-database gate had been
+  reporting `hub:nature_outdoors` as missing from the ontology. It was not
+  missing; it was unpublished.
+- **`0198`/`0199`'s hub assertion was blind, not violated.**
+  `semantic_private.concept_block` climbs `broader` edges filtered on
+  `edge.status = 'active'` and never reads the *hub's* revision status, so 36
+  Wikidata crafts satisfied "every imported concept reaches a hub" under a draft
+  one. `0206` asserts the stronger thing — no active concept files under a hub
+  that is not active — which would have failed before it.
+- **Publishing changes `status` and nothing else.** `work_study_making`,
+  `social_community` and `daily_rhythms` stay `private`, and their
+  `explicit_only` / `review_required` policies stand. A container becoming
+  available to file terms under is not permission to assert anything about a
+  person, and `never_asserted_kinds` has included `hub` since `0092`.
+- **The cost was stated before it was paid**: 145 eligible assertions are stale
+  until the worker runs, and Memories goes blank rather than stale, which is the
+  design. 760 external concept links carried forward — the table the standard
+  copy-forward pattern omits and which `0179`/`0180` both dropped.
 
 #### The candidate overlay's sixteen stores (`0203`)
 
