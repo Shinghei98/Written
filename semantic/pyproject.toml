@@ -15,16 +15,15 @@ postgres = ["psycopg[binary]>=3.1,<4"]
 semantic = ["sentence-transformers>=3,<6"]
 # `openpyxl` reads `ontology/terms.xlsx` in `tools/compile_semantic_contract.py`.
 # **A dev/CI dependency, deliberately not a runtime one.** Nothing in the Lambda
-# opens the workbook, so `aws/worker/build.sh` needs no change and the bundle does
-# not grow.
+# opens the workbook, so the bundle carries no spreadsheet and no reader for one.
 #
-# **What the earlier version of this comment claimed — that the worker consumes
-# `contracts/compiled_semantic_contract_v1.json` — is not true yet**, and saying
-# so here made it look settled. Audited: no build script stages either artifact
-# into any ZIP, and the only non-test readers of both files are the compiler that
-# writes one and the tests. They are verified outputs, not inputs. The commit that
-# makes a consumer real is the one that must also ship the JSON in the bundle and
-# hash what it shipped, which is what `release_build_sha256` is reserved for.
+# **The worker now does consume `contracts/compiled_semantic_contract_v1.json`**,
+# through `written_ontology.semantic_contract`. It did not when this comment first
+# claimed so, and saying it here made it look settled; it did not when the claim
+# was withdrawn either. `aws/worker/build.sh` stages the JSON beside the module
+# and prints `release_build_sha256`, `CodeSha256` and `compiled_contract_sha256`,
+# so what shipped can be compared with what was attested. The workbook is still
+# read by nothing at runtime, which is why `openpyxl` stays a dev extra.
 # `jsonschema` validates the few-shot registry entries against
 # `mention_extract_v1` — the spec requires every stored example to be a complete,
 # schema-valid outer response, because a malformed few-shot teaches the model the

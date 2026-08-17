@@ -70,12 +70,22 @@ with target as (
         and c.conname like '%family%'
         and pg_get_constraintdef(c.oid) like '%ANY (ARRAY[%'
         and pg_get_constraintdef(c.oid) not like '%OR%'
-      order by c.conname limit 1) as family_oid
+      order by c.conname limit 1) as family_oid,
+    -- **Named rather than pattern-matched.** `0207`'s rule is a `case` with two
+    -- arrays: a `<> ALL` for the legacy lane and a `= ANY` for the contract
+    -- lanes, carrying the same fifteen roles. The extractor below finds
+    -- `ANY (ARRAY[…])` and so reads the positive branch, which is the one that
+    -- says what a contract lane *may* write.
+    (select c.oid from pg_constraint c
+      where c.conrelid = 'semantic_private.observation_mentions'::regclass
+        and c.conname = 'observation_mentions_role_vocabulary_check'
+      limit 1) as mention_role_oid
 ),
 exploded as (
   select 'concept_kind' as allowlist, t.concept_kind_oid as oid from target t
   union all select 'job_type', t.job_type_oid from target t
   union all select 'provisional_family', t.family_oid from target t
+  union all select 'mention_role', t.mention_role_oid from target t
 ),
 values_of as (
   select e.allowlist,
@@ -117,6 +127,8 @@ select jsonb_pretty(jsonb_build_object(
                  from values_of where allowlist = 'job_type'),
   'provisional_family', (select jsonb_agg(value order by value)
                            from values_of where allowlist = 'provisional_family'),
+  'mention_role', (select jsonb_agg(value order by value)
+                     from values_of where allowlist = 'mention_role'),
   -- Hubs must be *active* at the published version. A draft revision is a
   -- concept the ontology has not adopted, and reporting it as present is how
   -- `0198` and `0199` came to parent 36 concepts under a hub nobody published.
@@ -133,7 +145,8 @@ select jsonb_pretty(jsonb_build_object(
     'constraint_oids', (select jsonb_build_object(
                                  'concept_kind', t.concept_kind_oid::text,
                                  'job_type', t.job_type_oid::text,
-                                 'provisional_family', t.family_oid::text)
+                                 'provisional_family', t.family_oid::text,
+                                 'mention_role', t.mention_role_oid::text)
                           from target t),
     'database', current_database(),
     'environment', coalesce(current_setting('written.environment', true), 'unspecified'),

@@ -54,6 +54,18 @@ cp "$ROOT/aws/ingestion/supabase-ca.pem" "$STAGE/"
 cp -R "$ROOT/semantic/src/written_ontology" "$STAGE/written_ontology"
 find "$STAGE/written_ontology" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 
+# **The compiled contract, staged rather than committed into the package.**
+# `written_ontology/semantic_contract.py` is the only runtime reader of it and
+# looks beside itself first, which is where this puts it — so a deployed Lambda
+# never depends on a repository layout it does not have.
+#
+# Staged, not checked in: the repository keeps exactly one copy, under
+# `semantic/contracts/`, and a second committed copy would be precisely the
+# duplication the compiler exists to prevent. The bundle gets a copy because a
+# bundle must be self-contained; the tree does not.
+cp "$ROOT/semantic/contracts/compiled_semantic_contract_v1.json" \
+   "$STAGE/written_ontology/compiled_semantic_contract_v1.json"
+
 # **`typing_extensions` is named explicitly and that is not belt-and-braces.**
 # psycopg 3 requires it on Python before 3.13, and pip's resolver dropped it
 # under `--platform`: the first deployed invocation failed with the package's
@@ -68,6 +80,9 @@ python3 -m pip install --quiet --target "$STAGE" \
 # as a runtime ImportError minutes later, wrapped in whatever the importing
 # library chose to say about it. Checking the staged tree costs nothing and
 # names the thing that is actually absent.
+[ -e "$STAGE/written_ontology/compiled_semantic_contract_v1.json" ] || {
+  echo "the compiled semantic contract is missing from the bundle" >&2; exit 1; }
+
 for module in psycopg psycopg_binary cryptography typing_extensions \
               written_ontology music_dictionary music_works; do
   [ -e "$STAGE/$module" ] || [ -e "$STAGE/$module.py" ] || {
@@ -86,4 +101,17 @@ mkdir -p "$HERE/dist"
 rm -f "$OUT"
 ( cd "$STAGE" && zip -qr "$OUT" . -x '.*' '*/__pycache__/*' )
 
+# **Hash what actually shipped, not what was on disk before the zip.**
+# `release_build_sha256` and `compiled_contract_sha256` are two of the fields
+# `ontology.release_manifests` records, and until now nothing produced either —
+# the contract declared them required and no step computed one. `aws lambda
+# update-function-code` reports `CodeSha256` as base64, so both forms are
+# printed and the operator can compare whichever AWS shows them.
+contract_sha="$(shasum -a 256 "$ROOT/semantic/contracts/compiled_semantic_contract_v1.json" | cut -d' ' -f1)"
+build_sha="$(shasum -a 256 "$OUT" | cut -d' ' -f1)"
+build_b64="$(openssl dgst -sha256 -binary "$OUT" | base64)"
+
 printf 'built %s (%s)\n' "$OUT" "$(du -h "$OUT" | cut -f1)"
+printf '  release_build_sha256      %s\n' "$build_sha"
+printf '  CodeSha256 (base64)       %s\n' "$build_b64"
+printf '  compiled_contract_sha256  %s\n' "$contract_sha"

@@ -538,6 +538,26 @@ def check_database(contract: dict[str, Any], live: dict[str, Any],
     # database has no other mechanism — and it is made safe here, by reading it
     # back and refusing to agree that the contract compiles if the two have
     # drifted. The contract is the authority; the constraint is its enforcement.
+    # The same argument as the families below, one table over. `0207` restates
+    # the contract's fifteen mention roles as a check constraint because the
+    # database has no other mechanism, and the copy is made safe by being read
+    # back. Two vocabularies share that column — the legacy resolver's field
+    # names and the contract's roles — and this is what keeps the second half
+    # honest.
+    stored_roles = set(live.get("mention_role") or [])
+    if stored_roles:
+        declared_roles = set(contract["output_contract"]["mention_roles"])
+        for extra in sorted(stored_roles - declared_roles):
+            problems.append(
+                f"observation_mentions permits mention_role {extra!r}, which the "
+                f"contract does not declare"
+            )
+        for absent in sorted(declared_roles - stored_roles):
+            problems.append(
+                f"the contract declares mention_role {absent!r} and "
+                f"observation_mentions refuses it"
+            )
+
     stored_families = set(live.get("provisional_family") or [])
     if stored_families:
         declared_families = set(contract["ontology_compiler"]["family_mappings"])
