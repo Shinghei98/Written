@@ -233,6 +233,16 @@ def recompute_user(job: WorkerJob) -> dict[str, Any]:
         "candidate_count": fitness["candidates"],
         "abstained": bool(fitness.get("abstained")),
         "mapping_count": mappings["mappings"],
+        # **The ISRC route's disposition, in the durable row.** `0218` admits
+        # these four; the full seven-bucket breakdown goes to the log, where
+        # there is no sixteen-key limit. `isrc_unaccounted` is always zero —
+        # `resolve_user` raises before it can be anything else — and it is here
+        # so that a reader of the row can see the arithmetic held rather than
+        # trusting that it was checked.
+        "isrc_eligible": mappings.get("isrc_eligible", 0),
+        "isrc_mapped": mappings.get("isrc_mapped", 0),
+        "isrc_not_current": mappings.get("isrc_not_current", 0),
+        "isrc_unaccounted": mappings.get("isrc_unaccounted", 0),
         **({"semantic_run_id": mappings["semantic_run_id"]}
            if mappings.get("semantic_run_id") else {}),
     }

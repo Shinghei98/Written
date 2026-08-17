@@ -1334,6 +1334,23 @@ select e.external_id as isrc, x.concept_id
    and c.concept_key like 'recording:isrc_%'
 """
 
+def identity(value: object) -> str:
+    """Every database identifier, in one representation.
+
+    **The ISRC route lost 736 observations to a mixed representation.** psycopg
+    returns a `uuid` column as a `uuid.UUID`; `observation_from_row` has always
+    stored `id=str(row["id"])`. `str in {UUID, ...}` is false for every row, so a
+    membership test between the two answered "no" 736 times and the run reported
+    success.
+
+    Strings are the canonical form here because that is what the loaded objects
+    already use and what every id-shaped value is compared against. The rule is
+    that identifiers are normalized **where they enter**, not at each comparison
+    — a convention applied at three of four call sites is the one that fails.
+    """
+    return str(value)
+
+
 #: **Which of a user's observations the source still lists.**
 #:
 #: `guard_mapping_current_source_v031` refuses a `candidate` or `accepted`
@@ -1523,8 +1540,23 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
 
     with connection.cursor() as cursor:
         cursor.execute(SELECT_RECORDINGS_BY_ISRC)
-        recordings = {row["isrc"]: row["concept_id"] for row in cursor.fetchall()}
+        # **Duplicates are detected rather than silently collapsed.** A dict
+        # comprehension over rows keeps the *last* one, so an ISRC linked to two
+        # concepts would pick one at random and look decisive. There is no such
+        # row today — `0214` mints one concept per ISRC — and that is a property
+        # of today's data rather than of this code.
+        recordings = {}
+        ambiguous_isrcs = set()
+        for row in cursor.fetchall():
+            key = row["isrc"]
+            concept = identity(row["concept_id"])
+            if key in recordings and recordings[key] != concept:
+                ambiguous_isrcs.add(key)
+            recordings[key] = concept
+        for key in ambiguous_isrcs:
+            recordings.pop(key, None)
     counts["catalogue_recordings"] = len(recordings)
+    counts["catalogue_ambiguous_isrcs"] = len(ambiguous_isrcs)
 
     with connection.cursor() as cursor:
         cursor.execute(SELECT_CURRENT_OBSERVATIONS, {"user_id": user_id})
@@ -1537,7 +1569,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         # `observation_from_row` (`id=str(row["id"])`) and at the two concept
         # lookups above it; this was the one place that did not follow it.
         current_observations = {
-            str(row["observation_id"]) for row in cursor.fetchall()
+            identity(row["observation_id"]) for row in cursor.fetchall()
         }
 
     # Computed once over the whole set, because neither is decidable per row.
@@ -1580,6 +1612,15 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             continue
         counts["observations"] += 1
 
+        # **Eligibility is counted before anything can drop the row.** Every
+        # observation carrying an ISRC must end in exactly one bucket, and the
+        # first thing that can remove one is the recency guard below — so the
+        # denominator is taken here, above it.
+        row_isrc = (row.get("normalized_payload") or {}).get("isrc")
+        row_isrc = row_isrc if isinstance(row_isrc, str) and row_isrc else None
+        if row_isrc:
+            counts["isrc_eligible"] = counts.get("isrc_eligible", 0) + 1
+
         try:
             recency = DEFAULT_RECENCY_POLICY.evaluate(
                 domain=recency_domain(observation.source),
@@ -1612,6 +1653,11 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             # If this number is larger than the `recommendation` rows in a run,
             # something is being dropped that nobody decided to drop.
             counts["unweighted_action"] += 1
+            if row_isrc:
+                # Named rather than merely absent: Spotify `playlist_item` and
+                # Apple `recommendation` land here, both at `action_weight` 0,
+                # and both are refusals this system made on purpose.
+                counts["isrc_ineligible"] = counts.get("isrc_ineligible", 0) + 1
             continue
 
         # ------------------------------------------------------------------
@@ -1636,11 +1682,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         # `mapping_method = 'provider_id'` has been in the column's allowlist
         # since the schema was written and had never been used. It is the right
         # name for this: the provider stated the identity, we did not infer it.
-        recording_isrc = (row.get("normalized_payload") or {}).get("isrc")
-        recording_concept = (
-            recordings.get(recording_isrc) if isinstance(recording_isrc, str) else None
-        )
-        if recording_concept is not None and observation.id not in current_observations:
+        recording_concept = recordings.get(row_isrc) if row_isrc else None
+        if row_isrc and recording_concept is None:
+            if row_isrc in ambiguous_isrcs:
+                counts["isrc_ambiguous"] = counts.get("isrc_ambiguous", 0) + 1
+            else:
+                counts["isrc_no_catalog_match"] = \
+                    counts.get("isrc_no_catalog_match", 0) + 1
+        if recording_concept is not None and identity(observation.id) not in current_observations:
             # **The source no longer lists this row, so it is not evidence.**
             # `guard_mapping_current_source_v031` refuses a `candidate` or
             # `accepted` mapping whose observation is not currently present, and
@@ -1696,7 +1745,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 # none.
                 "youtube_kind": None,
             })
-            counts["isrc_mappings"] = counts.get("isrc_mappings", 0) + 1
+            counts["isrc_mapped"] = counts.get("isrc_mapped", 0) + 1
             counts["mappings"] += 1
             counts["accepted"] += 1
 
@@ -1818,6 +1867,57 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     with connection.cursor() as cursor:
         cursor.execute(FINALIZE_RUN, {"run": run_id})
         finalized = cursor.fetchone()["finalized"]
+
+    # ------------------------------------------------------------------
+    # Every ISRC-bearing observation landed in exactly one bucket.
+    # ------------------------------------------------------------------
+    #
+    # **This is the check the route did not have.** It skipped 736 observations
+    # for a whole deploy cycle and reported success, because "skipped" was an
+    # outcome with no name and so no total could disagree with it. A run may
+    # legitimately map nothing — a library with no catalogued recording maps
+    # nothing — but it may not *lose* rows, and those two looked identical.
+    #
+    # Raising is deliberate. A run whose dispositions do not sum has computed
+    # something nobody can describe, and letting it succeed stores that as a
+    # fact about a person.
+    isrc_eligible = counts.get("isrc_eligible", 0)
+    isrc_buckets = {
+        "isrc_mapped": counts.get("isrc_mapped", 0),
+        "isrc_not_current": counts.get("isrc_not_current", 0),
+        "isrc_no_catalog_match": counts.get("isrc_no_catalog_match", 0),
+        "isrc_ambiguous": counts.get("isrc_ambiguous", 0),
+        "isrc_ineligible": counts.get("isrc_ineligible", 0),
+        "isrc_errored": counts.get("isrc_errored", 0),
+    }
+    counts["isrc_unaccounted"] = isrc_eligible - sum(isrc_buckets.values())
+
+    # Counts only — no identifier, no title. The receipt permits sixteen keys
+    # and `recompute_user` already uses ten, so the full breakdown goes here,
+    # where there is no limit and integers are payload-safe by construction.
+    print(json.dumps({"isrc_route": {
+        "isrc_eligible": isrc_eligible,
+        **isrc_buckets,
+        "isrc_unaccounted": counts["isrc_unaccounted"],
+        "catalogue_recordings": counts.get("catalogue_recordings", 0),
+    }}))
+
+    if counts["isrc_unaccounted"] != 0:
+        raise RuntimeError(
+            "isrc disposition does not sum: "
+            f"{isrc_eligible} eligible, {counts['isrc_unaccounted']} unaccounted"
+        )
+
+    # **Eligible rows that mapped nothing is anomalous, not routine.** It is the
+    # exact shape of the silent failure: work to do, machinery that ran, nothing
+    # produced. It is survivable — no catalogued recording is a real state — so
+    # it is reported rather than raised, and the receipt carries the numbers
+    # that tell the two apart.
+    if isrc_eligible > 0 and isrc_buckets["isrc_mapped"] == 0:
+        print(json.dumps({"isrc_route_anomalous": {
+            "isrc_eligible": isrc_eligible,
+            "catalogue_recordings": counts.get("catalogue_recordings", 0),
+        }}))
 
     counts["semantic_run_id"] = str(run_id)
     # `False` means the finalizer found the input revision had moved and marked
