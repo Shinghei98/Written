@@ -30,6 +30,15 @@ import pathlib
 
 import pytest
 
+# **Hard imports, deliberately not `pytest.importorskip`.** Both are declared in
+# `semantic/pyproject.toml`'s `dev` extra and both are what these tests are for:
+# `openpyxl` reads the workbook the contract is compiled from, `jsonschema`
+# checks that every stored few-shot is a valid complete response. Skipping on a
+# missing dependency is how the schema tests sat unrun behind a green tick in CI
+# — the exact failure the workflow's own header comment exists to prevent. A
+# missing dependency should stop the suite, not quietly shrink it.
+import jsonschema
+
 REPOSITORY = os.environ.get("WRITTEN_REPOSITORY_PATH")
 
 pytestmark = pytest.mark.skipif(
@@ -214,7 +223,6 @@ def test_the_source_hashes_attest_to_the_files_actually_present(compiler):
 def test_every_predicate_has_a_schema_valid_fixture(compiler, schema):
     """The spec requires one fixture per predicate; twelve enum members with no
     exercised example is twelve untested branches."""
-    jsonschema = pytest.importorskip("jsonschema")
     predicates = schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"]
     for predicate in predicates:
         response = {
@@ -251,7 +259,6 @@ def test_every_stored_fewshot_is_a_valid_complete_response(compiler, config, sch
     IDs and must never reach a prompt; only these registry entries may, and each
     has to validate as a complete outer response.
     """
-    jsonschema = pytest.importorskip("jsonschema")
     entries = {k: v for k, v in config.items()
                if k.startswith("prompt.fewshot.") and k.endswith(".output_json")}
     assert entries, "the few-shot registry is empty"
@@ -406,3 +413,75 @@ def test_the_family_check_constraint_may_not_drift_from_the_family_map(compiler)
     narrowed = [f for f in families if f != "anime"]
     assert any("anime" in p for p in compiler.check_database(
         contract, live_with(provisional_family=narrowed)))
+
+
+def _required_keys(compiler):
+    """Every `runtime_config` key the compiler insists on, read from its source.
+
+    The source is scanned only to *enumerate* what to test; each key it yields is
+    then removed from a real workbook and the compiler is watched refusing. That
+    is the opposite of asserting on source text — the enumeration is what keeps
+    this test honest as the compiler grows, since a newly required key joins the
+    parametrisation without anyone remembering to add it.
+    """
+    import re
+
+    source = pathlib.Path(compiler.__file__).read_text()
+    keys = sorted(set(re.findall(r'require\(config, "([^"]+)"\)', source)))
+    assert len(keys) >= 30, f"only {len(keys)} required keys found; the scan broke"
+    return keys
+
+
+def test_every_required_workbook_key_is_refused_when_removed(compiler, sheets, schema):
+    """A missing key must stop the build, never fall back to a default.
+
+    `semantic_gate_report_v1` is why this exists. It appeared in the compiled
+    contract and in the specification and existed nowhere in the workbook, so the
+    generated artifact was carrying a value that could not be derived from its
+    stated source — and nothing said so, because the field was simply present.
+    """
+    generated = "2026-01-01T00:00:00.000Z"
+
+    def build(source):
+        """Validate then compile — the order `main()` uses.
+
+        Running only `compile_contract` was the first version of this test and it
+        reported two false survivors: `ontology.family.enum` and
+        `llm.output.envelope_token_reserve` are demanded by `validate` and never
+        read by the emitter, so removing them produced a contract while the real
+        pipeline would already have stopped. A test of half the pipeline answers
+        about half the pipeline.
+        """
+        compiler.validate(source, schema)
+        return compiler.compile_contract(source, schema, generated)
+
+    build(sheets)  # the intact baseline
+
+    survived = []
+    for key in _required_keys(compiler):
+        wounded = copy.deepcopy(sheets)
+        wounded["runtime_config"] = [
+            row for row in wounded["runtime_config"] if not (row and row[0] == key)
+        ]
+        assert len(wounded["runtime_config"]) < len(sheets["runtime_config"]), key
+        try:
+            build(wounded)
+        except Exception:
+            continue
+        survived.append(key)
+
+    assert not survived, (
+        "the compiler produced a contract without these keys, so their values "
+        f"are being defaulted rather than derived: {survived}"
+    )
+
+
+def test_the_gate_report_version_is_one_of_them(compiler, sheets):
+    """Named explicitly, because it is the key that was missing.
+
+    A parametrised sweep proves the rule; this proves the instance, and would
+    fail if the key were ever quietly reintroduced as a compiler literal.
+    """
+    config = compiler.config_of(sheets)
+    assert config["deployment.report.schema_version"] == "semantic_gate_report_v1"
+    assert "deployment.report.schema_version" in _required_keys(compiler)

@@ -22,6 +22,7 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'tools/replay_contracts.sh'
+      - 'tools/compile_semantic_contract.py'
       - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   pull_request:
@@ -30,6 +31,7 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'tools/replay_contracts.sh'
+      - 'tools/compile_semantic_contract.py'
       - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   workflow_dispatch:
@@ -57,8 +59,18 @@ jobs:
       #
       # pytest collects both styles, so the `TestCase` suites keep running and
       # the seven start to.
+      #
+      # **The same mistake was made one layer up and this line is the fix.**
+      # `tools/compile_semantic_contract.py` reads `terms.xlsx` through
+      # `openpyxl` and validates few-shots through `jsonschema`, and neither was
+      # installed here. The two failed differently and the second is the one
+      # this comment is about: the workbook tests *errored*, which is loud, while
+      # the schema tests sat behind `pytest.importorskip` and **skipped behind a
+      # green tick** — exactly the silent non-execution described above. Both are
+      # declared in `semantic/pyproject.toml`'s `dev` extra; install what the
+      # tests actually import, or they do not run.
       - name: Install test dependencies
-        run: python -m pip install --quiet pytest
+        run: python -m pip install --quiet pytest openpyxl jsonschema
 
       - name: Run the suite
         working-directory: semantic
@@ -74,6 +86,14 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
           PYTHONPATH: src
         run: python -m written_ontology.cli demo
+
+      # The `artifact_contract` gate. The compiled contract is the runtime input
+      # and the workbook is where it is authored, so the two drifting is a
+      # release-blocking fault rather than a stale file — and it is invisible
+      # otherwise, because a contract that disagrees with its sources still
+      # parses. Separate from the suite so the failure names the gate.
+      - name: The contract still compiles to what is checked in
+        run: python tools/compile_semantic_contract.py --check
 
   # The SQL half. Separate job because it needs Docker and takes minutes, while
   # the Python suite is offline and takes seconds — one failing should not
