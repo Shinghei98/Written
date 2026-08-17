@@ -364,6 +364,24 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             "consumers": _split(require(config, "runtime.contract.required_consumers")),
             "jobs": _split(require(config, "job.pipeline"), ">"),
             "required_storage_objects": _split(require(config, "data.table.minimum")),
+            # **Both names, because one of them is not this database's.**
+            # The workbook authors these as `private.*`; `private` here is a real
+            # schema holding the push secret and the collaborator list. Until
+            # now the mapping lived only in `resolve_storage_object`, whose one
+            # non-test caller was the gate below — so any other consumer of
+            # `required_storage_objects` would read a name that resolves to the
+            # wrong schema, which is the same shape of defect as a crosswalk
+            # applied silently. Emitted so a repository, a migration checker or
+            # a later deploy gate reads the resolved name instead of deriving it
+            # again, and so a reviewer can see what was resolved.
+            "storage_crosswalk": {
+                "schema_map": dict(sorted(STORAGE_SCHEMA_CROSSWALK.items())),
+                "objects": [
+                    {"declared_name": declared,
+                     "production_name": resolve_storage_object(declared)}
+                    for declared in _split(require(config, "data.table.minimum"))
+                ],
+            },
             "initial_mode": require(config, "deployment.initial_mode"),
             "qwen_overlay": require(config, "deployment.feature.semantic_qwen_overlay"),
             "deployment_gates": _split(require(config, "validation.deploy_scope"), "+"),
@@ -406,7 +424,30 @@ def resolve_storage_object(declared: str) -> str:
     return f"{STORAGE_SCHEMA_CROSSWALK.get(schema, schema)}.{table}"
 
 
-def check_database(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
+def overlay_disabled(contract: dict[str, Any]) -> bool:
+    """Whether the contract still declares the Qwen overlay off.
+
+    Read from the artifact rather than from a constant here, because the workbook
+    is where that decision is authored and this file's whole argument is that one
+    fact belongs in one place.
+    """
+    return "disabled" in str(
+        contract["runtime_requirements"].get("qwen_overlay", "")
+    ).lower()
+
+
+def pending_jobs(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
+    jobs = set(live.get("job_type") or [])
+    if not jobs:
+        return []
+    missing = [j for j in contract["runtime_requirements"]["jobs"] if j not in jobs]
+    if not missing:
+        return []
+    return ["the live worker_jobs allowlist does not yet permit: " + ", ".join(missing)]
+
+
+def check_database(contract: dict[str, Any], live: dict[str, Any],
+                   pending: list[str] | None = None) -> list[str]:
     """The live-database gate, against values a caller supplies.
 
     **It takes the live enums as an argument instead of opening a connection**,
@@ -423,6 +464,23 @@ def check_database(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
     a compound condition that would yield a wrong, shorter list.
     """
     problems: list[str] = []
+    if pending is None:
+        pending = []
+
+    # **A hand-written array satisfies this gate exactly as well as a real
+    # reading, and looks identical afterwards.** So the snapshot has to say
+    # which database it came from and which constraint rows it was parsed out
+    # of. `tools/read_live_catalog.py --emit-sql` produces it; anything else has
+    # to produce the same evidence, which is the point.
+    provenance = live.get("provenance") or {}
+    for field in ("database_fingerprint_sha256", "constraint_oids",
+                  "database", "server_version"):
+        if not provenance.get(field):
+            problems.append(
+                f"the live snapshot carries no {field}; it was not read from a "
+                f"database by tools/read_live_catalog.py"
+            )
+
     kinds = set(live.get("concept_kind") or [])
     if not kinds:
         problems.append("no live concept_kind allowlist supplied")
@@ -440,13 +498,20 @@ def check_database(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
                 f"which the live constraint does not permit"
             )
 
-    jobs = set(live.get("job_type") or [])
-    if jobs:
-        missing = [j for j in contract["runtime_requirements"]["jobs"] if j not in jobs]
-        if missing:
-            problems.append(
-                "the live worker_jobs allowlist does not yet permit: " + ", ".join(missing)
-            )
+    # **Jobs are the one check that measures a future state, so it is reported
+    # separately rather than folded in.** Eight of the nine pipeline jobs belong
+    # to the overlay the contract itself declares
+    # `disabled_until_all_deploy_gates_pass`, and registering a `job_type` before
+    # its handler ships is worse than not registering it — a claimed job is
+    # claimed, found to have no handler, and marked `dead` without retry.
+    #
+    # So while the overlay is off, their absence is *pending* and not a fault;
+    # the moment it is turned on, the same absence is a release blocker. A gate
+    # that stays red on a known-unbuilt thing is one people stop reading, and a
+    # gate that goes quiet when the thing gets built is worse.
+    pending.extend(pending_jobs(contract, live))
+    if not overlay_disabled(contract):
+        problems.extend(pending_jobs(contract, live))
 
     hubs = set(live.get("hubs") or [])
     if hubs:
@@ -499,6 +564,32 @@ def main() -> int:
                              "live database by whatever holds the credential")
     arguments = parser.parse_args()
 
+    # **The database gate reads the shipped contract and never the workbook**, and
+    # that separation is worth keeping deliberately. The question it asks is
+    # whether the artifact production consumes agrees with the schema that is
+    # actually built — the authoring spreadsheet has no standing in it. Loading
+    # the workbook first made the gate need `openpyxl`, which meant it could not
+    # run inside `tools/replay_contracts.sh`, which is the one place holding a
+    # database built from nothing but the migrations.
+    if arguments.check_database:
+        if not arguments.live_enums:
+            print("--check-database requires --live-enums", file=sys.stderr)
+            return 2
+        existing = json.loads(CONTRACT.read_text())
+        pending: list[str] = []
+        problems = check_database(
+            existing,
+            json.loads(pathlib.Path(arguments.live_enums).read_text()),
+            pending,
+        )
+        for note in pending:
+            print(f"  live database (pending, overlay off): {note}", file=sys.stderr)
+        for problem in problems:
+            print(f"  live database: {problem}", file=sys.stderr)
+        print(f"live database: {len(problems)} problem(s), {len(pending)} pending",
+              file=sys.stderr)
+        return 1 if problems else 0
+
     sheets = load_workbook()
     schema = json.loads(SCHEMA.read_text())
 
@@ -508,17 +599,6 @@ def main() -> int:
         print(f"contract refused: {refusal}", file=sys.stderr)
         return 1
     print("artifact parity: workbook, schema and grammar agree", file=sys.stderr)
-
-    if arguments.check_database:
-        if not arguments.live_enums:
-            print("--check-database requires --live-enums", file=sys.stderr)
-            return 2
-        existing = json.loads(CONTRACT.read_text())
-        problems = check_database(existing, json.loads(pathlib.Path(arguments.live_enums).read_text()))
-        for problem in problems:
-            print(f"  live database: {problem}", file=sys.stderr)
-        print(f"live database: {len(problems)} problem(s)", file=sys.stderr)
-        return 1 if problems else 0
 
     from datetime import datetime, timezone
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + \

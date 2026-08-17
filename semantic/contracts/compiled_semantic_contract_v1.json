@@ -1,6 +1,6 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-17T00:29:09.903Z",
+  "generated_at": "2026-08-17T01:56:08.478Z",
   "source_hashes": {
     "workbook_sha256": "2d4d5260f581237ef2320ac01b3fd052873b9b6fd6c38b3f8d777d318395763b",
     "mention_schema_sha256": "5d1dc7fa7a3d7e8a85bd632956b98f0944b35713c935079b23afef38f5bc97e6"
@@ -191,6 +191,77 @@
       "ontology.release_manifests",
       "ontology.deployment_slots"
     ],
+    "storage_crosswalk": {
+      "schema_map": {
+        "private": "semantic_private"
+      },
+      "objects": [
+        {
+          "declared_name": "private.observation_mentions",
+          "production_name": "semantic_private.observation_mentions"
+        },
+        {
+          "declared_name": "private.mention_resolutions",
+          "production_name": "semantic_private.mention_resolutions"
+        },
+        {
+          "declared_name": "private.provisional_entities",
+          "production_name": "semantic_private.provisional_entities"
+        },
+        {
+          "declared_name": "private.candidate_relation_proposals",
+          "production_name": "semantic_private.candidate_relation_proposals"
+        },
+        {
+          "declared_name": "private.user_term_candidates",
+          "production_name": "semantic_private.user_term_candidates"
+        },
+        {
+          "declared_name": "private.candidate_support_links",
+          "production_name": "semantic_private.candidate_support_links"
+        },
+        {
+          "declared_name": "private.review_items",
+          "production_name": "semantic_private.review_items"
+        },
+        {
+          "declared_name": "private.review_item_routes",
+          "production_name": "semantic_private.review_item_routes"
+        },
+        {
+          "declared_name": "private.review_item_evidence",
+          "production_name": "semantic_private.review_item_evidence"
+        },
+        {
+          "declared_name": "private.review_events",
+          "production_name": "semantic_private.review_events"
+        },
+        {
+          "declared_name": "private.review_exposures",
+          "production_name": "semantic_private.review_exposures"
+        },
+        {
+          "declared_name": "private.user_term_suppressions",
+          "production_name": "semantic_private.user_term_suppressions"
+        },
+        {
+          "declared_name": "private.model_invocations",
+          "production_name": "semantic_private.model_invocations"
+        },
+        {
+          "declared_name": "private.source_text_evidence",
+          "production_name": "semantic_private.source_text_evidence"
+        },
+        {
+          "declared_name": "ontology.release_manifests",
+          "production_name": "ontology.release_manifests"
+        },
+        {
+          "declared_name": "ontology.deployment_slots",
+          "production_name": "ontology.deployment_slots"
+        }
+      ]
+    },
     "initial_mode": "exact_only",
     "qwen_overlay": "disabled_until_all_deploy_gates_pass",
     "deployment_gates": [

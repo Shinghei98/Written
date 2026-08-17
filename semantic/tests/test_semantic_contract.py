@@ -27,6 +27,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 
 import pytest
 
@@ -322,15 +323,11 @@ def test_the_database_gate_reports_rather_than_assumes(compiler):
     assert contract["ontology_compiler"]["concept_kind_authority"] == "live_pg_constraint"
     assert compiler.check_database(contract, {}) != []
 
-    live = {
-        "concept_kind": ["hub", "topic", "genre", "work", "creator", "activity", "sport",
-                         "event", "place", "culture", "language", "cuisine", "organization",
-                         "medium", "affinity", "identity", "routine", "quantitative_feature"],
-    }
+    live = live_with()
     # Every family that stores a concept must land in the live allowlist.
     assert compiler.check_database(contract, live) == []
 
-    narrowed = {"concept_kind": [k for k in live["concept_kind"] if k != "sport"]}
+    narrowed = live_with(concept_kind=[k for k in live["concept_kind"] if k != "sport"])
     assert any("sport" in problem for problem in compiler.check_database(contract, narrowed))
 
 
@@ -349,9 +346,60 @@ LIVE_CONCEPT_KINDS = [
 ]
 
 
+#: A snapshot must say which database it came from, or it is indistinguishable
+#: from a hand-written array — which is the whole objection `read_live_catalog.py`
+#: answers. Tests supply a synthetic one so they exercise the checks they are
+#: about rather than this one; `test_a_snapshot_without_provenance_is_refused`
+#: is where its absence is asserted.
+LIVE_PROVENANCE = {
+    "database_fingerprint_sha256": "0" * 64,
+    "constraint_oids": {"concept_kind": "1", "job_type": "2", "provisional_family": "3"},
+    "database": "postgres",
+    "server_version": "17.6",
+    "environment": "test",
+}
+
+
 def live_with(**overrides):
-    """A live-catalog reading that satisfies the mandatory check, plus one more."""
-    return {"concept_kind": list(LIVE_CONCEPT_KINDS), **overrides}
+    """A live-catalog reading that satisfies the mandatory checks, plus one more."""
+    return {
+        "concept_kind": list(LIVE_CONCEPT_KINDS),
+        "provenance": dict(LIVE_PROVENANCE),
+        **overrides,
+    }
+
+
+def test_a_snapshot_without_provenance_is_refused(compiler):
+    """The gate takes its values as an argument, so it must know where they came from.
+
+    Taking them as an argument was deliberate — a compiler falling back to a
+    checked-in snapshot would make `concept_kind_authority: live_pg_constraint`
+    a fiction. But an argument nobody has to justify is one anybody can type, and
+    a typed array passes exactly as well as a reading.
+    """
+    contract = json.loads(compiler.CONTRACT.read_text())
+    bare = {"concept_kind": list(LIVE_CONCEPT_KINDS)}
+    problems = compiler.check_database(contract, bare)
+    assert any("database_fingerprint_sha256" in p for p in problems)
+    assert any("constraint_oids" in p for p in problems)
+    # And with provenance the same values pass.
+    assert compiler.check_database(contract, live_with()) == []
+
+
+def test_the_contract_carries_both_storage_names(compiler):
+    """A consumer must be able to read the production name without deriving it."""
+    contract = json.loads(compiler.CONTRACT.read_text())
+    crosswalk = contract["runtime_requirements"]["storage_crosswalk"]
+    assert crosswalk["schema_map"] == {"private": "semantic_private"}
+
+    declared = contract["runtime_requirements"]["required_storage_objects"]
+    objects = crosswalk["objects"]
+    assert [o["declared_name"] for o in objects] == declared
+    for entry in objects:
+        assert entry["production_name"] == \
+            compiler.resolve_storage_object(entry["declared_name"])
+        assert not entry["production_name"].startswith("private.")
+    assert sum(o["production_name"].startswith("semantic_private.") for o in objects) == 14
 
 
 def test_the_contracts_private_schema_is_this_databases_semantic_private(compiler):
@@ -485,3 +533,117 @@ def test_the_gate_report_version_is_one_of_them(compiler, sheets):
     config = compiler.config_of(sheets)
     assert config["deployment.report.schema_version"] == "semantic_gate_report_v1"
     assert "deployment.report.schema_version" in _required_keys(compiler)
+
+
+#: The objects that genuinely live in the physical `private` schema. It is the
+#: schema nothing is granted on — `push_config` holds the APNs shared secret and
+#: `collaborators` decides whose data may train a model — and the reference
+#: chain this project adapts puts *its* semantic objects there too. Everything
+#: semantic goes to `semantic_private` instead, and this list is what makes a
+#: fourteenth name a decision rather than a typo.
+PHYSICAL_PRIVATE_OBJECTS = frozenset({
+    "notify", "push_config", "collaborators",
+    "is_blocked", "may_see_match", "gender_key", "phone_digits",
+    "open_match_authorization", "revoke_match_authorization_on_block",
+    "revoke_likes_on_block", "refuse_blocked_message", "refuse_blocked_like",
+    "enqueue_recompute_on_revision_move",
+})
+
+PRIVATE_REFERENCE = re.compile(r"(?<![a-z_])private\.([a-z_][a-z0-9_]*)")
+
+
+def _executable(sql: str) -> str:
+    """The statements, with line comments removed.
+
+    **The distinction is the whole rule.** `0203`'s header explains at length
+    that the contract's `private.review_items` means `semantic_private.review_items`
+    here, and quotes both — in a comment. A scan that could not tell a comment
+    from a statement would either refuse that explanation or, tuned the other
+    way, permit a real `create table private.review_items`. A `--` inside a
+    string literal is not a comment, so quotes are counted before truncating.
+    """
+    kept = []
+    for line in sql.splitlines():
+        marker = line.find("--")
+        while marker != -1 and line.count("'", 0, marker) % 2 == 1:
+            marker = line.find("--", marker + 2)
+        kept.append(line if marker == -1 else line[:marker])
+    return "\n".join(kept)
+
+
+def test_no_migration_creates_a_semantic_object_in_the_physical_private_schema():
+    """`private` is not `semantic_private`, and the hazard is the grant.
+
+    The reference chain grants `service_role` broad access to everything in its
+    `private`; here that would widen access to the push secret and the
+    collaborator list. A bare `private.` grep cannot enforce this — every
+    `semantic_private.` reference contains the substring, and thirteen genuine
+    objects do live there — so this asks for names instead.
+    """
+    import re as _re  # local alias so the module-level import stays with its use
+
+    directory = pathlib.Path(REPOSITORY) / "supabase" / "migrations"
+    unexpected: dict[str, set[str]] = {}
+    seen: set[str] = set()
+
+    for path in sorted(directory.glob("*.sql")):
+        for name in PRIVATE_REFERENCE.findall(_executable(path.read_text())):
+            seen.add(name)
+            if name not in PHYSICAL_PRIVATE_OBJECTS:
+                unexpected.setdefault(path.name, set()).add(name)
+
+    assert not unexpected, (
+        "these migrations name an object in the physical `private` schema that is "
+        "not one of the thirteen that belong there — if it is semantic, it goes in "
+        f"`semantic_private`: { {k: sorted(v) for k, v in unexpected.items()} }"
+    )
+    # The scan must be finding the real ones, or a pass means only that the
+    # regex stopped matching.
+    assert len(seen) >= 10, f"only {len(seen)} private.* objects found; the scan broke"
+
+
+def test_the_private_scan_reads_statements_and_not_comments():
+    """Both directions, since this passes over the tree on its first run."""
+    commented = "-- the contract calls it private.review_items, which here means\n" \
+                "create table semantic_private.review_items (id uuid);\n"
+    assert PRIVATE_REFERENCE.findall(_executable(commented)) == []
+
+    executable = "create table private.review_items (id uuid);\n"
+    assert PRIVATE_REFERENCE.findall(_executable(executable)) == ["review_items"]
+
+    # `semantic_private.` contains the substring and must never match.
+    assert PRIVATE_REFERENCE.findall("select * from semantic_private.observations") == []
+
+    # A `--` inside a literal does not start a comment.
+    literal = "select 'a -- b', private.push_config;\n"
+    assert PRIVATE_REFERENCE.findall(_executable(literal)) == ["push_config"]
+
+
+def test_unregistered_jobs_are_pending_while_the_overlay_is_off_and_failing_once_it_is_on(compiler):
+    """The one check that measures a future state, in both of its two states.
+
+    Eight of the nine pipeline jobs are unbuilt, and registering a `job_type`
+    before its handler ships is actively worse than leaving it out — the job is
+    claimed, found to have no handler, and marked `dead` with no retry. So their
+    absence is *pending* while the contract declares the overlay disabled, and a
+    release blocker the moment it does not.
+    """
+    contract = json.loads(compiler.CONTRACT.read_text())
+    assert compiler.overlay_disabled(contract)
+
+    live = live_with(job_type=["recompute_user"])
+    pending: list[str] = []
+    problems = compiler.check_database(contract, live, pending)
+    assert problems == []
+    assert any("extract_mentions" in note for note in pending)
+
+    switched_on = copy.deepcopy(contract)
+    switched_on["runtime_requirements"]["qwen_overlay"] = "enabled"
+    assert not compiler.overlay_disabled(switched_on)
+    problems = compiler.check_database(switched_on, live)
+    assert any("extract_mentions" in problem for problem in problems)
+
+    # And a fully registered allowlist is clean under either setting.
+    complete = live_with(job_type=contract["runtime_requirements"]["jobs"])
+    assert compiler.check_database(contract, complete) == []
+    assert compiler.check_database(switched_on, complete) == []

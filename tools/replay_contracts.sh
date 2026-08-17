@@ -262,6 +262,48 @@ echo "==> applying the rest of the chain"
 apply_after "0064_z"
 
 echo
+echo "########## the compiled semantic contract against the built schema ##########"
+# `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
+# live_pg_constraint`, and its gate takes the live allowlists as an argument
+# rather than opening a connection — because a compiler that fell back to a
+# checked-in snapshot would make that authority claim a fiction.
+#
+# **This is where the argument stops being hand-written.** Lane A has just built
+# the whole chain from empty, so the catalog sitting in that container is the
+# most honest reading available: nothing has been repaired into its ledger, no
+# migration is marked applied that did not run. `read_live_catalog.py --emit-sql`
+# produces the snapshot with its provenance — the constraint oids it parsed and a
+# digest over every table, column and check constraint in the two schemas — and
+# the gate refuses a snapshot that carries neither.
+#
+# Same shape as the envelope check below and for the same reason: the question
+# has to be asked of the built schema, because reconstructing the answer by
+# parsing SQL would be another copy of the thing under test.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "  SKIP  python3 not available for the semantic contract gate"
+else
+  snapshot="$(mktemp)"
+  python3 "$ROOT/tools/read_live_catalog.py" --emit-sql \
+    | docker exec -i "$CONTAINER" psql -U postgres -tA -v ON_ERROR_STOP=1 \
+    > "$snapshot" 2>&1
+  if ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$snapshot" 2>/dev/null; then
+    echo "  FAIL  the live catalog snapshot is not JSON:"
+    sed 's/^/        /' "$snapshot" | head -5
+    fail=1; fail_count=$((fail_count + 1))
+  elif gate=$(python3 "$ROOT/tools/compile_semantic_contract.py" \
+                --check-database --live-enums "$snapshot" 2>&1); then
+    echo "  PASS  the compiled contract agrees with the schema this chain builds"
+    pass_count=$((pass_count + 1))
+  else
+    echo "  FAIL  the compiled contract disagrees with the schema this chain builds:"
+    printf '%s\n' "$gate" | sed 's/^/        /'
+    fail=1; fail_count=$((fail_count + 1))
+  fi
+  rm -f "$snapshot"
+fi
+
+echo
+
 echo "########## the iOS envelope vocabulary ##########"
 # `Written/Models/SemanticSource.swift` maps every `data_type` the app emits to
 # an action, and an action is only real if the source actually weighs it.
