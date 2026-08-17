@@ -1072,7 +1072,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0202`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0203`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1142,9 +1142,24 @@ assertions are still eligible in production.
   `private`, which this app already owns (`push_config`, `notify`,
   `collaborators`). **No executable statement in an adapted migration may name
   `private`** — the hazard is the grant, not the revoke.
+  **The compiled contract names its sixteen stores `private.*` for the same
+  reason, and the crosswalk is written down rather than performed silently** —
+  `STORAGE_SCHEMA_CROSSWALK` in `tools/compile_semantic_contract.py`, the same
+  class of thing as `hub:game` meaning `hub:games_play`. A compiler that resolved
+  it quietly would hide a semantic table created next to the push secret.
 - **`semantic_private` has RLS on and no policies anywhere.** Access is decided
   by role grants and `security definer` functions. Adding the first policy costs
   that sentence, so it needs an argument.
+- **A child table's foreign key carries `user_id`**, referencing
+  `parent(id, user_id)` rather than `parent(id)`. The constraint then *proves* a
+  row belongs to the same account as its parent instead of a query being careful.
+  `0203` had to add `unique (id, user_id)` to `observation_mentions`, which
+  predated the pattern and could not be referenced on those terms.
+- **`review_items` and `review_exposures` are append-only by trigger.** A
+  feedback label is uninterpretable without what was on screen — "they struck
+  this" means nothing except against the rank, tier and epoch it was struck at —
+  so an update would rewrite the question after the answer. Same refusal
+  `ingestion_run_items` applies to evidence.
 - **Two identities, and neither may become the other.** `semantic_ingestor` can
   call exactly one `security definer` function and holds **zero table
   privileges** — leaked, it writes vault rows and reads none back.

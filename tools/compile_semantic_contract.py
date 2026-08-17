@@ -386,6 +386,26 @@ def canonical(contract: dict[str, Any]) -> str:
     return json.dumps(without_timestamp, indent=2, ensure_ascii=False, sort_keys=False)
 
 
+#: **`private` in the contract is `semantic_private` in this database.**
+#:
+#: The contract names its stores `private.review_items` and so on. `private` is a
+#: real schema here and holds `push_config` and `collaborators` — the schema
+#: nothing is granted on, where the push secret lives — so the contract's name and
+#: the production name genuinely differ. It is the same class of crosswalk as
+#: `hub:game` meaning `hub:games_play`, and it is written down for the same
+#: reason: a compiler that resolved it quietly would be one nobody could audit,
+#: and the failure it would hide is a semantic table created next to a secret.
+STORAGE_SCHEMA_CROSSWALK = {"private": "semantic_private"}
+
+
+def resolve_storage_object(declared: str) -> str:
+    """Map a contract storage name onto the schema this database actually uses."""
+    schema, _, table = declared.partition(".")
+    if not table:
+        raise ContractError(f"storage object {declared!r} names no schema")
+    return f"{STORAGE_SCHEMA_CROSSWALK.get(schema, schema)}.{table}"
+
+
 def check_database(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
     """The live-database gate, against values a caller supplies.
 
@@ -436,6 +456,34 @@ def check_database(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:
         for legacy in contract["ontology_compiler"]["hub_redirects"]:
             if legacy in hubs:
                 problems.append(f"legacy hub {legacy!r} exists in the ontology and must be merged")
+
+    # The `storage_integration` gate's first half: the sixteen stores exist,
+    # under the names this database uses rather than the ones the contract does.
+    tables = set(live.get("tables") or [])
+    if tables:
+        for declared in contract["runtime_requirements"]["required_storage_objects"]:
+            actual = resolve_storage_object(declared)
+            if actual not in tables:
+                note = "" if actual == declared else f" (declared as {declared})"
+                problems.append(f"required storage object {actual} does not exist{note}")
+
+    # **A check constraint restating a closed vocabulary is a second copy of it**,
+    # and this repository's recurring defect is one fact in two places. The copy
+    # in `semantic_private.provisional_entities.family` is permitted because the
+    # database has no other mechanism — and it is made safe here, by reading it
+    # back and refusing to agree that the contract compiles if the two have
+    # drifted. The contract is the authority; the constraint is its enforcement.
+    stored_families = set(live.get("provisional_family") or [])
+    if stored_families:
+        declared_families = set(contract["ontology_compiler"]["family_mappings"])
+        for extra in sorted(stored_families - declared_families):
+            problems.append(
+                f"provisional_entities.family permits {extra!r}, which no family mapping declares"
+            )
+        for absent in sorted(declared_families - stored_families):
+            problems.append(
+                f"family {absent!r} is declared but provisional_entities.family refuses it"
+            )
     return problems
 
 

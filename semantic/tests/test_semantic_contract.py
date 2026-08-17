@@ -325,3 +325,84 @@ def test_the_database_gate_reports_rather_than_assumes(compiler):
 
     narrowed = {"concept_kind": [k for k in live["concept_kind"] if k != "sport"]}
     assert any("sport" in problem for problem in compiler.check_database(contract, narrowed))
+
+
+# ---------------------------------------------------------------------------
+# The storage layer (`0203`).
+# ---------------------------------------------------------------------------
+
+
+#: The live `concept_kind` allowlist is the one input `check_database` demands;
+#: every other check is opt-in, so a caller reading only some of the catalog gets
+#: answers about what it read rather than false passes about what it did not.
+LIVE_CONCEPT_KINDS = [
+    "activity", "affinity", "creator", "cuisine", "culture", "event", "genre",
+    "hub", "identity", "language", "medium", "organization", "place",
+    "quantitative_feature", "routine", "sport", "topic", "work",
+]
+
+
+def live_with(**overrides):
+    """A live-catalog reading that satisfies the mandatory check, plus one more."""
+    return {"concept_kind": list(LIVE_CONCEPT_KINDS), **overrides}
+
+
+def test_the_contracts_private_schema_is_this_databases_semantic_private(compiler):
+    """`private` is a real schema here, and it is not the semantic one.
+
+    It holds `push_config` and `collaborators` — the schema nothing is granted
+    on. Resolving the contract's `private.*` there would put overlay state beside
+    the push secret, so the crosswalk is explicit and only rewrites that one
+    name.
+    """
+    assert compiler.STORAGE_SCHEMA_CROSSWALK == {"private": "semantic_private"}
+    assert compiler.resolve_storage_object("private.review_items") == \
+        "semantic_private.review_items"
+    # Anything already naming its own schema passes through untouched.
+    assert compiler.resolve_storage_object("ontology.release_manifests") == \
+        "ontology.release_manifests"
+    with pytest.raises(compiler.ContractError):
+        compiler.resolve_storage_object("review_items")
+
+
+def test_every_required_store_exists_under_the_name_this_database_uses(compiler):
+    """The `storage_integration` gate's first half, both ways round."""
+    contract = json.loads(compiler.CONTRACT.read_text())
+    declared = contract["runtime_requirements"]["required_storage_objects"]
+    assert len(declared) == 16
+
+    present = [compiler.resolve_storage_object(name) for name in declared]
+    assert compiler.check_database(contract, live_with(tables=present)) == []
+
+    # Fourteen of the sixteen are in `semantic_private`; none may land in `private`.
+    assert sum(name.startswith("semantic_private.") for name in present) == 14
+    assert not any(name.startswith("private.") for name in present)
+
+    missing_one = [n for n in present if not n.endswith(".review_exposures")]
+    problems = compiler.check_database(contract, live_with(tables=missing_one))
+    assert any("review_exposures" in problem for problem in problems)
+    # The message must name the production table *and* what the contract called
+    # it, or whoever reads the failure goes looking in the wrong schema.
+    assert any("private.review_exposures" in problem for problem in problems)
+
+
+def test_the_family_check_constraint_may_not_drift_from_the_family_map(compiler):
+    """A closed vocabulary copied into a check constraint, verified against its source.
+
+    The constraint is the only mechanism Postgres offers, so the copy is
+    permitted — and it is made safe by being read back. Drift in either
+    direction is a problem, because a constraint that permits a family nothing
+    compiles is as wrong as one that refuses a family something does.
+    """
+    contract = json.loads(compiler.CONTRACT.read_text())
+    families = sorted(contract["ontology_compiler"]["family_mappings"])
+    assert len(families) == 23
+    assert compiler.check_database(contract, live_with(provisional_family=families)) == []
+
+    widened = families + ["telepathy"]
+    assert any("telepathy" in p for p in compiler.check_database(
+        contract, live_with(provisional_family=widened)))
+
+    narrowed = [f for f in families if f != "anime"]
+    assert any("anime" in p for p in compiler.check_database(
+        contract, live_with(provisional_family=narrowed)))

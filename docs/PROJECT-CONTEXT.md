@@ -1468,7 +1468,7 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0202`.** `db push` is the deployment mechanism and
+**Migration head `0203`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate.
@@ -1590,6 +1590,57 @@ production.
 - **When a migration needs a grant, read `pg_trigger` for the tables being
   written and follow what each trigger calls.** Five migrations each cost a
   deploy and a run to learn one statically-knowable fact.
+
+#### The candidate overlay's sixteen stores (`0203`)
+
+The execution specification's `required_storage_objects`. Fifteen were created;
+`observation_mentions` already existed. **Nothing reads or writes them yet** —
+`semantic_qwen_overlay` is false and eight of the nine pipeline jobs are not in
+the `worker_jobs` allowlist, so this is the `storage_integration` gate's subject
+rather than its pass.
+
+- **The contract calls them `private.*` and that name is taken.** Same crosswalk
+  hazard as the reference chain, arriving from a second direction: the compiled
+  contract was authored against a schema layout where `private` is the semantic
+  one. Resolving it literally would have created thirteen tables beside
+  `push_config`. `STORAGE_SCHEMA_CROSSWALK` in the compiler is the one place that
+  maps it, and `--check-database` reports the production name *and* the declared
+  name in every failure, so a reader is never sent to the wrong schema.
+- **Composite foreign keys carry `user_id` throughout.** `(observation_id,
+  user_id) references observations(id, user_id)` rather than `observation_id`
+  alone: the constraint proves tenancy instead of a query remembering to.
+  `observation_mentions` predated the pattern with only `primary key (id)`, so
+  nothing could reference it that way — `0203` adds the missing
+  `unique (id, user_id)`, additively and with no rewrite.
+- **Derived state cascades; vocabulary restricts.** These are candidates and
+  presentations, not evidence. When the evidence goes they must go, or
+  `api.forget_distillation` leaves a profile standing on rows that no longer
+  exist — the same defect as *Disconnect all* emptying four tables and naming
+  none of the ones Memories read.
+- **`model_invocations` has no column that could hold provider text.** Hashes,
+  versions, token counts, latency, status and a stable error *code* — never a
+  message, because a provider's error string can quote the input it choked on.
+  §20.1's rule is kept by giving the text nowhere to go rather than by anyone
+  remembering not to write it.
+- **`review_items` and `review_exposures` refuse update and delete by trigger**,
+  proven in the migration against a temporary table carrying the same trigger
+  (`0200`'s probe shape) rather than by reading the function's source. A check on
+  a function's text is not a check on its behaviour.
+- **`candidate_relation_proposals.traversable` is false unless the row is
+  `verified_relation`, enforced by check constraint.** An inferred `about` edge
+  that could be walked is how a model proposal becomes a fact nobody accepted.
+- **`user_term_candidates` keys one active card per (user, term, predicate) and
+  `review_epoch` is deliberately not in it** — the epoch belongs to immutable
+  exposure history, and putting it in the key would make the same term reappear
+  as a second live card every review round.
+- **The advisors report exactly fifteen `rls_enabled_no_policy` notices and
+  nothing else.** That is the posture, not a finding.
+- **`provisional_entities.family` restates the 23-family vocabulary as a check
+  constraint**, which is a second copy of a fact the contract owns — this
+  repository's recurring defect. It is permitted because a check constraint is
+  the only mechanism the database has, and made safe by `--check-database`
+  reading it back and refusing to agree the contract compiles if the two have
+  drifted in either direction.
 
 ### Keys and crypto
 
