@@ -1620,9 +1620,32 @@ Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
   because we hold `hip hop rap` and not `hip hop`, which is the synonymy `0191`
   declined to guess. Coverage is high because `0188`/`0189` imported Apple's
   whole taxonomy: **50 of 52** stated strings resolve.
-- **A non-game work never mints.** `work:apple_*` is minted only for `is_game`
-  soundtrack credits. 1,422 distinct unresolved `work` strings from Apple Music
-  is the largest single block of unresolved evidence.
+- **A non-game work never mints, and that is settled rather than pending.**
+  `work:apple_*` is minted only for `is_game` soundtrack credits. The 1,422
+  unresolved `work` strings from Apple Music are the largest single block of
+  unresolved evidence, which reads as the obvious next hole to close. **Measured
+  2026-08-17, it is not one**, and minting them would rebuild at 2.5× scale
+  exactly what `0221` removed 560 of.
+  - **The evidence has no independence structure.** Of 575 non-classical works
+    reachable from live observations, **16 have two performers and 2 have
+    three**; average 1.04 performers and 2.34 mentions. A work is attested only
+    by its own recordings, which is why its bar is the 0.25 relief in the first
+    place — and 2.34 mentions at ~0.6 apiece saturates to about **0.19**.
+  - **The classical hypothesis is the one worth having and it is false here.** A
+    composition attested by several ensembles would be a real trait, the same
+    independence that makes the genre rollup work. **0 of 35** classical works
+    reach two performers: this library holds one recording of each.
+  - **Composer is the better target and also fails.** 57 composers, none reaching
+    two performers, **top strength 0.240 against the 0.35 creator bar**.
+  - **And the question is not answerable yet.** `observation_mentions` carries
+    work strings for **one user**, so "held by two or more users" is arithmetic
+    rather than a finding. Cross-user attestation is where a work would get its
+    independence, and it needs a population — the `EmergentTermMiner` five-user
+    floor is the same wall. **A threshold fitted to no data points is the
+    mistake the `work` bar avoided by waiting for three labelled rows.**
+  - **What would change the answer**, and is worth re-running rather than
+    re-deriving: works reaching two distinct performers within one library, or
+    the same work held by several accounts. Neither needs new code to measure.
 - **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
   `auto_promote: false`, and a five-user floor a single library cannot reach.
 
