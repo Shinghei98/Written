@@ -141,8 +141,18 @@ def test_every_isrc_disposition_bucket_is_named(resolve):
     incremented = set(re.findall(r'counts\.get\("(isrc_[a-z_]+)", 0\) \+ 1', source))
     summed = set(re.findall(r'"(isrc_[a-z_]+)": counts\.get\("isrc_[a-z_]+", 0\),', source))
 
+    # **The denominator is read from the invariant, not named here.** The first
+    # version hardcoded `isrc_eligible` as the one counter that is a total rather
+    # than a bucket, and broke the moment it was renamed to `isrc_examined` — a
+    # test that has to be edited alongside the thing it guards is one that will
+    # eventually be edited wrongly. This takes whatever `isrc_unaccounted` is
+    # computed from, which is the definition of the denominator.
+    denominator = re.search(
+        r'counts\["isrc_unaccounted"\] = (isrc_[a-z_]+) - sum\(', source)
+    assert denominator, "the arithmetic invariant is not in its expected shape"
+
     assert incremented, "no isrc bucket is incremented; the scan broke"
-    unsummed = incremented - summed - {"isrc_eligible"}
+    unsummed = incremented - summed - {denominator.group(1)}
     assert not unsummed, (
         f"these buckets are counted and never summed, so a row landing in one "
         f"would be invisible to the arithmetic check: {sorted(unsummed)}"

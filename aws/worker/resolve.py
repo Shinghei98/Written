@@ -1351,6 +1351,18 @@ def identity(value: object) -> str:
     return str(value)
 
 
+#: The ISRCs the catalogue has given a complete answer for. `name` and
+#: `albumName` are the two keys `SELECT_MISSING_ISRCS` tests, and asking the same
+#: question keeps the two halves of "is this catalogued" from drifting apart.
+SELECT_CATALOGUED_ISRCS = """
+select distinct e.external_id as isrc
+  from ontology.external_entities e
+ where e.provider = 'apple_music_catalog'
+   and e.entity_kind = 'song'
+   and e.raw_payload ? 'name'
+   and e.raw_payload ? 'albumName'
+"""
+
 #: **Which of a user's observations the source still lists.**
 #:
 #: `guard_mapping_current_source_v031` refuses a `candidate` or `accepted`
@@ -1558,6 +1570,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     counts["catalogue_recordings"] = len(recordings)
     counts["catalogue_ambiguous_isrcs"] = len(ambiguous_isrcs)
 
+    # Which ISRCs the catalogue has answered for, complete. It is what separates
+    # "no answer yet" from "answered and not minted", and only the first is work
+    # anybody is waiting on.
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_CATALOGUED_ISRCS)
+        catalogued_isrcs = {row["isrc"] for row in cursor.fetchall()}
+    counts["catalogue_answered_isrcs"] = len(catalogued_isrcs)
+
     with connection.cursor() as cursor:
         cursor.execute(SELECT_CURRENT_OBSERVATIONS, {"user_id": user_id})
         # **`str`, because `observation.id` is a string and this column is a
@@ -1619,7 +1639,14 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         row_isrc = (row.get("normalized_payload") or {}).get("isrc")
         row_isrc = row_isrc if isinstance(row_isrc, str) and row_isrc else None
         if row_isrc:
-            counts["isrc_eligible"] = counts.get("isrc_eligible", 0) + 1
+            # **`examined`, not `eligible`.** 540 of one account's 2,264 are
+            # refused by policy below — Spotify `playlist_item` and Apple
+            # `recommendation`, both weighted 0.000 — so a denominator that
+            # counted them as eligible reported 731/2,264 (32%) where the honest
+            # coverage against rows policy admits is 731/1,724 (42%). A
+            # denominator containing the rows it excludes understates the thing
+            # it is measuring.
+            counts["isrc_examined"] = counts.get("isrc_examined", 0) + 1
 
         try:
             recency = DEFAULT_RECENCY_POLICY.evaluate(
@@ -1686,9 +1713,19 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         if row_isrc and recording_concept is None:
             if row_isrc in ambiguous_isrcs:
                 counts["isrc_ambiguous"] = counts.get("isrc_ambiguous", 0) + 1
+            elif row_isrc in catalogued_isrcs:
+                # **Catalogued and deliberately not minted**, which since the
+                # decision to stop minting recording concepts is the normal
+                # resting state rather than a shortfall. Conflating it with
+                # "waiting for an answer" would report a settled policy as an
+                # unfinished job, permanently.
+                counts["isrc_catalog_no_concept"] = \
+                    counts.get("isrc_catalog_no_concept", 0) + 1
             else:
-                counts["isrc_no_catalog_match"] = \
-                    counts.get("isrc_no_catalog_match", 0) + 1
+                # No catalogue answer yet. This one *is* temporary and is what
+                # `catalogue-drain` works through.
+                counts["isrc_catalog_pending"] = \
+                    counts.get("isrc_catalog_pending", 0) + 1
         if recording_concept is not None and identity(observation.id) not in current_observations:
             # **The source no longer lists this row, so it is not evidence.**
             # `guard_mapping_current_source_v031` refuses a `candidate` or
@@ -1881,22 +1918,26 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # Raising is deliberate. A run whose dispositions do not sum has computed
     # something nobody can describe, and letting it succeed stores that as a
     # fact about a person.
-    isrc_eligible = counts.get("isrc_eligible", 0)
+    isrc_examined = counts.get("isrc_examined", 0)
     isrc_buckets = {
         "isrc_mapped": counts.get("isrc_mapped", 0),
         "isrc_not_current": counts.get("isrc_not_current", 0),
-        "isrc_no_catalog_match": counts.get("isrc_no_catalog_match", 0),
+        "isrc_catalog_pending": counts.get("isrc_catalog_pending", 0),
+        "isrc_catalog_no_concept": counts.get("isrc_catalog_no_concept", 0),
         "isrc_ambiguous": counts.get("isrc_ambiguous", 0),
         "isrc_ineligible": counts.get("isrc_ineligible", 0),
         "isrc_errored": counts.get("isrc_errored", 0),
     }
-    counts["isrc_unaccounted"] = isrc_eligible - sum(isrc_buckets.values())
+    counts["isrc_unaccounted"] = isrc_examined - sum(isrc_buckets.values())
+    # Coverage against what policy admits, which is the figure worth quoting.
+    counts["isrc_policy_eligible"] = isrc_examined - isrc_buckets["isrc_ineligible"]
 
     # Counts only — no identifier, no title. The receipt permits sixteen keys
     # and `recompute_user` already uses ten, so the full breakdown goes here,
     # where there is no limit and integers are payload-safe by construction.
     print(json.dumps({"isrc_route": {
-        "isrc_eligible": isrc_eligible,
+        "isrc_examined": isrc_examined,
+        "isrc_policy_eligible": counts["isrc_policy_eligible"],
         **isrc_buckets,
         "isrc_unaccounted": counts["isrc_unaccounted"],
         "catalogue_recordings": counts.get("catalogue_recordings", 0),
@@ -1905,7 +1946,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     if counts["isrc_unaccounted"] != 0:
         raise RuntimeError(
             "isrc disposition does not sum: "
-            f"{isrc_eligible} eligible, {counts['isrc_unaccounted']} unaccounted"
+            f"{isrc_examined} examined, {counts['isrc_unaccounted']} unaccounted"
         )
 
     # **Eligible rows that mapped nothing is anomalous, not routine.** It is the
@@ -1913,9 +1954,9 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # produced. It is survivable — no catalogued recording is a real state — so
     # it is reported rather than raised, and the receipt carries the numbers
     # that tell the two apart.
-    if isrc_eligible > 0 and isrc_buckets["isrc_mapped"] == 0:
+    if counts["isrc_policy_eligible"] > 0 and isrc_buckets["isrc_mapped"] == 0:
         print(json.dumps({"isrc_route_anomalous": {
-            "isrc_eligible": isrc_eligible,
+            "isrc_policy_eligible": counts["isrc_policy_eligible"],
             "catalogue_recordings": counts.get("catalogue_recordings", 0),
         }}))
 
