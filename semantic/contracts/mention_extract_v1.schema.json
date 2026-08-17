@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://written.app/schemas/mention_extract_v1.schema.json",
+  "title": "Written semantic mention extraction output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "items"],
+  "properties": {
+    "schema_version": {
+      "const": "mention_extract_v1"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_index", "mentions", "abstain", "abstain_reason"],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/mention"
+          }
+        },
+        "abstain": {
+          "type": "boolean"
+        },
+        "abstain_reason": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "no_durable_subject",
+            "hard_suppressed",
+            "ambiguous",
+            "insufficient_context",
+            "invalid_input"
+          ]
+        }
+      }
+    },
+    "mention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "conversation_worthy",
+        "evidence_fields",
+        "lookup_queries",
+        "relation_hypotheses"
+      ],
+      "properties": {
+        "surface": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": ["title", "channel_label", "description_excerpt", "tags"]
+        },
+        "source_field_index": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 19
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "family_hypothesis": {
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "music_recording",
+            "album",
+            "sport",
+            "activity",
+            "idea",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "conversation_worthy": {
+          "type": "boolean"
+        },
+        "evidence_fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["title", "channel_label", "description_excerpt", "tags"]
+          }
+        },
+        "lookup_queries": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "relation_hypotheses": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        }
+      }
+    },
+    "relation_hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predicate", "object_label_hypothesis"],
+      "properties": {
+        "predicate": {
+          "type": "string",
+          "enum": [
+            "part_of_franchise",
+            "features",
+            "about",
+            "performed_by",
+            "composed_by",
+            "recording_of",
+            "soundtrack_of",
+            "member_of_group",
+            "played_for",
+            "official_channel_of",
+            "represented_team_in",
+            "located_in"
+          ]
+        },
+        "object_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}

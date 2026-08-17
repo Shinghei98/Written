@@ -13,7 +13,15 @@ dependencies = []
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1,<4"]
 semantic = ["sentence-transformers>=3,<6"]
-dev = ["pytest>=8,<10"]
+# `openpyxl` reads `ontology/terms.xlsx` in `tools/compile_semantic_contract.py`.
+# **A dev/CI dependency, deliberately not a runtime one.** The worker consumes
+# `contracts/compiled_semantic_contract_v1.json` and never opens the workbook, so
+# `aws/worker/build.sh` needs no change and the Lambda bundle does not grow.
+# `jsonschema` validates the few-shot registry entries against
+# `mention_extract_v1` — the spec requires every stored example to be a complete,
+# schema-valid outer response, because a malformed few-shot teaches the model the
+# malformed shape.
+dev = ["pytest>=8,<10", "openpyxl>=3.1,<4", "jsonschema>=4.20,<5"]
 
 [project.scripts]
 written-ontology = "written_ontology.cli:main"
