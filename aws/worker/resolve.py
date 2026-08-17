@@ -1188,16 +1188,33 @@ select distinct ch.youtube_channel_id, ch.canonical_title
    and ch.canonical_title is not null
 """
 
+#: **`evidence_weight` is carried, and used not to be.** `Term` has borne it
+#: since the model was written — it is how a liked video supports its topic
+#: strongly and its uploader weakly, and how an incidental classical performer
+#: is weighed 0.02 rather than 1.0 — and this insert dropped it, so the column
+#: took its default and every one of 73,126 mentions was worth exactly the same.
+#: The ranking rules were all still in the code; none of them reached the table.
+#:
+#: **And `on conflict do nothing` named no constraint, because there was none.**
+#: The clause has never done anything: re-running the resolver wrote the same
+#: mentions again with fresh uuids, 6,370 duplicate groups on one account.
+#: `0211` creates the natural key this always assumed and names it here.
+#:
+#: Still defaulted, and known: the recency columns. Recency is computed per
+#: observation elsewhere and is not on `Term`, so every mention claims
+#: `recency_weight` 1.0. That is a smaller distortion than the evidence weight
+#: was and it is the next one to close.
 INSERT_MENTION = """
 insert into semantic_private.observation_mentions (
   observation_id, user_id, mention_text, normalized_text, mention_role,
   locale, type_hint, source_field, extraction_method, confidence,
-  safe_for_global_mining, safe_for_external_resolution)
+  safe_for_global_mining, safe_for_external_resolution, evidence_weight)
 values (
   %(observation_id)s, %(user_id)s, %(mention_text)s, %(normalized_text)s,
   %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, 'projection_field',
-  1.0, false, false)
-on conflict do nothing
+  1.0, false, false, %(evidence_weight)s)
+on conflict (observation_id, normalized_text, mention_role,
+             coalesce(source_field, ''), extraction_method) do nothing
 """
 
 # **An allow-list, because the failure mode of a deny-list is silence.**
@@ -1261,6 +1278,7 @@ def record_mentions(
             "mention_role": term.role,
             "type_hint": term.type_hint,
             "source_field": term.source_field,
+            "evidence_weight": term.evidence_weight,
         }
         for observation, term in unresolved
         if observation.source in MINEABLE_SOURCES and term.text and term.normalized

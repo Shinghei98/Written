@@ -137,12 +137,25 @@ pending as (
       on o.id = m.observation_id and o.user_id = m.user_id
    where m.user_id = %(user_id)s
      and o.lifecycle_state = 'active'
+     -- **Eligibility, before resolution rather than after.** An observation the
+     -- scorer weighs at zero — an Apple `recommendation`, which is Apple's
+     -- suggestion and not the person's act — is not a semantic opportunity, and
+     -- counting it inflates every coverage number computed downstream. 1,080 of
+     -- one account's 12,821 active mentions sat behind this line.
+     and o.action_weight > 0
      and length(btrim(m.normalized_text)) > 0
+     -- **Judged against the vocabulary now published, not merely judged.** The
+     -- old condition skipped any mention that already had a row for this
+     -- resolver and route, so a mention recorded `unresolved` could never be
+     -- reconsidered — the record of the failure was what prevented the retry,
+     -- and publishing new vocabulary rescued nothing. Keying on the evaluated
+     -- version means a new ontology makes every negative verdict pending again,
+     -- once, by itself.
      and not exists (
        select 1 from semantic_private.mention_resolutions r
         where r.mention_id = m.id
-          and r.resolver_version = %(resolver_version)s
-          and r.route_id = %(route)s)
+          and r.route_id = %(route)s
+          and r.evaluated_ontology_version_id = (select id from published))
    order by m.id
    limit %(batch)s
 ),
@@ -170,7 +183,8 @@ matched as (
 )
 insert into semantic_private.mention_resolutions
   (user_id, mention_id, resolution, ontology_version_id, concept_id,
-   route_id, resolver_version, confidence, abstention_reason)
+   route_id, resolver_version, confidence, abstention_reason,
+   evaluated_ontology_version_id)
 select m.user_id, m.id,
        case when m.distinct_concepts = 1 then 'resolved_existing'
             when m.distinct_concepts > 1 then 'ambiguous'
@@ -180,15 +194,22 @@ select m.user_id, m.id,
        %(route)s, %(resolver_version)s,
        case when m.distinct_concepts = 1 then 1.0 else 0.0 end,
        case when m.distinct_concepts > 1 then 'ambiguous'
-            when coalesce(m.distinct_concepts, 0) = 0 then 'no_durable_subject' end
+            when coalesce(m.distinct_concepts, 0) = 0 then 'no_durable_subject' end,
+       -- Set on every row, including the negatives. `ontology_version_id` above
+       -- is half a foreign key to `concept_revisions` and means where the
+       -- concept lives; it is null exactly for the rows that need revisiting.
+       m.ontology_version_id
   from matched m
 on conflict do nothing
 """
 
+#: **The current verdict per mention, never every historical one.** A mention
+#: resolved under today's vocabulary still carries yesterday's `unresolved` row,
+#: and a tally over the table would report it as both.
 RESOLVE_TALLY = """
 select resolution, count(*) as rows
-  from semantic_private.mention_resolutions
- where user_id = %(user_id)s and resolver_version = %(resolver_version)s
+  from semantic_private.current_mention_resolutions
+ where user_id = %(user_id)s and route_id = %(route)s
  group by resolution
 """
 
@@ -199,12 +220,14 @@ select count(*) as remaining
     on o.id = m.observation_id and o.user_id = m.user_id
  where m.user_id = %(user_id)s
    and o.lifecycle_state = 'active'
+   and o.action_weight > 0
    and length(btrim(m.normalized_text)) > 0
    and not exists (
      select 1 from semantic_private.mention_resolutions r
       where r.mention_id = m.id
-        and r.resolver_version = %(resolver_version)s
-        and r.route_id = %(route)s)
+        and r.route_id = %(route)s
+        and r.evaluated_ontology_version_id
+            = (select id from ontology.versions where status = 'published'))
 """
 
 
@@ -276,7 +299,7 @@ BUILD_CANDIDATES = """
 insert into semantic_private.user_term_candidates
   (user_id, concept_id, user_facing_predicate, confidence_tier, primary_route_id)
 select distinct r.user_id, r.concept_id, %(predicate)s, 'secondary', %(route)s
-  from semantic_private.mention_resolutions r
+  from semantic_private.current_mention_resolutions r
  where r.user_id = %(user_id)s
    and r.resolution = 'resolved_existing'
    and r.concept_id is not null
@@ -299,7 +322,7 @@ insert into semantic_private.candidate_support_links
 select c.user_id, c.id, m.observation_id, r.id, %(route)s,
        coalesce(m.type_hint, 'unspecified'),
        least(greatest(m.evidence_weight * m.recency_weight, 0.0), 1.0)
-  from semantic_private.mention_resolutions r
+  from semantic_private.current_mention_resolutions r
   join semantic_private.observation_mentions m
     on m.id = r.mention_id and m.user_id = r.user_id
   join semantic_private.user_term_candidates c
@@ -310,6 +333,19 @@ select c.user_id, c.id, m.observation_id, r.id, %(route)s,
  where r.user_id = %(user_id)s
    and r.resolution = 'resolved_existing'
    and r.concept_id is not null
+   -- **The anti-join is what makes the limit a page rather than a wall.**
+   -- Without it every pass selects the same arbitrary 5,000 rows, conflicts
+   -- them all away, and evidence beyond the first page is unreachable — the
+   -- limit stops being a batch size and becomes a ceiling on how much of
+   -- somebody's library can ever support a term.
+   and not exists (
+     select 1 from semantic_private.candidate_support_links l
+      where l.candidate_id = c.id
+        and l.observation_id = m.observation_id
+        and l.route_id = %(route)s)
+ -- And stable ordering, so successive pages are successive rather than a
+ -- reshuffle of whatever the planner returned.
+ order by r.id
  limit %(batch)s
 on conflict (candidate_id, observation_id, route_id) do nothing
 """
@@ -459,6 +495,13 @@ with ranked as (
     from semantic_private.user_term_candidates c
    where c.user_id = %(user_id)s
      and c.lifecycle_state = 'active'
+     -- **Already on this epoch's page, so not a candidate for it again.**
+     -- Without this the builder re-selects the same highest-ranked 24 every
+     -- pass, conflicts them away, and candidate 25 is unreachable for the life
+     -- of the epoch.
+     and not exists (
+       select 1 from semantic_private.review_items i
+        where i.candidate_id = c.id and i.review_epoch = %(epoch)s)
      and not exists (
        select 1 from semantic_private.user_term_suppressions s
         where s.user_id = c.user_id
