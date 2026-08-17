@@ -24,6 +24,14 @@ from written_ontology.job_contracts import (
     RenderIcebreakerPayload,
     ResolveYouTubeChannelPayload,
     validate_job_payload,
+    ExtractMentionsPayload,
+    ResolveMentionPayload,
+    BuildCandidateOverlayPayload,
+    AggregateTermCandidatesPayload,
+    BuildReviewItemsPayload,
+    ApplyFeedbackPayload,
+    AggregateFeedbackPayload,
+    EvaluateReleasePayload,
 )
 
 
@@ -142,6 +150,19 @@ PAYLOAD_TYPES = {
     # arrive between arming and claiming.
     "mint_vocabulary": MintVocabularyPayload,
     "derive_fitness_habits": DeriveFitnessHabitsPayload,
+    # The candidate overlay's pipeline, in the order it runs. `extract_mentions`
+    # is the model lane and declines while the contract disables the overlay;
+    # the other seven are the exact lane and run against mentions the legacy
+    # resolver has already mined.
+    "extract_mentions": ExtractMentionsPayload,
+    "resolve_mention": ResolveMentionPayload,
+    "build_candidate_overlay": BuildCandidateOverlayPayload,
+    "aggregate_term_candidates": AggregateTermCandidatesPayload,
+    "build_review_items": BuildReviewItemsPayload,
+    "apply_feedback": ApplyFeedbackPayload,
+    # The one fleet-wide job: no user, by design and by payload validator.
+    "aggregate_feedback": AggregateFeedbackPayload,
+    "evaluate_release": EvaluateReleasePayload,
 }
 
 

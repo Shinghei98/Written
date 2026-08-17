@@ -138,6 +138,21 @@ class JobType(StrEnum):
     REFRESH_EXTERNAL_ENTITY = "refresh_external_entity"
     MINT_VOCABULARY = "mint_vocabulary"
     DERIVE_FITNESS_HABITS = "derive_fitness_habits"
+    # The candidate overlay's pipeline, in the order it runs. `extract_mentions`
+    # is the model lane and declines while the contract disables the overlay;
+    # the rest are the exact lane and run today. Every member here needs a
+    # payload dataclass *and* a `JobContract` below — `JobContractRegistry`
+    # raises `incomplete_job_contract_registry` at import if one is missing, so
+    # a half-added job type bricks every invocation rather than failing at
+    # dispatch.
+    EXTRACT_MENTIONS = "extract_mentions"
+    RESOLVE_MENTION = "resolve_mention"
+    BUILD_CANDIDATE_OVERLAY = "build_candidate_overlay"
+    AGGREGATE_TERM_CANDIDATES = "aggregate_term_candidates"
+    BUILD_REVIEW_ITEMS = "build_review_items"
+    APPLY_FEEDBACK = "apply_feedback"
+    AGGREGATE_FEEDBACK = "aggregate_feedback"
+    EVALUATE_RELEASE = "evaluate_release"
 
 
 class DyadPurpose(StrEnum):
@@ -283,6 +298,82 @@ class MineTermsPayload(_PayloadMixin):
 class RefreshExternalEntityPayload(_PayloadMixin):
     external_entity_id: UUID
     refresher_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractMentionsPayload(_PayloadMixin):
+    """The model lane, pinned to the prompt and grammar it was queued against.
+
+    The workbook keys this job's idempotency on
+    `observation_id+input_hash+model_version+prompt_version+grammar_version`, and
+    the two versions here are the half that belongs on the payload — the rest is
+    per-observation and belongs in the queue row's idempotency key. Pinning them
+    is what stops a job queued under one grammar being claimed after a contract
+    change and quietly extracting under another.
+    """
+
+    user_id: UUID
+    grammar_version: str
+    prompt_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolveMentionPayload(_PayloadMixin):
+    """One account's mentions against exact labels.
+
+    The ontology version is deliberately absent: exactly one is published at a
+    time and the resolver must use whichever is published when it *runs*, not
+    when it was queued. `recompute_user` makes the same choice for the same
+    reason, and records what it used rather than what it was asked for.
+    """
+
+    user_id: UUID
+    resolver_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class BuildCandidateOverlayPayload(_PayloadMixin):
+    user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class AggregateTermCandidatesPayload(_PayloadMixin):
+    user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class BuildReviewItemsPayload(_PayloadMixin):
+    """An epoch is part of the request, not derived when the job runs.
+
+    Two jobs queued for the same epoch must build the same page — that is what
+    `review_items_one_card_per_epoch` enforces — and an epoch chosen at run time
+    would make the second one a new page instead of a no-op.
+    """
+
+    user_id: UUID
+    review_epoch: int
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyFeedbackPayload(_PayloadMixin):
+    user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class AggregateFeedbackPayload(_PayloadMixin):
+    """Fleet-wide, so it names no user.
+
+    `worker_job_payload_is_valid_v03` permits a payload with no `user_id` only
+    where the queue row's `user_id` is null as well, which is what makes this a
+    system job rather than one that forgot whose it was.
+    """
+
+    aggregation_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluateReleasePayload(_PayloadMixin):
+    release_manifest_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -661,6 +752,62 @@ _CONTRACT_SEQUENCE: tuple[JobContract[Any], ...] = (
         _fields(user_id=_uuid),
         _fields(),
         "Mint vocabulary for one user's unresolved terms, after a quiet window.",
+    ),
+    JobContract(
+        JobType.EXTRACT_MENTIONS,
+        ExtractMentionsPayload,
+        _fields(user_id=_uuid, grammar_version=_version, prompt_version=_version),
+        _fields(),
+        "Propose mentions with the model. Declines while the overlay is off.",
+    ),
+    JobContract(
+        JobType.RESOLVE_MENTION,
+        ResolveMentionPayload,
+        _fields(user_id=_uuid, resolver_version=_version),
+        _fields(),
+        "Resolve one account's mentions against exact labels, no model call.",
+    ),
+    JobContract(
+        JobType.BUILD_CANDIDATE_OVERLAY,
+        BuildCandidateOverlayPayload,
+        _fields(user_id=_uuid),
+        _fields(),
+        "Turn resolved mentions into candidate terms and their evidence.",
+    ),
+    JobContract(
+        JobType.AGGREGATE_TERM_CANDIDATES,
+        AggregateTermCandidatesPayload,
+        _fields(user_id=_uuid),
+        _fields(),
+        "Score every active candidate from the evidence beneath it.",
+    ),
+    JobContract(
+        JobType.BUILD_REVIEW_ITEMS,
+        BuildReviewItemsPayload,
+        _fields(user_id=_uuid, review_epoch=_revision),
+        _fields(),
+        "Build one epoch's review page for one account.",
+    ),
+    JobContract(
+        JobType.APPLY_FEEDBACK,
+        ApplyFeedbackPayload,
+        _fields(user_id=_uuid),
+        _fields(),
+        "Turn one account's review answers into suppressions.",
+    ),
+    JobContract(
+        JobType.AGGREGATE_FEEDBACK,
+        AggregateFeedbackPayload,
+        _fields(aggregation_version=_version),
+        _fields(),
+        "Fleet-wide keep and strike rates per route. Writes nothing.",
+    ),
+    JobContract(
+        JobType.EVALUATE_RELEASE,
+        EvaluateReleasePayload,
+        _fields(release_manifest_id=_uuid),
+        _fields(),
+        "Check a release manifest against the contract this bundle loaded.",
     ),
     JobContract(
         JobType.REFRESH_EXTERNAL_ENTITY,

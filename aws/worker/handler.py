@@ -25,6 +25,8 @@ from typing import Any
 
 import boto3
 
+import overlay
+
 from written_ontology.repository import PostgresJobQueue, WorkerJob
 from written_ontology.worker import SemanticWorker
 
@@ -383,6 +385,18 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         # `no_handler:mint_vocabulary` — which is why `0176` must not be applied
         # before this ships.
         "mint_vocabulary": mint_vocabulary,
+        # The candidate overlay, in pipeline order. Same rule as above and it is
+        # why `0208` must not be applied before this bundle is deployed: a job
+        # type the database permits and this dict does not know is claimed once,
+        # marked `dead`, and never retried.
+        "extract_mentions": overlay.extract_mentions,
+        "resolve_mention": overlay.resolve_mention,
+        "build_candidate_overlay": overlay.build_candidate_overlay,
+        "aggregate_term_candidates": overlay.aggregate_term_candidates,
+        "build_review_items": overlay.build_review_items,
+        "apply_feedback": overlay.apply_feedback,
+        "aggregate_feedback": overlay.aggregate_feedback,
+        "evaluate_release": overlay.evaluate_release,
     })
     # **The one path `_diagnostic` did not cover was the one around it.**
     # `SemanticWorker.run_once` wraps only the job handler; claiming, succeeding
