@@ -273,41 +273,49 @@ declare
   probe_user uuid;
   probe_concept uuid;
   probe_id uuid;
+  probe_predicate text;
   final_state text;
   hashed integer;
 begin
-  -- **The guard, exercised against real rows and rolled back.** A withholding
-  -- rule observed only in the case where it does nothing is not one to believe.
-  select id into probe_user from auth.users limit 1;
-  select id into probe_concept from ontology.concepts
-   where concept_key like 'genre:%' limit 1;
+  -- **The guard, exercised against a real assertion and rolled back.**
+  --
+  -- The first version inserted a fresh `user_assertions` row and was wrong
+  -- twice. It carried no `source_semantic_run_id`, so
+  -- `guard_semantic_run_*` refused it on production with *stale semantic run
+  -- cannot create a user assertion* — and it **passed replay**, because a
+  -- replayed database has no `auth.users` rows, `probe_user` came back null and
+  -- the whole branch was skipped. A probe that silently does not run is the
+  -- thing this file exists to argue against, met in its own assertion.
+  --
+  -- So it exercises an assertion that already exists, through `update`, which
+  -- is also where the race it guards actually happens: a recompute demoting and
+  -- re-promoting rows it scored.
+  select ua.id, ua.user_id, ua.concept_id, ua.predicate_key
+    into probe_id, probe_user, probe_concept, probe_predicate
+    from semantic_private.user_assertions ua
+   where ua.assertion_origin = 'inferred' and ua.concept_id is not null
+   limit 1;
 
-  if probe_user is not null and probe_concept is not null then
+  if probe_id is not null then
     begin
       insert into semantic_private.user_term_suppressions
         (user_id, concept_id, user_facing_predicate, active)
-      values (probe_user, probe_concept, 'affinity_to', true)
+      values (probe_user, probe_concept, probe_predicate, true)
       on conflict do nothing;
 
-      insert into semantic_private.user_assertions
-        (user_id, predicate_key, concept_id, created_ontology_version_id,
-         assertion_origin, machine_state)
-      values (probe_user, 'affinity_to', probe_concept,
-              (select id from ontology.versions where status = 'published'),
-              'inferred', 'eligible')
-      returning id, machine_state into probe_id, final_state;
-
-      -- The insert asked for `eligible`; the guard must have made it `candidate`.
+      update semantic_private.user_assertions
+         set machine_state = 'eligible' where id = probe_id
+      returning machine_state into final_state;
       if final_state <> 'candidate' then
         raise exception
-          '0229: a suppressed term was asserted as %, the guard did not fire', final_state;
+          '0229: a suppressed term was set % and the guard did not fire', final_state;
       end if;
 
-      -- And a term with no suppression is untouched, or the guard withholds
+      -- And without the suppression it must go back, or the guard withholds
       -- everything and the product is empty.
       delete from semantic_private.user_term_suppressions
        where user_id = probe_user and concept_id = probe_concept
-         and user_facing_predicate = 'affinity_to';
+         and user_facing_predicate = probe_predicate;
       update semantic_private.user_assertions
          set machine_state = 'eligible' where id = probe_id
       returning machine_state into final_state;
@@ -321,7 +329,7 @@ begin
       if sqlerrm <> 'rollback_probe' then raise; end if;
     end;
   else
-    raise notice '0229: no account or genre concept to probe the guard against';
+    raise notice '0229: no inferred assertion to probe the guard against';
   end if;
 
   -- **A newly published model version records the build that carries it.**
