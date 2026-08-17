@@ -120,8 +120,21 @@ begin
    where status = 'queued'
      and job_type in ('resolve_mention', 'build_candidate_overlay',
                       'aggregate_term_candidates', 'build_review_items');
+  -- **Only where there is something to arm.** The first version of this
+  -- assertion demanded that arming enqueue *something*, which is true of any
+  -- database holding mined mentions and false of every replay from empty — the
+  -- same defect this migration's own author had just repaired in seven other
+  -- migrations, and the replay lane caught it within the hour. The rule is that
+  -- a database with mentions must produce jobs; a database with none must not.
+  if queued = 0 and exists (
+       select 1 from semantic_private.observation_mentions m
+        join semantic_private.observations o
+          on o.id = m.observation_id and o.user_id = m.user_id
+       where o.lifecycle_state = 'active') then
+    raise exception '0209: there are mentions to resolve and arming enqueued nothing';
+  end if;
   if queued = 0 then
-    raise exception '0209: arming enqueued nothing and there are mentions to resolve';
+    raise notice '0209: no mined mentions, so nothing to arm';
   end if;
 
   -- 2. **Calling it twice is free**, which is what lets it sit on a schedule.
