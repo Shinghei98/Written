@@ -618,6 +618,16 @@ insert into semantic_private.assertion_evidence (
 on conflict (assertion_score_version_id, observation_mapping_id) do nothing
 """
 
+#: **What the person has struck, and for which predicate.** A suppression is
+#: keyed on `(concept, user_facing_predicate)` and only `active` ones count —
+#: `restored_at` being set is the user changing their mind, and the row survives
+#: either way so the history of having struck it is not rewritten.
+ACTIVE_SUPPRESSIONS = """
+select concept_id, user_facing_predicate
+  from semantic_private.user_term_suppressions
+ where user_id = %(user_id)s and active and concept_id is not null
+"""
+
 CONCEPT_LABELS = """
 select c.id, c.concept_key, r.preferred_label, r.concept_kind, r.inference_policy
 from ontology.concepts c
@@ -750,7 +760,8 @@ def carry_user_decisions(connection, *, user_id: str, concept_id: str,
 
 
 def assert_travel(connection, user_id: str, run_id: str, version: str,
-                  as_of: Any, policy_version: Any) -> list[str]:
+                  as_of: Any, policy_version: Any,
+                  suppressed: set[tuple[str, str]], counts: dict[str, Any]) -> list[str]:
     """Assert a trip per place the calendar says somebody went to.
 
     Returns the concept ids asserted. Writes no evidence rows, which is what
@@ -787,6 +798,12 @@ def assert_travel(connection, user_id: str, run_id: str, version: str,
                 "concept": concept_id,
             })
             existing = cursor.fetchone()
+            # The same refusal on the travel route, which writes outside the
+            # concept loop and would otherwise be the one place a struck term
+            # could still be asserted.
+            if existing is None and (concept_id, "affinity_to") in suppressed:
+                counts["user_suppressed"] = counts.get("user_suppressed", 0) + 1
+                continue
             if existing is None:
                 cursor.execute(INSERT_ASSERTION, {
                     "user_id": user_id, "predicate": "affinity_to",
@@ -861,15 +878,25 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     # `relation_class = 'observed_action'` with `assertion_safe = false`, because
     # what somebody did is evidence rather than a claim about them. Asserting it
     # took the whole worker down once.
+    with connection.cursor() as cursor:
+        cursor.execute(ACTIVE_SUPPRESSIONS, {"user_id": user_id})
+        suppressed = {
+            (str(row["concept_id"]), row["user_facing_predicate"])
+            for row in cursor.fetchall()
+        }
+    counts["user_suppressions"] = len(suppressed)
+
     travel_concepts = assert_travel(
         connection, user_id=user_id, run_id=run_id, version=version,
         as_of=as_of, policy_version=policy_version,
+        suppressed=suppressed, counts=counts,
     )
     counts["travel"] = len(travel_concepts)
 
     with connection.cursor() as cursor:
         cursor.execute(CONCEPT_LABELS, {"version": version})
         labels = {str(row["id"]): row for row in cursor.fetchall()}
+
 
     with connection.cursor() as cursor:
         cursor.execute(CONNECTED_SOURCES, {"user_id": user_id})
@@ -1078,6 +1105,22 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                 "concept": concept_id,
             })
             existing = cursor.fetchone()
+
+        # **What the person struck is not asserted about them, and an assertion
+        # that already stands is demoted rather than left alone.** Placed here
+        # because both `state` and `predicate` are known, and because it has to
+        # reach the *update* as well as the insert: a term struck after it was
+        # asserted is the case that matters most, and gating only the insert
+        # would leave it standing forever.
+        #
+        # `candidate`, not absent — the concept is still scored and still
+        # evidence. This is the same withholding shape as `policy_withheld`, and
+        # it is a *personal* refusal: it says nothing about whether the term is
+        # right for anybody else, which is why it lives here and not in the
+        # ontology.
+        if (concept_id, predicate) in suppressed:
+            counts["user_suppressed"] = counts.get("user_suppressed", 0) + 1
+            state = "candidate"
 
         if existing:
             assertion_id = existing["id"]
