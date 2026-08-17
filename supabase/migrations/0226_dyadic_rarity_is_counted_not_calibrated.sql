@@ -23,10 +23,19 @@
 -- **Two accounts hold ISRCs.** So an item's document frequency has exactly two
 -- possible values — `0.5` if one holds it, `1.0` if both — and every rarity
 -- weight derivable from that is a choice between two numbers dressed as a
--- statistic. 1,513 distinct ISRCs, **6 shared**. A weighting fitted to six
--- overlapping rows across one pair would be indistinguishable from a weighting
--- fitted to nothing, and this project has just spent an afternoon on two
--- thresholds read off the data they were tuned against.
+-- statistic. **1,340 distinct ISRCs, 5 shared** — and the first snapshot's
+-- histogram is the argument in one line: `{1: 1335, 2: 5}`, every item held by
+-- either one account or two, with no third band for a weight to discriminate
+-- between. A weighting fitted to five overlapping rows across one pair would be
+-- indistinguishable from a weighting fitted to nothing, and this project has
+-- just spent an afternoon on two thresholds read off the data they were tuned
+-- against.
+--
+-- (Those counts are **after** `action_weight > 0`, the same policy filter the
+-- scorer applies, so the instrument counts what the pipeline would actually
+-- weigh. Counted without it there are 1,513 items and 6 shared, which is what
+-- an earlier draft of this comment quoted and is the wrong denominator for a
+-- statistic about evidence.)
 --
 -- So the split is: **counting is safe now, calibrating is not.**
 --

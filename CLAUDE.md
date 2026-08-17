@@ -2074,8 +2074,13 @@ hit — inverse document frequency, and the right signal for matching. `0226`
   `1/(1 + direct children)`; both read the ontology's *shape* and neither knows
   how many **people** hold a thing. Complementary, not replaced.
 - **Two accounts hold ISRCs, so a document frequency has two possible values** —
-  0.5 or 1.0. 1,513 distinct items, **6 shared**. Any weight derived from that
-  is a choice between two numbers dressed as a statistic.
+  0.5 or 1.0. **1,340 distinct items, 5 shared**, and the first snapshot's
+  histogram is the whole argument: `{1: 1335, 2: 5}` — no third band for a
+  weight to discriminate between. Any weight derived from that is a choice
+  between two numbers dressed as a statistic. **Counted after
+  `action_weight > 0`**, the scorer's own policy filter, so the instrument
+  measures what the pipeline would weigh; without it the figures are 1,513 and
+  6, which is the wrong denominator for a statistic about evidence.
 - **So counting is safe now and calibrating is not.** `snapshot_dyad_rarity`
   records aggregate distributions at any population; `dyad_rarity_calibration`
   **refuses below five accounts**, `EmergentTermMiner`'s floor reused rather
