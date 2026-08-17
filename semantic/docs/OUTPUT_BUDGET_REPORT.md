@@ -1,32 +1,88 @@
-# The tokenizer / CJK output-budget report
+# Candidate tokenizer exploration — **not an `output_budget` gate pass**
 
-**Measured 2026-08-17.** Reproduce with:
+**Measured 2026-08-17, repaired 2026-08-18.** Reproduce with:
 
-    ./semantic/.venv/bin/python tools/output_budget_report.py --tokenizer <tokenizer.json>
+    ./semantic/.venv/bin/python tools/output_budget_report.py \
+      --tokenizer <tokenizer.json> --model-revision <sha>
 
-This is the measurement the `output_budget` deployment gate waits on. The
-contract records it as `blocked_until_pinned_tokenizer_kpop_cjk_report_passes`
-and leaves `tokenizer_manifest_sha256` as
-`required_from_pinned_deployment_not_yet_measured`.
+The program **always exits non-zero**. It produces evidence toward the
+`output_budget` gate and cannot pass it: that needs a deployed gateway attesting
+the same model, tokenizer and contract, plus a tested overflow route. Neither
+exists.
 
-## What is pinned, and what is not
+## The first version of this report was wrong
 
-| field | value |
-|---|---|
-| `llm.model.default` | `Qwen/Qwen3.5-9B` |
-| model revision measured | `c202236235762e1c871ad0ccb60c8ee5ba337b9a` |
-| `tokenizer.json` sha256 | `5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42` |
-| `tokenizer_config.json` sha256 | `316230d6a809701f4db5ea8f8fc862bc3a6f3229c937c174e674ff3ca0a64ac8` |
-| `config.json` sha256 | `d0883072e01861ed0b2d47be3c16c36a8e81c224c7ffaa310c6558fb3f932b05` |
+Kept here rather than deleted, because the corrections are the findings.
 
-**This pins what was measured, not what is deployed.** `llm.gateway.revision`
-remains unpinned because there is no gateway: the config specifies one — `POST
-/v1/semantic/extract`, provider-neutral OpenAI-compatible, `enable_thinking=false`,
-strict `json_schema` — and nothing implements it. `model_invocations` is 0.
-**A deployment that loads a different revision invalidates every number below
-and must re-run this report.**
+- **The fixture was invalid against the schema it claimed to measure.**
+  `evidence_fields` carried `primary_performer`, `album`, `genres` where the enum
+  permits only `title`, `channel_label`, `description_excerpt`, `tags`;
+  `item_index` ran to 399 against a maximum of 3; `lookup_queries` were measured
+  at 64 characters where 128 is legal. **It measured a response the model could
+  not legally emit — and it understated the cost**, because the legal response is
+  larger.
+- **Nothing was validated.** No generated response was ever checked.
+- **The singleton ceiling was wrong.** 2986.67 formatted with `%.0f` gives
+  `2987`, and `512 + ceil(1.2 × 2987) = 4097`. Every "safe" length was derived
+  against a ceiling one token too generous. **It is 2,986.**
+- **`sha256(tokenizer.json)` was called a tokenizer manifest.** A manifest covers
+  tokenizer, chat template, serving engine, schema, prompt, grammar and compiled
+  contract, canonically serialised and hashed together. The field now reports
+  `null` with a note.
+- **It exited 0 whenever the synthetic q99 fitted**, even when its own
+  schema-maximum probe failed.
+- **It recommended a 194-character cap that does not work.** Reverted.
 
-## The corpus, measured live
+## A character cap cannot bound token cost
+
+At `maxLength: 256`, tokens per item under **v1** — schema-valid fixture, five
+mentions, singleton ceiling **2,986**, scaffolding floor **616**:
+
+| script | tokens | fits alone |
+|---|---|---|
+| emoji | **21,546** (9.1× latin) | no |
+| emoji + ZWJ | 18,756 | no |
+| rare kana | 14,566 | no |
+| combining marks | 11,076 | no |
+| han / hangul / common kana / arabic | 5,271 | no |
+| devanagari | 4,796 | no |
+| cyrillic | 2,956 | yes |
+| JSON-hostile (quotes, backslashes) | 2,651 | yes |
+| latin | 2,366 | yes |
+| thai | 1,631 | yes |
+
+**Nine of thirteen scripts cannot produce a legal single-item response.**
+Tokens per character varies about tenfold, so no `maxLength` bounds tokens: a cap
+low enough for ZWJ emoji is useless for Latin. **The bound belongs where tokens
+are known — the gateway.**
+
+The earlier claim that CJK costs only 5% more came from a fixture whose content
+was a small share of an inflated envelope. Against a length-matched comparison at
+schema maximum, Han and Hangul cost **2.2× Latin**, and the tail is far worse.
+
+## What the proposed v2 shape would cost
+
+Removing `evidence_fields`, `lookup_queries` and `relation_hypotheses`:
+
+| script | v1 @256 | v2 @256 | fits under v2 |
+|---|---|---|---|
+| latin | 2,366 | **914** | yes |
+| han / hangul | 5,271 | **1,984** | yes |
+| combining | 11,076 | 4,114 | no |
+| emoji + ZWJ | 18,756 | 6,934 | no |
+| rare kana | 14,566 | 5,394 | no |
+| emoji | 21,546 | 7,954 | no |
+
+Scaffolding floor **616 → 274**.
+
+**v2 fixes the realistic scripts and does not close the overflow route.** Han and
+Hangul go from overflowing to comfortable, which is the workload the corpus
+actually has — 30.8% of titles and 33.1% of albums carry CJK. Emoji, rare kana
+and combining marks still overflow at 256. **No field-set change removes that;
+only a lower `maxLength` or a tested overflow route does**, which makes the
+overflow route a requirement rather than a nicety.
+
+## Corpus shape, measured live
 
 `semantic_private.observations`, 2026-08-17:
 
@@ -36,87 +92,36 @@ and must re-run this report.**
 | `album` | 2,586 | **33.1%** | 65 | 112 | 17 | 25 |
 | `primary_performer` | 3,001 | 13.1% | 103 | 166 | 6 | 10 |
 
-`observation_mentions` shows only 4% CJK, which is misleading and worth naming:
-mentions are already-extracted creator and work fields and are frequently
-romanised. **The model reads the payload, not the mentions**, so the payload is
-the distribution that matters.
+`observation_mentions` shows 4% CJK and is misleading: mentions are
+already-extracted and frequently romanised. **The model reads the payload.**
 
-## The fixture is synthetic on purpose
+The corpus does not reach `maxLength` today — longest title 164 characters,
+longest CJK run 39 — so the overflow is **latent**, and arrives with one unusual
+row rather than gradually.
 
-`kpop_cjk_output_stress` is built to the measured *shape* and not from the
-corpus. A fixture made of real titles would commit one person's library to the
-repository as plain text — exactly what `ontology-terms.csv` is git-ignored for.
-Seeded, so the report reproduces.
+## Candidate identity — not a production pin
 
-## Results
-
-400 items, 5 mentions each (the schema maximum), compact JSON:
-
-| | tokens |
+| | |
 |---|---|
-| scaffolding floor (1-char fields) | **581** |
-| p50 item | 772 |
-| **q99 item** | **972** |
-| max item in fixture | 1,198 |
-| schema-maximum item (256-char CJK fields) | **4,396** |
+| `llm.model.default` | `Qwen/Qwen3.5-9B` |
+| revision measured | `c202236235762e1c871ad0ccb60c8ee5ba337b9a` |
+| `tokenizer.json` sha256 | `5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42` |
+| `tokenizer_manifest_sha256` | **not constructed** |
 
-| | mean tokens |
-|---|---|
-| CJK-bearing items | 804.5 |
-| Latin items | 764.9 |
-| **CJK penalty ratio** | **1.052** |
+**Nothing here may be promoted into `terms.xlsx`** until a deployed gateway
+attests the same values and the semantic evaluation passes.
 
-### Finding 1 — the reserve holds, and the gate's premise is wrong
+## Gate blockers
 
-`uncalibrated_item_reserve_tokens = 1280` **covers the q99 of 972** with 24%
-headroom. The gate exists because CJK was expected to inflate output badly.
-**It does not: the penalty is 5%.** Qwen3.5's vocabulary covers Han and Hangul
-well, and — more importantly — **the item is 59% JSON scaffolding before any
-content exists.** Five mentions × twelve required fields dominates; the title's
-script barely moves the total.
+- no deployed gateway attesting model / tokenizer / contract;
+- no overflow route tested;
+- `tokenizer_manifest_sha256` not constructed;
+- no measurement against actual deployed Qwen output.
 
-At q99, **3 items fit** a request. The contract's `calibrated_max_items = 2` is
-therefore conservative rather than wrong, and could be raised on this evidence.
+## Standing decisions
 
-### Finding 2 — a schema-legal item can be unproducible
-
-The packing formula gives a per-item ceiling of **2,987 tokens** for a batch of
-one. A single item whose fields are at the schema's `maxLength: 256` **in CJK
-costs 4,396** — it exceeds the entire 4,096-token output budget by itself.
-The model cannot emit a legal response; it hits `finish_reason: length`, which
-the gateway contract refuses outright, so the failure is total rather than
-degraded.
-
-**The cliff is script-dependent:**
-
-| script | max safe field length | cost at 256 chars |
-|---|---|---|
-| Latin | **256** (no cliff) | 1,316 |
-| Han | **194** | 3,596 |
-| Hangul | **194** | 3,596 |
-
-The corpus does not reach this today — the longest observed title is 164
-characters and the longest CJK run is 39. **So this is a latent failure, not a
-live one**, and it is the kind that arrives with one unusual row rather than
-gradually.
-
-## What follows
-
-1. **The reserve needs no change.** 1,280 is safe for observed data and the CJK
-   fear is unfounded for this tokenizer.
-2. **Cap the surface fields at 194 characters**, in the schema rather than in a
-   prompt — `surface`, `canonical_label_hypothesis` and
-   `object_label_hypothesis` are all `maxLength: 256` and all three feed the
-   overrun. A cap the schema enforces cannot be forgotten by a caller; an
-   instruction in a prompt can.
-3. **Re-run this against the deployed revision** before the gate is called
-   passed. The numbers are only true of
-   `c202236235762e1c871ad0ccb60c8ee5ba337b9a`.
-
-## What this report does not establish
-
-- That a gateway exists or serves this revision. It does not.
-- That the model's *actual* outputs resemble the worst-case envelope. This
-  measures the largest legal response, which is what a reserve must cover, not
-  what a typical response costs.
-- Input-side budget. The gate and this report are about output.
+- **Batch size stays 2.**
+- **No 194-character cap.**
+- The fixture is synthetic and built to the measured *shape*, never from the
+  corpus: real titles would commit one person's library as plain text, which is
+  what `ontology-terms.csv` is git-ignored for.

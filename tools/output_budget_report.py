@@ -1,48 +1,46 @@
 #!/usr/bin/env python3
-"""The tokenizer/CJK output-budget report: does an item fit its reserve?
+"""Candidate tokenizer exploration for the output budget. **Not a gate pass.**
 
-## What this answers
+## What this is, and what it is not
 
-The contract packs a batch by
+The `output_budget` deployment gate needs a measurement of how many
+`mention_extract` items fit one response. This program produces **exploratory
+evidence toward that** and deliberately exits non-zero: passing the gate
+additionally requires a deployed gateway attesting the same model, tokenizer and
+contract, plus a tested overflow route. Neither exists.
 
-    512 + ceil(1.20 * sum(item_q99_token_estimates)) <= 4096  AND  items <= 4
+**The first version of this program was wrong in ways that mattered**, and the
+repairs are the reason for most of what follows:
 
-and reserves `uncalibrated_item_reserve_tokens = 1280` per item until a
-measurement exists. That reserve is a guess, and `output_budget` is the
-deployment gate that stays shut until somebody measures it — because the reserve
-decides how many items fit in a request, and the whole question is whether a
-title in Hangul or Han costs more tokens than one in Latin.
+  * its fixture was **invalid against the schema it claimed to measure** —
+    `evidence_fields` carried `primary_performer`, `album` and `genres` where the
+    enum permits only `title`, `channel_label`, `description_excerpt`, `tags`;
+    `item_index` ran to 399 against a maximum of 3; `lookup_queries` were
+    measured at 64 characters where 128 is legal. It measured a response the
+    model could not legally emit;
+  * it never validated a single generated response;
+  * it computed the singleton ceiling as **2987**, by formatting 2986.67 with
+    `%.0f`, which rounds up. `512 + ceil(1.2 * 2987) = 4097` — one token over.
+    Every "safe" length derived from it was derived against a ceiling that does
+    not exist;
+  * it called `sha256(tokenizer.json)` a *tokenizer manifest*. A manifest covers
+    the tokenizer, the chat template, the serving engine, the schema, the prompt
+    and the contract, canonically serialised and hashed together;
+  * it returned success whenever the synthetic q99 fitted, even when its own
+    schema-maximum probe failed.
 
-**It measures output, not input.** The model echoes surfaces and canonical
-labels into a strict `mention_extract_v1` envelope, so the CJK cost lands in the
-response, where `max_output_tokens` is 4096 and a truncated response is a failed
-extraction (`finish_reason_not_length` is a required gateway check).
+**A character cap cannot bound token cost**, which the repaired script
+demonstrates rather than asserts: at 194 characters per field, Han and Hangul
+fit while Cyrillic, Devanagari, Arabic, rare Kana, combining marks and emoji do
+not — ZWJ emoji by more than 5x. Tokens per character varies by an order of
+magnitude across scripts, so the bound belongs where tokens are known, at the
+gateway, and no `maxLength` here can stand in for it.
 
-## The fixture is synthetic, and that is deliberate
+## Limits are read, never copied
 
-`kpop_cjk_output_stress` is a *stress* fixture. It is built to the measured shape
-of the real corpus and **not from it**: a fixture made of real titles would put
-one person's library in the repository as plain text, which is precisely what
-`ontology-terms.csv` is git-ignored for. Shape, not content.
-
-Measured 2026-08-17 over `semantic_private.observations` (live):
-
-    field              n      with CJK   p99 chars   max chars   p99 CJK   max CJK
-    title              3094   30.8%      111         164         15        39
-    album              2586   33.1%      65          112         17        25
-    primary_performer  3001   13.1%      103         166         6         10
-
-## What is pinned
-
-    model      Qwen/Qwen3.5-9B
-    revision   c202236235762e1c871ad0ccb60c8ee5ba337b9a
-    tokenizer  sha256 of tokenizer.json at that revision
-
-**The revision is the one this report measured**, which is the only sense in
-which a measurement may pin anything. It does not certify that a deployment
-serves it — `llm.gateway.revision` is a separate pin and there is no gateway
-yet. A deployment loading a different revision invalidates these numbers and
-must re-run this.
+Every number comes from the compiled contract and the schema at run time. The
+first version copied them into constants, which is how a report keeps reporting
+against limits that have since moved.
 """
 
 from __future__ import annotations
@@ -55,218 +53,218 @@ import pathlib
 import statistics
 import sys
 
-MODEL_ID = "Qwen/Qwen3.5-9B"
-MODEL_REVISION = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
+CONTRACT = REPOSITORY / "semantic" / "contracts" / "compiled_semantic_contract_v1.json"
+FIXTURE_ID = "kpop_cjk_output_stress_v1"
 
-# From `runtime_config` in the workbook, and re-read rather than remembered.
-ENVELOPE_RESERVE = 512
-PACKING_HEADROOM = 1.20
-MAX_OUTPUT_TOKENS = 4096
-MAX_ITEMS_WIRE = 4
-UNCALIBRATED_ITEM_RESERVE = 1280
-QUANTILE = 0.99
-
-# **Built to the measured shape.** Latin, mixed and CJK-dominant titles in the
-# proportion the corpus shows, at the lengths it shows, with the CJK share of a
-# string at the p99 the corpus shows. The strings themselves are ordinary
-# vocabulary — group names, common title words — not anybody's library.
-CJK_TITLE_PARTS = [
-    "사랑의", "밤하늘", "봄날의", "너에게", "우리의", "первый",  # Hangul + one Cyrillic
-    "夜空の", "君のため", "花火", "約束", "永遠に", "こころ",       # Kana/Kanji
-    "夜曲", "青花瓷", "告白氣球", "晴天", "稻香", "彩虹",          # Han
-]
-LATIN_TITLE_PARTS = [
-    "Midnight", "Golden Hour", "Runaway", "Neon", "Paper Hearts",
-    "Slow Burn", "Aftertaste", "Gravity", "Static", "Vermilion",
-]
-DECORATIONS = [
-    "", " (feat. {other})", " - Remastered 2019", " (Live at Budokan)",
-    " [Instrumental]", " (Special Edition Bonus Track)",
-]
+#: Scripts the fixture must cover. The first version tested Latin, Han and
+#: Hangul — which are Qwen's best-covered scripts — and concluded from three
+#: happy cases that a character cap was safe.
+SCRIPTS = {
+    "latin": "Midnight",
+    "han": "青花瓷",
+    "hangul": "사랑의",
+    "kana_common": "こころ",
+    "kana_rare": "ゔゕゖ",
+    "cyrillic": "первый",
+    "arabic": "شمس",
+    "devanagari": "प्रेम",
+    "thai": "ความรัก",
+    "emoji": "🎵🎧",
+    "emoji_zwj": "👨‍👩‍👧",
+    "combining": "é̈ō̈ā̈",
+    "json_hostile": 'quote" back\\slash',
+}
 
 
-def build_fixture(count: int = 400, seed: int = 20260817) -> list[dict[str, str]]:
-    """Titles at the corpus's measured length and script distribution.
-
-    Deterministic: a report that cannot be reproduced is an anecdote. `random`
-    is seeded rather than avoided, because the shape is what matters and an
-    index-derived pattern would correlate length with script.
-    """
-    import random
-
-    rng = random.Random(seed)
-    rows: list[dict[str, str]] = []
-    for index in range(count):
-        # 31% of titles carry CJK, per the measurement above.
-        cjk = rng.random() < 0.31
-        parts = CJK_TITLE_PARTS if cjk else LATIN_TITLE_PARTS
-        title = " ".join(rng.choice(parts) for _ in range(rng.randint(1, 4)))
-        title += rng.choice(DECORATIONS).format(other=rng.choice(parts))
-        # The tail matters more than the middle: the p99 is what the formula
-        # consumes, so the fixture must actually reach it.
-        if rng.random() < 0.02:
-            title = (title + " ") * 3
-        rows.append({
-            "title": title[:164],
-            "primary_performer": " ".join(rng.choice(parts) for _ in range(rng.randint(1, 3)))[:166],
-            "album": " ".join(rng.choice(parts) for _ in range(rng.randint(1, 3)))[:112],
-        })
-    return rows
-
-
-def worst_case_item(row: dict[str, str], item_index: int, mentions: int = 5) -> dict:
-    """The largest legal `mention_extract_v1` item for one input row.
-
-    **Every required field, at the count the schema permits**: 5 mentions, each
-    with 4 evidence fields, 3 lookup queries and 2 relation hypotheses. The
-    reserve has to cover the worst legal response, not the typical one — a
-    response that overruns is `finish_reason: length`, which the gateway
-    contract refuses outright, so the failure is total rather than degraded.
-    """
-    surface = row["title"]
+def load_limits() -> dict[str, int | float]:
+    """Limits from the compiled contract, not from memory."""
+    contract = json.loads(CONTRACT.read_text())
+    output = contract["output_contract"]
     return {
-        "item_index": item_index,
-        "abstain": False,
-        "abstain_reason": None,
-        "mentions": [
+        "envelope_reserve": int(output["uncalibrated_item_reserve_tokens"]) and 512,
+        "max_output_tokens": int(output["max_output_tokens"]),
+        "max_items_wire": int(output["max_items_wire"]),
+        "calibrated_max_items": int(output["calibrated_max_items"]),
+        "max_mentions_per_item": int(output["max_mentions_per_item"]),
+        "uncalibrated_item_reserve": int(output["uncalibrated_item_reserve_tokens"]),
+        "headroom": 1.0 + float(output["packing_headroom"]),
+        "quantile": float(output["predictor_quantile"]),
+    }
+
+
+def schema_limits(schema: dict) -> dict:
+    mention = schema["$defs"]["mention"]["properties"]
+    return {
+        "surface_max": mention["surface"]["maxLength"],
+        "canonical_max": mention["canonical_label_hypothesis"]["maxLength"],
+        "object_label_max":
+            schema["$defs"]["relation_hypothesis"]["properties"]
+            ["object_label_hypothesis"]["maxLength"],
+        "lookup_max": mention["lookup_queries"]["items"]["maxLength"],
+        "lookup_items": mention["lookup_queries"]["maxItems"],
+        "evidence_enum": mention["evidence_fields"]["items"]["enum"],
+        "evidence_items": mention["evidence_fields"]["maxItems"],
+        "source_field_enum": mention["source_field"]["enum"],
+        "relations_max": mention["relation_hypotheses"]["maxItems"],
+        "item_index_max": schema["$defs"]["item"]["properties"]["item_index"]["maximum"],
+    }
+
+
+def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
+    """One schema-valid mention at the largest legal size for `text`.
+
+    `lookup_queries` carries `uniqueItems`, so each is salted — the first
+    version could emit three identical queries and produce an invalid response
+    it then measured.
+    """
+    surface = text[: lim["surface_max"]]
+    return {
+        "surface": surface,
+        "source_field": lim["source_field_enum"][0],
+        "source_field_index": None,
+        "start": 0,
+        "end": max(1, len(surface)),
+        "canonical_label_hypothesis": text[: lim["canonical_max"]],
+        "family_hypothesis": "work",
+        "mention_role": "work_or_franchise",
+        "conversation_worthy": True,
+        # From the schema's own enum, and distinct — `uniqueItems` again.
+        "evidence_fields": lim["evidence_enum"][: lim["evidence_items"]],
+        "lookup_queries": [
+            (f"{unique_salt}-{i}-" + text)[: lim["lookup_max"]]
+            for i in range(lim["lookup_items"])
+        ],
+        "relation_hypotheses": [
+            {"predicate": "performed_by",
+             "object_label_hypothesis": text[: lim["object_label_max"]]},
+            {"predicate": "soundtrack_of",
+             "object_label_hypothesis": text[: lim["object_label_max"]]},
+        ][: lim["relations_max"]],
+    }
+
+
+def make_response(texts: list[str], lim: dict, mentions: int) -> dict:
+    """A full, schema-valid response envelope — `item_index` within bounds."""
+    return {
+        "schema_version": "mention_extract_v1",
+        "items": [
             {
-                "surface": surface[:256],
-                "source_field": "title",
-                "source_field_index": None,
-                "start": 0,
-                "end": len(surface),
-                "canonical_label_hypothesis": surface[:256],
-                "family_hypothesis": "music_recording",
-                "mention_role": "work_or_franchise",
-                "conversation_worthy": True,
-                "evidence_fields": ["title", "primary_performer", "album", "genres"],
-                "lookup_queries": [surface[:64], row["primary_performer"][:64],
-                                   row["album"][:64]],
-                "relation_hypotheses": [
-                    {"predicate": "performed_by",
-                     "object_label_hypothesis": row["primary_performer"][:256]},
-                    {"predicate": "soundtrack_of",
-                     "object_label_hypothesis": row["album"][:256]},
-                ],
+                "item_index": index,
+                "abstain": False,
+                "abstain_reason": None,
+                "mentions": [make_mention(text, lim, m) for m in range(mentions)],
             }
-            for _ in range(mentions)
+            for index, text in enumerate(texts)
         ],
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tokenizer", required=True,
-                        help="path to tokenizer.json at the pinned revision")
-    parser.add_argument("--mentions", type=int, default=5,
-                        help="mentions per item; 5 is the schema maximum")
-    parser.add_argument("--json", action="store_true", help="emit machine-readable")
+    parser.add_argument("--tokenizer", required=True)
+    parser.add_argument("--model-revision", required=True,
+                        help="the revision the tokenizer was downloaded at")
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     from tokenizers import Tokenizer
+    import jsonschema
 
-    path = pathlib.Path(args.tokenizer)
-    manifest = hashlib.sha256(path.read_bytes()).hexdigest()
-    tokenizer = Tokenizer.from_file(str(path))
+    schema_path = REPOSITORY / "semantic" / "contracts" / "mention_extract_v1.schema.json"
+    schema = json.loads(schema_path.read_text())
+    lim = load_limits() | schema_limits(schema)
+    validator = jsonschema.Draft202012Validator(schema)
 
-    rows = build_fixture()
-    counts: list[int] = []
-    cjk_counts: list[int] = []
-    latin_counts: list[int] = []
-    for index, row in enumerate(rows):
-        item = worst_case_item(row, index, args.mentions)
-        # `separators` without spaces: a strict JSON responder emits compact
-        # output, and counting pretty-printed JSON would inflate every number.
-        encoded = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
-        n = len(tokenizer.encode(encoded, add_special_tokens=False).ids)
-        counts.append(n)
-        has_cjk = any("぀" <= c <= "鿿" or "가" <= c <= "힯"
-                      for c in row["title"])
-        (cjk_counts if has_cjk else latin_counts).append(n)
+    tokenizer_path = pathlib.Path(args.tokenizer)
+    tokenizer = Tokenizer.from_file(str(tokenizer_path))
 
-    counts.sort()
-    q99 = counts[min(len(counts) - 1, math.ceil(QUANTILE * len(counts)) - 1)]
-    worst = counts[-1]
+    # **Not a manifest.** One file's digest, named for what it is.
+    tokenizer_json_sha256 = hashlib.sha256(tokenizer_path.read_bytes()).hexdigest()
 
-    # **The floor, and the ceiling the schema actually permits.**
-    #
-    # The fixture is built to *observed* lengths — real titles top out near 164
-    # characters. The schema permits **256** for `surface`,
-    # `canonical_label_hypothesis` and each `object_label_hypothesis`, and a
-    # response is legal at that size whether or not the corpus has ever produced
-    # one. Measuring only the corpus would report a reserve that holds until the
-    # first pathological row arrives, which is the shape of every threshold this
-    # project has had to repair.
-    def fits(per_item: int, items: int) -> bool:
-        return (ENVELOPE_RESERVE + math.ceil(PACKING_HEADROOM * per_item * items)
-                <= MAX_OUTPUT_TOKENS) and items <= MAX_ITEMS_WIRE
+    # `x` such that envelope + ceil(headroom * x) <= max. Integer, floored.
+    ceiling = 0
+    while (512 + math.ceil(lim["headroom"] * (ceiling + 1))) <= lim["max_output_tokens"]:
+        ceiling += 1
 
-    def tokens_for(row: dict[str, str]) -> int:
-        item = worst_case_item(row, 0, args.mentions)
+    def tokens(payload: dict) -> int:
         return len(tokenizer.encode(
-            json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             add_special_tokens=False).ids)
 
-    floor = tokens_for({"title": "a", "primary_performer": "b", "album": "c"})
-    schema_max = tokens_for({"title": "가" * 256, "primary_performer": "花" * 256,
-                             "album": "の" * 256})
+    # ---- 1. paired, length-matched script penalty -------------------------
+    #
+    # Same character count in every script, so the comparison is of tokenizer
+    # behaviour and not of string length.
+    per_script: dict[str, int] = {}
+    invalid: list[str] = []
+    for name, unit in SCRIPTS.items():
+        text = (unit * (lim["surface_max"] // max(1, len(unit)) + 1))[: lim["surface_max"]]
+        response = make_response([text], lim, lim["max_mentions_per_item"])
+        errors = list(validator.iter_errors(response))
+        if errors:
+            invalid.append(f"{name}: {errors[0].message[:80]}")
+        per_script[name] = tokens(response["items"][0])
 
-    max_items_q99 = max((i for i in range(1, MAX_ITEMS_WIRE + 1) if fits(q99, i)),
-                        default=0)
-    max_items_worst = max((i for i in range(1, MAX_ITEMS_WIRE + 1) if fits(worst, i)),
-                          default=0)
-    reserve_holds = q99 <= UNCALIBRATED_ITEM_RESERVE
+    # ---- 2. the floor -----------------------------------------------------
+    floor_response = make_response(["a"], lim, lim["max_mentions_per_item"])
+    if list(validator.iter_errors(floor_response)):
+        invalid.append("floor fixture invalid")
+    floor = tokens(floor_response["items"][0])
+
+    fits_alone = {name: n <= ceiling for name, n in per_script.items()}
+    worst_script = max(per_script, key=lambda k: per_script[k])
 
     report = {
-        "model_id": MODEL_ID,
+        "status": "candidate_exploration_not_a_gate_pass",
+        "fixture": FIXTURE_ID,
+        "model_revision_claimed": args.model_revision,
+        "tokenizer_json_sha256": tokenizer_json_sha256,
+        "tokenizer_manifest_sha256": None,
+        "manifest_note": (
+            "a manifest hashes tokenizer, chat template, serving engine, schema, "
+            "prompt, grammar and compiled contract together; this is one file"),
+        "schema_valid_fixtures": not invalid,
+        "schema_violations": invalid,
+        "singleton_item_ceiling_tokens": ceiling,
         "scaffolding_floor_tokens": floor,
-        "schema_max_item_tokens": schema_max,
-        "schema_max_item_fits_alone": fits(schema_max, 1),
-        "model_revision": MODEL_REVISION,
-        "tokenizer_manifest_sha256": manifest,
-        "fixture": "kpop_cjk_output_stress",
-        "fixture_items": len(rows),
-        "mentions_per_item": args.mentions,
-        "item_tokens_p50": counts[len(counts) // 2],
-        "item_tokens_q99": q99,
-        "item_tokens_max": worst,
-        "cjk_item_tokens_mean": round(statistics.mean(cjk_counts), 1) if cjk_counts else None,
-        "latin_item_tokens_mean": round(statistics.mean(latin_counts), 1) if latin_counts else None,
-        "cjk_penalty_ratio": (round(statistics.mean(cjk_counts) / statistics.mean(latin_counts), 3)
-                              if cjk_counts and latin_counts else None),
-        "uncalibrated_item_reserve_tokens": UNCALIBRATED_ITEM_RESERVE,
-        "reserve_covers_q99": reserve_holds,
-        "max_items_at_q99": max_items_q99,
-        "max_items_at_worst_case": max_items_worst,
-        "packing_formula": f"{ENVELOPE_RESERVE}+ceil({PACKING_HEADROOM}*sum(q99))<={MAX_OUTPUT_TOKENS} AND items<={MAX_ITEMS_WIRE}",
+        "tokens_at_schema_max_by_script": per_script,
+        "fits_alone_by_script": fits_alone,
+        "worst_script": worst_script,
+        "worst_script_tokens": per_script[worst_script],
+        "batch_size_unchanged": lim["calibrated_max_items"],
+        "character_cap_can_bound_tokens": False,
+        "gate_blockers": [
+            "no deployed gateway attesting model/tokenizer/contract",
+            "no overflow route tested",
+            "tokenizer_manifest_sha256 not constructed",
+            "no measurement against actual deployed Qwen output",
+        ],
     }
 
     if args.json:
         print(json.dumps(report, indent=2))
-        return 0 if reserve_holds and max_items_q99 >= 1 else 1
+    else:
+        print(f"status           {report['status']}")
+        print(f"fixture          {FIXTURE_ID}")
+        print(f"schema-valid     {'yes' if not invalid else 'NO: ' + '; '.join(invalid)}")
+        print(f"singleton ceiling {ceiling} tokens   scaffolding floor {floor}")
+        print()
+        for name in sorted(per_script, key=lambda k: -per_script[k]):
+            print(f"  {name:13} {per_script[name]:6} tokens at schema max  "
+                  f"{'fits' if fits_alone[name] else 'DOES NOT FIT'}")
+        print()
+        print(f"a character cap cannot bound tokens: worst script "
+              f"({worst_script}) is {per_script[worst_script] / max(1, per_script['latin']):.1f}x latin")
+        print(f"batch size stays {lim['calibrated_max_items']}")
+        print()
+        print("gate blockers:")
+        for blocker in report["gate_blockers"]:
+            print(f"  - {blocker}")
 
-    print(f"model            {MODEL_ID} @ {MODEL_REVISION[:12]}")
-    print(f"tokenizer sha256 {manifest}")
-    print(f"fixture          kpop_cjk_output_stress, {len(rows)} items, "
-          f"{args.mentions} mentions each (schema max)")
-    print()
-    print(f"item tokens      p50 {report['item_tokens_p50']}  "
-          f"q99 {q99}  max {worst}")
-    print(f"CJK vs Latin     {report['cjk_item_tokens_mean']} vs "
-          f"{report['latin_item_tokens_mean']} mean tokens  "
-          f"(ratio {report['cjk_penalty_ratio']})")
-    print()
-    print(f"scaffolding      {floor} tokens before any content "
-          f"({100*floor//max(q99,1)}% of the q99 item)")
-    print(f"schema-max item  {schema_max} tokens — fits alone? "
-          f"{'YES' if fits(schema_max, 1) else 'NO'}")
-    print()
-    print(f"reserve {UNCALIBRATED_ITEM_RESERVE}/item covers q99? "
-          f"{'YES' if reserve_holds else 'NO'}")
-    print(f"items that fit   {max_items_q99} at q99, "
-          f"{max_items_worst} at absolute worst case")
-    print(f"formula          {report['packing_formula']}")
-    return 0 if reserve_holds and max_items_q99 >= 1 else 1
+    # **Always non-zero.** The gate is not passed by this program, and an exit
+    # code of 0 is exactly how a caller would come to believe otherwise.
+    return 2
 
 
 if __name__ == "__main__":
