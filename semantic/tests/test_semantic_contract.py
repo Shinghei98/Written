@@ -625,8 +625,8 @@ def test_unregistered_jobs_are_pending_while_the_overlay_is_off_and_failing_once
     Eight of the nine pipeline jobs are unbuilt, and registering a `job_type`
     before its handler ships is actively worse than leaving it out — the job is
     claimed, found to have no handler, and marked `dead` with no retry. So their
-    absence is *pending* while the contract declares the overlay disabled, and a
-    release blocker the moment it does not.
+    absence is *pending* while the mode is `off`, and a release blocker the
+    moment the model may actually be called.
     """
     contract = json.loads(compiler.CONTRACT.read_text())
     assert compiler.overlay_disabled(contract)
@@ -638,7 +638,7 @@ def test_unregistered_jobs_are_pending_while_the_overlay_is_off_and_failing_once
     assert any("extract_mentions" in note for note in pending)
 
     switched_on = copy.deepcopy(contract)
-    switched_on["runtime_requirements"]["qwen_overlay"] = "enabled"
+    switched_on["runtime_requirements"]["qwen_overlay"] = "shadow"
     assert not compiler.overlay_disabled(switched_on)
     problems = compiler.check_database(switched_on, live)
     assert any("extract_mentions" in problem for problem in problems)

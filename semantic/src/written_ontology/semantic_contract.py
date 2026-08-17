@@ -90,6 +90,15 @@ def load() -> "SemanticContract":
     return SemanticContract(contract_path())
 
 
+#: The four modes, mirrored from `tools/compile_semantic_contract.py`. Mirrored
+#: rather than imported because this module ships inside the Lambda bundle and
+#: the compiler does not; a test asserts the two lists agree, so a drift fails
+#: rather than diverges.
+MODEL_LANE_MODES = ("off", "evaluation", "shadow", "active")
+MODES_CALLING_MODEL = ("evaluation", "shadow", "active")
+MODES_WRITING_CANDIDATES = ("shadow", "active")
+
+
 class SemanticContract:
     """The compiled contract, read once and answered from."""
 
@@ -138,6 +147,11 @@ class SemanticContract:
             "model_id": self.versions["model_id"],
             "model_revision": self.versions["model_revision"],
             "gateway_revision": self.versions["gateway_revision"],
+            # **The mode belongs in the attestation**, because it is the one
+            # fact that decides whether a run was permitted to write anything
+            # about a person. A release manifest recording model and gateway but
+            # not the lane it ran in cannot answer that afterwards.
+            "model_lane_mode": self.model_lane_mode,
         }
 
     # -- the model's output vocabulary --------------------------------------
@@ -255,16 +269,38 @@ class SemanticContract:
         return self.data["runtime_requirements"]["initial_mode"]
 
     @property
-    def overlay_enabled(self) -> bool:
-        """Whether the model lane may run at all.
+    def model_lane_mode(self) -> str:
+        """`off`, `evaluation`, `shadow` or `active`.
 
-        Read from the artifact rather than from a build flag, so turning the
-        overlay on is a contract change that the deploy validator compares —
-        not a constant somebody edited.
+        Read from the artifact rather than a build flag, so changing it is a
+        contract change the deploy validator compares against what it attested.
+
+        **An unrecognised value raises.** The previous implementation asked
+        whether the string contained "disabled" and treated everything else as
+        enabled — so a typo, or a mode named `evaluation`, meant *on*. A switch
+        governing whether a model runs against somebody's library must fail
+        closed, and refusing outright is closed.
         """
-        return "disabled" not in str(
+        mode = str(
             self.data["runtime_requirements"].get("qwen_overlay", "")
-        ).lower()
+        ).strip()
+        if mode not in MODEL_LANE_MODES:
+            raise ValueError(
+                f"model lane mode {mode!r} is not one of {MODEL_LANE_MODES}")
+        return mode
+
+    @property
+    def model_may_be_called(self) -> bool:
+        """`evaluation` and above. Invocation records are permitted."""
+        return self.model_lane_mode in MODES_CALLING_MODEL
+
+    @property
+    def may_write_user_candidates(self) -> bool:
+        """`shadow` and above. Mentions, provisionals and candidates may be
+        attributed to a person — still with no assertion, publication or
+        user-visible surface, which `calibration_reads` governs separately and
+        stays false through both."""
+        return self.model_lane_mode in MODES_WRITING_CANDIDATES
 
     def source_predicates(self, source_code: str) -> tuple[str, ...]:
         """The predicates a given source's profile permits.

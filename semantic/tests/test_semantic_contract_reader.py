@@ -84,9 +84,51 @@ def test_storage_names_resolve_to_this_databases_schema(contract):
 def test_the_overlay_is_off_and_that_is_read_from_the_artifact(contract):
     """Not a build flag — turning it on must be a contract change a deploy compares."""
     assert contract.initial_mode == "exact_only"
-    assert contract.overlay_enabled is False
+    assert contract.model_lane_mode == "off"
+    assert contract.model_may_be_called is False
+    assert contract.may_write_user_candidates is False
     assert len(contract.jobs) == 9
     assert "extract_mentions" in contract.jobs
+
+
+def test_an_unrecognised_mode_raises_rather_than_defaulting(contract):
+    """**Fails closed.** The predecessor asked whether the value contained
+    "disabled" and treated anything else as enabled, so a typo meant a model
+    running against somebody's library."""
+    import copy
+
+    import pytest
+
+    from written_ontology.semantic_contract import MODEL_LANE_MODES
+
+    for bad in ("", "enabled", "disabled_until_all_deploy_gates_pass", "Shadow"):
+        broken = copy.deepcopy(contract)
+        broken.data["runtime_requirements"]["qwen_overlay"] = bad
+        with pytest.raises(ValueError):
+            broken.model_lane_mode
+
+    assert MODEL_LANE_MODES == ("off", "evaluation", "shadow", "active")
+
+
+def test_the_two_mode_lists_agree(contract):
+    """The reader mirrors the compiler's constants rather than importing them,
+    because this module ships in the Lambda bundle and the compiler does not.
+    A mirror that nobody checks is a divergence waiting to happen."""
+    import importlib.util
+    import pathlib as _pathlib
+
+    from written_ontology.semantic_contract import (
+        MODEL_LANE_MODES, MODES_CALLING_MODEL, MODES_WRITING_CANDIDATES)
+
+    path = (_pathlib.Path(__file__).resolve().parent.parent.parent
+            / "tools" / "compile_semantic_contract.py")
+    spec = importlib.util.spec_from_file_location("written_contract_compiler", path)
+    compiler = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(compiler)
+
+    assert compiler.MODEL_LANE_MODES == MODEL_LANE_MODES
+    assert compiler.MODES_CALLING_MODEL == MODES_CALLING_MODEL
+    assert compiler.MODES_WRITING_CANDIDATES == MODES_WRITING_CANDIDATES
 
 
 def test_the_attestation_names_what_a_run_obeyed(contract):

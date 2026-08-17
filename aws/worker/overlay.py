@@ -97,19 +97,28 @@ def extract_mentions(job) -> dict[str, Any]:
     compares against what it attested to.
     """
     contract = load_contract()
-    if not contract.overlay_enabled:
+    mode = contract.model_lane_mode
+
+    # **Branch on the mode, not on a boolean.** The old test asked whether the
+    # contract string contained "disabled", which fails open: `evaluation`
+    # contains no such word and would have fallen straight through to the
+    # `NotImplementedError` below. The four modes are exhaustive and unknown
+    # values already raised in `model_lane_mode`, so there is no `else` that
+    # silently proceeds.
+    if mode == "off":
         return {
             "status": "no_op",
             "abstained": True,
             "item_count": 0,
         }
-    # Reached only once the contract itself says the overlay may run, which
-    # cannot happen before the gateway, the tokenizer report and the staging
-    # loop exist. Failing loudly here is right: a silent no-op would look like
-    # a working lane producing nothing.
+
+    # `evaluation` and `shadow` both call the model; they differ in what may be
+    # written, which is enforced where the writes happen rather than here — a
+    # handler that decided its own permissions would be a second copy of the
+    # rule. What is common to both is that neither can run without a gateway.
     raise NotImplementedError(
-        "the qwen extraction lane is enabled in the contract but its gateway "
-        "has not shipped"
+        f"the qwen extraction lane is in mode {mode!r} and its gateway has not "
+        "shipped"
     )
 
 
@@ -766,9 +775,19 @@ def evaluate_release(job) -> dict[str, Any]:
                         "id": "runtime_contract_matches_manifest",
                         "status": "passed" if matches else "failed",
                     },
+                    # **The deployed mode must match what the manifest
+                    # attested**, rather than being required to be off
+                    # unconditionally. The old test could never pass once the
+                    # lane ran at all, which made `candidate_attestation` and
+                    # `staging_e2e` unreachable: both require the lane to have
+                    # run, and the gate demanded it had not.
                     {
-                        "id": "overlay_disabled",
-                        "status": "passed" if not contract.overlay_enabled else "failed",
+                        "id": "model_lane_mode_matches_manifest",
+                        "status": (
+                            "passed"
+                            if manifest.get("model_lane_mode") == contract.model_lane_mode
+                            else "failed"
+                        ),
                     },
                 ],
                 **contract.attestation(),

@@ -424,16 +424,42 @@ def resolve_storage_object(declared: str) -> str:
     return f"{STORAGE_SCHEMA_CROSSWALK.get(schema, schema)}.{table}"
 
 
-def overlay_disabled(contract: dict[str, Any]) -> bool:
-    """Whether the contract still declares the Qwen overlay off.
+#: **Four modes, not a boolean.** The old value was prose
+#: (`disabled_until_all_deploy_gates_pass`) tested with `"disabled" in ...`, and
+#: that scheme was circular as well as fragile: the overlay was disabled until
+#: every gate passed, while `candidate_attestation`, deployed output measurement
+#: and `staging_e2e` all require it to have run. It also failed open — a mode
+#: named `evaluation` contains no "disabled" and would have read as *enabled*,
+#: sending `extract_mentions` straight into `NotImplementedError`.
+MODEL_LANE_MODES = ("off", "evaluation", "shadow", "active")
 
-    Read from the artifact rather than from a constant here, because the workbook
-    is where that decision is authored and this file's whole argument is that one
-    fact belongs in one place.
+#: Modes in which the model is actually called, so a handler must exist for
+#: every registered job.
+MODES_CALLING_MODEL = ("evaluation", "shadow", "active")
+
+#: Modes in which rows attributable to a person may be written.
+MODES_WRITING_CANDIDATES = ("shadow", "active")
+
+
+def model_lane_mode(contract: dict[str, Any]) -> str:
+    """The declared mode, refused unless it is one of the four.
+
+    Read from the artifact rather than a constant, because the workbook is where
+    the decision is authored. **An unrecognised value raises** rather than
+    defaulting: the previous substring test treated anything it did not
+    understand as *on*, which is the wrong direction for a switch that governs
+    whether a model may run against somebody's library.
     """
-    return "disabled" in str(
-        contract["runtime_requirements"].get("qwen_overlay", "")
-    ).lower()
+    mode = str(contract["runtime_requirements"].get("qwen_overlay", "")).strip()
+    if mode not in MODEL_LANE_MODES:
+        raise ValueError(
+            f"model lane mode {mode!r} is not one of {MODEL_LANE_MODES}")
+    return mode
+
+
+def overlay_disabled(contract: dict[str, Any]) -> bool:
+    """Kept as the narrow question `pending_jobs` asks: may the model run?"""
+    return model_lane_mode(contract) not in MODES_CALLING_MODEL
 
 
 def pending_jobs(contract: dict[str, Any], live: dict[str, Any]) -> list[str]:

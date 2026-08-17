@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-17T01:56:08.478Z",
+  "generated_at": "2026-08-17T23:06:38.907Z",
   "source_hashes": {
-    "workbook_sha256": "2d4d5260f581237ef2320ac01b3fd052873b9b6fd6c38b3f8d777d318395763b",
+    "workbook_sha256": "3c06a921a3f8874593a0160ac94073e4bff28fd4f62a92c14ceebade5608b362",
     "mention_schema_sha256": "5d1dc7fa7a3d7e8a85bd632956b98f0944b35713c935079b23afef38f5bc97e6"
   },
   "versions": {
@@ -263,7 +263,7 @@
       ]
     },
     "initial_mode": "exact_only",
-    "qwen_overlay": "disabled_until_all_deploy_gates_pass",
+    "qwen_overlay": "off",
     "deployment_gates": [
       "artifact_contract",
       "candidate_attestation",
