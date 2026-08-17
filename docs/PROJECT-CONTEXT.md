@@ -1468,7 +1468,7 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0206`.** `db push` is the deployment mechanism and
+**Migration head `0218`.** `db push` is the deployment mechanism and
 `supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
 reasoning in its header comment**, and that is the record — this section carries
 only what a later change could violate.
@@ -1647,6 +1647,63 @@ Two smaller things fell out of it, both recorded as gaps rather than fixed:
 **It did not close the append/change-only question.** Every real source on that
 account was distilled exactly once, all inside one minute on 15 August, so the
 comparison has still never run against a second distillation of the same library.
+
+#### The ISRC route, and what it measured (`0213`–`0218`)
+
+Song titles were the largest block of unresolved evidence in this database —
+1,422 distinct strings — because nothing mints a non-game work. The exact lane
+put a number on it once it ran: **2,362 eligible mentions, one resolvable.**
+
+The route: an ISRC on an observation joins to a `recording:isrc_*` concept
+through `external_concept_links`, and writes an accepted `provider_id` mapping
+that the existing scorer and Memories already consume. Deliberately *not* the new
+overlay — the mature path already reaches a surface, so a resolved recording
+becomes confirmable and strikeable with nothing new built to show it.
+
+- **Identity is the ISRC; the title is a label.** 560 recordings carry 551
+  distinct titles, so minting by title would have merged nine pairs in the first
+  batch. No `concept_labels` row is written at all: the name lives in
+  `preferred_label` and the concept is reached through the link, because adding
+  560 titles as active aliases would raise the published label set by a fifth and
+  make ambiguity the dominant failure of a resolver that cannot yet be told which
+  family a mention wants.
+- **Nothing is inferred from an ISRC beyond the recording.** No abstract
+  `music_work`, no `recording_of`, no album, no `performed_by` — a cover, a
+  remaster and the original are three ISRCs and one work, and the batch cannot
+  tell which is which.
+- **The catalogue had to be taught to keep the name first.** Song entities were
+  labelled with their genre list — 2,329 of them called `"Pop, Music"` — because
+  when genre inference was the only purpose the title was surplus, and
+  `emit_songs` said so. Storing the field was not enough: `SELECT_MISSING_ISRCS`
+  decides completeness by testing for a *key*, so `name` had to join that test or
+  1,513 stale rows would have looked finished forever.
+
+**Three defects between writing the route and running it, and the difference
+between them is the lesson.** A missing grant named itself as `42501` and a
+`candidate_rank` of 0 as `23514` — both from the per-handler diagnostic added
+hours earlier. The third produced no signal at all: a `str` tested against a set
+of `uuid.UUID` skipped all 736 eligible observations while the run reported
+success and wrote 9,841 other mappings. Every query it depended on returned
+exactly the right rows. It is the only one that cost real time.
+
+`0218` and the bucketing in `resolve_user` are the response — see the rules in
+`CLAUDE.md`.
+
+**The measurement, which is the point.** 731 accepted mappings across 560
+recordings, every gate passing. Each recording is attested by **1.31 observations
+on average**, at most 3, and the strongest scores **0.148** against a work bar of
+0.25. **Nothing surfaces, and nothing is close.**
+
+That is not the route underperforming — it is what a recording *is*. A creator
+accumulates across everything they touch; a work is attested only by its own
+songs; a recording is held once. The 993 ISRCs still without a concept would add
+993 more concepts each attested about once, so vocabulary growth does not change
+the shape.
+
+**So recordings probably do not belong in the versioned ontology.** 560 concepts
+took the published set from 2,961 to 3,521 revisions and every publish copies all
+of them; they scale with libraries rather than with vocabulary; and they clear no
+bar. Shared provisionals are the better home, and this is the number that says so.
 
 #### Account deletion was broken for every account (`0204`)
 

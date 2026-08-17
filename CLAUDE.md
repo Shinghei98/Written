@@ -1089,7 +1089,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0206`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0218`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
@@ -1187,6 +1187,27 @@ assertions are still eligible in production.
 - **When a migration needs a grant, read `pg_trigger` for the tables being
   written and follow what each trigger calls.** That is the first move, not the
   sixth.
+- **`bypassrls` is not a grant, and checking five tables is not checking the
+  sixth.** The ISRC route joins through `ontology.external_concept_links`;
+  `semantic_worker` had select on `concepts`, `concept_revisions`,
+  `concept_labels`, `versions` and `external_entities`, and not on that one. Six
+  of nineteen `ontology` tables are still unreadable by the worker, deliberately.
+- **A model version that runs *ahead* of working code is the same defect as one
+  that lags it.** `0215` published resolver 0.11.0 describing the ISRC route;
+  the route then did not run, and three completed runs recorded a version whose
+  parameters describe behaviour that did not happen. The remedy is the same — a
+  new version, `0217` — because *the runs state something untrue* either way.
+- **Identifiers are canonicalised where they enter, never at each comparison.**
+  psycopg returns a `uuid` column as a `uuid.UUID`; `observation_from_row` stores
+  `str(row["id"])`. `str in {UUID, …}` is false for every row, and that cost 736
+  silently skipped observations inside a run that reported success. `identity()`
+  in `resolve.py` is the one representation, and a normalisation applied at three
+  call sites out of four is the one that fails.
+- **A skip must have a name, or no total can disagree with it.** Every
+  ISRC-bearing observation lands in exactly one bucket — mapped, not_current,
+  no_catalog_match, ambiguous, ineligible, errored — and `resolve_user` raises if
+  the residual is not zero. A run may legitimately map nothing; it may not *lose*
+  rows, and before the buckets existed those two were indistinguishable.
 - **`tools/replay_contracts.sh` applies the whole chain to a throwaway Postgres,
   and `tools/ci/unreplayable_migrations.txt` is meant to stay empty.** A
   migration that asserts against production's own contents cannot replay, and
