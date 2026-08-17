@@ -2063,6 +2063,36 @@ at the top of the thread.
 - **It is not an embedding** — overlap counting over genres, sports and creators,
   and what the ontology stage replaces.
 
+### Dyadic rarity is counted, not calibrated
+
+Two people sharing an obscure recording says far more than two sharing a chart
+hit — inverse document frequency, and the right signal for matching. `0226`
+**instruments it and deliberately does not build it.**
+
+- **`0164`'s two numbers are structural rarity and neither is this.**
+  `specificity` is `1/(1 + mean hops to the bridge)` and `information_value` is
+  `1/(1 + direct children)`; both read the ontology's *shape* and neither knows
+  how many **people** hold a thing. Complementary, not replaced.
+- **Two accounts hold ISRCs, so a document frequency has two possible values** —
+  0.5 or 1.0. 1,513 distinct items, **6 shared**. Any weight derived from that
+  is a choice between two numbers dressed as a statistic.
+- **So counting is safe now and calibrating is not.** `snapshot_dyad_rarity`
+  records aggregate distributions at any population; `dyad_rarity_calibration`
+  **refuses below five accounts**, `EmergentTermMiner`'s floor reused rather
+  than reinvented.
+- **Distributions, never per-item rows.** *How many* items are held by exactly
+  two accounts is an aggregate; *which* item, at a population of two, names one
+  library and then the other. Per-dyad overlap is not stored either — `0164`
+  already refuses a dyad run without an active match authorisation, and an
+  instrument recording overlap for unmatched pairs would route around that
+  rather than respect it.
+- **`definition_version` is stamped on every snapshot** (`dyad_rarity_v1`), so
+  rows measured under different definitions are never silently compared, and a
+  superseding definition takes a new string rather than an edit.
+- **The migration asserts nothing calls the calibration**, by scanning
+  `pg_get_functiondef`. An instrument that quietly acquires a caller has stopped
+  being one, and that is the change most easily made later without noticing.
+
 ### The invitation becomes the first message
 
 A trigger on `conversations` insert copies the like's note in as a message from
