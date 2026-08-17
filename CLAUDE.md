@@ -1722,10 +1722,23 @@ genre strings; recording genres resolve 61 of 83).
   the fact and had been asserted the other way.** `genre:apple_19` ("Worldwide")
   scored **0.391** on the first real run and is an eligible assertion today —
   the prediction that four artists would leave it short of 0.35 was made from an
-  artist count, which is the same mistake as the one above. The residue is the
-  defect already recorded against `genre:asian_music`, it is now live rather than
-  hypothetical, and it belongs in the **ontology** — a catalogue bucket should
-  not be assertable vocabulary — where one correction serves every reader.
+  artist count, which is the same mistake as the one above.
+- **`0222` says it in the ontology, on the concept, and `inference_policy`
+  already had the word.** `explicit_only` means *a person may claim this, the
+  system may never infer it* — so a container stays in the vocabulary, stays
+  scored, stays a parent for its children, and stops being a claim about
+  anybody. Scorer `0.16.0` withholds `explicit_only` and `prohibited` and counts
+  it as `policy_withheld`; **`review_required` is deliberately not honoured**,
+  890 concepts carrying it and every one assertable. `genre:apple_19` and
+  `genre:asian_music` are named — **authored judgement, kept short**, like
+  `0198`'s merge list, because there is no derivable signal: "Worldwide" has 4
+  children and `genre:baroque` has 45. What makes it honest is being a property
+  of the concept that every reader sees rather than literals in one resolver.
+- **A rule that only withholds arrives too late for the rows it was written
+  for**, so the standing inferred assertions are demoted to `inactive`.
+  `explicit_addition` is left alone — what somebody typed is not what was read
+  off their phone, and `explicit_only` is exactly the policy that still permits
+  it.
 
 **`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
 branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped

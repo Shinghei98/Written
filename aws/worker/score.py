@@ -213,6 +213,14 @@ ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.25}
 # that six migrations already reference.
 NEVER_ASSERTED_KEY_PREFIXES = ("era:",)
 
+# **What the ontology may refuse to have inferred.** `review_required` is
+# deliberately absent: 890 concepts carry it today and every one of them is
+# assertable, so treating it as a refusal would silently empty most of the
+# system. These two are the ones whose names already mean "not from inference" —
+# `explicit_only` admits a claim the person makes themselves, `prohibited`
+# admits none.
+NEVER_INFERRED_POLICIES = ("explicit_only", "prohibited")
+
 
 # **Aggregated in SQL rather than in Python.** 12,017 mappings across ~340
 # concepts is small, but pulling them into the Lambda to group them would put
@@ -611,7 +619,7 @@ on conflict (assertion_score_version_id, observation_mapping_id) do nothing
 """
 
 CONCEPT_LABELS = """
-select c.id, c.concept_key, r.preferred_label, r.concept_kind
+select c.id, c.concept_key, r.preferred_label, r.concept_kind, r.inference_policy
 from ontology.concepts c
 join ontology.concept_revisions r on r.concept_id = c.id
 where r.ontology_version_id = %(version)s
@@ -935,7 +943,24 @@ def score_user(connection, user_id: str, run_id: str, version: str,
 
         kind = label.get("concept_kind")
         key = label.get("concept_key") or ""
-        if kind in NEVER_ASSERTED_KINDS or key.startswith(NEVER_ASSERTED_KEY_PREFIXES):
+        # **The ontology decides assertability, not only the key.**
+        # `genre:apple_19` is Apple's "Worldwide" — a catalogue drawer rather
+        # than a taste — and it scored 0.391 and was asserted about a real
+        # person. Nothing in a key or a kind separates it from `genre:baroque`,
+        # which has 45 children and is a perfectly good thing to say about
+        # somebody, and `0220` measured that child count cannot either.
+        #
+        # So it is said in the ontology, on the concept, where one correction
+        # serves every reader — and `inference_policy` already had the word for
+        # it. `explicit_only` means *a person may claim this, the system may
+        # never infer it*, which is exactly a container genre: still scored,
+        # still evidence for its children, never a claim about anybody.
+        # `prohibited` is the same refusal, harder.
+        policy = label.get("inference_policy") or "inferable"
+        if policy in NEVER_INFERRED_POLICIES:
+            counts["policy_withheld"] = counts.get("policy_withheld", 0) + 1
+            state = "candidate"
+        elif kind in NEVER_ASSERTED_KINDS or key.startswith(NEVER_ASSERTED_KEY_PREFIXES):
             # Counted rather than skipped silently: a kind quietly asserting
             # nothing is indistinguishable from a kind nothing ever scored.
             counts["container_kind"] = counts.get("container_kind", 0) + 1
