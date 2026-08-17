@@ -1648,6 +1648,51 @@ Two smaller things fell out of it, both recorded as gaps rather than fixed:
 account was distilled exactly once, all inside one minute on 15 August, so the
 comparison has still never run against a second distillation of the same library.
 
+#### Where recording evidence actually aggregates (measured 2026-08-17)
+
+The recordings clear no bar themselves — 1.31 observations each, strongest 0.148
+against 0.25. The question that decides whether the ISRC work was worth having is
+what happens when that evidence is rolled *upward*, and the answer differs
+sharply by level. All four measured with `√w` damping, so one album cannot behave
+like forty independent pieces of evidence.
+
+| rolled up to | result |
+|---|---|
+| **creator** | **0 new crossings.** 99 (user, creator) pairs reached, 34 already above the bar. Redundant, not additive |
+| **genre** | **8 new crossings**, each backed by ≥2 independent artists |
+| **album** | 254 distinct albums, only 19 with ≥2 recordings, 6 with ≥4. Weak, and no album identifier exists to key them on |
+| **franchise** | 0. No game-soundtrack credit in the cohort |
+
+**Creator is redundant because the same library yields the artist's name to the
+lexical route directly.** A recording points at a creator that was already found;
+the two crossings it produces under *linear* accumulation are exactly what the
+damping exists to refuse, since one creator has 33 recordings.
+
+**Genre is the level that pays**, and the terms are specific rather than
+containers:
+
+    genre:baroque             29 artists   0.753   (was 0.089)
+    genre:oratorio            24 artists   0.735   (was 0.000)
+    genre:violin               5 artists   0.559   (was 0.089)
+    genre:solo_instrumental    3 artists   0.549   (was 0.000)
+    genre:dance                8 artists   0.405   (was 0.000)
+    genre:piano                4 artists   0.343   (was 0.000)
+    genre:chamber_music        2 artists   0.255   (was 0.000)
+
+That is a coherent and recognisable picture of a classical listener, and the
+existing path scored every one of them at or near zero. **Genre is stated at the
+recording level and the artist-level mint never saw it** — `0202`'s nine stated
+artist genre strings resolved to nothing, while recording genres yield 48
+distinct strings matching 37 concepts.
+
+So the conclusion is narrower than "recordings are not worth having": *a recording
+is not a trait, and it is excellent evidence for one.* The unit is too fine to
+assert and the right size to aggregate — and it aggregates to genre, not to
+creator.
+
+One blemish to fix if this is built: `genre:apple_19` crosses at 0.272 and is an
+Apple genre id with no name, which should not be assertable.
+
 #### The ISRC route, and what it measured (`0213`–`0218`)
 
 Song titles were the largest block of unresolved evidence in this database —
