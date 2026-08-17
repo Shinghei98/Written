@@ -153,7 +153,11 @@ matched as (
    cross join published v
    left join lateral (
      select count(distinct l.concept_id) as distinct_concepts,
-            min(l.concept_id) as concept_id
+            -- **`min(uuid)` does not exist.** Postgres has no ordering aggregate
+            -- for uuid, and the cast through text is what `0190` already does
+            -- for the same reason. It is only ever read when the count is 1, so
+            -- which uuid "min" picks is not a decision — there is one.
+            min(l.concept_id::text)::uuid as concept_id
        from ontology.concept_labels l
        join ontology.concept_revisions cr
          on cr.ontology_version_id = l.ontology_version_id

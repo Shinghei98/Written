@@ -379,24 +379,46 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         # empty one.
         schema="semantic_private",
     )
+    # **A handler that fails must say why, and until now none did.**
+    # `SemanticWorker.run_once` catches a handler exception and records
+    # `last_error = 'handler_error'` — a payload-safe code by design, and the
+    # database refuses anything richer. But nothing printed the diagnostic, so a
+    # failing job left a queue row saying "handler_error" and a CloudWatch log
+    # saying nothing at all: 136ms, claimed, retried, silent. The first overlay
+    # job to fail cost a round of guessing that a single line would have
+    # answered.
+    #
+    # `_diagnostic` is what may be said — type, sqlstate, constraint name, never
+    # `str(error)` — and the exception is re-raised untouched so the queue's own
+    # retry logic is unchanged.
+    def _reporting(name, handler):
+        def run(job):
+            try:
+                return handler(job)
+            except Exception as error:  # noqa: BLE001 - reported, then re-raised
+                print(json.dumps({"job_failed": {"job_type": name,
+                                                 **_diagnostic(error)}}))
+                raise
+        return run
+
     worker = SemanticWorker(queue, handlers={
-        "recompute_user": recompute_user,
+        "recompute_user": _reporting("recompute_user", recompute_user),
         # Registered here or the job is claimed and marked `dead` with
         # `no_handler:mint_vocabulary` — which is why `0176` must not be applied
         # before this ships.
-        "mint_vocabulary": mint_vocabulary,
+        "mint_vocabulary": _reporting("mint_vocabulary", mint_vocabulary),
         # The candidate overlay, in pipeline order. Same rule as above and it is
         # why `0208` must not be applied before this bundle is deployed: a job
         # type the database permits and this dict does not know is claimed once,
         # marked `dead`, and never retried.
-        "extract_mentions": overlay.extract_mentions,
-        "resolve_mention": overlay.resolve_mention,
-        "build_candidate_overlay": overlay.build_candidate_overlay,
-        "aggregate_term_candidates": overlay.aggregate_term_candidates,
-        "build_review_items": overlay.build_review_items,
-        "apply_feedback": overlay.apply_feedback,
-        "aggregate_feedback": overlay.aggregate_feedback,
-        "evaluate_release": overlay.evaluate_release,
+        "extract_mentions": _reporting("extract_mentions", overlay.extract_mentions),
+        "resolve_mention": _reporting("resolve_mention", overlay.resolve_mention),
+        "build_candidate_overlay": _reporting("build_candidate_overlay", overlay.build_candidate_overlay),
+        "aggregate_term_candidates": _reporting("aggregate_term_candidates", overlay.aggregate_term_candidates),
+        "build_review_items": _reporting("build_review_items", overlay.build_review_items),
+        "apply_feedback": _reporting("apply_feedback", overlay.apply_feedback),
+        "aggregate_feedback": _reporting("aggregate_feedback", overlay.aggregate_feedback),
+        "evaluate_release": _reporting("evaluate_release", overlay.evaluate_release),
     })
     # **The one path `_diagnostic` did not cover was the one around it.**
     # `SemanticWorker.run_once` wraps only the job handler; claiming, succeeding
