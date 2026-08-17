@@ -117,6 +117,12 @@ STOREFRONT = "us"
 # to the same cap — see the note in `docs/NEXT-STEPS.md`. Deliberately not
 # changed from here: it is a separate target needing a build and a device to
 # verify, and matching a value that is wrong is not agreement.
+#: The shape of a song's `raw_payload`. Bumped whenever a field is added that a
+#: reader depends on, because `SELECT_MISSING_ISRCS` decides whether a cached
+#: answer is complete by testing for keys — and a row written before a field
+#: existed is not a stale answer, it is a different question.
+CATALOGUE_SCHEMA = "apple_song_v2"
+
 ISRCS_PER_REQUEST = 25
 
 PAGE = 1000
@@ -323,6 +329,21 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
                 # does, so both ends of the system agree about which row spoke.
                 continue
             answers[isrc] = {
+                # **The recording's own name and performer, which this used not
+                # to keep.** When the only purpose was inferring a genre they
+                # were surplus, and the comment below `emit_songs` said so:
+                # *"the title is not fetched and is not wanted"*. That stopped
+                # being true the moment an ISRC became a candidate *identity* —
+                # a recording concept minted from the old cache would be called
+                # `"Pop, Music"`, because the label was the genre list.
+                #
+                # Both are on a response already being made. No extra request,
+                # no extra quota, and nothing here is inferred: these are fields
+                # Apple states.
+                "name": (attributes.get("name") or "").strip(),
+                "normalized": normalize_text(attributes.get("name") or ""),
+                "artistName": (attributes.get("artistName") or "").strip(),
+                "durationInMillis": attributes.get("durationInMillis"),
                 "genreNames": attributes.get("genreNames") or [],
                 "composerName": (attributes.get("composerName") or "").strip(),
                 "releaseDate": attributes.get("releaseDate") or "",
@@ -331,6 +352,14 @@ def catalogue(token: str, isrcs: list[str]) -> tuple[dict[str, dict], dict[str, 
                 # extraction rule licenses, costing no request and no quota.
                 # See `game_titles_in`.
                 "albumName": (attributes.get("albumName") or "").strip(),
+                # **The schema this row was written under.** `external_entities`
+                # is unique on `(provider, external_id, payload_hash)` and is
+                # append-only, so a widened payload lands beside its predecessor
+                # rather than replacing it — and the completeness test that
+                # decides whether to re-ask reads a *key*, never a timestamp.
+                # Naming the version makes "which shape is this" answerable
+                # without inferring it from which keys happen to be present.
+                "catalogue_schema": CATALOGUE_SCHEMA,
             }
         print(
             f"  batch {start // ISRCS_PER_REQUEST + 1}: asked {len(batch)}, "
@@ -503,9 +532,12 @@ def emit(answers: dict[str, dict], artists: dict[str, str], description: str) ->
     fails to record, and is harmless here for the reason it is not there: this
     runs by hand, occasionally, not on every distillation.
 
-    `label` holds the genres rather than the song title. The title is not
-    fetched and is not wanted; what makes this row worth reading at a glance is
-    the answer it carries.
+    **`label` holds the song title, and used to hold the genres.** The original
+    reasoning was sound for what this was then — "what makes this row worth
+    reading at a glance is the answer it carries", and the answer was a genre.
+    An ISRC is now a candidate identity for a recording concept, and a concept
+    whose preferred label is `"Pop, Music"` is worse than no concept. The genres
+    are still in `raw_payload` where the genre mint reads them.
     """
     print(f"""-- {description}
 --
@@ -539,7 +571,7 @@ begin;
         payload = answers[isrc]
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-        label = ", ".join(payload["genreNames"])
+        label = payload.get("name") or ", ".join(payload["genreNames"])
         rows.append(
             "  (gen_random_uuid(), 'apple_music_catalog', "
             f"{quote(isrc)}, 'song', {quote(label)}, "

@@ -75,8 +75,23 @@ select o.normalized_payload ->> 'isrc'      as isrc,
         -- this clause forever. Self-limiting: it is a key test, not a
         -- timestamp, so nothing re-fetches on a schedule.
         and e.raw_payload ? 'albumName'
+        -- **And `name`, which is the identity work's prerequisite.** 2,329 rows
+        -- were cached with the genre list as their label and no track name at
+        -- all, so a recording concept minted from them would have been called
+        -- `"Pop, Music"`. Requiring the key is what makes those rows re-ask
+        -- exactly once. Storing the field without requiring it would have left
+        -- them looking complete forever, which is the same silence the label
+        -- itself sat in.
+        and e.raw_payload ? 'name'
    )
  group by 1
+ -- **Deterministic, because the limit makes this a page.** Without an order the
+ -- planner may return any 2,000 of the outstanding ISRCs, and a later pass may
+ -- return an overlapping set — so a long tail can be re-asked indefinitely while
+ -- some ISRC is never reached. Ordering by the ISRC makes successive pages
+ -- successive: the anti-join above removes what was fetched, so the next call
+ -- starts where this one stopped.
+ order by 1
  limit %(limit)s
 """
 
@@ -151,7 +166,11 @@ def fetch(
         payload, digest = _hashed(answers[isrc])
         songs.append({
             "isrc": isrc,
-            "label": ", ".join(payload.get("genreNames") or []),
+            # The track name, which is what a recording concept will be called.
+            # Falls back to the genres only so a malformed answer still stores
+            # something readable; such a row fails the `name` completeness test
+            # above and is asked again.
+            "label": payload.get("name") or ", ".join(payload.get("genreNames") or []),
             "payload_hash": digest,
             **payload,
         })
