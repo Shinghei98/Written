@@ -2009,12 +2009,20 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # not a constant to quote** — hence `test_genre_rollup_threshold.py`, which
     # fails if the bar or the half-weight moves without this being re-read.
     #
-    # Measured yield over both accounts, weighted rather than counted: **four new
-    # crossings** — `baroque` at 0.71, `oratorio` at 0.68 and `dance` at 0.65/0.45
-    # — against ~20 that a naive artist count would have predicted. Notably
-    # `genre:apple_19` ("Worldwide", the one real catalogue bucket) reaches four
-    # artists and **does not cross**, which is the container worry answering
-    # itself.
+    # **Predicted yield, and then what the run actually did.** Predicted from a
+    # read-only query: four new crossings at 0.71/0.68/0.65/0.45, against ~20 a
+    # naive artist count would have given. The first real run produced **three** —
+    # `baroque` 0.641, `oratorio` 0.594, `dance` 0.571 — every one lower than
+    # predicted, because the prediction omitted `recency_weight`. The fourth,
+    # `dance` at a predicted 0.45, landed at **0.319** and did not cross.
+    #
+    # **And the container worry does not answer itself, which this comment
+    # claimed it did.** `genre:apple_19` ("Worldwide") reaches four artists, and
+    # that was read as leaving it short of 0.35; it scored **0.391** and is an
+    # eligible assertion today. Predicting a crossing from an artist count is the
+    # error described immediately above, repeated two paragraphs later. The fix
+    # belongs in the ontology — a catalogue bucket should not be assertable
+    # vocabulary — and never in a deny-list here.
     #
     # **No parent is silenced, and that was measured rather than assumed.**
     #

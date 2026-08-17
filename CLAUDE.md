@@ -1717,10 +1717,15 @@ genre strings; recording genres resolve 61 of 83).
   `genre:apple_19` ("Worldwide") through, the one case it existed for, and struck
   out `genre:pop` at 227 independent artists and `genre:classical` at 98. The
   opaque keys are not containers either — `apple_1004` is Indie Rock, `apple_1263`
-  Bollywood. Weighting disposes of the worry by itself: "Worldwide" reaches four
-  artists and does not cross. The residue is the same defect already recorded
-  against `genre:asian_music`, and it belongs in the ontology where one
-  correction serves every reader.
+  Bollywood.
+- **Weighting does *not* dispose of the container worry, which was measured after
+  the fact and had been asserted the other way.** `genre:apple_19` ("Worldwide")
+  scored **0.391** on the first real run and is an eligible assertion today —
+  the prediction that four artists would leave it short of 0.35 was made from an
+  artist count, which is the same mistake as the one above. The residue is the
+  defect already recorded against `genre:asian_music`, it is now live rather than
+  hypothetical, and it belongs in the **ontology** — a catalogue bucket should
+  not be assertable vocabulary — where one correction serves every reader.
 
 **`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
 branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped
