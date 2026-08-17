@@ -301,7 +301,14 @@ def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
             receipt = mint_for(connection, users)
         except CatalogueUnavailable as reason:
             connection.rollback()
-            print(json.dumps({"mint_vocabulary": {"declined": str(reason)}}))
+            # **Truncated, because `str()` on an exception is unbounded.** Both
+            # producers of `CatalogueUnavailable` are body-free by construction —
+            # a constant, and `CatalogueReadFailed`, whose message is a batch
+            # index and an HTTP status after `tools/apple_catalog.py` was taught
+            # to drain Apple's response body rather than quote it. That is a
+            # property of today's two call sites and not of this line, so the
+            # line stops trusting them.
+            print(json.dumps({"mint_vocabulary": {"declined": str(reason)[:200]}}))
             return {"status": "no_op", "item_count": 0}
         except Exception as failure:
             # **Said out loud before it is re-raised**, through the same
@@ -377,6 +384,21 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         # before this ships.
         "mint_vocabulary": mint_vocabulary,
     })
-    outcome = worker.run_once()
+    # **The one path `_diagnostic` did not cover was the one around it.**
+    # `SemanticWorker.run_once` wraps only the job handler; claiming, succeeding
+    # and failing a job are outside it, as is `database_url()` above. Anything
+    # raised there went to the Lambda runtime, which prints the exception message
+    # and a full traceback — and a psycopg error carries the server's `detail`,
+    # which for a check-constraint violation is the failing row.
+    #
+    # Benign today, because those statements touch `worker_jobs` alone and its
+    # columns are uuids and closed vocabularies. That is a property of what the
+    # queue currently stores, not of this boundary, and it is the kind of thing
+    # that stops being true without anyone deciding to break it.
+    try:
+        outcome = worker.run_once()
+    except Exception as error:  # noqa: BLE001 - the Lambda boundary
+        print(json.dumps({"worker_failed": _diagnostic(error)}))
+        raise RuntimeError("semantic worker invocation failed") from None
     print(json.dumps({"worker": outcome}))
     return outcome

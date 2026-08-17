@@ -20,12 +20,20 @@ calendar title enters this function and does not leave it.
 
 **Nothing here is logged.** §12 forbids plaintext in logs, and an event title is
 the most identifying string this system handles. Errors report counts and codes.
+
+That was true of every line this file writes and false of the one it does not.
+`handler` had no `try`, so anything raised out of `classify` — a `KeyError` on a
+malformed payload, a `ValueError` from a date parse — went to the Lambda runtime,
+which prints the exception message to CloudWatch. This is the one function in the
+system that receives raw calendar titles, so a message that quoted its input was
+the whole of the risk. It is wrapped now, and what escapes is a constant.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import re
 from typing import Any
@@ -380,6 +388,22 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
     comes back untouched, so ingestion never has to rely on ordering to match a
     decision to the row it is about.
     """
+    try:
+        return _classify_batch(event)
+    except Exception as error:  # noqa: BLE001 - the Lambda boundary
+        # **Type and code, never `str(error)`.** The same rule the worker's
+        # `_diagnostic` enforces, for the same reason and with more at stake: a
+        # message raised from inside `calendar_semantics` can quote the title it
+        # choked on, and the runtime prints it. The original is dropped here
+        # rather than re-raised, so nothing downstream can print it either.
+        print(json.dumps({"classifier_failed": {
+            "error_type": type(error).__name__,
+            "events": len(event.get("events") or []),
+        }}))
+        raise RuntimeError("calendar classification failed") from None
+
+
+def _classify_batch(event: dict[str, Any]) -> dict[str, Any]:
     user_id = event["user_id"]
     classifier = classifier_for(user_id)
 

@@ -33,6 +33,7 @@ import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import {
   applyCalendarProjections, calendarEventsFor, ingestArguments, keyVersionFor,
   normalizeSource, toRecordRow, InvalidEnvelope, projectionDiagnostic,
+  errorDiagnostic,
 } from "./lib.mjs";
 
 const REGION = process.env.AWS_REGION ?? "us-east-1";
@@ -442,7 +443,13 @@ export async function handler(event) {
       return json(401, { error: "unauthorized" });
     }
     if (error?.status === 400) return json(400, { error: error.message });
-    console.error("ingestion failed", error);
+    // **Was `console.error("ingestion failed", error)`, and that printed the
+    // row.** Node serialises the whole object, so a `pg` check-constraint
+    // violation put `detail: "Failing row contains (…)"` into CloudWatch — the
+    // complete record, in the one process that holds it before encryption. The
+    // comment above is right that the operator needs the reason; the reason is
+    // the sqlstate and the constraint, never the value that tripped it.
+    console.error("ingestion failed", JSON.stringify(errorDiagnostic(error)));
     // **The one 500 that can say something useful about itself.**
     // `private observations require an exact closed projection` is raised by a
     // trigger and names no row, so the operator got a bare 500 and the client —

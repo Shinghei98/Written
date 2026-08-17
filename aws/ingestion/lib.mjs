@@ -721,6 +721,50 @@ export function projectionDiagnostic(rows) {
   return [...shapes].map(([shape, count]) => ({ count, ...JSON.parse(shape) }));
 }
 
+/**
+ * What a failed ingestion may say in a log, and nothing more.
+ *
+ * **This process holds plaintext.** It receives titles, event names and library
+ * rows and encrypts them on the way into the vault, so it is the one place where
+ * an unfiltered error is the worst kind. `console.error("...", error)` serialises
+ * the whole object, and a `pg` error carries `detail` — which for a check
+ * constraint is `Failing row contains (…)`, the entire row, before encryption.
+ * The neighbouring branches were already careful; the 500 was the gap.
+ *
+ * The same rule the worker's `_diagnostic` enforces (`aws/worker/handler.py:68`):
+ * type, sqlstate, constraint name, and never `str(error)`. `detail`, `where`,
+ * `internalQuery` and the row itself are omitted by construction — this builds a
+ * new object rather than filtering the error, so a field nobody thought about
+ * cannot arrive by default.
+ *
+ * The one exception is `P0001`, our own `raise exception`: those messages are
+ * written by our migrations and are how an operator learns which clause refused
+ * a batch. Truncated, and it is a convention rather than a mechanism — a guard
+ * written later that interpolates a title would land here.
+ */
+export function errorDiagnostic(error) {
+  if (!error || typeof error !== "object") return { error_type: typeof error };
+  const diagnostic = { error_type: error.name ?? "Error" };
+  if (error.code) diagnostic.sqlstate = error.code;
+  if (error.constraint) diagnostic.constraint = error.constraint;
+  if (error.schema) diagnostic.schema = error.schema;
+  if (error.table) diagnostic.table = error.table;
+  if (error.column) diagnostic.column = error.column;
+  if (error.routine) diagnostic.routine = error.routine;
+  if (error.status) diagnostic.status = error.status;
+  if (error.code === "P0001" && typeof error.message === "string") {
+    diagnostic.refused = error.message.slice(0, 200);
+  }
+  // Our own frame, so an operator can find the throw. The message is not part
+  // of it: `stack`'s first line is `name: message`, which is what we are
+  // refusing to print.
+  const frame = typeof error.stack === "string"
+    ? error.stack.split("\n").find((line) => line.includes("/var/task/"))
+    : null;
+  if (frame) diagnostic.at = frame.trim().slice(0, 200);
+  return diagnostic;
+}
+
 export class InvalidEnvelope extends Error {
   constructor(index, message) {
     super(`records[${index}]: ${message}`);
