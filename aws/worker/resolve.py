@@ -1492,7 +1492,15 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         revision_row = cursor.fetchone()
     revision = revision_row["revision"] if revision_row else 0
 
-    identity = {
+    # **`run_identity`, not `identity`.** It was `identity` until it shadowed
+    # the module-level `identity()` for the whole body of this function, and
+    # every one of the four call sites is below this line — so the
+    # normalization added to stop 736 observations being skipped in silence
+    # raised `TypeError: 'dict' object is not callable` on the first row it
+    # reached, from the moment it shipped. `test_identifier_normalization.py`
+    # passed throughout, because it imports the function and calls it directly;
+    # nothing asked whether the *caller* could still see it.
+    run_identity = {
         "user_id": user_id,
         "ontology_version_id": version,
         "resolver_model_id": job_payload["resolver_model_id"],
@@ -1505,7 +1513,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
 
     with connection.cursor() as cursor:
         cursor.execute(OPEN_RUN, {
-            **identity,
+            **run_identity,
             "embedding_model_id": job_payload["embedding_model_id"],
         })
         run = cursor.fetchone()
@@ -1515,7 +1523,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         # nothing to report as a failure — the mappings from that run are the
         # answer, and re-deriving them would produce the same rows.
         with connection.cursor() as cursor:
-            cursor.execute(EXISTING_RUN, identity)
+            cursor.execute(EXISTING_RUN, run_identity)
             existing = cursor.fetchone()
         counts["semantic_run_id"] = str(existing["id"]) if existing else None
         counts["already_resolved"] = True
