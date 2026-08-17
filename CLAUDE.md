@@ -2098,10 +2098,6 @@ Apple approval"*.
 Open as of 2026-08-13, ordered by what hurts soonest. **Delete an entry when it
 stops being true.**
 
-- **A restore has never been run on a device that didn't already have the data.**
-  `RestoreService` checks out on inspection, which is an argument, not a test.
-  Sign in to the demo account on an erased simulator — **this is also the
-  reviewer's first launch.**
 - **Notifications are proven on sandbox and untested on production.** Confirm a
   `device_tokens` row reading `production`, then send one message and check the
   face still arrives.
@@ -2140,8 +2136,26 @@ stops being true.**
 - **A declined Workouts toggle is indistinguishable from no workouts.**
   `health_sports` being empty is otherwise settled and correct. One line in the
   distiller's `Trail` would settle the rest.
-- **The append/change-only path has never run from the app.** Distil Apple Music
-  twice and confirm the second run writes only what moved.
+- **The append/change-only path has never run from the app *for a real source*.**
+  Distil Apple Music twice and confirm the second run writes only what moved.
+  Every source on the live account was distilled exactly once, all within one
+  minute, so nothing has yet exercised the comparison. What *has* been seen is
+  the `user` source pushed twice on two dates, and it revealed the defect below
+  rather than the behaviour this entry asks for.
+- **A clean-device sign-in writes nine duplicate `user` rows, and
+  `append_source_records` cannot prevent it.** `flirt_level` and `response_time`
+  are each pushed **three times in one batch**; because the batch shares a
+  transaction timestamp, each row is compared against the *pre-existing* latest
+  and none of them sees its siblings, so all three insert. The function is
+  behaving as designed — **the fix belongs on the device, which should not send
+  the same record three times.** Contained: 9 rows out of 2,650, nothing outside
+  `source = 'user'`.
+- **A slider's exact position does not survive a new device, only its band.**
+  `public.users` stores `flirt_level = 'Medium'` and `response_time = 'Allegro'`;
+  the continuous position lives only in a `distilled_records` row, so a clean
+  device re-derives it from the band's default and pushes a different number
+  (0.309 became 0.375). Harmless for the four-band reading everything downstream
+  actually uses, and a real change to a value somebody set by hand.
 - **CAPTCHA is off for phone sign-in**, with the 10/hour SMS limit standing in.
 
 ### Deferred by decision

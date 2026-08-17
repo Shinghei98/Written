@@ -1591,6 +1591,35 @@ production.
   written and follow what each trigger calls.** Five migrations each cost a
   deploy and a run to learn one statically-knowable fact.
 
+#### The restore path, run for the first time (2026-08-17)
+
+`RestoreService` had only ever been read, never exercised on a device that did
+not already hold the data — and that device is also the reviewer's first launch.
+David's account was signed into a freshly installed simulator: **it went straight
+to the garden and Memories drew terms.** No onboarding screen appeared, which is
+the whole of the test, since `loadProfile` runs inside `restoreSession` and has
+to supply all six facts `onboardingStep` branches on before the route is
+computed. All six were present on the server.
+
+Two smaller things fell out of it, both recorded as gaps rather than fixed:
+
+- **Nine duplicate `user` rows.** `flirt_level` and `response_time` are pushed
+  three times in one batch, and since a batch shares one transaction timestamp,
+  `append_source_records` compares each row against the *pre-existing* latest and
+  never against its siblings — so all three insert. The function is behaving as
+  designed and the caller is not. Confined to `source = 'user'`: zero duplicates
+  across `apple_music`, `youtube`, `health`, `music_library` and `apple_calendar`.
+- **A slider's position does not survive a new device, only its band.**
+  `public.users` holds `Medium` and `Allegro`; the continuous value lives only in
+  a `distilled_records` row, so a clean device re-derives it from the band
+  default. `gender_preference` moved the other way and was *corrected* — the
+  14 August row said `female` while the profile column has said `male|female`
+  throughout, so the restore replaced a stale record with the true one.
+
+**It did not close the append/change-only question.** Every real source on that
+account was distilled exactly once, all inside one minute on 15 August, so the
+comparison has still never run against a second distillation of the same library.
+
 #### Account deletion was broken for every account (`0204`)
 
 `delete-account` deletes the `auth.users` row and lets the cascade do the rest.
