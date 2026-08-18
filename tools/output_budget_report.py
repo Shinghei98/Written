@@ -82,7 +82,13 @@ def load_limits() -> dict[str, int | float]:
     contract = json.loads(CONTRACT.read_text())
     output = contract["output_contract"]
     return {
-        "envelope_reserve": int(output["uncalibrated_item_reserve_tokens"]) and 512,
+        # **Read, finally.** This was
+        # `int(output["uncalibrated_item_reserve_tokens"]) and 512`, an
+        # expression that names a contract key, discards it, and evaluates to a
+        # constant — the shape of a derivation with none of the substance. The
+        # emitter did not publish `envelope_token_reserve` until `bea4d1e`, so
+        # there was nothing to read; the docstring above claimed otherwise.
+        "envelope_reserve": int(output["envelope_token_reserve"]),
         "max_output_tokens": int(output["max_output_tokens"]),
         "max_items_wire": int(output["max_items_wire"]),
         "calibrated_max_items": int(output["calibrated_max_items"]),
@@ -93,22 +99,56 @@ def load_limits() -> dict[str, int | float]:
     }
 
 
+def singleton_ceiling(lim: dict) -> int:
+    """Largest per-item token count that fits one response, floored.
+
+    `x` such that `envelope + ceil(headroom * x) <= max`. It was an inline loop
+    with a literal `512` in it — beside a `lim["envelope_reserve"]` the loop did
+    not use — so the reserve could move in the contract and the ceiling would
+    not. It is a function so a test can ask it about the boundary, which is the
+    one number the first version of this program got wrong: 2986.67 formatted
+    with `%.0f` gives 2987, and `512 + ceil(1.2 * 2987) = 4097`.
+    """
+    ceiling = 0
+    while (lim["envelope_reserve"]
+           + math.ceil(lim["headroom"] * (ceiling + 1))) <= lim["max_output_tokens"]:
+        ceiling += 1
+    return ceiling
+
+
 def schema_limits(schema: dict) -> dict:
+    """Only what this schema declares.
+
+    Four of these keys — `lookup_queries`, `evidence_fields`,
+    `relation_hypotheses` and the relation's `object_label_hypothesis` — do not
+    exist in `mention_extract_v2`, and reading them unconditionally is why this
+    program could not be pointed at it. What a schema does not carry is not a
+    limit with a default; it is a field the response must not contain.
+    """
+    item = schema["$defs"]["item"]["properties"]
     mention = schema["$defs"]["mention"]["properties"]
-    return {
+    limits = {
+        "schema_version": schema["properties"]["schema_version"]["const"],
         "surface_max": mention["surface"]["maxLength"],
         "canonical_max": mention["canonical_label_hypothesis"]["maxLength"],
-        "object_label_max":
-            schema["$defs"]["relation_hypothesis"]["properties"]
-            ["object_label_hypothesis"]["maxLength"],
-        "lookup_max": mention["lookup_queries"]["items"]["maxLength"],
-        "lookup_items": mention["lookup_queries"]["maxItems"],
-        "evidence_enum": mention["evidence_fields"]["items"]["enum"],
-        "evidence_items": mention["evidence_fields"]["maxItems"],
         "source_field_enum": mention["source_field"]["enum"],
-        "relations_max": mention["relation_hypotheses"]["maxItems"],
-        "item_index_max": schema["$defs"]["item"]["properties"]["item_index"]["maximum"],
+        "family_enum": mention["family_hypothesis"]["enum"],
+        "role_enum": mention["mention_role"]["enum"],
+        "item_index_max": item["item_index"]["maximum"],
+        "item_uses_status": "status" in item,
     }
+    if "lookup_queries" in mention:
+        limits["lookup_max"] = mention["lookup_queries"]["items"]["maxLength"]
+        limits["lookup_items"] = mention["lookup_queries"]["maxItems"]
+    if "evidence_fields" in mention:
+        limits["evidence_enum"] = mention["evidence_fields"]["items"]["enum"]
+        limits["evidence_items"] = mention["evidence_fields"]["maxItems"]
+    if "relation_hypotheses" in mention:
+        limits["relations_max"] = mention["relation_hypotheses"]["maxItems"]
+        limits["object_label_max"] = (
+            schema["$defs"]["relation_hypothesis"]["properties"]
+            ["object_label_hypothesis"]["maxLength"])
+    return limits
 
 
 def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
@@ -119,44 +159,62 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
     it then measured.
     """
     surface = text[: lim["surface_max"]]
-    return {
+    mention = {
         "surface": surface,
         "source_field": lim["source_field_enum"][0],
         "source_field_index": None,
         "start": 0,
         "end": max(1, len(surface)),
         "canonical_label_hypothesis": text[: lim["canonical_max"]],
-        "family_hypothesis": "work",
-        "mention_role": "work_or_franchise",
+        # From the schema's own enums rather than from memory: `work` and
+        # `work_or_franchise` were literals here and `music_recording` leaving
+        # the family enum is the kind of move that makes a literal wrong.
+        "family_hypothesis": "work" if "work" in lim["family_enum"] else lim["family_enum"][0],
+        "mention_role": ("work_or_franchise" if "work_or_franchise" in lim["role_enum"]
+                         else lim["role_enum"][0]),
         "conversation_worthy": True,
-        # From the schema's own enum, and distinct — `uniqueItems` again.
-        "evidence_fields": lim["evidence_enum"][: lim["evidence_items"]],
-        "lookup_queries": [
+    }
+    # **Present only where the schema declares them.** `additionalProperties` is
+    # false, so emitting a key v2 dropped produces an invalid response — which is
+    # the failure this program exists to catch rather than commit.
+    if "evidence_enum" in lim:
+        mention["evidence_fields"] = lim["evidence_enum"][: lim["evidence_items"]]
+    if "lookup_items" in lim:
+        mention["lookup_queries"] = [
             (f"{unique_salt}-{i}-" + text)[: lim["lookup_max"]]
             for i in range(lim["lookup_items"])
-        ],
-        "relation_hypotheses": [
+        ]
+    if "relations_max" in lim:
+        mention["relation_hypotheses"] = [
             {"predicate": "performed_by",
              "object_label_hypothesis": text[: lim["object_label_max"]]},
             {"predicate": "soundtrack_of",
              "object_label_hypothesis": text[: lim["object_label_max"]]},
-        ][: lim["relations_max"]],
-    }
+        ][: lim["relations_max"]]
+    return mention
 
 
 def make_response(texts: list[str], lim: dict, mentions: int) -> dict:
     """A full, schema-valid response envelope — `item_index` within bounds."""
+    def item(index: int, text: str) -> dict:
+        body = {
+            "item_index": index,
+            "mentions": [make_mention(text, lim, m) for m in range(mentions)],
+            "abstain_reason": None,
+        }
+        # v2 replaced the `abstain` boolean with an explicit `status`, and the
+        # schema is asked which it wants rather than this file remembering.
+        if lim["item_uses_status"]:
+            body["status"] = "extracted"
+        else:
+            body["abstain"] = False
+        return body
+
     return {
-        "schema_version": "mention_extract_v1",
-        "items": [
-            {
-                "item_index": index,
-                "abstain": False,
-                "abstain_reason": None,
-                "mentions": [make_mention(text, lim, m) for m in range(mentions)],
-            }
-            for index, text in enumerate(texts)
-        ],
+        # The schema's own const, so a response cannot claim a version the
+        # schema does not answer to.
+        "schema_version": lim["schema_version"],
+        "items": [item(index, text) for index, text in enumerate(texts)],
     }
 
 
@@ -171,7 +229,12 @@ def main() -> int:
     from tokenizers import Tokenizer
     import jsonschema
 
-    schema_path = REPOSITORY / "semantic" / "contracts" / "mention_extract_v1.schema.json"
+    # **The contract names the schema.** This was a hard-coded v1 path beside a
+    # contract that had already moved, so the report measured one artifact and
+    # was read as describing another.
+    contract = json.loads(CONTRACT.read_text())
+    schema_path = (REPOSITORY / "semantic" / "contracts" /
+                   contract["versions"]["output_schema"].rsplit("/", 1)[-1])
     schema = json.loads(schema_path.read_text())
     lim = load_limits() | schema_limits(schema)
     validator = jsonschema.Draft202012Validator(schema)
@@ -182,10 +245,7 @@ def main() -> int:
     # **Not a manifest.** One file's digest, named for what it is.
     tokenizer_json_sha256 = hashlib.sha256(tokenizer_path.read_bytes()).hexdigest()
 
-    # `x` such that envelope + ceil(headroom * x) <= max. Integer, floored.
-    ceiling = 0
-    while (512 + math.ceil(lim["headroom"] * (ceiling + 1))) <= lim["max_output_tokens"]:
-        ceiling += 1
+    ceiling = singleton_ceiling(lim)
 
     def tokens(payload: dict) -> int:
         return len(tokenizer.encode(

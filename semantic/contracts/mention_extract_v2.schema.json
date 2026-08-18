@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://written.app/schemas/mention_extract_v2.schema.json",
   "title": "Written semantic mention extraction output, v2",
-  "description": "v2 carries only what the candidate pipeline consumes. evidence_fields, lookup_queries and relation_hypotheses are removed: nothing reads relation_hypotheses, evidence_fields is reconstructible from validated source references, and lookup_queries are generated deterministically after extraction. Measured against Qwen/Qwen3.5-9B at c202236235762e1c871ad0ccb60c8ee5ba337b9a, that removal takes the per-item scaffolding floor from 616 tokens to 274 and brings a 256-character Han or Hangul item from 5,271 tokens to 1,984, which fits the 2,986-token singleton ceiling. It does not fix emoji, rare kana or combining marks, which still overflow at maxLength 256 and require the tested overflow route rather than a schema change.",
+  "description": "v2 carries only what the candidate pipeline consumes. evidence_fields, lookup_queries and relation_hypotheses are removed: nothing reads relation_hypotheses, evidence_fields is reconstructible from validated source references, and lookup_queries are generated deterministically after extraction. Token measurements for that removal are not stated here: they are properties of a particular model and tokenizer revision, and a schema describes what is legal rather than what one deployment cost. semantic/docs/OUTPUT_BUDGET_REPORT.md records what was measured and against which revision. Some scripts still overflow at maxLength 256 and need the tested overflow route rather than a schema change.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "items"],

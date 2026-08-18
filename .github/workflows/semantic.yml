@@ -23,6 +23,9 @@ on:
       - 'supabase/tests/**'
       - 'tools/replay_contracts.sh'
       - 'tools/compile_semantic_contract.py'
+      # The budget program is the artifact the output_budget gate rests on and
+      # was outside these paths, so a change to it triggered no CI at all.
+      - 'tools/output_budget_report.py'
       - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   pull_request:
@@ -32,6 +35,9 @@ on:
       - 'supabase/tests/**'
       - 'tools/replay_contracts.sh'
       - 'tools/compile_semantic_contract.py'
+      # The budget program is the artifact the output_budget gate rests on and
+      # was outside these paths, so a change to it triggered no CI at all.
+      - 'tools/output_budget_report.py'
       - 'tools/ci/**'
       - '.github/workflows/semantic.yml'
   workflow_dispatch:

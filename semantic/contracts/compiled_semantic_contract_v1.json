@@ -1,9 +1,9 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-18T01:30:20.161Z",
+  "generated_at": "2026-08-18T01:38:53.155Z",
   "source_hashes": {
     "workbook_sha256": "d3d059931b587991b2ff3b06e8a1f8a7f96eeb111e36f9de0b8eaf52545132ac",
-    "mention_schema_sha256": "6c042f4ecba8a5e3b35f3006a2372bf7ee064216d5d882f3298bbb998d43b800"
+    "mention_schema_sha256": "0cdf52b572f7d89d72447c5bc2e5aa67aaec3047cbfbcbf10dcb0df7fdc5de38"
   },
   "versions": {
     "term_family_map": "term_family_map_v1",

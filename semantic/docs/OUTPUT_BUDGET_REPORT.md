@@ -60,7 +60,18 @@ The earlier claim that CJK costs only 5% more came from a fixture whose content
 was a small share of an inflated envelope. Against a length-matched comparison at
 schema maximum, Han and Hangul cost **2.2× Latin**, and the tail is far worse.
 
-## What the proposed v2 shape would cost
+## What the v2 shape costs
+
+**These figures are not reproduced by the committed program on this machine, and
+that is now a missing tokenizer rather than a missing capability.** Until
+2026-08-18 the program was structurally bound to v1 — `schema_limits` read four
+keys v2 does not have and `make_response` emitted `abstain` — so no committed
+code could produce this column and it was published beside a v1 column that was
+reproducible. The program measures whichever schema the compiled contract names,
+which is now v2, and its fixtures are asserted schema-valid by
+`test_output_budget_report.py`. Re-running it needs the pinned Qwen tokenizer,
+which is not present here; the numbers below stand as the earlier measurement
+until it is.
 
 Removing `evidence_fields`, `lookup_queries` and `relation_hypotheses`:
 
