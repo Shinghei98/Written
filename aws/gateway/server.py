@@ -23,24 +23,23 @@ from written_ontology.semantic_contract import load as load_contract
 def _measured_gateway_revision() -> str:
     """Hash the gateway sources this process actually loaded.
 
-    `written_ontology` and the flat Lambda modules sit at known places inside the
-    image, so the same function that compiles the contract's expectation can be
-    pointed at them. If a file is missing the answer is empty rather than a
-    guess, and an empty answer cannot match the contract.
+    **One layout.** The image preserves the repository's paths, so the same
+    function that computes the contract's expectation is pointed at
+    `LAMBDA_TASK_ROOT` and finds every file where `GATEWAY_SOURCES` names it.
+    An earlier version tried two candidate roots because the image flattened
+    the tree — a checker that accepts two layouts is a checker that agrees with
+    two different trees, and the point of this value is that it agrees with
+    exactly one.
+
+    A missing file raises rather than returning a fallback: the build refuses to
+    push an image whose measured revision disagrees with its contract, so this
+    should be unreachable in anything that shipped.
     """
     import pathlib  # noqa: PLC0415
 
     from written_ontology.gateway_revision import gateway_revision  # noqa: PLC0415
 
-    root = pathlib.Path(os.environ.get("LAMBDA_TASK_ROOT", "")) or pathlib.Path(".")
-    # In the image the layout is flattened: aws/gateway/*.py land beside the
-    # package. A staging directory mirrors the repository, so both are tried.
-    for candidate in (pathlib.Path(__file__).resolve().parents[2], root):
-        try:
-            return gateway_revision(candidate)
-        except (FileNotFoundError, IndexError):
-            continue
-    return ""
+    return gateway_revision(pathlib.Path(os.environ["LAMBDA_TASK_ROOT"]))
 
 
 def build_deployment() -> gateway.Deployment | None:

@@ -12,13 +12,21 @@ FROM public.ecr.aws/lambda/python:3.12
 COPY aws/gateway/requirements.txt ${LAMBDA_TASK_ROOT}/requirements.txt
 RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
-# The contract and its schemas travel with the image, because the gateway
-# attests what it loaded and cannot attest a file it fetches at runtime.
-COPY semantic/src/written_ontology ${LAMBDA_TASK_ROOT}/written_ontology
-COPY semantic/contracts ${LAMBDA_TASK_ROOT}/semantic/contracts
-COPY aws/gateway/handler.py aws/gateway/server.py aws/gateway/manifest.py \
-     aws/gateway/sagemaker_transport.py ${LAMBDA_TASK_ROOT}/
+# **The repository layout, preserved.** The first version flattened everything
+# beside the package, which meant `gateway_revision` — a hash over paths as well
+# as bytes — could not find `aws/gateway/handler.py` where it names it. The fix
+# taken then was to teach the checker a second layout and try both; that is a
+# checker that agrees with two different trees, which is one more than a pin
+# should accept. Keeping the paths identical to the repository means there is
+# one layout, and the hash computed in the image is the hash computed in CI.
+COPY semantic/src/written_ontology      ${LAMBDA_TASK_ROOT}/semantic/src/written_ontology
+COPY semantic/contracts      ${LAMBDA_TASK_ROOT}/semantic/contracts
+COPY aws/gateway/*.py      ${LAMBDA_TASK_ROOT}/aws/gateway/
 
-ENV WRITTEN_SEMANTIC_CONTRACT=${LAMBDA_TASK_ROOT}/semantic/contracts/compiled_semantic_contract_v1.json
+# The flat Lambda modules import each other by bare name and the package is
+# imported as `written_ontology`, so both directories are on the path rather
+# than the files being moved to suit the importer.
+ENV PYTHONPATH="${LAMBDA_TASK_ROOT}/aws/gateway:${LAMBDA_TASK_ROOT}/semantic/src"
+ENV WRITTEN_SEMANTIC_CONTRACT="${LAMBDA_TASK_ROOT}/semantic/contracts/compiled_semantic_contract_v1.json"
 
 CMD ["handler.handler"]

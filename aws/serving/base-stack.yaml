@@ -503,6 +503,42 @@ Resources:
                   docker build --platform linux/amd64 -f aws/gateway/Dockerfile -t "$URI:$TAG" .
                   ARCH=$(docker image inspect "$URI:$TAG" --format '{{.Architecture}}')
                   [ "$ARCH" = "amd64" ] || { echo "built $ARCH, expected amd64"; exit 1; }
+
+                  # **Both checks run before the push, which is what makes them
+                  # gates.** Run afterwards they would be a report on an image
+                  # already in the registry, and an IMMUTABLE repository cannot
+                  # take the tag back.
+                  #
+                  # The first proves the layout actually imports. Every module
+                  # here reaches the others by bare name through PYTHONPATH, and
+                  # a mistake in that path does not fail the build — it fails at
+                  # the first invocation, as an ImportError inside a Lambda.
+                  echo "==> the modules import in the image as laid out"
+                  docker run --rm --entrypoint python "$URI:$TAG" -c \
+                    'import handler, server, ticket_store, sagemaker_transport'
+
+                  # The second proves the image's own sources hash to what its
+                  # own contract claims. This is the check that would have caught
+                  # a gateway built ten minutes before its transport was
+                  # corrected — measured inside the image rather than asserted
+                  # about it from outside.
+                  echo "==> the image agrees with the contract it carries"
+                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  import json, os, pathlib
+                  from written_ontology.gateway_revision import gateway_revision
+
+                  root = pathlib.Path(os.environ["LAMBDA_TASK_ROOT"])
+                  contract = json.loads(
+                      pathlib.Path(os.environ["WRITTEN_SEMANTIC_CONTRACT"]).read_text()
+                  )
+                  measured = gateway_revision(root)
+                  expected = contract["versions"]["gateway_revision"]
+                  if measured != expected:
+                      raise SystemExit(
+                          f"gateway_revision disagrees: image {measured} contract {expected}")
+                  print("gateway_revision", measured)
+                  '
+
                   docker push "$URI:$TAG"
 
                   DIGEST=$(aws ecr describe-images --repository-name "$REPOSITORY" \

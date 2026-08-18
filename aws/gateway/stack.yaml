@@ -13,6 +13,26 @@ Parameters:
   ImageUri:
     Type: String
     Description: The gateway image in ECR, by digest rather than by tag.
+  ModelId:
+    Type: String
+    Default: Qwen/Qwen3.5-9B
+  ModelRevision:
+    Type: String
+    Default: c202236235762e1c871ad0ccb60c8ee5ba337b9a
+    Description: The staged revision, reconciled against its manifest.
+  TokenizerSha256:
+    Type: String
+    Default: 5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42
+    Description: tokenizer.json's digest from the staged manifest.
+  ServingImageDigest:
+    Type: String
+    Default: sha256:28e6e9d9dc18763ee091468600ad5c4dc54e778b5f5bc0aede375680bdaf186d
+  GatewayImageDigest:
+    Type: String
+    Description: >
+      The digest of the image this function runs. **Declared, not measured** —
+      a process cannot learn its own image digest from inside it, which is why
+      `gateway_revision` exists beside it and is the value actually compared.
   WorkerRoleArn:
     Type: String
     Default: arn:aws:iam::616040526027:role/written-semantic-worker
@@ -105,6 +125,17 @@ Resources:
           WRITTEN_ASYNC_BUCKET: !Ref AsyncBucket
           WRITTEN_ASYNC_PREFIX: async
           WRITTEN_TICKET_TABLE: !Ref TicketTable
+          # **These five make `build_deployment` return something.** Without
+          # them it answers None, `attestation` reports `loaded: null`, and
+          # `matches` is null — so there is no `matches.gateway_revision` to be
+          # true or false. Four are declarations about artifacts this process
+          # has not spoken to; the fifth, `gateway_revision`, is measured from
+          # the files in this image and is the one that can actually disagree.
+          WRITTEN_MODEL_ID: !Ref ModelId
+          WRITTEN_MODEL_REVISION: !Ref ModelRevision
+          WRITTEN_TOKENIZER_SHA256: !Ref TokenizerSha256
+          WRITTEN_SERVING_IMAGE_DIGEST: !Ref ServingImageDigest
+          WRITTEN_GATEWAY_IMAGE_DIGEST: !Ref GatewayImageDigest
           WRITTEN_ENVIRONMENT: production
           # Deliberately unset: WRITTEN_SAGEMAKER_ENDPOINT, and the image
           # digests. With no endpoint the transport is None, which is what
