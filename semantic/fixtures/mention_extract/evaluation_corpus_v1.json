@@ -1,0 +1,36 @@
+{
+  "corpus_version": "evaluation_corpus_v1",
+  "_comment": "Synthetic titles for the evaluation lane. **Nothing here belongs to anybody.** Migrations 0239 and 0240 refuse an evaluation invocation that names a user, an observation or retained source text, so the lane must have something to run against that carries none of those — otherwise `evaluation` either declines and tests nothing or reaches for real accounts and is rejected after the model has been paid for. Every title is invented. No source is named, because a fixture is not from a source; it is the thing you use when you have no permission to use a source. Versioned in the filename rather than by a field alone, so a changed corpus is a different corpus and a score measured against one is never silently compared with a score measured against another.",
+  "items": [
+    {
+      "id": "fx_001",
+      "title": "Nocturne in C-sharp Minor — Vienna Chamber Players",
+      "expects": "a work and a performing group"
+    },
+    {
+      "id": "fx_002",
+      "title": "Midnight Harbour (Live at the Old Mill)",
+      "expects": "a work; the venue is incidental context, not a place claim"
+    },
+    {
+      "id": "fx_003",
+      "title": "고요한 아침 — 서울 스트링 콰르텟",
+      "expects": "CJK script handled; a work and a performing group"
+    },
+    {
+      "id": "fx_004",
+      "title": "The Cartographer's Apprentice, Chapter Nine",
+      "expects": "a work or franchise, not a person"
+    },
+    {
+      "id": "fx_005",
+      "title": "untitled demo 3",
+      "expects": "an abstention — there is nothing conversation-worthy here"
+    },
+    {
+      "id": "fx_006",
+      "title": "Rivers of Tin — Marisol Vane feat. The Quiet Hours",
+      "expects": "a creator identity and a featured performing group"
+    }
+  ]
+}

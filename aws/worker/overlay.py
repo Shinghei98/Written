@@ -218,13 +218,11 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
     # one. An evaluation lane that quietly ran against real accounts would be
     # the exact failure the mode exists to prevent.
     if mode == "evaluation":
-        # **The receipt vocabulary is closed.** `worker_job_result_is_safe_v03`
-        # permits a fixed set of keys and nine status words; a free-text `reason`
-        # is refused outright, so the explanation lives in this comment and in
-        # the log rather than in a durable row that would be rejected. The reason
-        # is: evaluation is fixture-only and no fixture corpus is configured.
-        print(json.dumps({"extract_mentions": "evaluation_no_fixture_corpus"}))
-        return {"status": "no_op", "abstained": True, "item_count": 0}
+        # **Routed to the corpus, and it cannot fall back.** `_evaluation_items`
+        # reads a versioned synthetic file and nothing else; there is no branch
+        # from here to a real account, which is what `0239`'s three refusals ask
+        # for and what an early return could only approximate by doing nothing.
+        return _evaluate_against_fixtures(job, request_id)
 
     # **File evidence before asking for it.** Nothing in production wrote
     # `source_text_evidence`, so the lane had nothing to read and would have run
@@ -300,6 +298,90 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
         "item_count": len(items),
         "created_count": written,
     }
+
+
+#: The corpus, beside the contracts it is evaluated against. Versioned in the
+#: filename, so a changed corpus is a different corpus rather than the same one
+#: with different contents — a score measured against one must never be silently
+#: compared with a score measured against another.
+EVALUATION_CORPUS = "evaluation_corpus_v1"
+
+
+def _evaluation_items(limit: int) -> list[dict[str, Any]]:
+    """Synthetic items, carrying no identifier of any kind.
+
+    Every user-linked field is **absent rather than null-by-accident**: the items
+    have no `observation_id` and no `source_text_evidence_id`, so
+    `model_lane._record` writes nulls because there is nothing to write, not
+    because something remembered to blank them.
+    """
+    import pathlib  # noqa: PLC0415
+
+    here = pathlib.Path(__file__).resolve()
+    # The repository tree, then the Lambda bundle root — `build.sh` preserves
+    # `semantic/fixtures/...` under it, so one relative path serves both and the
+    # reader never learns a second layout.
+    for root in (here.parents[2], pathlib.Path("/var/task")):
+        path = root / "semantic" / "fixtures" / "mention_extract" / f"{EVALUATION_CORPUS}.json"
+        if path.is_file():
+            corpus = json.loads(path.read_text())
+            break
+    else:
+        raise RuntimeError(f"the evaluation corpus {EVALUATION_CORPUS} is not packaged")
+
+    if corpus.get("corpus_version") != EVALUATION_CORPUS:
+        raise RuntimeError(
+            f"corpus says {corpus.get('corpus_version')!r}, expected {EVALUATION_CORPUS!r}")
+
+    return [
+        {
+            "item_index": index,
+            "fields": {"title": entry["title"]},
+            # A profile is still required — the model is asked the same question
+            # it would be asked in shadow, or the evaluation measures a different
+            # question.
+            "source_profile": "music_catalog",
+            "logical_extraction_key": f"fixture:{EVALUATION_CORPUS}:{entry['id']}",
+        }
+        for index, entry in enumerate(corpus["items"][:limit])
+    ]
+
+
+def _evaluate_against_fixtures(job, request_id: str) -> dict[str, Any]:
+    """Ask the model the real question against invented text.
+
+    **No user, no observation, no evidence, and no mention written.** `0239`
+    refuses an evaluation invocation that names a person and `0237` refuses a
+    user mention from any lane but shadow or active, so the only thing this
+    produces is an invocation and its items — which is the whole point: an
+    evaluation that wrote nothing *and called nothing* proved nothing.
+    """
+    from model_lane import InFlight, LaneUnavailable, ModelLane  # noqa: PLC0415
+
+    contract = load_contract()
+    items = _evaluation_items(contract.max_items_wire)
+
+    try:
+        proposed = ModelLane().propose(
+            # **None, not a placeholder account.** The lane passes it straight to
+            # `record_model_invocation`, and a fabricated uuid would be a person
+            # who does not exist rather than an absence.
+            user_id=None,
+            items=items,
+            request_id=request_id,
+            source_profile=_one_profile(items))
+    except InFlight:
+        print(json.dumps({"extract_mentions": "evaluation_in_flight"}))
+        raise InferenceDeferred(len(items)) from None
+    except LaneUnavailable as unavailable:
+        raise RuntimeError(f"model lane unavailable: {unavailable}") from None
+
+    print(json.dumps({"extract_mentions": {
+        "evaluation": EVALUATION_CORPUS,
+        "invocation_id": proposed["invocation_id"],
+        "outcomes": [row["outcome"] for row in proposed["lineage"]]}}))
+    return {"status": "succeeded", "abstained": False,
+            "item_count": len(items), "created_count": 0}
 
 
 def _one_profile(items: list[dict]) -> str:

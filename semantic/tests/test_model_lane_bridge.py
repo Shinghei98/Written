@@ -106,37 +106,66 @@ def test_the_request_id_is_stable_across_retries(overlay):
     assert overlay._request_id(Other()) != first
 
 
-def test_evaluation_reads_nothing_and_calls_nothing(overlay, monkeypatch):
-    """**Fixture-only is about what may be read, not what may be written.**
+def test_evaluation_runs_against_fixtures_and_never_a_person(overlay, monkeypatch):
+    """**It calls the model, and nothing it sends belongs to anybody.**
 
-    The earlier version called the model with a real account's evidence and
-    merely declined to write the mention. `0239` raises three separate refusals
-    on that shape — an evaluation invocation may not name a user, an
-    observation, or retained source text — so the database would have rejected
-    the whole call *after* the model had been paid for.
-
-    There is no fixture corpus yet, so the honest behaviour is to decline. This
-    asserts the strong property: neither the evidence reader nor the lane is
-    reached at all.
+    An evaluation that declined protected user data and proved nothing; one that
+    reached for a real account would be refused by `0239` after the model had
+    been paid for. So it asks the same question against invented text, with
+    `user_id=None` and items carrying no observation or evidence id — absent
+    rather than blanked, so there is nothing to remember to clear.
     """
+    seen = {}
+
+    class Lane:
+        def __init__(self, *a, **k): pass
+        def propose(self, **kwargs):
+            seen.update(kwargs)
+            return proposal()
+
+    monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
+
     def refuse_read(*a, **k):
         raise AssertionError("evaluation read a person's rows")
 
-    class Lane:
-        def __init__(self, *a, **k):
-            raise AssertionError("evaluation called the model")
-
-    monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
     monkeypatch.setattr(overlay, "_file_evidence", refuse_read)
     monkeypatch.setattr(overlay, "_items_for", refuse_read)
 
     result = overlay._propose_and_write(
         FakeConnection(), _job(), "evaluation", "u-1", "req_x", None, None)
-    assert result["status"] == "no_op"
-    assert result["abstained"] is True
-    # **No free-text reason.** `worker_job_result_is_safe_v03` permits a fixed
-    # set of keys and would refuse one, so the explanation is a log line.
-    assert set(result) <= {"status", "abstained", "item_count", "created_count"}
+
+    assert result["status"] == "succeeded"
+    assert result["created_count"] == 0, "evaluation wrote a mention"
+    assert seen["user_id"] is None, "evaluation named a person"
+    for item in seen["items"]:
+        assert "observation_id" not in item
+        assert "source_text_evidence_id" not in item
+        assert item["logical_extraction_key"].startswith("fixture:")
+
+
+def test_the_corpus_carries_no_identifier(overlay):
+    """A fixture that named anything real would be the defect, not the fix."""
+    import json as _json
+    import pathlib as _pathlib
+
+    path = (_pathlib.Path(__file__).resolve().parents[1] / "fixtures"
+            / "mention_extract" / f"{overlay.EVALUATION_CORPUS}.json")
+    blob = path.read_text()
+    for banned in ("user_id", "observation_id", "source_text_evidence_id",
+                   "spotify", "youtube"):
+        assert banned not in blob, f"the corpus names {banned}"
+    corpus = _json.loads(blob)
+    assert corpus["corpus_version"] == overlay.EVALUATION_CORPUS, (
+        "the corpus version must match its filename, or a changed corpus is the "
+        "same corpus with different contents")
+
+
+def test_a_corpus_that_renames_itself_is_refused(overlay, monkeypatch, tmp_path):
+    """The version in the file must agree with the version asked for."""
+    monkeypatch.setattr(overlay, "EVALUATION_CORPUS", "evaluation_corpus_v1")
+    items = overlay._evaluation_items(2)
+    assert len(items) == 2
+    assert [item["item_index"] for item in items] == [0, 1]
 
 
 def test_shadow_writes_the_mention(overlay, monkeypatch):

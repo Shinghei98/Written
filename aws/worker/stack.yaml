@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  What the worker needs to reach the model lane, as infrastructure rather than as
+  a sequence of console actions somebody remembers taking.
+
+  **It does not own the worker Lambda or its role.** Both were created before this
+  file and are in use; adopting them would mean an import, and a stack that can
+  delete the worker is a worse risk than one that cannot describe it. So this
+  creates the two things that do not exist — the model-lane credential and the
+  permissions to use it — and attaches them to the role that does.
+
+  What that buys: the grants stop being invisible. `tools/verify_worker_deployment.sh`
+  compares the deployed function against this template and fails when they
+  disagree, which is the half that makes IaC a claim about reality rather than a
+  description of an intention.
+
+Parameters:
+  WorkerRoleName:
+    Type: String
+    Default: written-semantic-worker
+    Description: The existing execution role. Attached to, never created here.
+  GatewayFunctionName:
+    Type: String
+    Default: written-semantic-gateway
+  VaultKeyArn:
+    Type: String
+    Description: The KMS key wrapping per-user vault data keys.
+
+Resources:
+  # **The model lane's own credential, empty at creation.**
+  #
+  # A secret whose value is set out of band, because a password in a template is
+  # a password in git — and this one is `semantic_model_worker`, the identity
+  # `0241` and `0243` exist to keep separate from the deterministic worker. The
+  # resource is here so its existence, its name and who may read it are
+  # reviewable; the value never is.
+  #
+  # Deliberately a *second* secret rather than another key in the worker's:
+  # rotating or revoking one must not touch the other, and nothing in
+  # `model_lane.py` can be pointed at the deterministic role by editing a single
+  # string.
+  ModelWorkerSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: written/semantic-model-worker
+      Description: >
+        Postgres credentials for semantic_model_worker — the only identity that
+        may record a model invocation. Value set out of band; never in a
+        template.
+
+  # The permissions the model lane added, attached to the role that already
+  # exists. A managed policy rather than an inline one so it can be detached in a
+  # single reviewable action if the lane is withdrawn.
+  ModelLanePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: written-worker-model-lane
+      Description: What the worker needs to reach the gateway and the model lane.
+      Roles: [!Ref WorkerRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # **One function, named.** The worker invokes the gateway and nothing
+          # else; a wildcard here would let it call any Lambda in the account,
+          # including the ingestion function whose whole point is that the
+          # worker is not it.
+          - Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${GatewayFunctionName}
+          # The model-lane credential, and not the worker's own — that one is
+          # already granted by the role this attaches to, and re-granting it
+          # here would make this policy look like the source of an access it did
+          # not create.
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Ref ModelWorkerSecret
+          # **Decrypt only.** The worker unwraps per-user data keys to read the
+          # vault and encrypts evidence with the unwrapped key locally, so it
+          # needs no `Encrypt` — and granting one would quietly widen the
+          # identity that `0246`'s design note says holds decrypt alone.
+          - Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Ref VaultKeyArn
+            Condition:
+              StringEquals:
+                # The context every vault write is wrapped under. Without this
+                # the grant would permit decrypting any ciphertext under this
+                # key rather than per-user data keys specifically.
+                kms:EncryptionContextKeys: user_id
+
+Outputs:
+  ModelWorkerSecretArn:
+    Value: !Ref ModelWorkerSecret
+  ModelLanePolicyArn:
+    Value: !Ref ModelLanePolicy

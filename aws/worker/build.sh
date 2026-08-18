@@ -66,6 +66,16 @@ find "$STAGE/written_ontology" -name '__pycache__' -type d -exec rm -rf {} + 2>/
 cp "$ROOT/semantic/contracts/compiled_semantic_contract_v1.json" \
    "$STAGE/written_ontology/compiled_semantic_contract_v1.json"
 
+# **The evaluation corpus travels too, for the same reason the contract does.**
+# `evaluation` reads it and nothing else — there is no path from that lane to a
+# real account — so a bundle without it turns the fixture-only mode into a mode
+# that raises. The layout under `semantic/fixtures/` is preserved because that is
+# where `_evaluation_items` looks; flattening it here would mean the reader
+# knowing two layouts, which is the defect the gateway image already paid for.
+mkdir -p "$STAGE/semantic/fixtures/mention_extract"
+cp "$ROOT/semantic/fixtures/mention_extract/"*.json \
+   "$STAGE/semantic/fixtures/mention_extract/"
+
 # **`typing_extensions` is named explicitly and that is not belt-and-braces.**
 # psycopg 3 requires it on Python before 3.13, and pip's resolver dropped it
 # under `--platform`: the first deployed invocation failed with the package's

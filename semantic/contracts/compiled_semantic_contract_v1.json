@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-18T18:15:25.408Z",
+  "generated_at": "2026-08-18T18:46:14.708Z",
   "source_hashes": {
-    "workbook_sha256": "af7e33f9373310ed4813cbf3aaab2da6cd4a3a015a7c1fbc970eee5bd642786f",
+    "workbook_sha256": "e66c97a8df36e88fbce0c6bada622353b8ed858f12c6694bf7e116ba29cff9a1",
     "mention_schema_sha256": "0cdf52b572f7d89d72447c5bc2e5aa67aaec3047cbfbcbf10dcb0df7fdc5de38",
     "request_schema_sha256": "74f2b0a46676c2bcc09758854b0604f1f52fefa9d969021604d377ff8fa1e02d"
   },
