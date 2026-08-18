@@ -280,6 +280,15 @@ def main() -> int:
         "fixture": FIXTURE_ID,
         "model_revision_claimed": args.model_revision,
         "tokenizer_json_sha256": tokenizer_json_sha256,
+        # **What was measured, named in the report rather than inferred from
+        # when it was run.** A token count is only interpretable against a
+        # schema and a contract, and this file previously recorded neither — so
+        # a number could outlive the artifact it described with nothing saying
+        # so. These are identities, not an attestation: nothing here proves a
+        # gateway loaded any of them.
+        "output_schema": schema["$id"].rsplit("/", 1)[-1],
+        "mention_schema_sha256": hashlib.sha256(schema_path.read_bytes()).hexdigest(),
+        "compiled_contract_sha256": hashlib.sha256(CONTRACT.read_bytes()).hexdigest(),
         "tokenizer_manifest_sha256": None,
         "manifest_note": (
             "a manifest hashes tokenizer, chat template, serving engine, schema, "
