@@ -103,6 +103,7 @@ class SemanticContract:
     """The compiled contract, read once and answered from."""
 
     def __init__(self, path: pathlib.Path) -> None:
+        self._schema: dict | None = None
         self.path = path
         raw = path.read_bytes()
         try:
@@ -288,6 +289,61 @@ class SemanticContract:
             raise ValueError(
                 f"model lane mode {mode!r} is not one of {MODEL_LANE_MODES}")
         return mode
+
+    # -- the output budget, read rather than copied -------------------------
+    #
+    # These were reachable only through `self.data`, so every caller that wanted
+    # one reached past the reader and formed its own opinion of where it lived.
+    # `output_budget_report.py` is the standing example: it hard-coded 512
+    # because the emitter did not publish the reserve, and the docstring above
+    # its constant claimed the opposite.
+
+    @property
+    def max_items_wire(self) -> int:
+        """The most items one response may carry. A schema version change."""
+        return int(self.data["output_contract"]["max_items_wire"])
+
+    @property
+    def default_batch_items(self) -> int:
+        return int(self.data["output_contract"]["default_batch_items"])
+
+    @property
+    def calibrated_max_items(self) -> int:
+        return int(self.data["output_contract"]["calibrated_max_items"])
+
+    @property
+    def max_output_tokens(self) -> int:
+        return int(self.data["output_contract"]["max_output_tokens"])
+
+    @property
+    def envelope_token_reserve(self) -> int:
+        return int(self.data["output_contract"]["envelope_token_reserve"])
+
+    @property
+    def output_schema_name(self) -> str:
+        """`mention_extract_v2`, from the schema's own `$id`."""
+        return self.versions["output_schema"].rsplit("/", 1)[-1].removesuffix(
+            ".schema.json")
+
+    @property
+    def output_schema_path(self) -> pathlib.Path:
+        """The file this contract was compiled against, beside this contract.
+
+        Resolved from `self.path` rather than the module-level default, so a
+        contract read from anywhere — a test copy, a staging drop — looks for its
+        schema next to itself rather than next to whichever one happens to be
+        installed.
+        """
+        beside = self.path.parent / f"{self.output_schema_name}.schema.json"
+        return beside if beside.exists() else (
+            contract_path().parent / f"{self.output_schema_name}.schema.json")
+
+    @property
+    def output_schema(self) -> dict:
+        """Loaded once, from the path the contract names."""
+        if self._schema is None:
+            self._schema = json.loads(self.output_schema_path.read_text())
+        return self._schema
 
     @property
     def model_may_be_called(self) -> bool:

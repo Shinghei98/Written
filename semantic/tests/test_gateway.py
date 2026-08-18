@@ -1,0 +1,283 @@
+"""The gateway, with the model lane off.
+
+The property worth proving is not that `off` returns an error — a branch can
+always be written to do that — but that **the transport is never reached in it**.
+Every test here injects a counting transport and asserts the count, because a
+mode flag cannot demonstrate anything about itself.
+"""
+from __future__ import annotations
+
+import json
+import pathlib
+
+import pytest
+
+from written_ontology import gateway
+from written_ontology.mention_extract_v2 import RequestItem
+from written_ontology.semantic_contract import SemanticContract, contract_path
+
+REQUEST = [RequestItem(0, {"title": "Midnight"})]
+
+
+class CountingTransport:
+    """Records every call, and answers with whatever it was given."""
+
+    def __init__(self, response=None, raises=None):
+        self.calls = 0
+        self._response = response
+        self._raises = raises
+
+    def complete(self, payload, timeout_s):
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        return self._response
+
+
+def contract_in_lane(tmp_path: pathlib.Path, lane: str) -> SemanticContract:
+    """A real contract, read by the real reader, in the lane asked for.
+
+    A stub would not notice the reader changing, and the reader is half of what
+    these tests are about.
+    """
+    data = json.loads(contract_path().read_text())
+    data["runtime_requirements"]["qwen_overlay"] = lane
+    copy = tmp_path / "compiled_semantic_contract_v1.json"
+    copy.write_text(json.dumps(data))
+    return SemanticContract(copy)
+
+
+def matching_deployment(contract) -> gateway.Deployment:
+    expected = contract.attestation()
+    return gateway.Deployment(
+        model_id=expected["model_id"],
+        model_revision=expected["model_revision"],
+        tokenizer_sha256="t",
+        gateway_image_digest="sha256:g",
+        serving_image_digest="sha256:s",
+        prompt_version=expected["prompt_version"],
+        grammar_version=expected["grammar_version"],
+        output_schema_sha256=expected["schema_sha256"],
+        contract_sha256=expected["compiled_contract_sha256"],
+        environment="test",
+    )
+
+
+def valid_response(items=REQUEST):
+    return {
+        "finish_reason": "stop",
+        "output_tokens": 120,
+        "body": {
+            "schema_version": "mention_extract_v2",
+            "items": [{
+                "item_index": item.item_index,
+                "status": "extracted",
+                "abstain_reason": None,
+                "mentions": [{
+                    "surface": "Midnight",
+                    "source_field": "title",
+                    "source_field_index": None,
+                    "start": 0,
+                    "end": 8,
+                    "canonical_label_hypothesis": "Midnight",
+                    "family_hypothesis": "work",
+                    "mention_role": "work_or_franchise",
+                    "conversation_worthy": True,
+                }],
+            } for item in items],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Off
+# ---------------------------------------------------------------------------
+
+def test_health_answers_when_the_lane_is_off():
+    """A health check that answered only when the lane was on could not tell a
+    disabled gateway from a dead one, which is the question it exists for."""
+    report = gateway.health()
+    assert report["status"] == "ok"
+    assert report["extraction_enabled"] is False
+
+
+def test_attestation_answers_when_the_lane_is_off():
+    """Attesting a deployment is how off-to-evaluation is decided, so it has to
+    work before the transition rather than after it."""
+    report = gateway.attestation()
+    assert report["model_lane_mode"] == "off"
+    assert report["extraction_enabled"] is False
+    assert report["may_write_user_candidates"] is False
+    assert report["expected"]["compiled_contract_sha256"]
+    assert report["loaded"] is None
+
+
+def test_off_reaches_no_transport():
+    """**The one that matters.** Not that `off` refuses, but that nothing is
+    called in it."""
+    transport = CountingTransport(response=valid_response())
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport)
+    assert refusal.value.code == "circuit_open"
+    assert transport.calls == 0
+
+
+def test_off_reaches_no_transport_even_for_a_malformed_request():
+    """The lane check precedes request validation deliberately: a bad request in
+    `off` must still not produce a call, and an ordering that validated first
+    would make the refusal depend on the caller getting the request right."""
+    transport = CountingTransport(response=valid_response())
+    with pytest.raises(gateway.GatewayRefusal):
+        gateway.extract([], transport=transport)
+    assert transport.calls == 0
+
+
+def test_off_reaches_no_transport_with_a_mismatched_deployment(tmp_path):
+    transport = CountingTransport(response=valid_response())
+    wrong = gateway.Deployment(
+        model_id="somebody-elses-model", model_revision="x", tokenizer_sha256="t",
+        gateway_image_digest="g", serving_image_digest="s", prompt_version="p",
+        grammar_version="g", output_schema_sha256="s", contract_sha256="c",
+        environment="test")
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport, deployment=wrong)
+    assert refusal.value.code == "circuit_open"
+    assert transport.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# With the lane open — every refusal named, and the successful path
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def shadow(tmp_path, monkeypatch):
+    contract = contract_in_lane(tmp_path, "shadow")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+    return contract
+
+
+def test_a_matching_deployment_extracts_and_returns_no_body(shadow):
+    transport = CountingTransport(response=valid_response())
+    result = gateway.extract(REQUEST, transport=transport,
+                             deployment=matching_deployment(shadow))
+    assert transport.calls == 1
+    assert result["outcome"] == "succeeded"
+    assert result["mention_count"] == 1
+    assert result["output_tokens"] == 120
+    # Safe operational metadata only: counts, codes and figures. §20.1 and the
+    # reason `model_invocation_items` has no text column.
+    assert "body" not in result and "response" not in result
+
+
+def test_a_mismatched_deployment_is_contract_mismatch_and_trips_the_breaker(shadow):
+    transport = CountingTransport(response=valid_response())
+    breaker = gateway.CircuitBreaker()
+    wrong = matching_deployment(shadow)
+    wrong = gateway.Deployment(**{**wrong.__dict__, "model_revision": "not-the-pin"})
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport, deployment=wrong,
+                        breaker=breaker)
+    assert refusal.value.code == "contract_mismatch"
+    assert transport.calls == 0
+    # A mismatch is not transient: retrying keeps a wrong model answering.
+    assert breaker.is_open
+
+
+def test_a_truncated_response_is_overflow_and_is_not_retried(shadow):
+    truncated = valid_response()
+    truncated["finish_reason"] = "length"
+    transport = CountingTransport(response=truncated)
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport,
+                        deployment=matching_deployment(shadow), max_attempts=3)
+    assert refusal.value.code == "output_overflow"
+    # **Never a hidden "be shorter" retry.** A compact fallback is a distinct
+    # prompt and schema profile and must appear in provenance.
+    assert transport.calls == 1
+
+
+def test_a_timeout_is_retried_and_then_named(shadow):
+    transport = CountingTransport(raises=TimeoutError())
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport,
+                        deployment=matching_deployment(shadow), max_attempts=3)
+    assert refusal.value.code == "timeout"
+    assert transport.calls == 3
+
+
+def test_an_item_the_model_did_not_answer_is_missing_item(shadow):
+    two = [RequestItem(0, {"title": "Midnight"}), RequestItem(1, {"title": "Dawn"})]
+    partial = valid_response(two)
+    partial["body"]["items"] = partial["body"]["items"][:1]
+    transport = CountingTransport(response=partial)
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(two, transport=transport,
+                        deployment=matching_deployment(shadow))
+    assert refusal.value.code == "missing_item"
+
+
+def test_a_bad_offset_is_offset_invalid_rather_than_schema_invalid(shadow):
+    """The mapping exists so a structural code is placed deliberately instead of
+    falling into `schema_invalid` and reading like malformed JSON."""
+    wrong = valid_response()
+    wrong["body"]["items"][0]["mentions"][0]["surface"] = "Midnigh"
+    transport = CountingTransport(response=wrong)
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport,
+                        deployment=matching_deployment(shadow))
+    assert refusal.value.code == "offset_invalid"
+
+
+def test_no_refusal_is_ever_a_semantic_abstention(shadow):
+    """An abstention is the model saying the item had no durable subject.
+    Everything this module raises is something that happened to the call."""
+    cases = []
+    truncated = valid_response(); truncated["finish_reason"] = "length"
+    cases.append(truncated)
+    empty = valid_response(); empty["body"] = None
+    cases.append(empty)
+    for response in cases:
+        with pytest.raises(gateway.GatewayRefusal) as refusal:
+            gateway.extract(REQUEST, transport=CountingTransport(response=response),
+                            deployment=matching_deployment(shadow))
+        assert refusal.value.code != "semantic_abstention"
+
+
+def test_the_breaker_opens_and_then_refuses_without_calling(shadow):
+    transport = CountingTransport(raises=RuntimeError("upstream"))
+    breaker = gateway.CircuitBreaker(threshold=2)
+    for _ in range(2):
+        with pytest.raises(gateway.GatewayRefusal):
+            gateway.extract(REQUEST, transport=transport,
+                            deployment=matching_deployment(shadow),
+                            breaker=breaker, max_attempts=1)
+    assert breaker.is_open
+    before = transport.calls
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=transport,
+                        deployment=matching_deployment(shadow), breaker=breaker)
+    assert refusal.value.code == "circuit_open"
+    assert transport.calls == before
+
+
+def test_a_request_over_the_wire_maximum_is_refused_before_the_call(shadow):
+    too_many = [RequestItem(i, {"title": f"t{i}"})
+                for i in range(shadow.max_items_wire + 1)]
+    transport = CountingTransport(response=valid_response())
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(too_many, transport=transport,
+                        deployment=matching_deployment(shadow))
+    assert refusal.value.code == "input_oversize"
+    assert transport.calls == 0
+
+
+def test_a_forbidden_field_is_refused_without_quoting_its_value(shadow):
+    leaky = [RequestItem(0, {"title": "Midnight", "user_id": "0000-secret"})]
+    transport = CountingTransport(response=valid_response())
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(leaky, transport=transport,
+                        deployment=matching_deployment(shadow))
+    assert refusal.value.code == "input_oversize"
+    assert "user_id" in str(refusal.value)
+    assert "secret" not in str(refusal.value)
+    assert transport.calls == 0
