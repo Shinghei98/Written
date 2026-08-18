@@ -288,6 +288,10 @@ run_contract 0234_provisional_sink_contract
 # attesting a lane that may call a model must name what it calls.
 run_contract 0235_release_gate_report_contract
 
+# **Per-item model lineage**, append-only and attributable, before anything
+# writes it. Every property here is latent while the table is empty.
+run_contract 0236_invocation_lineage_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
