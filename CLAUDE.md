@@ -795,10 +795,13 @@ photographs came from a direct read of a table any signed-in user may read.
 into **`private.may_see_match` — one function called twice**, because a copy
 would be the third place to edit and the first to be forgotten.
 
-**`api.discover_profiles` is the server-owned replacement and ships dark**
-(`assert_surface_allowed('matching')` requires `discovery_profile_reads`, which is
-false). It exists because the rules currently live in the client, and **a
-courtesy is not a rule when another client holds the same anon key**.
+**`api.discover_profiles` is the server-owned replacement and it is live.**
+`assert_surface_allowed('matching')` requires `discovery_profile_reads`, and that
+flag has been **enabled in production since 2026-08-14** — so the RPC answers and
+the client is no longer falling back to the direct read. It shipped dark and no
+longer is; anything below that reads as prospective is now a live condition. It
+exists because the rules otherwise live in the client, and **a courtesy is not a
+rule when another client holds the same anon key**.
 
 - **It returns terms beside each card**, since §10's gate asks for revision and
   surface permission, which are properties of an assertion rather than a card.
@@ -1089,7 +1092,7 @@ where the legacy path has one.
 Everything below about the ontology, the dynamic profile, Memories and the
 icebreaker is **still true of the shipping code and is now the legacy path**.
 
-**Migration head `0218`.** `db push` deploys; `supabase/DEPLOY.md` is the
+**Migration head `0231`.** `db push` deploys; `supabase/DEPLOY.md` is the
 procedure. **Each migration carries its own reasoning in its header comment**,
 and that is the record — this section carries only what a later change could
 violate. **Read `semantic/JOURNAL.md` before removing a guard, adapting another
