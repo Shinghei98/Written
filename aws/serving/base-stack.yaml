@@ -145,47 +145,73 @@ Resources:
               commands:
                 - pip install --quiet "huggingface_hub[cli]==0.35.3"
             build:
+              # **One command, because `set -e` does not survive the list.**
+              # CodeBuild runs each list entry in its own shell, so a `set -euo
+              # pipefail` in the first is not in force for the fifth — which is
+              # how the first attempt reached the manifest step with a download
+              # that had not finished, and reported the wrong failure.
               commands:
-                - set -euo pipefail
-                - PREFIX="models/qwen3.5-9b/${MODEL_REVISION}"
-                # Refuse an already-committed revision rather than write over it.
                 - |
-                  if aws s3api head-object --bucket "$MODEL_BUCKET" \
-                       --key "$PREFIX/COMMITTED.json" >/dev/null 2>&1; then
-                    echo "revision already committed; refusing to restage"; exit 1
-                  fi
-                # The full commit SHA, never a branch: a branch can move under
-                # a tag and the deployment would silently change.
-                - |
+                  set -euo pipefail
+                  PREFIX="models/qwen3.5-9b/${MODEL_REVISION}"
+
+                  # A complete sha, never a branch: a branch can move under a
+                  # tag and the deployment would silently change.
                   python3 - <<'PY'
                   import os, re, sys
                   rev = os.environ["MODEL_REVISION"]
                   if not re.fullmatch(r"[0-9a-f]{40}", rev):
                       sys.exit(f"MODEL_REVISION {rev!r} is not a complete commit sha")
                   PY
-                - mkdir -p /tmp/model
-                - |
+
+                  # Refuse an already-committed revision rather than write over it.
+                  if aws s3api head-object --bucket "$MODEL_BUCKET" \
+                       --key "$PREFIX/COMMITTED.json" >/dev/null 2>&1; then
+                    echo "revision already committed; refusing to restage"; exit 1
+                  fi
+
+                  mkdir -p /tmp/model
                   hf download "$MODEL_ID" --revision "$MODEL_REVISION" \
                     --local-dir /tmp/model --max-workers 8
-                # Symlinks and stray paths are refused: the manifest must
-                # describe files, and a link describes somewhere else.
-                - |
+
                   python3 - <<'PY'
                   import hashlib, json, os, pathlib, sys
                   root = pathlib.Path("/tmp/model")
+
+                  # **`.cache` is the downloader's scratch, not model content.**
+                  # `hf download --local-dir` keeps its partials under
+                  # `.cache/huggingface/download`, and the first version refused
+                  # the whole stage for a dotted path — reporting an unexpected
+                  # path when what had actually happened was an unfinished
+                  # download.
+                  incomplete = list(root.rglob("*.incomplete"))
+                  if incomplete:
+                      sys.exit(f"{len(incomplete)} file(s) still downloading; refusing to stage a partial revision")
+
                   rows, total = [], 0
                   for path in sorted(root.rglob("*")):
+                      rel = path.relative_to(root)
+                      if rel.parts and rel.parts[0] == ".cache":
+                          continue
                       if path.is_symlink():
-                          sys.exit(f"symlink refused: {path.relative_to(root)}")
+                          sys.exit(f"symlink refused: {rel}")
                       if path.is_dir():
                           continue
-                      rel = str(path.relative_to(root))
-                      if rel.startswith(".") or ".." in rel:
-                          sys.exit(f"unexpected path refused: {rel}")
+                      name = str(rel)
+                      if name.startswith(".") or ".." in name:
+                          sys.exit(f"unexpected path refused: {name}")
                       digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                      rows.append({"path": rel, "bytes": path.stat().st_size,
+                      rows.append({"path": name, "bytes": path.stat().st_size,
                                    "sha256": digest})
                       total += path.stat().st_size
+
+                  # A stage that hashed nothing is a stage that downloaded
+                  # nothing, and the marker must not vouch for it.
+                  if not rows:
+                      sys.exit("no files to stage")
+                  if total < 15_000_000_000:
+                      sys.exit(f"only {total/1e9:.1f} GB present; the repository is about 19.3 GB")
+
                   manifest = {
                       "model_id": os.environ["MODEL_ID"],
                       "model_revision": os.environ["MODEL_REVISION"],
@@ -198,27 +224,28 @@ Resources:
                       json.dumps(manifest, indent=2, sort_keys=True))
                   print(f"{len(rows)} files, {total/1e9:.1f} GB")
                   PY
-                # Uncompressed, so SageMaker mounts the hierarchy directly
-                # through ModelDataSource. No 20 GB tarball to unpack on a GPU.
-                - |
+
+                  # Uncompressed, so SageMaker mounts the hierarchy directly
+                  # through ModelDataSource. No 20 GB tarball to unpack on a GPU.
                   aws s3 sync /tmp/model "s3://$MODEL_BUCKET/$PREFIX/artifacts/" \
+                    --exclude '.cache/*' \
                     --sse aws:kms --sse-kms-key-id "$KMS_KEY_ID" --only-show-errors
-                # Metadata outside artifacts/, so the mounted tree is weights only.
-                - |
+
+                  # Metadata outside artifacts/, so the mounted tree is weights only.
                   aws s3api put-object --bucket "$MODEL_BUCKET" \
                     --key "$PREFIX/manifest.json" --body /tmp/manifest.json \
-                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID"
-                # **The marker is written last and only if nothing exists.** The
-                # endpoint may use a revision only when this is present, so a
-                # half-finished stage is unusable rather than subtly wrong.
-                - |
+                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID" >/dev/null
+
+                  # **Written last, and only if nothing is there.** The endpoint
+                  # may use a revision only when this exists, so a half-finished
+                  # stage is unusable rather than subtly wrong.
                   printf '{"model_id":"%s","model_revision":"%s","codebuild_id":"%s"}' \
                     "$MODEL_ID" "$MODEL_REVISION" "$CODEBUILD_BUILD_ID" > /tmp/committed.json
                   aws s3api put-object --bucket "$MODEL_BUCKET" \
                     --key "$PREFIX/COMMITTED.json" --body /tmp/committed.json \
                     --if-none-match '*' \
-                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID"
-                - echo "committed s3://$MODEL_BUCKET/$PREFIX/"
+                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID" >/dev/null
+                  echo "committed s3://$MODEL_BUCKET/$PREFIX/"
 
   # -- the image job --------------------------------------------------------
   BuildImageRole:
@@ -311,7 +338,7 @@ Resources:
                   RUN apt-get update && apt-get install -y --no-install-recommends \
                         python3 python3-pip ca-certificates \
                    && rm -rf /var/lib/apt/lists/*
-                  RUN pip install --no-cache-dir --break-system-packages "vllm==${VLLM_VERSION}"
+                  RUN pip install --no-cache-dir "vllm==${VLLM_VERSION}"
                   COPY serve.py /opt/serve.py
                   EXPOSE 8080
                   ENV MODEL_PATH=/opt/ml/model VLLM_VERSION=${VLLM_VERSION}
