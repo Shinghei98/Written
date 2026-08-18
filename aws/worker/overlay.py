@@ -806,14 +806,45 @@ def aggregate_feedback(job) -> dict[str, Any]:
 # 8. evaluate_release — the gate report
 # ---------------------------------------------------------------------------
 
+#: Which evaluator reached a verdict. Bumped when what the job checks changes,
+#: so two reports on one manifest are comparable rather than merely consecutive.
+EVALUATION_REVISION = "release-eval-0.2.0"
+
+#: **A verdict is appended, never overwritten.** This was a blind
+#: `update ... set gate_report`, so every re-run destroyed the previous verdict
+#: and the question *"did this release ever pass, and when did it stop"* had no
+#: answer. `0235` makes the table append-only by trigger and revokes the column
+#: privilege that allowed the overwrite.
 RECORD_GATE = """
-update ontology.release_manifests
-   set gate_report = %(report)s::jsonb
- where id = %(release_manifest_id)s
+insert into ontology.release_gate_reports
+  (release_manifest_id, evaluation_revision, environment, report)
+values (%(release_manifest_id)s, %(evaluation_revision)s, %(environment)s,
+        %(report)s::jsonb)
 """
 
-MANIFEST = """
-select compiled_contract_sha256, environment, promotion_decision
+#: **Every field the runtime attestation declares, and the query is built from
+#: those keys.** It selected three columns and compared one, while reading a
+#: fourth — `model_lane_mode` — that the select did not carry and the table did
+#: not have, so that test was `failed` for every row that could ever exist. A
+#: query written by hand beside a comparison written by hand is two lists, and
+#: this is what happens to two lists.
+#:
+#: `0235` gives each of these a column. A key added to `attestation()` with no
+#: column here raises at the start of the job rather than going uncompared.
+ATTESTED_COLUMNS = (
+    "compiled_contract_sha256",
+    "workbook_sha256",
+    "schema_sha256",
+    "grammar_version",
+    "prompt_version",
+    "model_id",
+    "model_revision",
+    "gateway_revision",
+    "model_lane_mode",
+)
+
+MANIFEST = f"""
+select {', '.join(ATTESTED_COLUMNS)}, environment, promotion_decision
   from ontology.release_manifests
  where id = %(release_manifest_id)s
 """
@@ -841,6 +872,17 @@ def evaluate_release(job) -> dict[str, Any]:
     contract = load_contract()
     manifest_id = job.payload["release_manifest_id"]
 
+    # **A field the attestation declares and the manifest has no column for is a
+    # field nothing compares.** Raised here rather than skipped, because the
+    # failure this job exists to prevent is exactly a test that looks present and
+    # cannot run.
+    uncompared = sorted(set(contract.attestation()) - set(ATTESTED_COLUMNS))
+    if uncompared:
+        raise RuntimeError(
+            f"the runtime attestation declares {uncompared} and the release "
+            "manifest has no column for them; add the column before attesting"
+        )
+
     with psycopg.connect(
         database_url(), row_factory=dict_row, prepare_threshold=None
     ) as connection:
@@ -850,41 +892,47 @@ def evaluate_release(job) -> dict[str, Any]:
             if manifest is None:
                 return {"status": "no_op", "abstained": True, "item_count": 0}
 
-            matches = (
-                manifest["compiled_contract_sha256"] == contract.contract_sha256
-            )
+            attested = contract.attestation()
+            # One test per attested field, in the attestation's own order. The
+            # **deployed mode must match what the manifest attested**, rather
+            # than being required to be off unconditionally — the pre-`0230`
+            # test could never pass once the lane ran at all, which made
+            # `candidate_attestation` and `staging_e2e` unreachable: both
+            # require the lane to have run, and the gate demanded it had not.
+            tests = [
+                {
+                    "id": f"{field}_matches_manifest",
+                    "status": "passed" if manifest[field] == value else "failed",
+                }
+                for field, value in attested.items()
+            ]
+            passed = all(test["status"] == "passed" for test in tests)
             report = {
                 "schema_version": "semantic_gate_report_v1",
-                "test_results": [
-                    {
-                        "id": "runtime_contract_matches_manifest",
-                        "status": "passed" if matches else "failed",
-                    },
-                    # **The deployed mode must match what the manifest
-                    # attested**, rather than being required to be off
-                    # unconditionally. The old test could never pass once the
-                    # lane ran at all, which made `candidate_attestation` and
-                    # `staging_e2e` unreachable: both require the lane to have
-                    # run, and the gate demanded it had not.
-                    {
-                        "id": "model_lane_mode_matches_manifest",
-                        "status": (
-                            "passed"
-                            if manifest.get("model_lane_mode") == contract.model_lane_mode
-                            else "failed"
-                        ),
-                    },
-                ],
-                **contract.attestation(),
+                "test_results": tests,
+                # The verdict, stated once. It was derivable from the list and
+                # the receipt derived something else.
+                "all_required_tests_passed": passed,
+                **attested,
             }
             cursor.execute(
                 RECORD_GATE,
-                {"release_manifest_id": manifest_id, "report": json.dumps(report)},
+                {
+                    "release_manifest_id": manifest_id,
+                    "evaluation_revision": EVALUATION_REVISION,
+                    "environment": manifest["environment"],
+                    "report": json.dumps(report),
+                },
             )
         connection.commit()
 
     return {
         "status": "succeeded",
         "item_count": len(report["test_results"]),
-        "changed": matches,
+        # **`changed` means the release is attested**, which is what a caller
+        # reading a receipt wants to know. It was the contract-hash comparison
+        # alone, so this said `true` over a report whose second test read
+        # `failed` — a green receipt covering a red gate, which is worse than a
+        # red one.
+        "changed": passed,
     }

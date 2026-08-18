@@ -284,6 +284,10 @@ run_contract 0233_provisional_identity_contract
 # asserts the required zeros, the idempotent rerun and the erasure.
 run_contract 0234_provisional_sink_contract
 
+# **A gate report is an event.** Append-only by trigger, and a manifest
+# attesting a lane that may call a model must name what it calls.
+run_contract 0235_release_gate_report_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
