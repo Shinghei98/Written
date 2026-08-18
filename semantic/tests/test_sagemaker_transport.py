@@ -35,9 +35,24 @@ ANSWER = json.dumps({
 }).encode()
 
 
-#: The request schema requires `request_id`, so a payload without one is not a
-#: simpler case of a real request — it is one the validator would never emit.
-PAYLOAD = {"request_id": "req_abc123", "items": []}
+@pytest.fixture(scope="module")
+def PAYLOAD(tmp_path_factory):
+    """**The envelope `extract` actually builds, not one shaped like it.**
+
+    The first version of this fixture was a hand-written dict with `request_id`
+    at the top level. It was wrong in the one way that mattered: `_serialise`
+    wraps the request document under `input`, so every real call refused before
+    reaching SageMaker while every test passed. A fixture that does not do what
+    `extract` does cannot fail the way production fails.
+    """
+    from written_ontology.mention_extract_v2 import RequestItem
+    from test_gateway import contract_in_lane
+
+    contract = contract_in_lane(tmp_path_factory.mktemp("contract"), "shadow")
+    request = gateway.build_request(
+        [RequestItem(0, {"title": "Midnight"})], contract,
+        request_id="req_abc123")
+    return gateway._serialise(request, contract)
 
 
 class FakeS3:
@@ -83,7 +98,7 @@ def transport(module, s3, runtime, **kwargs):
         clients={"s3": s3, "sagemaker-runtime": runtime}, **kwargs)
 
 
-def test_the_request_never_becomes_a_file(module):
+def test_the_request_never_becomes_a_file(module, PAYLOAD):
     """`InvokeEndpointAsync` takes an inline Body; only EndpointName is required.
 
     The first version wrote the request to S3 on the assumption that async
@@ -98,14 +113,14 @@ def test_the_request_never_becomes_a_file(module):
     assert "InputLocation" not in runtime.calls[0]
 
 
-def test_the_answer_is_deleted_before_it_is_parsed(module):
+def test_the_answer_is_deleted_before_it_is_parsed(module, PAYLOAD):
     s3 = FakeS3({"async/out/answer.json": ANSWER})
     result = transport(module, s3, FakeRuntime()).complete(PAYLOAD, 5)
     assert s3.deleted == ["async/out/answer.json"]
     assert result["output_tokens"] == 7
 
 
-def test_a_failed_deletion_withholds_the_answer(module):
+def test_a_failed_deletion_withholds_the_answer(module, PAYLOAD):
     """The model answered and the result is refused anyway.
 
     Committing semantics derived from text we cannot show we stopped holding is
@@ -140,7 +155,7 @@ def test_the_gateway_names_it_and_does_not_retry(module, monkeypatch, tmp_path):
     assert failing.calls == 1
 
 
-def test_a_failure_object_is_deleted_too(module):
+def test_a_failure_object_is_deleted_too(module, PAYLOAD):
     """It is provider text as much as the answer is."""
     s3 = FakeS3({"async/fail/answer.json": b"{}"})
     with pytest.raises(RuntimeError):
@@ -152,7 +167,7 @@ def test_a_failure_object_is_deleted_too(module):
 # Submitted once
 # ---------------------------------------------------------------------------
 
-def test_the_identifier_is_the_request_and_not_a_new_one(module):
+def test_the_identifier_is_the_request_and_not_a_new_one(module, PAYLOAD):
     """Two submissions of the same request carry the same id.
 
     The version this replaced called `uuid.uuid4()` inside the call, so the same
@@ -170,11 +185,12 @@ def test_the_identifier_is_the_request_and_not_a_new_one(module):
 def test_a_request_with_no_id_is_refused_rather_than_given_one(module):
     """The fallback that would be convenient here is the defect itself."""
     with pytest.raises(gateway.GatewayRefusal) as refusal:
-        transport(module, FakeS3({}), FakeRuntime()).submit({"items": []}, 5)
+        transport(module, FakeS3({}), FakeRuntime()).submit(
+            {"input": {"items": []}}, 5)
     assert refusal.value.code == "contract_mismatch"
 
 
-def test_polling_out_of_time_says_so_and_enqueues_nothing_more(module):
+def test_polling_out_of_time_says_so_and_enqueues_nothing_more(module, PAYLOAD):
     """No answer ever appears. One job is submitted, and it stays one."""
     runtime = FakeRuntime()
     with pytest.raises(gateway.InferenceInFlight) as flight:
@@ -183,7 +199,7 @@ def test_polling_out_of_time_says_so_and_enqueues_nothing_more(module):
     assert flight.value.ticket.output_key == "async/out/answer.json"
 
 
-def test_a_ticket_is_collected_without_submitting_again(module):
+def test_a_ticket_is_collected_without_submitting_again(module, PAYLOAD):
     """The answer arrives late; collecting it is not a second job."""
     runtime = FakeRuntime()
     s3 = FakeS3({})
@@ -250,3 +266,34 @@ def test_a_timeout_before_submission_is_still_retried(module, monkeypatch,
                         deployment=matching_deployment(contract), max_attempts=3)
     assert refusal.value.code == "timeout"
     assert transport_.calls == 3, "an unaccepted call was not retried"
+
+
+def test_the_gateway_reaches_the_transport_at_all(module, monkeypatch, tmp_path):
+    """The whole path, because the seam between the two is where it broke.
+
+    `extract` builds the envelope and the transport reads it; each was correct
+    about a different shape, and nothing exercised the pair. This asserts the
+    call arrives — with the request id the gateway generated, in the place the
+    transport looks for it.
+    """
+    from written_ontology.mention_extract_v2 import RequestItem
+    from test_gateway import contract_in_lane, matching_deployment
+
+    contract = contract_in_lane(tmp_path, "shadow")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+
+    runtime, s3 = FakeRuntime(), FakeS3({"async/out/answer.json": ANSWER})
+    sent = transport(module, s3, runtime)
+
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        # The stub's body fails the output schema, so acceptance refuses — but
+        # only *after* the transport has been reached, which is the point. That
+        # it is a named refusal rather than a raw validator error is the other
+        # half: an unnamed exception has no outcome to be recorded under.
+        gateway.extract([RequestItem(0, {"title": "Midnight"})],
+                        transport=sent, deployment=matching_deployment(contract),
+                        request_id="req_e2e_001", max_attempts=1)
+
+    assert refusal.value.code == "schema_invalid"
+    assert len(runtime.calls) == 1, "the gateway never reached the transport"
+    assert runtime.calls[0]["InferenceId"] == "req_e2e_001"

@@ -87,7 +87,7 @@ class InferenceTicket:
 def _inference_id(payload: dict[str, Any]) -> str:
     """The request's own id, never a generated one.
 
-    `request_id` is defined by the request schema as opaque, unique to the
+    `input.request_id` is defined by the request schema as opaque, unique to the
     request and carrying nothing about whose it is — which is exactly what an
     inference id must be, so minting a second identifier alongside it would add
     a handle without adding a fact. Deriving it also makes resubmission
@@ -97,7 +97,15 @@ def _inference_id(payload: dict[str, Any]) -> str:
     SageMaker accepts up to 64 characters; the schema bounds `request_id` to the
     same 64 and to `[A-Za-z0-9_-]`, so anything the validator passed fits here.
     """
-    request_id = payload.get("request_id")
+    # **`input.request_id`, because that is where the envelope puts it.** The
+    # first version of this function read the top level, which is where the
+    # *request document* carries it — but `_serialise` wraps that document under
+    # `input` alongside the model, the sampling parameters and the response
+    # format. So every real call refused with `contract_mismatch` before
+    # reaching SageMaker, and the tests did not see it because they passed a
+    # hand-written payload rather than the envelope the gateway actually builds.
+    # They now build it the same way `extract` does.
+    request_id = (payload.get("input") or {}).get("request_id")
     if not isinstance(request_id, str) or not request_id:
         # Never fall back to a random id: that is the defect this replaced.
         raise gateway.GatewayRefusal(

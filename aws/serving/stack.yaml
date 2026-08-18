@@ -18,6 +18,12 @@ Parameters:
   AsyncOutputBucket:
     Type: String
     Default: written-semantic-async-616040526027
+  ModelKeyArn:
+    Type: String
+    Default: arn:aws:kms:us-east-1:616040526027:key/02db116c-2490-468b-aadc-695377d2678a
+    Description: >
+      The customer-managed key the model bucket is encrypted with. Named here
+      because the artifact stack owns it and this one is deliberately separate.
   InstanceType:
     Type: String
     Default: ml.g6e.xlarge
@@ -46,6 +52,19 @@ Resources:
                 Resource:
                   - !Sub arn:aws:s3:::written-semantic-models-${AWS::AccountId}
                   - !Sub arn:aws:s3:::written-semantic-models-${AWS::AccountId}/*
+              # **Reading a KMS-encrypted object needs the key as well as the
+              # object.** The bucket is SSE-KMS with a customer-managed key, so
+              # `s3:GetObject` alone answers `AccessDenied` at download and the
+              # endpoint fails to start — a permission failure that looks like a
+              # missing artifact. `DescribeKey` is not decoration: S3 calls it
+              # when resolving the bucket key.
+              - Effect: Allow
+                Action: [kms:Decrypt, kms:DescribeKey]
+                Resource: !Ref ModelKeyArn
+              # The async output bucket is SSE-S3, so writing the answer needs
+              # no key. Were it ever moved to SSE-KMS this would need
+              # `kms:GenerateDataKey` as well, and the write would fail silently
+              # from the container's point of view until it did.
               # It writes the answer and nothing else; the gateway deletes it.
               - Effect: Allow
                 Action: s3:PutObject
@@ -59,8 +78,16 @@ Resources:
     Properties:
       ModelName: !Sub written-qwen-${AWS::StackName}
       ExecutionRoleArn: !GetAtt ServingRole.Arn
-      # No VPC egress is configured, so the container cannot reach a model hub
-      # even if something asked it to.
+      # **Isolation is a setting, not a consequence of not configuring a VPC.**
+      # An inference container has outbound network access by default, so
+      # "no VPC is configured" bought nothing: `HF_HUB_OFFLINE` is a courtesy
+      # the container extends to itself and anything running in it could reach
+      # the internet with somebody's title in hand. This removes the route.
+      #
+      # It does not impede the things that look like network: the platform
+      # downloads model data and uploads async answers outside the container,
+      # and CloudWatch logging is done by the agent rather than by us.
+      EnableNetworkIsolation: true
       PrimaryContainer:
         Image: !Ref ServingImageUri
         Mode: SingleModel
@@ -112,6 +139,57 @@ Resources:
       MinCapacity: 0
       MaxCapacity: 1
       RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/sagemaker.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_SageMakerEndpoint
+
+  # **Target tracking cannot start the first instance.**
+  # `ApproximateBacklogSizePerInstance` is a per-instance metric and there are no
+  # instances at rest, so it publishes nothing and the policy has nothing to act
+  # on: a request arriving at zero capacity would sit in the queue until the
+  # invocation timed out. `HasBacklogWithoutCapacity` is the metric that exists
+  # precisely for this state — a backlog with no capacity behind it — and a step
+  # policy on it is what turns one instance on. Target tracking then does the
+  # ordinary work once something is running. Both are needed; neither replaces
+  # the other.
+  WakeFromZeroPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: written-qwen-wake-from-zero
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref ScalableTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        # One instance, because MaxCapacity is one. The cooldown is long enough
+        # that a burst does not ask for a second start while the first is still
+        # loading a 19 GB model.
+        Cooldown: 600
+        MetricAggregationType: Average
+        StepAdjustments:
+          - MetricIntervalLowerBound: 0
+            ScalingAdjustment: 1
+
+  BacklogWithoutCapacityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub written-qwen-${AWS::StackName}-backlog-without-capacity
+      AlarmDescription: >
+        Work is queued and nothing is running. Starts the one instance.
+      Namespace: AWS/SageMaker
+      MetricName: HasBacklogWithoutCapacity
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # **`missing`, not `breaching` and not `notBreaching`.** The metric is not
+      # published while the endpoint is idle and empty, and treating that
+      # absence as either answer would make the alarm state a guess about a
+      # thing that said nothing.
+      TreatMissingData: missing
+      Dimensions:
+        - Name: EndpointName
+          Value: !GetAtt Endpoint.EndpointName
+      AlarmActions:
+        - !Ref WakeFromZeroPolicy
 
   ScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy

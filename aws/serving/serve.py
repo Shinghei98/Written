@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/opt/ml/model")
 _engine = None
+_load_error: BaseException | None = None
+_loaded = threading.Event()
 
 
 def engine():
@@ -40,15 +43,71 @@ def engine():
     return _engine
 
 
+def _prompt(payload: dict) -> str:
+    """The chat template, applied, with the instructions the contract carries.
+
+    Two things were wrong and both were silent. `generate()` on a bare string
+    **bypasses the chat template entirely**, so `enable_thinking: false` — a
+    template keyword, not a sampling parameter — was read by nothing and the
+    model was free to emit reasoning into a schema-shaped answer. And the prompt
+    was the request document alone: no role, no rules, no worked example. The
+    contract named a prompt version the whole time; nothing sent one.
+
+    A tokenizer with no `enable_thinking` keyword is not an error — most have
+    none — so it is passed only when the template accepts it, and its absence
+    is not silently read as false.
+    """
+    instructions = payload.get("instructions") or {}
+    system = "\n".join(
+        part for part in (
+            instructions.get("system_role"),
+            instructions.get("system_rules"),
+            instructions.get("aboutness_example"),
+        ) if part
+    )
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({
+        "role": "user",
+        "content": json.dumps(payload.get("input", {}), ensure_ascii=False),
+    })
+
+    tokenizer = engine().get_tokenizer()
+    kwargs = {"tokenize": False, "add_generation_prompt": True}
+    if payload.get("enable_thinking") is not None:
+        try:
+            return tokenizer.apply_chat_template(
+                messages, enable_thinking=bool(payload["enable_thinking"]), **kwargs)
+        except TypeError:
+            # The template does not take the keyword. Falling through is right;
+            # pretending it was applied is not.
+            pass
+    return tokenizer.apply_chat_template(messages, **kwargs)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # noqa: A003 - silence is the point
         """No access log. A request is somebody's title."""
 
     def do_GET(self):  # noqa: N802
-        if self.path == "/ping":
-            self._reply(200, {"status": "ok"})
-        else:
-            self._reply(404, {})
+        if self.path != "/ping":
+            return self._reply(404, {})
+        # **Healthy means loaded, and it did not.** This answered 200 the
+        # instant the socket was up while the engine was built lazily in the
+        # first POST, so SageMaker declared the container ready and routed a
+        # request into a 19 GB model load. AWS keeps routing to anything
+        # answering 200; the health check is the only thing that can say wait.
+        #
+        # A failed load stays unhealthy for the same reason: a container that
+        # cannot serve must not be sent work, and reporting the failure here is
+        # what makes it visible as a failure rather than as slowness.
+        if _load_error is not None:
+            return self._reply(503, {"status": "failed",
+                                     "error": type(_load_error).__name__})
+        if not _loaded.is_set():
+            return self._reply(503, {"status": "loading"})
+        self._reply(200, {"status": "ok"})
 
     def do_POST(self):  # noqa: N802
         if self.path != "/invocations":
@@ -59,13 +118,22 @@ class Handler(BaseHTTPRequestHandler):
         from vllm import SamplingParams  # noqa: PLC0415
         from vllm.sampling_params import GuidedDecodingParams  # noqa: PLC0415
 
+        # **Refused rather than answered unconstrained.** The gateway sends the
+        # schema; an engine asked to extract without one returns prose, which
+        # then fails acceptance looking like a bad model rather than a request
+        # that never carried its contract. Guessing a default schema here would
+        # be this container deciding what it may emit, which is the gateway's
+        # decision and is attested.
         schema = payload.get("response_format", {}).get("schema")
+        if not schema:
+            return self._reply(400, {"error": "response_format.schema is required"})
+
         params = SamplingParams(
             temperature=0,
             max_tokens=int(payload.get("max_output_tokens", 4096)),
-            guided_decoding=GuidedDecodingParams(json=schema) if schema else None,
+            guided_decoding=GuidedDecodingParams(json=schema),
         )
-        prompt = json.dumps(payload.get("input", {}), ensure_ascii=False)
+        prompt = _prompt(payload)
         completions = engine().generate([prompt], params)
         output = completions[0].outputs[0]
         self._reply(200, {
@@ -85,5 +153,22 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
 
+def _load_in_background() -> None:
+    """Start loading immediately, and record a failure rather than raising.
+
+    The load happens off the serving thread so /ping can answer at all while it
+    runs — an unanswered health check is indistinguishable from a dead
+    container, and would be treated as one.
+    """
+    global _load_error
+    try:
+        engine()
+    except BaseException as failure:  # noqa: BLE001 - the type, never the message
+        _load_error = failure
+    else:
+        _loaded.set()
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_load_in_background, daemon=True).start()
     ThreadingHTTPServer(("", 8080), Handler).serve_forever()

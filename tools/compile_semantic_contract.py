@@ -411,6 +411,29 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
                 request_schema_path(config).read_text())["$id"],
             "output_budget_policy": require(config, "llm.output.budget_policy.version"),
         },
+        # **The instructions, compiled rather than left in the workbook.**
+        # They were authored under `prompt.*` and emitted nowhere, so the
+        # contract named a prompt version (`qwen_extractor_v5`) that described
+        # text the gateway had no way to send. The model was handed the request
+        # document and nothing else — no task, no rules, no schema — which is
+        # not a weaker prompt than intended, it is no prompt at all.
+        #
+        # The few-shots travel too. Their selection policy is a *runtime*
+        # decision (`retrieval_policy`) and is left where it is; what belongs
+        # here is the material that decision chooses from, so a release manifest
+        # attests the same bytes the model was shown.
+        "prompt": {
+            "system_role": require(config, "prompt.system.role"),
+            "system_rules": require(config, "prompt.system.rules"),
+            "aboutness_example": require(config, "prompt.output.aboutness_example"),
+            "fewshot_validation": require(config, "prompt.fewshot.validation"),
+            "fewshots": {
+                key.removeprefix("prompt.fewshot.").removesuffix(".output_json"): value
+                for key, value in sorted(config.items())
+                if key.startswith("prompt.fewshot.")
+                and key.endswith(".output_json") and value
+            },
+        },
         "output_contract": {
             # Schema order, not workbook order: the schema is the wire contract
             # and a reader comparing the two should see the same sequence.

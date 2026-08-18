@@ -459,11 +459,23 @@ def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
         "temperature": 0,
         "max_output_tokens": contract.max_output_tokens,
         "enable_thinking": False,
+        # **The schema itself, not only its name.** `serve.py` reads
+        # `response_format.schema` to build vLLM's guided decoding, and this
+        # sent `{type, name, strict}` — so the engine was handed nothing to
+        # constrain against and every answer was unconstrained free text, which
+        # then failed acceptance for reasons that looked like a bad model.
+        # "strict" is a claim about the request; the schema is what enforces it.
         "response_format": {
             "type": "json_schema",
             "name": contract.output_schema_name,
             "strict": True,
+            "schema": contract.output_schema,
         },
+        # What the model is told. Sent beside the request rather than mixed into
+        # it: `input` is the document the request schema validates, and folding
+        # instructions into it would put un-validatable text through a validator
+        # whose whole job is to allow nothing that was not named.
+        "instructions": contract.instructions,
         "metadata": {
             "prompt_version": contract.attestation()["prompt_version"],
             "grammar_version": contract.attestation()["grammar_version"],
@@ -490,6 +502,22 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     except ExtractionInvalid as refusal:
         raise GatewayRefusal(_OUTCOME_FOR.get(refusal.code, "schema_invalid"),
                              refusal.code) from None
+    except jsonschema.ValidationError as invalid:
+        # **The raw validator escapes otherwise, and nothing above catches it.**
+        # `validate_with_schema` runs the JSON Schema first and the semantic
+        # rules second; only the second raises `ExtractionInvalid`. A body that
+        # fails the schema outright — the wrong `schema_version`, a missing
+        # `items` — therefore left `extract` as an unnamed exception, and the
+        # outcome vocabulary is closed, so there was no word to record it under.
+        # It is not a rare shape either: it is what free text looks like, which
+        # is what an engine with no schema handed to it returns.
+        #
+        # The path, never the message: a validator quotes the instance it
+        # rejected, and the instance is somebody's title.
+        raise GatewayRefusal(
+            "schema_invalid",
+            "/".join(str(part) for part in invalid.absolute_path) or "root",
+        ) from None
 
     returned = {item["item_index"] for item in body["items"]}
     expected = {item.item_index for item in items}

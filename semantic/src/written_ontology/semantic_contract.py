@@ -341,6 +341,18 @@ class SemanticContract:
         return self._request_schema
 
     @property
+    def instructions(self) -> dict:
+        """What the model is told, as opposed to what it is asked.
+
+        Compiled from `prompt.*`, which used to be authored and then emitted
+        nowhere: the contract named a prompt version describing text nothing
+        could send. `attestation()` already carries `prompt_version`, so a
+        release manifest that records the version now records material that
+        actually exists.
+        """
+        return self.data.get("prompt", {})
+
+    @property
     def output_schema_name(self) -> str:
         """`mention_extract_v2`, from the schema's own `$id`."""
         return self.versions["output_schema"].rsplit("/", 1)[-1].removesuffix(
