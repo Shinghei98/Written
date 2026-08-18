@@ -174,9 +174,28 @@ echo "    deadline armed on AWS at ${DEADLINE}Z (schedule ${schedule_name})"
 
 echo "==> create"
 started_at=$(date +%s)
-aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
+# **`InstanceType` travels with the budget it was priced against.** `INSTANCE`
+# fed `hourly_rate()` and was never sent to the stack, so an override would
+# compute the minutes for one machine and deploy another — the budget and the
+# deployment silently disagreeing about the only fact they share.
+if ! aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
   --template-file "$(dirname "$0")/stack.yaml" --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI"
+  --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI" \
+    InstanceType="$INSTANCE"; then
+  # **A capacity failure is not a code failure, and the generic CFN error hides
+  # that.** It surfaces as a rolled-back stack with the reason buried in the
+  # events — and it has now presented twice as a silent half-hour `Creating`
+  # that read like a broken image. No instance was provisioned, so nothing of
+  # ours ever ran and nothing was billed. Say so, and say what to do.
+  if aws cloudformation describe-stack-events --stack-name "$STACK" --region "$REGION" \
+       --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].ResourceStatusReason' \
+       --output text 2>/dev/null | grep -q InsufficientInstanceCapacity; then
+    echo "!! AWS had no ${INSTANCE} to give (InsufficientInstanceCapacity)." >&2
+    echo "   Not a code or image failure: no instance was provisioned, nothing ran, nothing billed." >&2
+    echo "   Retry later, or try the sibling pool: INSTANCE=ml.g6e.2xlarge (same 48 GB L40S, quota 1)." >&2
+  fi
+  exit 1
+fi
 
 # **Switch two: here, and it is the fast one.** The scheduler is the backstop
 # against this machine disappearing; this is what stops the charge promptly when
