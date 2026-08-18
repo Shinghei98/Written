@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-18T06:43:09.105Z",
+  "generated_at": "2026-08-18T13:04:34.307Z",
   "source_hashes": {
-    "workbook_sha256": "7bfa4b2670113b8221973a2e18fe576138b5e0ffa0e300d60837091d74b8d008",
+    "workbook_sha256": "1ff351316ecf1e99760f97cb62e4c5e03ba8234de59f601d16c55a215d9772cb",
     "mention_schema_sha256": "0cdf52b572f7d89d72447c5bc2e5aa67aaec3047cbfbcbf10dcb0df7fdc5de38",
     "request_schema_sha256": "74f2b0a46676c2bcc09758854b0604f1f52fefa9d969021604d377ff8fa1e02d"
   },
@@ -12,7 +12,7 @@
     "prompt": "qwen_extractor_v5",
     "model_id": "Qwen/Qwen3.5-9B",
     "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
-    "gateway_revision": "a4b096fb222d08ea5070289cf21f5192a6ef79fec15347e4dbdf97ee32daa96b",
+    "gateway_revision": "c15fda970280ac5ee5dace19f5c93339c50fa5ff327112327ddd98cee8e27ac1",
     "serving_image_digest": "required_from_pinned_deployment_not_yet_measured",
     "output_schema": "https://written.app/schemas/mention_extract_v2.schema.json",
     "request_schema": "https://written.app/schemas/mention_extract_request_v1.schema.json",

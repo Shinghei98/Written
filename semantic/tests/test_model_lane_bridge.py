@@ -118,13 +118,14 @@ def test_evaluation_calls_the_model_and_writes_no_mention(overlay, monkeypatch):
 
     lane = Lane()
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
+    monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for",
                         lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
                                           "observation_id": "o", 
                                           "source_text_evidence_id": "e",
                                           "logical_extraction_key": "k"}])
     result = overlay._propose_and_write(
-        connection, _job(), "evaluation", "u-1", "req_x", False, None, None)
+        connection, _job(), "evaluation", "u-1", "req_x", None, None)
     assert result["mentions_written"] == 0
     assert connection.written == []
     # It still records an invocation: an evaluation call happened and is
@@ -141,13 +142,14 @@ def test_shadow_writes_the_mention(overlay, monkeypatch):
         def propose(self, **kwargs): return proposal()
 
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
+    monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for",
                         lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
                                           "observation_id": "o",
                                           "source_text_evidence_id": "e",
                                           "logical_extraction_key": "k"}])
     result = overlay._propose_and_write(
-        connection, _job(), "shadow", "u-1", "req_x", False, None, None)
+        connection, _job(), "shadow", "u-1", "req_x", None, None)
     assert result["mentions_written"] == 1
 
 
@@ -159,13 +161,14 @@ def test_an_in_flight_call_is_reported_not_retried(overlay, monkeypatch):
             raise _INFLIGHT("req_resume")
 
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
+    monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for",
                         lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
                                           "observation_id": "o",
                                           "source_text_evidence_id": "e",
                                           "logical_extraction_key": "k"}])
     result = overlay._propose_and_write(
-        FakeConnection(), _job(), "shadow", "u-1", "req_x", False, None, None)
+        FakeConnection(), _job(), "shadow", "u-1", "req_x", None, None)
     assert result["status"] == "in_flight"
     assert result["resume_request_id"] == "req_resume"
 
@@ -176,9 +179,10 @@ def test_no_evidence_is_not_a_failure(overlay, monkeypatch):
         def __init__(self, *a, **k): raise AssertionError("the lane was called")
 
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
+    monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for", lambda *a, **k: [])
     result = overlay._propose_and_write(
-        FakeConnection(), _job(), "shadow", "u-1", "req_x", False, None, None)
+        FakeConnection(), _job(), "shadow", "u-1", "req_x", None, None)
     assert result["status"] == "no_op" and result["item_count"] == 0
 
 

@@ -119,6 +119,21 @@ def _unauthorized(secret: str | None, environ) -> bool:
     return not hmac.compare_digest(secret or "", expected)
 
 
+def _provenance() -> dict[str, Any]:
+    """What was in force, from the contract this process loaded."""
+    expected = gateway._contract().attestation()
+    return {
+        "model_id": expected["model_id"],
+        "model_revision": expected["model_revision"],
+        "prompt_version": expected["prompt_version"],
+        "grammar_version": expected["grammar_version"],
+        "output_schema_hash": expected["schema_sha256"],
+        "contract_hash": expected["compiled_contract_sha256"],
+        # No input hash: a call refused before serialisation never had one, and
+        # a placeholder would claim a request that was never built.
+    }
+
+
 def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
              breaker=None) -> tuple[int, dict[str, Any]]:
     """One route, one answer. The only definition of what the gateway does.
@@ -152,7 +167,13 @@ def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
             # forever at the head of a FIFO queue, which the device half already
             # learned once.
             status = 503 if refusal.code in _TRANSIENT else 422
-            body = {"outcome": refusal.code, "detail": refusal.detail}
+            # **A refusal is recorded too, so it carries the same provenance.**
+            # Which model, prompt and schema were in force is knowable from the
+            # contract whether or not the model answered — and an invocation row
+            # that cannot say what it was calling is not evidence of a failure,
+            # it is a shrug.
+            body = {"outcome": refusal.code, "detail": refusal.detail,
+                    **_provenance()}
             resume = getattr(refusal, "resume_request_id", None)
             if resume:
                 # **The difference between "ask again" and "come back for it".**

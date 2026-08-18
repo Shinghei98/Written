@@ -71,5 +71,20 @@ class SemanticWorker:
                 lease_token=job.lease_token,
             )
             return {"claimed": True, "job_id": job.id, "status": "retry_scheduled"}
+        # **A handler that has not finished must not be marked as having
+        # finished.** Every non-raising return used to succeed the job, so an
+        # accepted-but-unanswered model call — the ordinary state while a
+        # scaled-to-zero GPU starts — closed the job, and the answer nobody
+        # collected sat in a bucket until the lifecycle rule removed it. The
+        # work was done, paid for, and thrown away.
+        #
+        # `in_flight` is the one status that means *come back*, and it is
+        # deliberately not an exception: raising would record `handler_error`,
+        # which is a claim that something went wrong.
+        if isinstance(result, dict) and result.get("status") == "in_flight":
+            self.queue.fail(job.id, "in_flight", retry=True,
+                            lease_token=job.lease_token)
+            return {"claimed": True, "job_id": job.id,
+                    "status": "retry_scheduled", "reason": "in_flight"}
         self.queue.succeed(job.id, result, lease_token=job.lease_token)
         return {"claimed": True, "job_id": job.id, "status": "succeeded"}

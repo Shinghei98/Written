@@ -61,6 +61,38 @@ class InFlight(RuntimeError):
         self.request_id = request_id
 
 
+def _required(answer: dict[str, Any], field: str) -> str:
+    """Provenance the gateway must supply, or the call is not recordable."""
+    value = answer.get(field)
+    if not value:
+        raise LaneUnavailable(
+            f"the gateway answered without {field}; the call cannot be recorded")
+    return str(value)
+
+
+def _item_outcome(answered: dict[str, Any] | None, call_outcome: str) -> str:
+    """The item's own verdict, not the call's.
+
+    **An abstention is not a success.** `mention_extract_v2` gives each item a
+    `status`, and a model that looked at a title and declined to name anything
+    has said something specific — `semantic_abstention` is its own outcome in
+    the closed vocabulary precisely so it is not counted as extraction that
+    happened to find nothing. Recording every item of a 200 as `succeeded`
+    erased that distinction, and it is the distinction the whole shadow
+    measurement is about.
+
+    An item the model did not answer at all is `missing_item` rather than an
+    absent row, because a gap cannot be told apart from a crash mid-write.
+    """
+    if answered is None:
+        return "missing_item" if call_outcome == "succeeded" else call_outcome
+    if call_outcome != "succeeded":
+        return call_outcome
+    if answered.get("status") == "abstained":
+        return "semantic_abstention"
+    return "succeeded"
+
+
 class ModelLane:
     """One call to the gateway, recorded under the identity that may record it."""
 
@@ -138,8 +170,7 @@ class ModelLane:
     # -- the whole act ----------------------------------------------------
 
     def propose(self, *, user_id: str, items: list[dict[str, Any]],
-                request_id: str, source_profile: str,
-                resume: bool = False) -> dict[str, Any]:
+                request_id: str, source_profile: str) -> dict[str, Any]:
         """Ask the model, record what happened, hand back the lineage.
 
         Returns `{"invocation_id", "lineage", "items"}` where `lineage` is one
@@ -149,11 +180,15 @@ class ModelLane:
         `record_model_invocation` enforces and this respects rather than
         rediscovers.
         """
-        route = "v1/semantic/collect" if resume else "v1/semantic/extract"
-        request: dict[str, Any] = {"route": route, "request_id": request_id,
+        # **One route, always.** There is no resume flag: the transport returns
+        # the existing ticket when one is recorded under this request id, so a
+        # second call with the same id collects rather than submits. A flag
+        # would have to travel in the job payload, which `0208` forbids, and
+        # would be a second way of expressing something the ticket already says.
+        request: dict[str, Any] = {"route": "v1/semantic/extract",
+                                   "request_id": request_id,
+                                   "source_profile": source_profile,
                                    "items": items}
-        if not resume:
-            request["source_profile"] = source_profile
 
         answer = self.call_gateway(request)
         status = answer.get("status_code")
@@ -186,11 +221,7 @@ class ModelLane:
                 "observation_id": item.get("observation_id"),
                 "source_text_evidence_id": item.get("source_text_evidence_id"),
                 "logical_extraction_key": item["logical_extraction_key"],
-                # **`missing_item` for an item the model did not answer**, not
-                # an absent row: a gap cannot be told apart from a crash.
-                "outcome": (outcome if answered is not None
-                            else ("missing_item" if outcome == "succeeded"
-                                  else outcome)),
+                "outcome": _item_outcome(answered, outcome),
                 "mention_count": len(answered.get("mentions", [])) if answered else 0,
                 "fingerprint_key_version": item.get("fingerprint_key_version"),
                 "input_fingerprint": item.get("input_fingerprint"),
@@ -208,12 +239,18 @@ class ModelLane:
                     {
                         "requested": len(items),
                         "items": json.dumps(rows),
-                        "input_hash": answer.get("input_hash") or "unrecorded",
-                        "model_id": answer.get("model_id") or "unrecorded",
-                        "model_revision": answer.get("model_revision") or "unrecorded",
-                        "prompt": answer.get("prompt_version") or "unrecorded",
-                        "grammar": answer.get("grammar_version") or "unrecorded",
-                        "schema": answer.get("output_schema_hash") or "unrecorded",
+                        # **Refused rather than filled in.** These six say
+                        # which model, under which prompt and schema, said this.
+                        # A default would make an unprovenanced row look like a
+                        # provenanced one, which is worse than no row.
+                        # A refused call never built a request, so it has no
+                        # input hash and does not pretend to one.
+                        "input_hash": answer.get("input_hash") or "no_request_built",
+                        "model_id": _required(answer, "model_id"),
+                        "model_revision": _required(answer, "model_revision"),
+                        "prompt": _required(answer, "prompt_version"),
+                        "grammar": _required(answer, "grammar_version"),
+                        "schema": _required(answer, "output_schema_hash"),
                         "user_id": user_id,
                         "output_tokens": answer.get("output_tokens"),
                         "latency_ms": answer.get("latency_ms"),

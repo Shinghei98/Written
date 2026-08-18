@@ -28,10 +28,14 @@ def module():
     return loaded
 
 
+#: A real container sends `runtime` with every answer, so a stub without one is
+#: not a simpler valid response — the gateway refuses it, and the refusal would
+#: mask whatever the test was actually about.
 ANSWER = json.dumps({
     "choices": [{"finish_reason": "stop",
                  "message": {"content": json.dumps({"schema_version": "x", "items": []})}}],
     "usage": {"completion_tokens": 7},
+    "runtime": {"vllm": "0.11.0", "torch": "2.8.0"},
 }).encode()
 
 
@@ -282,7 +286,21 @@ def test_the_gateway_reaches_the_transport_at_all(module, monkeypatch, tmp_path)
     contract = contract_in_lane(tmp_path, "shadow")
     monkeypatch.setattr(gateway, "_contract", lambda: contract)
 
-    runtime, s3 = FakeRuntime(), FakeS3({"async/out/answer.json": ANSWER})
+    # The stub's runtime must agree with the contract in force, or the drift
+    # check refuses first and hides what this test is about. A partial block is
+    # a mismatch by design: a fact the container did not report is not treated
+    # as matching.
+    expected = contract.attestation()
+    answer = json.dumps({
+        "choices": [{"finish_reason": "stop",
+                     "message": {"content": json.dumps(
+                         {"schema_version": "x", "items": []})}}],
+        "usage": {"completion_tokens": 7},
+        "runtime": {"model_id": expected["model_id"],
+                    "model_revision": expected["model_revision"],
+                    "tokenizer_sha256": expected["tokenizer_manifest_sha256"]},
+    }).encode()
+    runtime, s3 = FakeRuntime(), FakeS3({"async/out/answer.json": answer})
     sent = transport(module, s3, runtime)
 
     with pytest.raises(gateway.GatewayRefusal) as refusal:

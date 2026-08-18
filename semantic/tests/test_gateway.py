@@ -72,10 +72,26 @@ def matching_deployment(contract) -> gateway.Deployment:
     )
 
 
-def valid_response(items=REQUEST):
+#: The runtime the serving container measures and sends with every answer.
+#: **Part of a valid response, not an extra.** A body without it is one whose
+#: author cannot be checked, and the gateway refuses it — so a fixture without
+#: it is not a simpler valid response, it is an invalid one.
+def matching_runtime(contract=None):
+    # `gateway._contract()` rather than a fresh load: the tests patch it, and a
+    # fixture that read the real contract while the test used another would
+    # drift on exactly the field being asserted.
+    expected = (contract or gateway._contract()).attestation()
+    return {"model_id": expected["model_id"],
+            "model_revision": expected["model_revision"],
+            "tokenizer_sha256": expected["tokenizer_manifest_sha256"],
+            "vllm": "0.11.0", "torch": "2.8.0"}
+
+
+def valid_response(items=REQUEST, contract=None):
     return {
         "finish_reason": "stop",
         "output_tokens": 120,
+        "runtime": matching_runtime(contract),
         "body": {
             "schema_version": "mention_extract_v2",
             "items": [{

@@ -149,6 +149,23 @@ class SageMakerAsyncTransport:
         Everything that can fail *before* the endpoint accepts the work fails
         here, where retrying is free because nothing was enqueued.
         """
+        request_id = _inference_id(payload)
+
+        # **Submitted once means once across calls, not once per call.** If a
+        # ticket already exists under this request id the work is already
+        # running, and invoking again would put a duplicate behind it on an
+        # endpoint held at one instance. This is what makes `extract` idempotent
+        # for a given request id — and it is why the job needs no `resume` flag,
+        # which the payload contract forbids it from carrying anyway.
+        if self._tickets is not None:
+            existing = self._tickets.get(request_id)
+            if existing is not None:
+                return InferenceTicket(
+                    request_id=request_id,
+                    inference_id=existing.get("inference_id", request_id),
+                    output_key=existing.get("output_key"),
+                    failure_key=existing.get("failure_key"))
+
         runtime = self._client("sagemaker-runtime")
         body = json.dumps(payload, ensure_ascii=False).encode()
 
@@ -249,6 +266,12 @@ def _read(raw: bytes) -> dict[str, Any]:
         "finish_reason": choice.get("finish_reason"),
         "output_tokens": (body.get("usage") or {}).get("completion_tokens"),
         "body": json.loads(content) if isinstance(content, str) else content,
+        # **Carried, not dropped.** The container measures what it loaded and
+        # sends it with every answer; a transport that reads past it makes the
+        # gateway's comparison unreachable, so the check existed and could never
+        # fire. It is the only fact here the serving side, rather than a
+        # variable, is the author of.
+        "runtime": body.get("runtime"),
     }
 
 

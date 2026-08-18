@@ -56,6 +56,7 @@ records that rather than letting the gap look like a choice.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import secrets
 import time
@@ -365,6 +366,14 @@ def extract(
 
     # --- step 5: the budget ----------------------------------------------
     payload = _serialise(request, contract)
+    # **What was asked, as a hash.** `model_invocations.input_hash` is how two
+    # calls are told apart and how a duplicate is recognised; the recorder had
+    # no value for it and wrote "unrecorded". Hashed over the exact serialised
+    # envelope, so it names the request that was actually sent rather than the
+    # one that was intended.
+    input_hash = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":")).encode()).hexdigest()
     if tokenize is not None:
         budget = contract.max_output_tokens
         serialised = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -427,6 +436,7 @@ def extract(
                     breaker.record_success()
                 result["latency_ms"] = latency_ms
                 result["attempts"] = attempt
+                result["input_hash"] = input_hash
                 return result
         if breaker is not None:
             breaker.record_failure()
@@ -580,10 +590,15 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     # here rather than trusted because a Lambda environment variable agreed with
     # itself.
     runtime = response.get("runtime")
-    if isinstance(runtime, dict):
-        drift = _runtime_drift(runtime, contract)
-        if drift:
-            raise GatewayRefusal("contract_mismatch", ",".join(sorted(drift)))
+    if not isinstance(runtime, dict):
+        # **Absence is refused, not waved through.** A response with no runtime
+        # block is one whose author cannot be checked, and accepting it made the
+        # comparison optional — which is the same as not having it, since the
+        # case that would omit the block is exactly the wrong container.
+        raise GatewayRefusal("contract_mismatch", "the answer reported no runtime")
+    drift = _runtime_drift(runtime, contract)
+    if drift:
+        raise GatewayRefusal("contract_mismatch", ",".join(sorted(drift)))
 
     body = response.get("body")
     if not isinstance(body, dict):
@@ -620,11 +635,28 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
             f"{len(missing or (returned - expected))} item(s)",
         )
 
+    expected = contract.attestation()
     return {
         "items": body["items"],
         "mention_count": sum(len(i.get("mentions", [])) for i in body["items"]),
         "output_tokens": response.get("output_tokens"),
         "outcome": "succeeded",
+        # **The provenance the database column exists to hold.** Without these
+        # the recorder had nothing to record and wrote the string "unrecorded"
+        # into six columns whose whole purpose is to say which model, under
+        # which prompt and schema, said this. A row that cannot answer that is
+        # not evidence of anything.
+        #
+        # Taken from the contract this process loaded and from the runtime the
+        # container reported — never from the caller, which is the party the
+        # provenance is being recorded against.
+        "model_id": runtime.get("model_id") or expected["model_id"],
+        "model_revision": runtime.get("model_revision") or expected["model_revision"],
+        "prompt_version": expected["prompt_version"],
+        "grammar_version": expected["grammar_version"],
+        "output_schema_hash": expected["schema_sha256"],
+        "contract_hash": expected["compiled_contract_sha256"],
+        "gateway_revision": expected["gateway_revision"],
     }
 
 

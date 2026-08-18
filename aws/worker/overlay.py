@@ -160,8 +160,17 @@ def _propose_with_model(job, mode: str) -> dict[str, Any]:
     cannot: it has no insert on `model_invocation_items` at all.
     """
     user_id = job.payload["user_id"]
-    request_id = job.payload.get("request_id") or _request_id(job)
-    resuming = bool(job.payload.get("resume"))
+    # **Nothing is read from the payload but `user_id`.** `0208` requires this
+    # job to carry *exactly* `user_id`, `grammar_version` and `prompt_version`,
+    # and `worker_json_has_exact_keys_v03` refuses anything else at enqueue —
+    # so `request_id`, `resume`, `limit` and `source_profile` could never have
+    # travelled there. Reading them was writing against a contract the database
+    # would not accept a job under.
+    #
+    # The request id is derived from the job instead, which is better than a
+    # payload key: it is stable across retries by construction rather than by
+    # whoever enqueued remembering to reuse it.
+    request_id = _request_id(job)
 
     import psycopg  # noqa: PLC0415
     from psycopg.rows import dict_row  # noqa: PLC0415
@@ -175,12 +184,20 @@ def _propose_with_model(job, mode: str) -> dict[str, Any]:
                                  prepare_threshold=None)
     with connection:
         return _propose_and_write(connection, job, mode, user_id, request_id,
-                                  resuming, _kms, VAULT_KEY_ARN)
+                                  _kms, VAULT_KEY_ARN)
 
 
-def _propose_and_write(connection, job, mode, user_id, request_id, resuming,
+def _propose_and_write(connection, job, mode, user_id, request_id,
                        kms, vault_key_arn) -> dict[str, Any]:
     from model_lane import InFlight, LaneUnavailable, ModelLane  # noqa: PLC0415
+
+    # **File evidence before asking for it.** Nothing in production wrote
+    # `source_text_evidence`, so the lane had nothing to read and would have run
+    # forever finding nothing. The text the model needs is the title, which the
+    # sanitised projection deliberately excludes — so it comes from the vault,
+    # and filing it is what gives `guard_model_mention_lineage` something to
+    # hang a mention on and `forget_distillation` something to redact.
+    _file_evidence(connection, user_id, kms, vault_key_arn)
 
     items = _items_for(connection, user_id, job.payload, kms, vault_key_arn)
     if not items:
@@ -197,8 +214,10 @@ def _propose_and_write(connection, job, mode, user_id, request_id, resuming,
             user_id=user_id,
             items=[_wire_item(item) for item in items],
             request_id=request_id,
-            source_profile=job.payload.get("source_profile", "youtube"),
-            resume=resuming)
+            # **From the evidence, not from the payload.** The source profile is
+            # a property of the rows being asked about; a job key would let the
+            # enqueuer describe somebody else's data.
+            source_profile=items[0].get("source_profile") or "youtube")
     except InFlight as flight:
         # The endpoint accepted the work and is still starting. Returning this
         # rather than raising is what stops a scaled-to-zero GPU being asked to
@@ -250,6 +269,129 @@ def _request_id(job) -> str:
     return "req_" + hashlib.sha256(seed.encode()).hexdigest()[:40]
 
 
+#: Vault rows whose text has not been filed as evidence yet. Read through the
+#: current-state table rather than `raw_source_records`, which is the same rule
+#: as reading through the `summary_*` views: nothing supersedes a prior
+#: revision, so the raw table holds every version and only this one says which
+#: is current.
+SELECT_UNFILED_VAULT_ROWS = """
+select c.current_raw_source_record_id as raw_id,
+       c.current_observation_id as observation_id,
+       r.encrypted_payload,
+       r.encryption_key_version
+  from semantic_private.current_source_items c
+  join semantic_private.raw_source_records r
+    on r.id = c.current_raw_source_record_id
+ where c.user_id = %(user_id)s
+   and c.current_observation_id is not null
+   and r.encrypted_payload is not null
+   and not exists (
+     select 1 from semantic_private.source_text_evidence e
+      where e.observation_id = c.current_observation_id
+        and e.refresh_status <> 'deleted'
+   )
+ limit %(limit)s
+"""
+
+INSERT_EVIDENCE = """
+insert into semantic_private.source_text_evidence
+  (user_id, observation_id, encrypted_text, encryption_key_version,
+   retention_class, expires_at)
+values (%(user_id)s, %(observation_id)s, %(encrypted_text)s,
+        %(encryption_key_version)s, %(retention_class)s, %(expires_at)s)
+on conflict do nothing
+"""
+
+
+def _file_evidence(connection, user_id: str, kms, vault_key_arn,
+                   limit: int = 200) -> int:
+    """Copy the text the model will be asked about out of the vault.
+
+    **Encrypted with the account's own data key, which needs no new
+    permission.** The worker already unwraps that key to read raw records, and a
+    plaintext DEK encrypts as well as it decrypts — so the rule that the
+    internet-facing ingestor holds encrypt-only and cannot read the vault back
+    is untouched. What is filed is the title and nothing else; the fields the
+    request schema does not name could not travel to the model anyway.
+    """
+    import datetime  # noqa: PLC0415
+    import os  # noqa: PLC0415
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
+
+    from observations import decrypt_payload  # noqa: PLC0415
+
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_UNFILED_VAULT_ROWS,
+                       {"user_id": user_id, "limit": limit})
+        rows = [dict(row) for row in cursor.fetchall()]
+    if not rows:
+        return 0
+
+    keys: dict[str, bytes] = {}
+    filed = 0
+    for row in rows:
+        version = row["encryption_key_version"]
+        if version not in keys:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select wrapped_dek from semantic_private.user_encryption_keys"
+                    " where user_id = %s and key_version = %s",
+                    (user_id, version))
+                key_row = cursor.fetchone()
+            if key_row is None:
+                # Crypto erasure is a supported state; an account that has
+                # exercised it must not make every later job fail.
+                continue
+            keys[version] = kms.decrypt(
+                CiphertextBlob=bytes(key_row["wrapped_dek"]),
+                KeyId=vault_key_arn)["Plaintext"]
+
+        try:
+            envelope = decrypt_payload(keys[version],
+                                       bytes(row["encrypted_payload"]))
+        except Exception:  # noqa: BLE001 - unreadable is skipped, never guessed
+            continue
+        title = _title_of(envelope)
+        if not title:
+            continue
+
+        iv = os.urandom(12)
+        ciphertext = iv + AESGCM(keys[version]).encrypt(
+            iv, json.dumps({"text": title}).encode(), None)
+        with connection.cursor() as cursor:
+            cursor.execute(INSERT_EVIDENCE, {
+                "user_id": user_id,
+                "observation_id": row["observation_id"],
+                "encrypted_text": ciphertext,
+                "encryption_key_version": version,
+                "retention_class": "provider_catalog_text",
+                # The same thirty days III.E.4 requires of a title, applied to
+                # every source rather than only the one that demands it.
+                "expires_at": datetime.datetime.now(datetime.timezone.utc)
+                              + datetime.timedelta(days=30),
+            })
+        filed += 1
+    connection.commit()
+    return filed
+
+
+def _title_of(envelope: dict[str, Any]) -> str | None:
+    """The one field the model is asked about.
+
+    Named explicitly rather than taken from whatever the envelope happens to
+    hold: the request schema is an allowlist, and filing more than it can carry
+    would store text for no reader.
+    """
+    if not isinstance(envelope, dict):
+        return None
+    for key in ("name", "title"):
+        value = envelope.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 SELECT_EVIDENCE_ITEMS = """
 select e.id as source_text_evidence_id,
        e.observation_id,
@@ -277,9 +419,10 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
     contract's own wire maximum — two — which is why the batch is small and why
     the job is enqueued per batch rather than per account.
     """
+    # The contract's own wire maximum. Not a payload key: `0208` forbids one,
+    # and a caller-chosen batch size is a caller-chosen cost.
     contract = load_contract()
-    limit = min(int(payload.get("limit") or contract.max_items_wire),
-                contract.max_items_wire)
+    limit = contract.max_items_wire
     with connection.cursor() as cursor:
         cursor.execute(SELECT_EVIDENCE_ITEMS,
                        {"user_id": user_id, "limit": limit})
@@ -304,6 +447,7 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
             # is what `one standing success per logical extraction` counts.
             "logical_extraction_key":
                 f"model:{row['source_text_evidence_id']}",
+            "source_profile": row.get("source_code"),
         })
     return items
 
