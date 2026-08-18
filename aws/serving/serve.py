@@ -39,6 +39,19 @@ def engine():
             max_model_len=int(os.environ.get("WRITTEN_MAX_MODEL_LEN", "8192")),
             gpu_memory_utilization=float(
                 os.environ.get("WRITTEN_GPU_MEMORY_UTILIZATION", "0.90")),
+            # **The weights are hybrid; this product is not.** The staged
+            # checkpoint declares `Qwen3_5ForConditionalGeneration` and carries a
+            # vision tower — `vision_config`, an image token, a video token, a
+            # video preprocessor — and nothing here ever sends an image. Loading
+            # it would spend GPU memory that the KV cache wants, on a modality
+            # the request schema does not admit.
+            #
+            # Passed unconditionally, which is safe because the image build
+            # refuses to push unless `EngineArgs` actually has this field: it is
+            # documented as the CLI flag `--language-model-only` and not as a
+            # Python keyword, so a wrong guess would be a `TypeError` here, on a
+            # GPU that is already charging.
+            language_model_only=True,
         )
     return _engine
 
@@ -132,6 +145,49 @@ def _runtime() -> dict:
     return facts
 
 
+def _structured_params(schema: dict, max_tokens: int):
+    """Schema-constrained sampling, under whichever name this build uses.
+
+    **The API was renamed and the old one is gone.** `GuidedDecodingParams` and
+    `guided_decoding=` are what vLLM 0.11 exposed; current builds — which is what
+    a Qwen3.5-capable engine has to be — use `StructuredOutputsParams` and
+    `structured_outputs=`. Importing the old name on a new build raises
+    `ImportError` at the first inference, on a GPU that is already charging, and
+    it reads as a broken container rather than a stale call.
+
+    The modern name is tried first and the old one is a fallback rather than the
+    other way round, because the deployment this is being built for is the modern
+    one; the fallback exists so the container is not tied to a single engine
+    release, not because either is preferred.
+
+    **Never unconstrained.** If neither is available this raises: an engine that
+    cannot be constrained returns prose, which fails acceptance for a reason that
+    looks like a bad model.
+    """
+    from vllm import SamplingParams  # noqa: PLC0415
+
+    try:
+        from vllm.sampling_params import StructuredOutputsParams  # noqa: PLC0415
+
+        return SamplingParams(
+            temperature=0, max_tokens=max_tokens,
+            structured_outputs=StructuredOutputsParams(json=schema))
+    except ImportError:
+        pass
+
+    try:
+        from vllm.sampling_params import GuidedDecodingParams  # noqa: PLC0415
+
+        return SamplingParams(
+            temperature=0, max_tokens=max_tokens,
+            guided_decoding=GuidedDecodingParams(json=schema))
+    except ImportError as failure:
+        raise RuntimeError(
+            "this vLLM build exposes neither StructuredOutputsParams nor "
+            "GuidedDecodingParams; it cannot be constrained to the schema and "
+            "must not be asked to extract") from failure
+
+
 def _prompt(payload: dict) -> str:
     """The chat template, applied, with the instructions the contract carries.
 
@@ -207,9 +263,6 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length") or 0)
         payload = json.loads(self.rfile.read(length) or b"{}")
 
-        from vllm import SamplingParams  # noqa: PLC0415
-        from vllm.sampling_params import GuidedDecodingParams  # noqa: PLC0415
-
         # **Refused rather than answered unconstrained.** The gateway sends the
         # schema; an engine asked to extract without one returns prose, which
         # then fails acceptance looking like a bad model rather than a request
@@ -220,11 +273,8 @@ class Handler(BaseHTTPRequestHandler):
         if not schema:
             return self._reply(400, {"error": "response_format.schema is required"})
 
-        params = SamplingParams(
-            temperature=0,
-            max_tokens=int(payload.get("max_output_tokens", 4096)),
-            guided_decoding=GuidedDecodingParams(json=schema),
-        )
+        params = _structured_params(
+            schema, int(payload.get("max_output_tokens", 4096)))
         prompt = _prompt(payload)
         completions = engine().generate([prompt], params)
         output = completions[0].outputs[0]

@@ -84,7 +84,15 @@ Resources:
             Action: kms:Decrypt
             Resource: !Ref VaultKeyArn
             Condition:
-              StringEquals:
+              # **`ForAnyValue`, and the operator is not cosmetic.**
+              # `kms:EncryptionContextKeys` is multivalued, so a bare
+              # `StringEquals` never matches one and denies every vault read —
+              # the lucky failure. `ForAllValues:StringEquals` is the unlucky
+              # one: vacuously true for an *empty* context, so it would permit
+              # exactly the unconditioned decrypt this condition exists to
+              # forbid. `semantic/docs/KMS_DESIGN.md` records the round this
+              # cost the first time.
+              ForAnyValue:StringEquals:
                 # The context every vault write is wrapped under. Without this
                 # the grant would permit decrypting any ciphertext under this
                 # key rather than per-user data keys specifically.

@@ -1,5 +1,5 @@
 {
-  "_comment": "The identities the Qwen lane is pinned to, each recorded with the source commit it was built from rather than on its own. A digest alone cannot prove parity with the code it is supposed to describe \u2014 the first gateway image was built ten minutes before the transport was corrected and nothing could tell. Nothing here attests the loaded runtime: that is Stage 3's job, from the GPU, and until it happens the output budgets remain candidate measurements and qwen_overlay stays off.",
+  "_comment": "The identities the Qwen lane is pinned to, each recorded with the source commit it was built from rather than on its own. A digest alone cannot prove parity with the code it is supposed to describe — the first gateway image was built ten minutes before the transport was corrected and nothing could tell. Nothing here attests the loaded runtime: that is Stage 3's job, from the GPU, and until it happens the output budgets remain candidate measurements and qwen_overlay stays off.",
   "recorded_at": "2026-08-18",
   "model": {
     "model_id": "Qwen/Qwen3.5-9B",
@@ -11,17 +11,39 @@
     "staged_by_source_commit": "97da981ed10b3197054b11a7c14a5085dec2869e",
     "commit_marker": "COMMITTED.json written last, after every artifact and the manifest",
     "layout": "v1 (manifest.json beside artifacts/, not inside it)",
-    "s3_prefix_pending_v2": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/v2/  \u2014 not staged yet",
-    "note": "The v1 prefix stays valid and committed. v2 exists because a committed prefix is immutable: its marker means what it describes is final."
+    "s3_prefix_pending_v2": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/v2/  — not staged yet",
+    "note": "The v1 prefix stays valid and committed. v2 exists because a committed prefix is immutable: its marker means what it describes is final.",
+    "declared_architecture": "Qwen3_5ForConditionalGeneration",
+    "declared_architecture_note": "Read from the staged artifacts/config.json on 2026-08-18. The image build requires this exact string from vLLM's ModelRegistry. It is a literal in base-stack.yaml rather than derived, because BuildImageRole deliberately has no model-bucket access — so a model revision that changed the architecture would have to be noticed here. config.json also carries vision_config, image_token_id and video_token_id: the checkpoint is the hybrid one, which is why serve.py passes language_model_only=True."
   },
   "serving_image": {
-    "status": "withdrawn",
-    "why": "Every build so far pinned vllm==0.11.0, which installs cleanly and is not listed as supporting Qwen3.5 \u2014 Qwen's card directs users to a main/nightly build. An engine that installs and cannot load the weights fails at first inference on a billing GPU and reads as a bad artifact. VllmVersion now has no default and the image build refuses without one, plus a third in-image gate asserting the engine lists a Qwen3 architecture.",
-    "last_built_digest": "sha256:28e6e9d9dc18763ee091468600ad5c4dc54e778b5f5bc0aede375680bdaf186d",
-    "last_built_note": "Kept as history. Not to be deployed."
+    "status": "pinned, not yet built",
+    "vllm_version": "0.27.1",
+    "vllm_wheel_url": "https://github.com/vllm-project/vllm/releases/download/v0.27.1/vllm-0.27.1%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl",
+    "vllm_wheel_sha256": "bf0d52faa2a51e7a01c6856a7a8a2d1307fd0ff711415d34168a67ffac0fa47b",
+    "vllm_wheel_bytes": 545751073,
+    "cuda_base": "nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04",
+    "cuda_base_digest": "sha256:59e37ec1a44489f498791a0ab8143422eeec2fe9381c67350bca87bac8e0cefb",
+    "why": "0.27.0's release notes add Qwen3.5 text-only dense and MoE models; 0.11.0 does not list the architecture and was withdrawn. The wheel is pinned by URL because PyPI cannot host a local version (PEP 440), and by sha256 because a URL names a location rather than an artifact — the hash was read back from GitHub's own asset digest. Note the +cu129 label buys reproducibility, not CUDA: vLLM's default PyPI wheel for this release is already a CUDA 12.9 build.",
+    "reported_version": "The image will report 0.27.1+cu129 — serve.py reads vllm.__version__ and never VLLM_VERSION. That string is hashed into tokenizer_runtime_manifest_sha256, so it must be settled before the contract is pinned and cannot change afterwards without re-attesting.",
+    "gates_before_push": [
+      "amd64",
+      "cuda compat libraries present",
+      "pip check",
+      "vllm.__version__ starts with the declared version",
+      "torch reports CUDA 12.9",
+      "ModelRegistry lists Qwen3_5ForConditionalGeneration",
+      "EngineArgs has language_model_only",
+      "serve._structured_params builds against mention_extract_v2"
+    ],
+    "superseded": {
+      "digest": "sha256:28e6e9d9dc18763ee091468600ad5c4dc54e778b5f5bc0aede375680bdaf186d",
+      "why": "vllm==0.11.0. Kept as history. Not to be deployed."
+    }
   },
   "not_yet_true": [
-    "No GPU endpoint exists. Quota L-B0729CB4 is 1; the case for 2 is open. Nothing is running.",
+    "No GPU endpoint exists and nothing is running. Quota L-B0729CB4 is now 2 for ml.g6e.xlarge endpoint usage (the case was granted; read back from Service Quotas 2026-08-18), so the quota is no longer what blocks a pass.",
+    "The serving image is pinned but not built: no CodeBuild run has produced a digest under the 0.27.1 pin, so serving_image_digest is still unmeasured.",
     "attested is false, correctly: serving_image_digest and tokenizer_sha256 have no contract expectation yet, both being placeholders until a GPU measures them. They are reported as unattested rather than passed over.",
     "The Step 5 bridge is built and untested against a real endpoint.",
     "qwen_overlay is off and no invocation has ever been recorded."
@@ -38,7 +60,7 @@
     "verified": "Two gates ran inside the image before it was pushed: every module imports as laid out, and gateway_revision recomputed from the image's own files equals the contract the image carries. After deploy, matches.gateway_revision is true.",
     "superseded": {
       "digest": "sha256:95b2196f968c087325e560c4c267ae6c6eac777371d5a4bd0c430960d259142d",
-      "why": "Built from a flattened image layout, which gateway_revision could only handle because the checker tried two candidate roots \u2014 a checker that agrees with two trees. And nothing verified the image before it was pushed."
+      "why": "Built from a flattened image layout, which gateway_revision could only handle because the checker tried two candidate roots — a checker that agrees with two trees. And nothing verified the image before it was pushed."
     },
     "layout": "The repository's paths, preserved. The checker has one layout, not two.",
     "gateway_revision_in_tree": "a8d422ceb020993c2ebe001e0ff64c694884993fb3859600b8b0c95a53ca0edc",

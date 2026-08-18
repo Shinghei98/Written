@@ -381,6 +381,35 @@ def mint_vocabulary(job: WorkerJob) -> dict[str, Any]:
 
 
 def handler(event, context):  # noqa: ANN001 - Lambda signature
+    # **The one thing the event may say, and everything else it may not.**
+    # This handler is normally a clock tick: EventBridge fires it, `run_once`
+    # claims one job, and the *row* decides what happens — so the payload has
+    # been ignored since the function was written, deliberately, because a
+    # Lambda that can be told what to do by whoever invokes it is a second way
+    # to reach the queue.
+    #
+    # The probe is the exception because it is the one question that cannot be
+    # asked from anywhere else: does the model-lane credential, held by this
+    # function, in this account, actually reach the database as
+    # `semantic_model_worker`? It reads the catalogue and rolls back — no job is
+    # claimed, no gateway is called, no invocation is recorded — so admitting it
+    # costs the queue nothing and buys the deployment verifier the only check of
+    # a credential that means anything.
+    if isinstance(event, dict) and event.get("probe") == "model_lane":
+        from model_lane import LaneUnavailable, ModelLane  # noqa: PLC0415
+
+        try:
+            outcome = ModelLane().probe()
+        except LaneUnavailable as unavailable:
+            # Not configured is a finding, not a crash: it is precisely the
+            # state the verifier exists to report, and it must read as one
+            # failing check rather than as a broken Lambda.
+            outcome = {"probe": "model_lane", "ok": False,
+                       "checks": [{"check": "the lane has a credential",
+                                   "ok": False, "detail": str(unavailable)}]}
+        print(json.dumps({"probe": outcome}))
+        return outcome
+
     queue = PostgresJobQueue(
         database_url(),
         worker_id=f"lambda:{uuid.uuid4()}",

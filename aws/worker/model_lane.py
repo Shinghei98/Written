@@ -167,6 +167,118 @@ class ModelLane:
         return psycopg.connect(self._model_dsn(), row_factory=dict_row,
                                prepare_threshold=None)
 
+    # -- proving the credential -------------------------------------------
+
+    #: What the lane must be able to call, by bare name. **Never a signature.**
+    #: `0241` writes `record_model_invocation`'s seventeen argument types out in
+    #: full, and a second copy here would be a second thing to edit when the
+    #: function changes and the first thing forgotten — so the probe looks the
+    #: function up in `pg_proc` and asks about whatever it finds.
+    PROBE_MUST_EXECUTE = ("record_model_invocation", "model_invocation_lineage")
+
+    #: What it must not be able to write. `0239`'s list, which is the whole of
+    #: why this is a second role rather than a second connection string: if the
+    #: model lane can reach these directly, the mention guard is decoration.
+    PROBE_MUST_NOT_WRITE = (
+        "observation_mentions", "mention_resolutions", "provisional_entities",
+        "user_term_candidates", "candidate_support_links", "review_items",
+        "review_events", "review_exposures", "user_term_suppressions",
+        "user_suppressions", "user_assertions", "observations",
+        "raw_source_records",
+    )
+
+    def probe(self) -> dict[str, Any]:
+        """Connect as the model lane, prove what it is, and write nothing.
+
+        **A credential is only checked by using it.** Everything else the
+        deployment verifier can see — that a secret exists, that it holds a
+        value, that a policy is attached — is true of a password for an identity
+        that cannot log in, which is exactly the state this lane shipped in.
+
+        So this opens the real connection, with the real secret, through
+        `_model_dsn` and `_open` rather than a second copy of either. What it
+        must never do is the rest of `propose`: no gateway call, no invocation
+        row, nothing that a run would later have to explain. It reads the
+        catalogue, **rolls back**, and returns.
+
+        **A refusal is data.** Every check comes back as a row rather than an
+        exception, so the caller prints a table instead of a stack trace and a
+        failing deployment says which of six things is wrong rather than the
+        first. Only an inability to *ask at all* raises, and that is
+        `LaneUnavailable` for a missing credential, as everywhere else here.
+        """
+        # **Resolved before a driver is reached for**, so "no credential is
+        # configured" refuses as itself rather than as whatever `_open` happens
+        # to touch first. It is the most likely finding on a fresh deployment
+        # and the one a verifier must be able to state plainly.
+        self._model_dsn()
+
+        checks: list[dict[str, Any]] = []
+
+        def record(name: str, ok: bool, detail: str) -> None:
+            checks.append({"check": name, "ok": bool(ok), "detail": detail})
+
+        with self._open() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("select current_user as who, "
+                               "current_database() as db, "
+                               "inet_server_addr() is not null as networked")
+                identity = cursor.fetchone()
+                who = identity["who"]
+                # **The whole point.** A pooler authenticates a username and
+                # assumes a role behind it; connecting proves the password, and
+                # only this proves it landed on the identity the grants were
+                # written for.
+                record("current_user is semantic_model_worker",
+                       who == "semantic_model_worker",
+                       f"connected as {who} to {identity['db']}")
+
+                cursor.execute(
+                    "select p.proname, p.oid::regprocedure::text as signature, "
+                    "       has_function_privilege(current_user, p.oid, 'EXECUTE') as may "
+                    "  from pg_proc p "
+                    "  join pg_namespace n on n.oid = p.pronamespace "
+                    " where n.nspname = 'semantic_private' "
+                    "   and p.proname = any(%s)",
+                    (list(self.PROBE_MUST_EXECUTE),))
+                found = {row["proname"]: row for row in cursor.fetchall()}
+                for name in self.PROBE_MUST_EXECUTE:
+                    row = found.get(name)
+                    if row is None:
+                        # Absent is not permitted-and-missing: a lane that
+                        # cannot find the function it exists to call is as
+                        # broken as one refused execute on it.
+                        record(f"may execute {name}", False,
+                               "no such function in semantic_private")
+                    else:
+                        record(f"may execute {name}", row["may"], row["signature"])
+
+                cursor.execute(
+                    "select c.relname, "
+                    "       has_table_privilege(current_user, c.oid, 'INSERT') as ins, "
+                    "       has_table_privilege(current_user, c.oid, 'UPDATE') as upd "
+                    "  from pg_class c "
+                    "  join pg_namespace n on n.oid = c.relnamespace "
+                    " where n.nspname = 'semantic_private' "
+                    "   and c.relkind in ('r', 'p') "
+                    "   and c.relname = any(%s)",
+                    (list(self.PROBE_MUST_NOT_WRITE),))
+                writable = [row["relname"] for row in cursor.fetchall()
+                            if row["ins"] or row["upd"]]
+                record("writes nothing it is forbidden", not writable,
+                       f"can write {sorted(writable)}" if writable
+                       else f"refused on all {len(self.PROBE_MUST_NOT_WRITE)}")
+
+            # **Explicitly, and not because the reads needed it.** Leaving the
+            # `with` block commits, and a probe whose safety rests on having
+            # happened to run only selects is one statement away from not being
+            # a probe.
+            connection.rollback()
+
+        return {"probe": "model_lane",
+                "ok": all(check["ok"] for check in checks),
+                "checks": checks}
+
     # -- the whole act ----------------------------------------------------
 
     def propose(self, *, user_id: str, items: list[dict[str, Any]],

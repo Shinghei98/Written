@@ -27,22 +27,54 @@ Parameters:
     Default: ''
     Description: >
       **No default, deliberately.** `0.11.0` was pinned because it installed
-      cleanly, which is not the same as being able to run this model: Qwen's own
-      card directs Qwen3.5 users to a vLLM main/nightly build, and 0.11's release
-      notes do not list the architecture. An engine that installs and cannot load
-      the weights fails at first inference, on a GPU that is already billing, and
-      reads as a bad artifact rather than a wrong engine.
+      cleanly, which is not the same as being able to run this model: 0.11's
+      release notes do not list the architecture. An engine that installs and
+      cannot load the weights fails at first inference, on a GPU that is already
+      billing, and reads as a bad artifact rather than a wrong engine.
 
-      A build must therefore be chosen against the model card rather than
-      inherited from whatever was convenient. Leaving this empty makes the build
-      refuse instead of quietly repeating the unverified pin.
+      **0.27.1 is the pin, chosen against 0.27.0's release notes**, which add
+      "Qwen3.5 text-only dense and MoE models". Leaving this empty makes the
+      build refuse instead of quietly repeating an unverified pin.
+
+      **The plain release, never a local version.** The ECR tag is derived from
+      this string and `+` is not a legal Docker tag character, so a value like
+      `0.27.1+cu129` fails at `docker build -t` before anything is learned. The
+      CUDA variant is named by the wheel below; this names the release, and the
+      build asserts the installed engine reports a version starting with it.
+  VllmWheelUrl:
+    Type: String
+    Default: ''
+    Description: >
+      The exact wheel, by URL, because PyPI cannot host it: PEP 440 forbids
+      local version identifiers there, so `vllm==0.27.1+cu129` is unresolvable
+      and the `+cu129` build lives on the GitHub release instead.
+
+      **What this buys is reproducibility, not CUDA.** vLLM's default PyPI wheel
+      for a given release is already built against CUDA 12.9, so this is the
+      same binary under a label that says so. It is pinned by hash for the same
+      reason the CUDA base and the serving image are pinned by digest — the
+      house rule is that an identity which can be repointed is not an identity.
+  VllmWheelSha256:
+    Type: String
+    Default: ''
+    Description: >
+      The wheel's sha256, verified before it is installed. A URL alone names a
+      location rather than an artifact.
   CudaBaseDigest:
     Type: String
-    Default: sha256:2fcc4280646484290cc50dce5e65f388dd04352b07cbe89a635703bd1f9aedb6
+    Default: sha256:59e37ec1a44489f498791a0ab8143422eeec2fe9381c67350bca87bac8e0cefb
     Description: >
-      nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04, by digest. A tag can be
+      nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04, by digest. A tag can be
       repointed and the image would change without the manifest noticing, which
       is the same reason the gateway deploys by digest rather than by tag.
+
+      **12.9 rather than 12.4, and it forces the entrypoint shim below.** The
+      engine wheel is a CUDA 12.9 build, so the base has to match it — and
+      SageMaker's newest inference AMI runs driver 550.144.01 with CUDA 12.4,
+      the one before it 535 with 12.2. A 12.9 runtime on either needs CUDA
+      forward compatibility, which is why this image ships
+      `/usr/local/cuda/compat` (the `cuda-compat` package every nvidia/cuda
+      image carries) and why the entrypoint decides at boot whether to use it.
 
 Resources:
   ModelKey:
@@ -387,6 +419,10 @@ Resources:
         EnvironmentVariables:
           - Name: VLLM_VERSION
             Value: !Ref VllmVersion
+          - Name: VLLM_WHEEL_URL
+            Value: !Ref VllmWheelUrl
+          - Name: VLLM_WHEEL_SHA256
+            Value: !Ref VllmWheelSha256
           - Name: CUDA_BASE_DIGEST
             Value: !Ref CudaBaseDigest
           - Name: REPOSITORY
@@ -428,6 +464,14 @@ Resources:
                     echo "VLLM_VERSION is unset. Pin a build verified against the Qwen3.5 model card — 0.11.0 installs but is not listed as supporting this architecture." >&2
                     exit 1
                   fi
+                  # **A URL names a location; a hash names an artifact.** Both
+                  # or neither: a URL with no hash would install whatever that
+                  # address serves today, which is the thing digest pinning
+                  # exists to refuse everywhere else in this file.
+                  if [ -z "${VLLM_WHEEL_URL:-}" ] || [ -z "${VLLM_WHEEL_SHA256:-}" ]; then
+                    echo "VLLM_WHEEL_URL and VLLM_WHEEL_SHA256 must both be set. PyPI cannot serve a +cu129 wheel — PEP 440 forbids local versions there — so the artifact is named by URL and pinned by hash." >&2
+                    exit 1
+                  fi
 
                   COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
                   if [ -z "$COMMIT" ]; then
@@ -453,6 +497,66 @@ Resources:
                       "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/$MODULE.py"
                     test -s "$MODULE.py"
                   done
+                  # **And the schema, so the structured-output gate below tests
+                  # ours rather than a representative one.** It is not copied
+                  # into the image — the gateway sends the schema with every
+                  # request and a second copy in the container would be a second
+                  # thing that can disagree with the contract.
+                  curl -fsSL -o output_schema.json \
+                    "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/semantic/contracts/mention_extract_v2.schema.json"
+                  test -s output_schema.json
+
+                # **The wheel, fetched here and verified before the build.**
+                # Downloading inside the Dockerfile would put the hash check in
+                # a layer whose failure is easy to read as a network blip; doing
+                # it in the build context means an artifact that is not the one
+                # named never reaches `docker build` at all.
+                - |
+                  WHEEL="$(basename "${VLLM_WHEEL_URL%%\?*}" | python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))')"
+                  curl -fsSL -o "$WHEEL" "$VLLM_WHEEL_URL"
+                  echo "$VLLM_WHEEL_SHA256  $WHEEL" | sha256sum -c -
+                  echo "wheel verified: $WHEEL"
+
+                # **The entrypoint is a shell, and that is not decoration.**
+                # A CUDA 12.9 engine on a host running an older driver needs the
+                # forward-compatibility libraries on `LD_LIBRARY_PATH`, and
+                # `ENTRYPOINT ["python3", ...]` has nowhere to put them. AWS
+                # publishes exactly this detection: compare the running driver
+                # against the compat package's ceiling and prepend the directory
+                # only when the driver is the older one.
+                #
+                # **Deciding at boot rather than at build** is what makes the
+                # image work on any inference AMI. The newest is driver 550 /
+                # CUDA 12.4 and needs compat; a future one will not, and on that
+                # host this is a no-op that says so in the log.
+                - |
+                  cat > entrypoint.sh <<'SHIM'
+                  #!/bin/bash
+                  set -euo pipefail
+
+                  verlt() {
+                      [ "$1" = "$2" ] && return 1 || \
+                      [ "$1" = "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" ]
+                  }
+
+                  if [ -f /usr/local/cuda/compat/libcuda.so.1 ]; then
+                      CEILING=$(readlink /usr/local/cuda/compat/libcuda.so.1 | cut -d'.' -f 3-)
+                      DRIVER=$(sed -n 's/^NVRM.*Kernel Module *\([0-9.]*\).*$/\1/p' \
+                               /proc/driver/nvidia/version 2>/dev/null || true)
+                      echo "cuda compat ceiling ${CEILING}, host driver ${DRIVER:-unknown}"
+                      if [ -n "$DRIVER" ] && verlt "$DRIVER" "$CEILING"; then
+                          export LD_LIBRARY_PATH=/usr/local/cuda/compat:${LD_LIBRARY_PATH:-}
+                          echo "cuda compat enabled: $LD_LIBRARY_PATH"
+                      else
+                          echo "cuda compat not needed for this driver"
+                      fi
+                  else
+                      echo "cuda compat absent from this image"
+                  fi
+
+                  exec python3 /opt/serve.py "$@"
+                  SHIM
+                  chmod +x entrypoint.sh
 
                 # **Unquoted heredoc, deliberately.** With `<<'EOF'` the shell
                 # expands nothing and the Dockerfile would carry the literal
@@ -466,12 +570,14 @@ Resources:
                   RUN apt-get update && apt-get install -y --no-install-recommends \
                         python3 python3-pip ca-certificates \
                    && rm -rf /var/lib/apt/lists/*
-                  RUN pip install --no-cache-dir "vllm==${VLLM_VERSION}"
+                  COPY ${WHEEL} /tmp/${WHEEL}
+                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" && rm -f "/tmp/${WHEEL}"
                   COPY serve.py /opt/serve.py
                   COPY tokenizer_runtime.py /opt/tokenizer_runtime.py
+                  COPY entrypoint.sh /opt/entrypoint.sh
                   EXPOSE 8080
                   ENV MODEL_PATH=/opt/ml/model VLLM_VERSION=${VLLM_VERSION}
-                  ENTRYPOINT ["python3", "/opt/serve.py"]
+                  ENTRYPOINT ["/opt/entrypoint.sh"]
                   EOF
                 - docker build --platform linux/amd64 -t "$URI:$TAG" .
                 # Verify what was actually produced rather than what was asked
@@ -480,6 +586,127 @@ Resources:
                 - |
                   ARCH=$(docker image inspect "$URI:$TAG" --format '{{.Architecture}}')
                   [ "$ARCH" = "amd64" ] || { echo "built $ARCH, expected amd64"; exit 1; }
+                # **Everything below runs inside the built image and none of
+                # it needs a GPU.** That is the whole design: each is a question
+                # whose wrong answer would otherwise be discovered at first
+                # inference, on an instance billing by the hour, where it reads
+                # as a bad model rather than as a wrong engine.
+
+                # The compat libraries the entrypoint expects. **Asserted, not
+                # assumed** — every nvidia/cuda image is supposed to carry
+                # `cuda-compat`, and an image that quietly did not would leave
+                # the shim printing "absent" and the engine unable to see the
+                # GPU on any current inference AMI.
+                - |
+                  docker run --rm --entrypoint bash "$URI:$TAG" -c '
+                  test -f /usr/local/cuda/compat/libcuda.so.1 || {
+                    echo "no /usr/local/cuda/compat/libcuda.so.1: a CUDA 12.9 engine cannot run on a driver-550 host without it" >&2
+                    exit 1; }
+                  echo "cuda compat present: $(readlink /usr/local/cuda/compat/libcuda.so.1)"'
+
+                # A dependency graph the installer left broken. pip resolves and
+                # then shrugs; this is where the shrug becomes a failure.
+                - docker run --rm --entrypoint pip "$URI:$TAG" check
+
+                # **The wheel and the version must be the same claim.** The URL
+                # and `VLLM_VERSION` are two parameters and nothing else makes
+                # them agree — a mismatched pair would tag the image with one
+                # engine and install another. `startswith` rather than equality
+                # because the installed wheel reports the local version
+                # (`0.27.1+cu129`) that the tag cannot carry.
+                - |
+                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  import os, sys, vllm, torch
+
+                  declared = os.environ["VLLM_VERSION"]
+                  if not vllm.__version__.startswith(declared):
+                      sys.exit("image declares vLLM %s and has %s installed"
+                               % (declared, vllm.__version__))
+                  # The engine wheel and the base image are pinned separately
+                  # and must name the same CUDA; a 12.4 base under a cu129 wheel
+                  # is a runtime failure with a very confusing message.
+                  if (torch.version.cuda or "").split(".")[:2] != ["12", "9"]:
+                      sys.exit("torch reports CUDA %r, expected 12.9 to match the wheel"
+                               % (torch.version.cuda,))
+                  print("engine:", vllm.__version__, "cuda:", torch.version.cuda)
+                  '
+
+                # **The engine must recognise this exact architecture.**
+                # A version string proves nothing about what a build can load,
+                # and `startswith("Qwen3")` proves almost as little: a build
+                # supporting Qwen3 but not Qwen3.5 passes it, which is precisely
+                # the case in question. The model's own config declares
+                # `Qwen3_5ForConditionalGeneration`, so that is what is required.
+                #
+                # **Here because this is the image with vLLM in it.** It was
+                # briefly in the gateway build, which has neither vLLM nor
+                # VLLM_VERSION, so it failed every gateway build for a reason
+                # that had nothing to do with the gateway.
+                - |
+                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  import sys
+
+                  required = "Qwen3_5ForConditionalGeneration"
+                  try:
+                      from vllm.model_executor.models import ModelRegistry
+                      known = set(ModelRegistry.get_supported_archs())
+                  except Exception as failure:
+                      sys.exit("cannot enumerate supported architectures: %r" % (failure,))
+                  if required not in known:
+                      near = sorted(a for a in known if a.startswith("Qwen3"))
+                      sys.exit(
+                          "this vLLM build does not support %s; it lists %s. "
+                          "It would fail to load these weights on a billing GPU."
+                          % (required, near or "no Qwen3 architecture"))
+                  print("architecture supported:", required)
+                  '
+
+                # **`language_model_only` must be a real engine argument.**
+                # It is documented as the CLI flag `--language-model-only` and
+                # not as a Python keyword, so `serve.py` passing it is a guess
+                # until something checks. This checks — a wrong guess is a
+                # `TypeError` at `LLM(...)`, which happens after the weights are
+                # mounted on a GPU that is already charging.
+                #
+                # It is worth passing: the staged checkpoint is the hybrid
+                # `ForConditionalGeneration` one and carries a vision tower this
+                # product never sends anything to.
+                - |
+                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  import dataclasses, sys
+                  from vllm.engine.arg_utils import EngineArgs
+
+                  fields = {f.name for f in dataclasses.fields(EngineArgs)}
+                  if "language_model_only" not in fields:
+                      near = sorted(f for f in fields if "language" in f or "modal" in f)
+                      sys.exit(
+                          "EngineArgs has no language_model_only; serve.py would "
+                          "raise TypeError on a billing GPU. Nearest: %s" % (near,))
+                  print("engine argument present: language_model_only")
+                  '
+
+                # **The first inference must not be the first time the schema
+                # is tried.** `serve.py` builds structured-output params under
+                # whichever name this engine uses; if neither exists it refuses
+                # rather than answering unconstrained, and that refusal belongs
+                # here rather than in front of a reader.
+                - |
+                  docker run --rm --entrypoint python \
+                    -v "$PWD/output_schema.json:/tmp/output_schema.json:ro" \
+                    -e PYTHONPATH=/opt "$URI:$TAG" -c '
+                  import json, sys
+                  sys.path.insert(0, "/opt")
+                  import serve
+
+                  schema = json.load(open("/tmp/output_schema.json"))
+                  params = serve._structured_params(schema, 128)
+                  constrained = (getattr(params, "structured_outputs", None)
+                                 or getattr(params, "guided_decoding", None))
+                  if constrained is None:
+                      sys.exit("params carry no schema constraint; the engine "
+                               "would answer prose and fail acceptance")
+                  print("structured output constructed:", type(constrained).__name__)
+                  '
                 - docker push "$URI:$TAG"
                 - |
                   DIGEST=$(aws ecr describe-images --repository-name "$REPOSITORY" \
@@ -564,14 +791,12 @@ Resources:
                 - |
                   set -euo pipefail
 
-                  # **Refused rather than defaulted**, for the reason in the
-                  # parameter description: an engine that cannot load Qwen3.5
-                  # fails on a billing GPU and looks like a bad artifact.
-                  if [ -z "${VLLM_VERSION:-}" ]; then
-                    echo "VLLM_VERSION is unset. Pin a build verified against the Qwen3.5 model card — 0.11.0 installs but is not listed as supporting this architecture." >&2
-                    exit 1
-                  fi
-
+                  # **No vLLM gate here.** This job builds the gateway, which
+                  # contains no engine and sets no `VLLM_VERSION` — the refusal
+                  # that used to sit at this line therefore failed every gateway
+                  # build for a reason that had nothing to do with the gateway.
+                  # The pin and the architecture check both belong to the
+                  # serving image, and both are in `BuildImage`.
                   COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
                   if [ -z "$COMMIT" ]; then
                     echo "WRITTEN_SOURCE_COMMIT is unset. An image that cannot name its source is the defect this job exists to remove." >&2
@@ -630,30 +855,6 @@ Resources:
                   # a gateway built ten minutes before its transport was
                   # corrected — measured inside the image rather than asserted
                   # about it from outside.
-                  # **A third gate: the engine must recognise the architecture.**
-                  # Checking a version string proves nothing about whether this
-                  # build can load these weights, and the failure it prevents
-                  # happens on a GPU that is already charging.
-                  echo "==> the engine recognises the model architecture"
-                  docker run --rm --entrypoint python "$URI:$TAG" -c '
-                  import sys
-                  from vllm.model_executor.models import registry
-
-                  wanted = "Qwen3ForCausalLM"
-                  known = set(getattr(registry, "_VLLM_MODELS", {}) or {})
-                  if not known:
-                      try:
-                          known = set(registry.ModelRegistry.get_supported_archs())
-                      except Exception as failure:
-                          sys.exit(f"cannot enumerate supported architectures: {failure!r}")
-                  matches = sorted(a for a in known if a.startswith("Qwen3"))
-                  if not matches:
-                      sys.exit(
-                          "this vLLM build lists no Qwen3 architecture; it cannot load "
-                          "these weights and would fail on a billing GPU")
-                  print("qwen architectures:", matches)
-                  '
-
                   echo "==> the image agrees with the contract it carries"
                   docker run --rm --entrypoint python "$URI:$TAG" -c '
                   import json, os, pathlib

@@ -143,18 +143,16 @@ print(f'estimated charge: \${{ {minutes} / 60 * rate :.2f}}')" 2>/dev/null || tr
 }
 trap teardown EXIT INT TERM
 
-echo "==> create"
-aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
-  --template-file "$(dirname "$0")/stack.yaml" --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI"
-started_at=$(date +%s)
-
 RATE=$(hourly_rate)
 MINUTES=$(python3 -c "print(max(5, int(float('$BUDGET_USD') / float('$RATE') * 60)))")
 echo "==> budget \$${BUDGET_USD} at \$${RATE}/hr  ->  hard stop after ${MINUTES} min"
 
-ENDPOINT_NAME=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
-  --query 'Stacks[0].Outputs[?OutputKey==`EndpointName`].OutputValue' --output text)
+# **The endpoint's name is known before it exists**, because the template derives
+# it from the stack name. That is what lets the deadline be armed *before* the
+# deploy starts rather than after the model finishes loading — the previous
+# ordering left the whole create-and-load window, the longest and most expensive
+# part, with no remote switch behind it at all.
+ENDPOINT_NAME="written-qwen-${STACK}"
 
 # **Switch one: on AWS, and it survives this machine.** A trap does not run when
 # the laptop sleeps, the network drops or the process is SIGKILLed — which are
@@ -173,6 +171,12 @@ aws scheduler create-schedule --name "$schedule_name" --region "$REGION" \
              \"Input\":\"{\\\"EndpointName\\\":\\\"${ENDPOINT_NAME}\\\"}\"}" \
   --action-after-completion DELETE >/dev/null
 echo "    deadline armed on AWS at ${DEADLINE}Z (schedule ${schedule_name})"
+
+echo "==> create"
+started_at=$(date +%s)
+aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
+  --template-file "$(dirname "$0")/stack.yaml" --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI"
 
 # **Switch two: here, and it is the fast one.** The scheduler is the backstop
 # against this machine disappearing; this is what stops the charge promptly when

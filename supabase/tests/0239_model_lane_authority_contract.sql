@@ -379,6 +379,25 @@ $$;
 -- a path to it is a path past every policy in the schema — and a role reachable
 -- by `set role` from the deterministic worker is not a second identity, it is
 -- the first one wearing another name. Grants alone would not have caught that.
+--
+-- **This asked for `nologin` until 2026-08-18, and that was the wrong property.**
+-- `model_lane.py` is explicit that the handoff is "two secrets, two connections
+-- … never a shared credential and never a `SET ROLE`", which is a design that
+-- requires the role to authenticate. The contract forbade the thing the design
+-- depends on, so the credential was provisioned against a role that could not
+-- use it and the lane could never have run. `0248` grants `login`.
+--
+-- What `nologin` was actually protecting is *"its powers are exactly its
+-- enumerated grants"*, and that is asserted directly below and more strictly
+-- than before: `noinherit`, no administrative attribute, no client able to
+-- `set role` to it, neither lane identity a member of the other — and now **no
+-- membership of any role whatsoever**, which closes the workaround `nologin`
+-- would have forced anyone into (a separate login role made a member of this
+-- one, satisfying every check here while handing out the same access).
+--
+-- A password is never in a migration, so `login` grants a capability rather
+-- than an access; `tools/verify_worker_deployment.sh` is where the credential
+-- is proved, by connecting with it.
 
 do $$
 declare
@@ -412,11 +431,27 @@ begin
   if r is null then
     raise exception '0239 contract: semantic_model_worker does not exist';
   end if;
-  if r.rolcanlogin then
-    raise exception '0239 contract: semantic_model_worker can log in directly';
+  -- **It must be able to log in.** The lane has its own secret and its own
+  -- connection; a role that cannot authenticate turns that credential into a
+  -- password for nobody, which is what shipped and why nothing ran.
+  if not r.rolcanlogin then
+    raise exception
+      '0239 contract: semantic_model_worker cannot log in, so its secret names '
+      'an identity that cannot use it and the model lane cannot run';
   end if;
   if r.rolinherit then
     raise exception '0239 contract: semantic_model_worker inherits privileges';
+  end if;
+
+  -- **A member of nothing.** With `login` granted, membership is the remaining
+  -- way this role's powers could exceed its grant list — and the one that would
+  -- not show up in any privilege check written against the tables it may reach.
+  if exists (select 1 from pg_auth_members m
+               join pg_roles member on member.oid = m.member
+              where member.rolname = 'semantic_model_worker') then
+    raise exception
+      '0239 contract: semantic_model_worker is a member of another role, so its '
+      'powers are no longer the list this contract enumerates';
   end if;
   if r.rolsuper or r.rolcreaterole or r.rolcreatedb then
     raise exception
