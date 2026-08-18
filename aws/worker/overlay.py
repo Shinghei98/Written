@@ -835,6 +835,7 @@ ATTESTED_COLUMNS = (
     "compiled_contract_sha256",
     "workbook_sha256",
     "schema_sha256",
+    "request_schema_sha256",
     "grammar_version",
     "prompt_version",
     "model_id",

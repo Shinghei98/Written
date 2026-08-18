@@ -271,13 +271,128 @@ def test_a_request_over_the_wire_maximum_is_refused_before_the_call(shadow):
     assert transport.calls == 0
 
 
-def test_a_forbidden_field_is_refused_without_quoting_its_value(shadow):
+# ---------------------------------------------------------------------------
+# The request schema, which is an allowlist rather than a deny-list
+# ---------------------------------------------------------------------------
+
+def test_a_tenant_identifier_is_refused_because_it_was_never_permitted(shadow):
+    """`additionalProperties: false` does the work a forbidden-key list used to.
+
+    The list had to be remembered; this refuses anything nobody permitted, which
+    is the difference the repository states as *the failure mode of a deny-list
+    is silence*.
+    """
     leaky = [RequestItem(0, {"title": "Midnight", "user_id": "0000-secret"})]
     transport = CountingTransport(response=valid_response())
     with pytest.raises(gateway.GatewayRefusal) as refusal:
         gateway.extract(leaky, transport=transport,
                         deployment=matching_deployment(shadow))
     assert refusal.value.code == "input_oversize"
-    assert "user_id" in str(refusal.value)
+    # The path and the rule, never the value: a request is somebody's title.
     assert "secret" not in str(refusal.value)
     assert transport.calls == 0
+
+
+def test_an_over_long_title_is_refused_at_the_bound_the_workbook_authored(shadow):
+    bound = shadow.request_schema["$defs"]["fields"]["properties"]["title"]["maxLength"]
+    transport = CountingTransport(response=valid_response())
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract([RequestItem(0, {"title": "x" * (bound + 1)})],
+                        transport=transport, deployment=matching_deployment(shadow))
+    assert refusal.value.code == "input_oversize"
+    assert transport.calls == 0
+
+
+def test_the_built_request_validates_against_its_own_schema(shadow):
+    import jsonschema
+    request = gateway.build_request(REQUEST, shadow)
+    jsonschema.validate(request, shadow.request_schema)
+    assert request["items"][0]["item_id"] == "i0"
+
+
+def test_an_item_id_carries_nothing_by_default(shadow):
+    """It correlates a response with a request and must say nothing about whose."""
+    request = gateway.build_request(
+        [RequestItem(0, {"title": "a"}), RequestItem(1, {"title": "b"})], shadow)
+    assert [i["item_id"] for i in request["items"]] == ["i0", "i1"]
+
+
+# ---------------------------------------------------------------------------
+# The HTTP surface
+# ---------------------------------------------------------------------------
+
+def call(path, method="GET", body=None, secret=None, **kwargs):
+    import io
+    from written_ontology import gateway_http
+    raw = json.dumps(body or {}).encode()
+    environ = {
+        "PATH_INFO": path, "REQUEST_METHOD": method,
+        "CONTENT_LENGTH": str(len(raw)), "wsgi.input": io.BytesIO(raw),
+    }
+    if secret is not None:
+        environ["HTTP_X_GATEWAY_SECRET"] = secret
+    captured = {}
+
+    def start_response(status, headers):
+        captured["status"] = status
+
+    payload = gateway_http.application(environ, start_response, **kwargs)
+    return captured["status"], json.loads(b"".join(payload))
+
+
+def test_health_and_attestation_answer_over_http_while_the_lane_is_off():
+    status, body = call("/health")
+    assert status.startswith("200") and body["extraction_enabled"] is False
+    status, body = call("/v1/semantic/attestation")
+    assert status.startswith("200") and body["model_lane_mode"] == "off"
+
+
+def test_extract_over_http_reaches_no_transport_while_the_lane_is_off(monkeypatch):
+    monkeypatch.setenv("WRITTEN_GATEWAY_SECRET", "s3cret")
+    transport = CountingTransport(response=valid_response())
+    status, body = call("/v1/semantic/extract", "POST",
+                        {"items": [{"item_index": 0, "fields": {"title": "Midnight"}}]},
+                        secret="s3cret", transport=transport)
+    assert status.startswith("503")
+    assert body["outcome"] == "circuit_open"
+    assert transport.calls == 0
+
+
+def test_an_unset_secret_refuses_rather_than_opens(monkeypatch):
+    """A gateway that served anyone because nobody set a variable is the failure
+    this check exists to prevent."""
+    monkeypatch.delenv("WRITTEN_GATEWAY_SECRET", raising=False)
+    status, body = call("/v1/semantic/extract", "POST", {"items": []}, secret="")
+    assert status.startswith("401")
+
+
+def test_a_wrong_secret_is_refused(monkeypatch):
+    monkeypatch.setenv("WRITTEN_GATEWAY_SECRET", "s3cret")
+    status, _ = call("/v1/semantic/extract", "POST", {"items": []}, secret="nope")
+    assert status.startswith("401")
+
+
+def test_an_unknown_route_is_not_found():
+    status, body = call("/v1/semantic/anything")
+    assert status.startswith("404")
+
+
+def test_a_request_refusal_is_a_4xx_and_a_provider_refusal_a_5xx(shadow, monkeypatch):
+    """A projection refusal sent as a 500 is retried forever at the head of a
+    FIFO queue, which the device half already learned once."""
+    monkeypatch.setenv("WRITTEN_GATEWAY_SECRET", "s3cret")
+    deployment = matching_deployment(shadow)
+
+    status, body = call(
+        "/v1/semantic/extract", "POST",
+        {"items": [{"item_index": 0, "fields": {"title": "x" * 5000}}]},
+        secret="s3cret", transport=CountingTransport(response=valid_response()),
+        deployment=deployment)
+    assert status.startswith("422") and body["outcome"] == "input_oversize"
+
+    status, body = call(
+        "/v1/semantic/extract", "POST",
+        {"items": [{"item_index": 0, "fields": {"title": "Midnight"}}]},
+        secret="s3cret", transport=CountingTransport(raises=TimeoutError()),
+        deployment=deployment)
+    assert status.startswith("503") and body["outcome"] == "timeout"

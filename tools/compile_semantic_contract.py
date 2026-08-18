@@ -145,6 +145,23 @@ def require(config: dict[str, str], key: str) -> str:
     return config[key]
 
 
+def request_schema_path(config: dict[str, str]) -> pathlib.Path:
+    """The request schema the workbook says is authoritative.
+
+    Its counterpart. `llm.input.schema_version` named the *response* schema
+    until `0241`'s gateway work, which was not wrong so much as vacant — nothing
+    read it and there was no request schema for it to name.
+    """
+    version = require(config, "llm.input.schema_version")
+    path = SCHEMA_DIR / f"{version}.schema.json"
+    if not path.exists():
+        raise ContractError(
+            f"llm.input.schema_version names {version!r} and "
+            f"{path.name} does not exist"
+        )
+    return path
+
+
 def output_schema_path(config: dict[str, str]) -> pathlib.Path:
     """The response schema the workbook says is authoritative.
 
@@ -181,7 +198,8 @@ def model_predicates(sheets: dict[str, Any]) -> list[str]:
     return seen
 
 
-def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
+def validate(sheets: dict[str, Any], schema: dict[str, Any],
+             request_schema: dict[str, Any] | None = None) -> None:
     """Every check that must hold before a contract may be written.
 
     Each raises rather than warns. A compiler that emits a contract while
@@ -218,6 +236,37 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
                 f"{key} disagrees with the JSON Schema; "
                 f"workbook-only={only_workbook} schema-only={only_schema}"
             )
+
+    # 1b. **The request schema's bounds are the workbook's.** Every number in it
+    #     is authored under `llm.input.*` and `llm.batch.*`, and a schema that
+    #     drifted from them would bound the wire at one size while the prompt and
+    #     the budget report assumed another.
+    if request_schema is not None:
+        fields = request_schema["$defs"]["fields"]["properties"]
+        expected_bounds = {
+            "title": int(require(config, "llm.input.max_title_chars")),
+            "channel_label": int(require(config, "llm.input.max_channel_chars")),
+            "description_excerpt":
+                int(require(config, "llm.input.max_description_chars")),
+        }
+        for field, bound in expected_bounds.items():
+            if fields[field]["maxLength"] != bound:
+                raise ContractError(
+                    f"request schema bounds {field} at "
+                    f"{fields[field]['maxLength']} and the workbook says {bound}"
+                )
+        if fields["tags"]["maxItems"] != int(require(config, "llm.input.max_tags")):
+            raise ContractError("request schema and workbook disagree on max_tags")
+        if fields["tags"]["items"]["maxLength"] != int(
+                require(config, "llm.input.max_tag_chars")):
+            raise ContractError("request schema and workbook disagree on max_tag_chars")
+        wire = int(require(config, "llm.batch.max_items"))
+        if request_schema["properties"]["items"]["maxItems"] != wire:
+            raise ContractError(
+                "the request schema admits a different number of items than the wire maximum")
+        if schema["properties"]["items"]["maxItems"] != wire:
+            raise ContractError(
+                "the response schema admits a different number of items than the wire maximum")
 
     # 2. The grammar's propose flags are the same twelve predicates. This is the
     #    check that would have caught the prompt offering seven predicates while
@@ -344,6 +393,9 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             # claim about the workbook made by the workbook.
             "workbook_sha256": _sha256(WORKBOOK),
             "mention_schema_sha256": _sha256(schema_path),
+            # The request's counterpart, so a release manifest can attest both
+            # ends of the wire rather than only what comes back.
+            "request_schema_sha256": _sha256(request_schema_path(config)),
         },
         "versions": {
             "term_family_map": require(config, "term_family.map.version"),
@@ -355,6 +407,8 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             # From the schema's own `$id`, so the contract cannot name a schema
             # other than the one it was compiled against.
             "output_schema": schema["$id"],
+            "request_schema": json.loads(
+                request_schema_path(config).read_text())["$id"],
             "output_budget_policy": require(config, "llm.output.budget_policy.version"),
         },
         "output_contract": {
@@ -704,9 +758,14 @@ def main() -> int:
         print(f"contract refused: {refusal}", file=sys.stderr)
         return 1
     schema = json.loads(schema_path.read_text())
+    try:
+        request_schema = json.loads(request_schema_path(config_of(sheets)).read_text())
+    except ContractError as refusal:
+        print(f"contract refused: {refusal}", file=sys.stderr)
+        return 1
 
     try:
-        validate(sheets, schema)
+        validate(sheets, schema, request_schema)
     except ContractError as refusal:
         print(f"contract refused: {refusal}", file=sys.stderr)
         return 1

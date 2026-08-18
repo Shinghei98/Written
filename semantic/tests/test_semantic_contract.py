@@ -547,9 +547,16 @@ def test_every_required_workbook_key_is_refused_when_removed(compiler, schema_pa
         sheets is what keeps this test about the whole pipeline — and
         `envelope_token_reserve` is no longer a survivor because the emitter now
         publishes it.
+
+        The five `llm.input.max_*` bounds were the next batch, and they arrived
+        the same way: the request schema is validated against them only when one
+        is supplied, and a harness that supplied none could not notice they were
+        gone. Resolving it here from the same sheets is the same repair.
         """
-        path = compiler.output_schema_path(compiler.config_of(source))
-        compiler.validate(source, schema)
+        config = compiler.config_of(source)
+        path = compiler.output_schema_path(config)
+        request = json.loads(compiler.request_schema_path(config).read_text())
+        compiler.validate(source, schema, request)
         return compiler.compile_contract(source, schema, path, generated)
 
     build(sheets)  # the intact baseline

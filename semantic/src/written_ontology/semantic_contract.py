@@ -104,6 +104,7 @@ class SemanticContract:
 
     def __init__(self, path: pathlib.Path) -> None:
         self._schema: dict | None = None
+        self._request_schema: dict | None = None
         self.path = path
         raw = path.read_bytes()
         try:
@@ -118,7 +119,8 @@ class SemanticContract:
                 "does not implement"
             )
         hashes = self.data.get("source_hashes") or {}
-        for field in ("workbook_sha256", "mention_schema_sha256"):
+        for field in ("workbook_sha256", "mention_schema_sha256",
+                      "request_schema_sha256"):
             if not hashes.get(field):
                 raise ContractUnavailable(f"{path} carries no {field}")
 
@@ -143,6 +145,10 @@ class SemanticContract:
             "compiled_contract_sha256": self.contract_sha256,
             "workbook_sha256": self.source_hashes["workbook_sha256"],
             "schema_sha256": self.source_hashes["mention_schema_sha256"],
+            # **Both ends of the wire.** A manifest attesting only what comes
+            # back cannot say what was allowed to go out, and the request schema
+            # is where "no tenant identifier" is enforced.
+            "request_schema_sha256": self.source_hashes["request_schema_sha256"],
             "grammar_version": self.versions["grammar"],
             "prompt_version": self.versions["prompt"],
             "model_id": self.versions["model_id"],
@@ -318,6 +324,21 @@ class SemanticContract:
     @property
     def envelope_token_reserve(self) -> int:
         return int(self.data["output_contract"]["envelope_token_reserve"])
+
+    @property
+    def request_schema_name(self) -> str:
+        return self.versions["request_schema"].rsplit("/", 1)[-1].removesuffix(
+            ".schema.json")
+
+    @property
+    def request_schema(self) -> dict:
+        """What may be sent. An allowlist; see the schema's own description."""
+        if self._request_schema is None:
+            beside = self.path.parent / f"{self.request_schema_name}.schema.json"
+            path = beside if beside.exists() else (
+                contract_path().parent / f"{self.request_schema_name}.schema.json")
+            self._request_schema = json.loads(path.read_text())
+        return self._request_schema
 
     @property
     def output_schema_name(self) -> str:

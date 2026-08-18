@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://written.app/schemas/mention_extract_request_v1.schema.json",
+  "title": "mention_extract_request_v1",
+  "description": "What may be sent to the extraction gateway. An allowlist, not a deny-list: additionalProperties is false everywhere, so a user id, an observation id, an email address or a calendar payload is refused because it was never permitted rather than because somebody remembered to name it. The failure mode of a deny-list is silence. Every bound here is authored in terms.xlsx under llm.input.* and llm.batch.*, and the compiler refuses to compile if the two disagree.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prompt_version", "grammar_version", "source_profile", "request_id", "items"],
+  "properties": {
+    "schema_version": { "const": "mention_extract_request_v1" },
+    "prompt_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "grammar_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "source_profile": {
+      "description": "Which source's predicate profile applies. Not the source's data.",
+      "enum": ["youtube", "calendar", "apple_music", "spotify", "music_catalog", "podcast"]
+    },
+    "request_id": { "$ref": "#/$defs/opaque_id" },
+    "items": {
+      "description": "Two at most, matching items.maxItems in the response schema. Raising it is a schema version change on both sides at once, which is the point of stating it twice and checking it once.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "opaque_id": {
+      "description": "Compact and opaque. It correlates a response with a request and must carry nothing about whose request it is: no account id, no observation id, no email. The pattern bounds the shape; that it stays meaningless is the caller's obligation and the reason invocation lineage is keyed separately in the database rather than here.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_index", "item_id", "fields"],
+      "properties": {
+        "item_index": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "item_id": { "$ref": "#/$defs/opaque_id" },
+        "fields": { "$ref": "#/$defs/fields" }
+      }
+    },
+    "fields": {
+      "description": "The four source fields the response schema's source_field enum names, and nothing else. A field the model cannot cite in an offset has no business being sent.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "title": { "type": "string", "maxLength": 256 },
+        "channel_label": { "type": "string", "maxLength": 128 },
+        "description_excerpt": { "type": "string", "maxLength": 512 },
+        "tags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

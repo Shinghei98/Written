@@ -57,9 +57,12 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import secrets
 import time
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
+
+import jsonschema
 
 from .mention_extract_v2 import (
     ExtractionInvalid,
@@ -68,22 +71,11 @@ from .mention_extract_v2 import (
 )
 from .semantic_contract import load as load_contract
 
-#: The interim request contract. `mention_extract_v2`'s `source_field` enum is
-#: the authority for which fields may be sent, and this reads it rather than
-#: restating it — a second list is how the schema and the sender drift.
-REQUEST_SCHEMA_OWED = (
-    "an explicit request schema is owed: the memo asks for one bounding item "
-    "count, field set, string lengths and tenant identifiers, and 1B deferred it"
-)
-
-#: Fields that must never appear in a request, whatever the caller believes.
-#: The workbook says the same in `llm.input.forbidden_fields`; this is the
-#: enforcement, and the overlap is deliberate — one is authored policy and the
-#: other refuses at the door.
-FORBIDDEN_REQUEST_KEYS = frozenset({
-    "user_id", "observation_id", "email", "oauth_token", "refresh_token",
-    "source_url", "raw_provenance_notes", "account_id",
-})
+#: An opaque id carries nothing about whose request it is. The default is the
+#: item's own position, which is meaningless by construction; a caller that needs
+#: to correlate may pass its own, and the schema bounds the shape either way.
+def _default_item_id(index: int) -> str:
+    return f"i{index}"
 
 
 class GatewayRefusal(RuntimeError):
@@ -97,6 +89,16 @@ class GatewayRefusal(RuntimeError):
         super().__init__(f"{code}: {detail}" if detail else code)
         self.code = code
         self.detail = detail
+
+
+class RateLimited(RuntimeError):
+    """The provider said slow down.
+
+    Distinct from a generic provider error because it is the one failure a
+    bounded retry is *for*, and because `rate_limited` is its own outcome in the
+    closed vocabulary — folding it into `provider_error` would lose the
+    difference between a dead endpoint and a busy one.
+    """
 
 
 class ModelTransport(Protocol):
@@ -195,7 +197,7 @@ def attestation(deployment: Deployment | None = None) -> dict[str, Any]:
         "model_lane_mode": contract.model_lane_mode,
         "extraction_enabled": contract.model_may_be_called,
         "may_write_user_candidates": contract.may_write_user_candidates,
-        "request_schema": REQUEST_SCHEMA_OWED,
+        "request_schema": contract.request_schema["$id"],
     }
     if deployment is None:
         report["loaded"] = None
@@ -226,6 +228,9 @@ def extract(
     tokenize: Callable[[str], int] | None = None,
     max_attempts: int = 2,
     timeout_s: float = 30.0,
+    source_profile: str = "youtube",
+    request_id: str | None = None,
+    item_ids: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """One extraction call, or a named refusal.
 
@@ -250,8 +255,10 @@ def extract(
     if breaker is not None and breaker.is_open:
         raise GatewayRefusal("circuit_open", "the breaker is open")
 
-    # --- step 2: the request ---------------------------------------------
-    _validate_request(items, contract)
+    # --- steps 2 and 4: the exact document, then its schema ---------------
+    request = build_request(items, contract, source_profile=source_profile,
+                            request_id=request_id, item_ids=item_ids)
+    _validate_request(request, items, contract)
 
     # --- step 3: identities ----------------------------------------------
     if deployment is None:
@@ -269,8 +276,8 @@ def extract(
     if transport is None:
         raise GatewayRefusal("provider_error", "no transport is configured")
 
-    # --- steps 4 and 5: the exact payload, and its budget -----------------
-    payload = _serialise(items, contract)
+    # --- step 5: the budget ----------------------------------------------
+    payload = _serialise(request, contract)
     if tokenize is not None:
         budget = contract.max_output_tokens
         serialised = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -288,6 +295,8 @@ def extract(
             latency_ms = int((time.monotonic() - started) * 1000)
         except TimeoutError:
             last = GatewayRefusal("timeout", f"attempt {attempt}")
+        except RateLimited:
+            last = GatewayRefusal("rate_limited", f"attempt {attempt}")
         except Exception as failure:  # noqa: BLE001 - classified, never quoted
             last = GatewayRefusal("provider_error", type(failure).__name__)
         else:
@@ -329,28 +338,66 @@ def _contract():
     return load_contract()
 
 
-def _validate_request(items: Sequence[RequestItem], contract) -> None:
+def build_request(items: Sequence[RequestItem], contract, *,
+                  source_profile: str = "youtube",
+                  request_id: str | None = None,
+                  item_ids: dict[int, str] | None = None) -> dict[str, Any]:
+    """The extraction request document, as `mention_extract_request_v1` defines it.
+
+    Separate from the provider envelope: one is what the model is asked, the
+    other is how it is asked. `llm.input.fields` describes this one.
+    """
+    ids = item_ids or {}
+    return {
+        "schema_version": contract.request_schema["properties"]["schema_version"]["const"],
+        "prompt_version": contract.attestation()["prompt_version"],
+        "grammar_version": contract.attestation()["grammar_version"],
+        "source_profile": source_profile,
+        "request_id": request_id or secrets.token_urlsafe(12).replace("=", ""),
+        "items": [
+            {
+                "item_index": item.item_index,
+                "item_id": ids.get(item.item_index, _default_item_id(item.item_index)),
+                "fields": dict(item.fields),
+            }
+            for item in items
+        ],
+    }
+
+
+def _validate_request(request: dict[str, Any], items: Sequence[RequestItem],
+                      contract) -> None:
+    """**The document that will actually be sent, against the schema.**
+
+    The memo lists request validation before serialisation. Validating the
+    serialised document instead is strictly stronger — it is the thing that
+    leaves — and it is why `additionalProperties: false` does the work that a
+    forbidden-key list used to: a user id, an observation id or an email address
+    is refused because it was never permitted, not because somebody remembered
+    to name it. The failure mode of a deny-list is silence.
+    """
     if not items:
         raise GatewayRefusal("input_oversize", "a call must carry at least one item")
-    if len(items) > contract.max_items_wire:
+
+    errors = sorted(
+        jsonschema.Draft202012Validator(contract.request_schema).iter_errors(request),
+        key=lambda e: list(e.absolute_path),
+    )
+    if errors:
+        first = errors[0]
+        where = "/".join(str(p) for p in first.absolute_path) or "<root>"
+        # The path and the rule, never the value: a request is somebody's title.
         raise GatewayRefusal(
-            "input_oversize",
-            f"{len(items)} items against a wire maximum of {contract.max_items_wire}",
-        )
-    seen: set[int] = set()
-    for item in items:
-        if item.item_index in seen:
-            raise GatewayRefusal("duplicate_item", f"index {item.item_index}")
-        seen.add(item.item_index)
-        for key in item.fields:
-            if key in FORBIDDEN_REQUEST_KEYS:
-                # Named without quoting the value, which is the whole point.
-                raise GatewayRefusal("input_oversize", f"forbidden field {key!r}")
-    if seen != set(range(len(items))):
+            "input_oversize", f"{where} violates {first.validator}")
+
+    seen = [item["item_index"] for item in request["items"]]
+    if len(set(seen)) != len(seen):
+        raise GatewayRefusal("duplicate_item", "an item index appears twice")
+    if set(seen) != set(range(len(seen))):
         raise GatewayRefusal("missing_item", "item indices are not contiguous from zero")
 
 
-def _serialise(items: Sequence[RequestItem], contract) -> dict[str, Any]:
+def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
     """The exact payload, built once and hashed by the caller if it wants.
 
     `enable_thinking` is false and the response format is strict: both are
@@ -373,9 +420,7 @@ def _serialise(items: Sequence[RequestItem], contract) -> dict[str, Any]:
             "prompt_version": contract.attestation()["prompt_version"],
             "grammar_version": contract.attestation()["grammar_version"],
         },
-        "input_items": [
-            {"item_index": item.item_index, **item.fields} for item in items
-        ],
+        "input": request,
     }
 
 
