@@ -268,6 +268,12 @@ apply_after "0064_z"
 # `0227`-`0230` and the guards it relies on by `0229`.
 run_contract 0230_calibration_lifecycle_contract
 
+# **The overlay arms until its work is done and then stops.** Seeds a support
+# link against a superseded resolution row — the shape production was in — and
+# asserts `build_candidate_overlay` goes quiet. Runs here because it calls
+# `arm_candidate_overlay`, which `0211` defines and `0232` corrects.
+run_contract 0232_overlay_arming_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
