@@ -198,8 +198,15 @@ Resources:
                       if path.is_dir():
                           continue
                       name = str(rel)
-                      if name.startswith(".") or ".." in name:
-                          sys.exit(f"unexpected path refused: {name}")
+                      # **Traversal is the danger; a leading dot is not.** The
+                      # first version refused any dotted path and died on
+                      # `.gitattributes`, which is an ordinary file in the
+                      # repository — hidden-ness was standing in for a threat it
+                      # is not. `..` is checked on the parts rather than as a
+                      # substring, so a file genuinely named `a..b` is not
+                      # mistaken for an escape.
+                      if ".." in rel.parts or rel.is_absolute():
+                          sys.exit(f"path escapes the model directory: {name}")
                       digest = hashlib.sha256(path.read_bytes()).hexdigest()
                       rows.append({"path": name, "bytes": path.stat().st_size,
                                    "sha256": digest})
