@@ -69,6 +69,24 @@ Resources:
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub arn:aws:s3:::${AsyncOutputBucket}/async/*
+              # **`ListBucket` on the async bucket, and SageMaker checks for it
+              # before the endpoint exists.** Nothing in this container lists
+              # that bucket — it writes one object per answer — but endpoint
+              # creation validates the role against a fixed expectation and
+              # refuses without it:
+              #
+              #   The provided role is invalid. Please ensure the role exists,
+              #   that its trust relationship policy allows sts:AssumeRole for
+              #   sagemaker.amazonaws.com and has "s3:ListBucket", and
+              #   "s3:PutObject" permissions for bucket ...
+              #
+              # The message names three unrelated causes for one refusal, and
+              # the true one was the third. It is bucket-level rather than
+              # `/*`: a list is an operation on the bucket, and scoping it to a
+              # prefix grants nothing SageMaker looks for.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${AsyncOutputBucket}
               # **Pulling the image is a permission, not a consequence of
               # naming it.** The role could read the weights and decrypt them
               # and had no way to fetch the container that would do it, so the
