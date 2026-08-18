@@ -13,8 +13,8 @@
   },
   "serving_image": {
     "repository": "written-qwen-serving",
-    "tag": "vllm-0.11.0-62bfe354e9da",
-    "digest": "sha256:fae5a8730982d4be687519ac531b83b602806ccddb17f4fa4fa98834ea52327c",
+    "tag": "vllm-0.11.0-e78e4f6b391c",
+    "digest": "sha256:28e6e9d9dc18763ee091468600ad5c4dc54e778b5f5bc0aede375680bdaf186d",
     "built_from_source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5",
     "built_by": "CodeBuild written-build-qwen-serving-image",
     "vllm": "0.11.0 (prebuilt wheel vllm-0.11.0-cp38-abi3-manylinux1_x86_64)",
@@ -24,7 +24,8 @@
       "digest": "sha256:089c9df8d5a325b99acd64500f3c03d0b9efd2aed8821905321f961c6be4c97d",
       "tag": "vllm-0.11.0-556634b98c8d",
       "why": "Its /ping answered only {\"status\": \"ok\"} and reported none of the loaded runtime."
-    }
+    },
+    "note": "Corrected: the record named an image one build behind what the gateway stack and the serving stack both reference. A pinned digest that disagrees with the deployment is worse than none, because it is consulted."
   },
   "not_yet_true": [
     "No GPU endpoint exists. Quota L-B0729CB4 is 1; the case for 2 is open. Nothing is running.",

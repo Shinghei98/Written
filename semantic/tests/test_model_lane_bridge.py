@@ -106,31 +106,35 @@ def test_the_request_id_is_stable_across_retries(overlay):
     assert overlay._request_id(Other()) != first
 
 
-def test_evaluation_calls_the_model_and_writes_no_mention(overlay, monkeypatch):
-    """Fixture-only, and the handler does not lean on the trigger to say so."""
-    connection = FakeConnection()
+def test_evaluation_reads_nothing_and_calls_nothing(overlay, monkeypatch):
+    """**Fixture-only is about what may be read, not what may be written.**
+
+    The earlier version called the model with a real account's evidence and
+    merely declined to write the mention. `0239` raises three separate refusals
+    on that shape — an evaluation invocation may not name a user, an
+    observation, or retained source text — so the database would have rejected
+    the whole call *after* the model had been paid for.
+
+    There is no fixture corpus yet, so the honest behaviour is to decline. This
+    asserts the strong property: neither the evidence reader nor the lane is
+    reached at all.
+    """
+    def refuse_read(*a, **k):
+        raise AssertionError("evaluation read a person's rows")
 
     class Lane:
-        def __init__(self, *a, **k): self.called = False
-        def propose(self, **kwargs):
-            self.called = True
-            return proposal()
+        def __init__(self, *a, **k):
+            raise AssertionError("evaluation called the model")
 
-    lane = Lane()
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
-    monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
-    monkeypatch.setattr(overlay, "_items_for",
-                        lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
-                                          "observation_id": "o", 
-                                          "source_text_evidence_id": "e",
-                                          "logical_extraction_key": "k"}])
+    monkeypatch.setattr(overlay, "_file_evidence", refuse_read)
+    monkeypatch.setattr(overlay, "_items_for", refuse_read)
+
     result = overlay._propose_and_write(
-        connection, _job(), "evaluation", "u-1", "req_x", None, None)
-    assert result["mentions_written"] == 0
-    assert connection.written == []
-    # It still records an invocation: an evaluation call happened and is
-    # evidence, which is why the lane is asked at all.
-    assert result["invocation_id"]
+        FakeConnection(), _job(), "evaluation", "u-1", "req_x", None, None)
+    assert result["status"] == "no_op"
+    assert result["abstained"] is True
+    assert "fixture" in result["reason"]
 
 
 def test_shadow_writes_the_mention(overlay, monkeypatch):

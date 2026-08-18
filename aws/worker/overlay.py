@@ -191,6 +191,20 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
                        kms, vault_key_arn) -> dict[str, Any]:
     from model_lane import InFlight, LaneUnavailable, ModelLane  # noqa: PLC0415
 
+    # **Evaluation never touches a person's rows.** `0239` raises on an
+    # evaluation invocation that names a user, an observation or retained source
+    # text — three separate refusals — so the previous shape was not merely
+    # over-permissive, it was a call the database would reject outright after
+    # the model had already been paid for. Declining to *write* the mention was
+    # the wrong place to stop: the fixture rule is about what may be read.
+    #
+    # There is no fixture corpus yet, so this declines rather than inventing
+    # one. An evaluation lane that quietly ran against real accounts would be
+    # the exact failure the mode exists to prevent.
+    if mode == "evaluation":
+        return {"status": "no_op", "abstained": True, "item_count": 0,
+                "reason": "evaluation is fixture-only and no fixture set is configured"}
+
     # **File evidence before asking for it.** Nothing in production wrote
     # `source_text_evidence`, so the lane had nothing to read and would have run
     # forever finding nothing. The text the model needs is the title, which the
@@ -230,16 +244,10 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
         # should be filed as though the model had answered.
         raise RuntimeError(f"model lane unavailable: {unavailable}") from None
 
-    written = 0
-    if mode == "evaluation":
-        # **Fixture-only, and the refusal is structural rather than polite.**
-        # `0239` derives the lane from the deployment slot and `0237` refuses a
-        # user mention from anything but `shadow` or `active`, so an evaluation
-        # call that tried this would be rejected by a trigger. Not attempting it
-        # keeps the reason legible instead of relying on the exception.
-        pass
-    else:
-        written = _write_model_mentions(connection, user_id, items, proposed)
+    # Evaluation returned above without reading anything, so anything reaching
+    # here is `shadow` or `active` — the two lanes `0237` permits a user mention
+    # from. One rule, in one place.
+    written = _write_model_mentions(connection, user_id, items, proposed)
 
     return {
         "status": "ok",
@@ -283,6 +291,14 @@ select c.current_raw_source_record_id as raw_id,
   join semantic_private.raw_source_records r
     on r.id = c.current_raw_source_record_id
  where c.user_id = %(user_id)s
+   -- **Neither source may reach a model, and consent does not move the line.**
+   -- IV.2.1.a forbids ingesting Spotify Content into any ML/AI model and IV.2.5
+   -- says a user's consent does not cure that; III.E.4.h is YouTube's
+   -- equivalent. `AppConfig.semanticIngestionSources` already excludes them from
+   -- dual-write on the same grounds, and this is the same rule one layer down —
+   -- written as an exclusion in the query rather than a check somewhere later,
+   -- because text that is never selected cannot be sent by a later mistake.
+   and c.source_code not in ('spotify', 'youtube')
    and c.current_observation_id is not null
    and r.encrypted_payload is not null
    and not exists (
@@ -343,9 +359,14 @@ def _file_evidence(connection, user_id: str, kms, vault_key_arn,
                 # Crypto erasure is a supported state; an account that has
                 # exercised it must not make every later job fail.
                 continue
+            # **The context is not optional.** `aws/ingestion/index.mjs` wraps
+            # the key under `{user_id}`, and KMS refuses a decrypt whose context
+            # does not match — so omitting it fails every unwrap, for every
+            # account, with an error about the key rather than about the call.
             keys[version] = kms.decrypt(
                 CiphertextBlob=bytes(key_row["wrapped_dek"]),
-                KeyId=vault_key_arn)["Plaintext"]
+                KeyId=vault_key_arn,
+                EncryptionContext={"user_id": user_id})["Plaintext"]
 
         try:
             envelope = decrypt_payload(keys[version],
@@ -376,19 +397,36 @@ def _file_evidence(connection, user_id: str, kms, vault_key_arn,
     return filed
 
 
-def _title_of(envelope: dict[str, Any]) -> str | None:
-    """The one field the model is asked about.
+#: Where a title actually lives. **Both envelope wire forms**, because
+#: `schema_version` is `written-source-envelope-v2`, v1 rows exist forever and a
+#: reader must handle both — v1 put the payload under an enum's associated value
+#: and v2 puts it under `payload`. Reading only the top level found a title in
+#: neither, so every row was skipped and the lane reported an empty account.
+_TITLE_PATHS = (
+    ("payload", "name"), ("payload", "title"),
+    ("value", "name"), ("value", "title"),
+    ("name",), ("title",),
+)
 
-    Named explicitly rather than taken from whatever the envelope happens to
-    hold: the request schema is an allowlist, and filing more than it can carry
-    would store text for no reader.
+
+def _title_of(envelope: Any) -> str | None:
+    """The one field the model is asked about, wherever the envelope keeps it.
+
+    Named paths rather than a recursive search: the request schema is an
+    allowlist, and a walk that returned the first string it found would file
+    whatever happened to be nearest — an identifier, a URL, somebody's note.
     """
     if not isinstance(envelope, dict):
         return None
-    for key in ("name", "title"):
-        value = envelope.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    for path in _TITLE_PATHS:
+        node: Any = envelope
+        for step in path:
+            if not isinstance(node, dict):
+                node = None
+                break
+            node = node.get(step)
+        if isinstance(node, str) and node.strip():
+            return node.strip()
     return None
 
 
@@ -470,7 +508,8 @@ def _plaintext(connection, kms, row, vault_key_arn) -> str | None:
     if key_row is None:
         return None
     dek = kms.decrypt(CiphertextBlob=bytes(key_row["wrapped_dek"]),
-                      KeyId=vault_key_arn)["Plaintext"]
+                      KeyId=vault_key_arn,
+                      EncryptionContext={"user_id": str(row["user_id"])})["Plaintext"]
     try:
         envelope = decrypt_payload(dek, bytes(row["encrypted_text"]))
     except Exception:  # noqa: BLE001 - unreadable is skipped, never guessed at
@@ -1265,8 +1304,22 @@ ATTESTED_COLUMNS = (
     "model_id",
     "model_revision",
     "gateway_revision",
+    # **`0235` named the manifest column `tokenizer_runtime_manifest_sha256`**,
+    # and the contract's expectation is `tokenizer_manifest_sha256`. The two
+    # are the same fact under two names, which is why the crosswalk is written
+    # down here rather than performed by whoever reads it next.
+    "tokenizer_runtime_manifest_sha256",
+    "serving_image_digest",
     "model_lane_mode",
 )
+
+#: Contract expectation -> manifest column, where the two are not spelled alike.
+#: Without this the completeness check below sees two names it does not
+#: recognise and raises on every release, which is how adding an expectation
+#: quietly broke the evaluator.
+MANIFEST_COLUMN_FOR = {
+    "tokenizer_manifest_sha256": "tokenizer_runtime_manifest_sha256",
+}
 
 MANIFEST = f"""
 select {', '.join(ATTESTED_COLUMNS)}, environment, promotion_decision
@@ -1301,7 +1354,9 @@ def evaluate_release(job) -> dict[str, Any]:
     # field nothing compares.** Raised here rather than skipped, because the
     # failure this job exists to prevent is exactly a test that looks present and
     # cannot run.
-    uncompared = sorted(set(contract.attestation()) - set(ATTESTED_COLUMNS))
+    uncompared = sorted(
+        {MANIFEST_COLUMN_FOR.get(name, name) for name in contract.attestation()}
+        - set(ATTESTED_COLUMNS))
     if uncompared:
         raise RuntimeError(
             f"the runtime attestation declares {uncompared} and the release "

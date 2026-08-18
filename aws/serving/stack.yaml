@@ -24,6 +24,11 @@ Parameters:
     Description: >
       The customer-managed key the model bucket is encrypted with. Named here
       because the artifact stack owns it and this one is deliberately separate.
+  ServingImageDigest:
+    Type: String
+    Description: >
+      The digest of ServingImageUri, passed separately because a container
+      cannot read its own image digest from inside itself.
   InstanceType:
     Type: String
     Default: ml.g6e.xlarge
@@ -117,6 +122,12 @@ Resources:
           HF_HUB_OFFLINE: '1'
           TRANSFORMERS_OFFLINE: '1'
           WRITTEN_MAX_MODEL_LEN: '8192'
+          # **The container cannot learn its own digest**, so the deployment
+          # tells it — the same shape as the gateway's. It reports this in the
+          # runtime block, which is the only place the answer's author is
+          # recorded; without it the field was simply absent and the gateway's
+          # drift check treated absence as disagreement.
+          WRITTEN_SERVING_IMAGE_DIGEST: !Ref ServingImageDigest
 
   EndpointConfig:
     Type: AWS::SageMaker::EndpointConfig
