@@ -27,27 +27,26 @@
     }
   },
   "not_yet_true": [
-    "No GPU endpoint exists. Service quota L-B0729CB4 (ml.g6e.xlarge for endpoint usage) reads 0, request for 2 still PENDING.",
-    "The loaded runtime is unattested; no release_manifests row names these digests.",
-    "output_contract.tokenizer_manifest_sha256 is still 'required_from_pinned_deployment_not_yet_measured', deliberately: it must be regenerated from what the GPU actually loads.",
-    "The Step 5 application bridge is unbuilt. overlay.extract_mentions raises in evaluation/shadow, and 0241 asserts semantic_worker cannot execute record_model_invocation \u2014 only semantic_model_worker may. Which identity records an invocation is an open design decision, not a missing function.",
-    "The prompt few-shots are compiled and carried but not yet selected by the retrieval policy; the model is sent role, rules and a worked example.",
+    "No GPU endpoint exists. Quota L-B0729CB4 is 1; the case for 2 is open. Nothing is running.",
+    "attested is false, correctly: serving_image_digest and tokenizer_sha256 have no contract expectation yet, both being placeholders until a GPU measures them. They are reported as unattested rather than passed over.",
+    "The Step 5 bridge is built and untested against a real endpoint.",
     "qwen_overlay is off and no invocation has ever been recorded."
   ],
   "gateway_image": {
     "function": "written-semantic-gateway",
     "repository": "written-semantic-gateway",
-    "tag": "gw-62bfe354e9da",
-    "digest": "sha256:95b2196f968c087325e560c4c267ae6c6eac777371d5a4bd0c430960d259142d",
-    "built_from_source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5",
+    "tag": "gw-d16578b117de",
+    "digest": "sha256:896b3ff7f438506e7c391b85e9cbf254fcbd95a777977caaf38f5598c6a7fc08",
+    "built_from_source_commit": "d16578b117de3f065a557bb204472057b19cf089",
     "built_by": "CodeBuild written-build-gateway-image",
-    "gateway_revision": "a4b096fb222d08ea5070289cf21f5192a6ef79fec15347e4dbdf97ee32daa96b",
+    "gateway_revision": "aab5e27e7a6aea5c8bd532600d7c8f4209bdb2b0e8d156a987b971e87c6b95c9",
     "deployed": true,
-    "verified": "The running function reports this contract's model_revision and gateway_revision, with model_lane_mode off and no deployment loaded.",
+    "verified": "Two gates ran inside the image before it was pushed: every module imports as laid out, and gateway_revision recomputed from the image's own files equals the contract the image carries. After deploy, matches.gateway_revision is true.",
     "superseded": {
-      "digest": "sha256:6afd42efb3b512f9bdfec68a8cac592dc7fddf552b2e1f1037dca6e3ad060133",
-      "why": "Its attestation compared six of ten loaded fields and discarded an accepted inference ticket on timeout."
-    }
+      "digest": "sha256:95b2196f968c087325e560c4c267ae6c6eac777371d5a4bd0c430960d259142d",
+      "why": "Built from a flattened image layout, which gateway_revision could only handle because the checker tried two candidate roots \u2014 a checker that agrees with two trees. And nothing verified the image before it was pushed."
+    },
+    "layout": "The repository's paths, preserved. The checker has one layout, not two."
   },
-  "source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5"
+  "source_commit": "d16578b117de3f065a557bb204472057b19cf089"
 }
