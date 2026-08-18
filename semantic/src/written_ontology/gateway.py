@@ -101,6 +101,18 @@ class RateLimited(RuntimeError):
     """
 
 
+class RetentionFailure(RuntimeError):
+    """The answer was read and its copy could not be deleted.
+
+    **Distinct from every other failure because the model succeeded.** The
+    mentions are valid and they are withheld anyway: committing semantics
+    derived from text we cannot show we stopped holding is the trade this
+    refuses. `0242` is where the outcome lives, and the bucket's one-day
+    lifecycle rule is a backstop for a process that died rather than a licence
+    to proceed past this.
+    """
+
+
 class ModelTransport(Protocol):
     """Whatever actually reaches the serving engine.
 
@@ -297,6 +309,12 @@ def extract(
             last = GatewayRefusal("timeout", f"attempt {attempt}")
         except RateLimited:
             last = GatewayRefusal("rate_limited", f"attempt {attempt}")
+        except RetentionFailure as failure:
+            # Not retried and not softened. A second call would leave a second
+            # object beside the first.
+            if breaker is not None:
+                breaker.record_failure()
+            raise GatewayRefusal("retention_failed", str(failure)) from None
         except Exception as failure:  # noqa: BLE001 - classified, never quoted
             last = GatewayRefusal("provider_error", type(failure).__name__)
         else:
@@ -331,6 +349,7 @@ def extract(
 _NOT_RETRYABLE = frozenset({
     "output_overflow", "schema_invalid", "offset_invalid", "missing_item",
     "duplicate_item", "input_oversize", "contract_mismatch",
+    "retention_failed",
 })
 
 

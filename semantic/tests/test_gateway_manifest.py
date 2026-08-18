@@ -81,7 +81,7 @@ def test_the_outcome_vocabulary_matches_the_gateway(manifest):
     """A reader must be able to tell a code it does not recognise from one this
     deployment could not produce, so the manifest carries the closed fourteen."""
     from written_ontology import gateway
-    assert len(manifest.OUTCOMES) == 14
+    assert len(manifest.OUTCOMES) == 15
     assert "semantic_abstention" in manifest.OUTCOMES
     # Every code the gateway can raise is one the manifest declares.
     assert set(gateway._OUTCOME_FOR.values()) <= manifest.OUTCOMES

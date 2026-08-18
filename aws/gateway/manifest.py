@@ -158,5 +158,5 @@ OUTCOMES = frozenset({
     "succeeded", "semantic_abstention", "input_oversize", "output_overflow",
     "schema_invalid", "offset_invalid", "missing_item", "duplicate_item",
     "source_stale", "timeout", "rate_limited", "provider_error",
-    "contract_mismatch", "circuit_open",
+    "contract_mismatch", "circuit_open", "retention_failed",
 })

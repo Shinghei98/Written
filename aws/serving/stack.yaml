@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  The Qwen serving endpoint: SageMaker asynchronous inference on one g6e, a
+  custom vLLM image pinned by digest, weights mounted from an immutable S3
+  prefix, and autoscaling to zero.
+
+  Separate from the gateway stack on purpose. This one costs money whenever an
+  instance is up, and a template that created it as a side effect of deploying a
+  Lambda would make that a surprise rather than a decision.
+
+Parameters:
+  ServingImageUri:
+    Type: String
+    Description: The vLLM image in ECR, by digest rather than by tag.
+  ModelDataS3Uri:
+    Type: String
+    Description: s3://.../qwen3.5-9b/<revision>/ — the staged, checksummed weights.
+  AsyncOutputBucket:
+    Type: String
+    Default: written-semantic-async-616040526027
+  InstanceType:
+    Type: String
+    Default: ml.g6e.xlarge
+    Description: One 48 GB L40S. BF16, text-only, context bounded by the contract.
+
+Resources:
+  ServingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-qwen-serving
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: sagemaker.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: read-weights-write-answers
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # **Read the weights, and only read them.** An endpoint that could
+              # write to the model prefix could change what it is next time.
+              - Effect: Allow
+                Action: [s3:GetObject, s3:ListBucket]
+                Resource:
+                  - !Sub arn:aws:s3:::written-semantic-models-${AWS::AccountId}
+                  - !Sub arn:aws:s3:::written-semantic-models-${AWS::AccountId}/*
+              # It writes the answer and nothing else; the gateway deletes it.
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${AsyncOutputBucket}/async/*
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:CreateLogGroup]
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*
+
+  Model:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ModelName: !Sub written-qwen-${AWS::StackName}
+      ExecutionRoleArn: !GetAtt ServingRole.Arn
+      # No VPC egress is configured, so the container cannot reach a model hub
+      # even if something asked it to.
+      PrimaryContainer:
+        Image: !Ref ServingImageUri
+        Mode: SingleModel
+        ModelDataSource:
+          S3DataSource:
+            S3Uri: !Ref ModelDataS3Uri
+            S3DataType: S3Prefix
+            CompressionType: None
+        Environment:
+          HF_HUB_OFFLINE: '1'
+          TRANSFORMERS_OFFLINE: '1'
+          WRITTEN_MAX_MODEL_LEN: '8192'
+
+  EndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub written-qwen-${AWS::StackName}
+      AsyncInferenceConfig:
+        OutputConfig:
+          S3OutputPath: !Sub s3://${AsyncOutputBucket}/async/out/
+          S3FailurePath: !Sub s3://${AsyncOutputBucket}/async/fail/
+        ClientConfig:
+          # One at a time. The lane is singleton-first until a deployed
+          # distribution says otherwise.
+          MaxConcurrentInvocationsPerInstance: 1
+      ProductionVariants:
+        - VariantName: primary
+          ModelName: !GetAtt Model.ModelName
+          InstanceType: !Ref InstanceType
+          InitialInstanceCount: 1
+          ModelDataDownloadTimeoutInSeconds: 1800
+          ContainerStartupHealthCheckTimeoutInSeconds: 1800
+
+  Endpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub written-qwen-${AWS::StackName}
+      EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
+
+  # **Scale to zero.** Async endpoints may go to nought instances, which is the
+  # whole reason this lane is asynchronous: the work is bursty and a g6e is not.
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: Endpoint
+    Properties:
+      ServiceNamespace: sagemaker
+      ResourceId: !Sub endpoint/${Endpoint.EndpointName}/variant/primary
+      ScalableDimension: sagemaker:variant:DesiredInstanceCount
+      MinCapacity: 0
+      MaxCapacity: 1
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/sagemaker.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_SageMakerEndpoint
+
+  ScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: written-qwen-queue-depth
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 1
+        CustomizedMetricSpecification:
+          MetricName: ApproximateBacklogSizePerInstance
+          Namespace: AWS/SageMaker
+          Statistic: Average
+          Dimensions:
+            - Name: EndpointName
+              Value: !GetAtt Endpoint.EndpointName
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+Outputs:
+  EndpointName:
+    Value: !GetAtt Endpoint.EndpointName
