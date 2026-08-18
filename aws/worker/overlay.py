@@ -599,7 +599,19 @@ def build_review_items(job) -> dict[str, Any]:
 #: A strike suppresses the term for that predicate. **`on conflict do nothing`
 #: against the partial unique index**, so striking the same term twice is one
 #: suppression rather than an error — a person tapping twice is not a conflict.
-SUPPRESS = """
+#:
+#: **It selected both target columns and then threw the provisional half away.**
+#: `and c.concept_id is not null` is exactly `and not provisional-backed`, the
+#: schema's own single-term check making it so, and the conflict target named
+#: only the concept index. A strike on a provisional-backed candidate produced no
+#: suppression at all — silently, since the receipt counts rows.
+#:
+#: Two statements rather than one predicate, because the two partial indexes are
+#: two arbiters and `on conflict` infers one at a time. Deleting the filter
+#: without splitting the statement would turn a silent drop into a `23505` on the
+#: second strike of the same provisional, which is worse only in that it is
+#: louder.
+SUPPRESS_CONCEPT = """
 insert into semantic_private.user_term_suppressions
   (user_id, concept_id, provisional_entity_id, user_facing_predicate,
    source_review_item_id, source_review_epoch)
@@ -616,9 +628,40 @@ on conflict (user_id, concept_id, user_facing_predicate)
 do nothing
 """
 
+SUPPRESS_PROVISIONAL = """
+insert into semantic_private.user_term_suppressions
+  (user_id, concept_id, provisional_entity_id, user_facing_predicate,
+   source_review_item_id, source_review_epoch)
+select e.user_id, c.concept_id, c.provisional_entity_id,
+       c.user_facing_predicate, i.id, i.review_epoch
+  from semantic_private.review_events e
+  join semantic_private.review_items i on i.id = e.review_item_id
+  join semantic_private.user_term_candidates c on c.id = i.candidate_id
+ where e.user_id = %(user_id)s
+   and e.action = 'strike_off'
+   and c.provisional_entity_id is not null
+on conflict (user_id, provisional_entity_id, user_facing_predicate)
+  where active and provisional_entity_id is not null
+do nothing
+"""
+
 #: A struck candidate is withdrawn, not deleted. The evidence under it stays —
 #: what somebody declined to be described by is not evidence that the underlying
 #: observation never happened.
+#:
+#: **Both identity columns, and the second one is not symmetry for its own sake.**
+#: The schema forces exactly one of them non-null on each side, so for a
+#: provisional-backed suppression meeting a provisional-backed candidate
+#: `s.concept_id is not distinct from c.concept_id` reads `null is not distinct
+#: from null`, which is true. With the lane holding one predicate that left
+#: `user_id`, `active` and `lifecycle_state` as the only discriminators: **one
+#: strike would have withdrawn every active provisional candidate that person
+#: had.** `BUILD_REVIEW` a hundred lines above already gets this right with `=`,
+#: which yields unknown on two nulls; the two statements disagreed.
+#:
+#: It is latent only because `SUPPRESS` never wrote a provisional row. Repairing
+#: that alone would have armed this from the other side, which is why they are
+#: one change.
 WITHDRAW = """
 update semantic_private.user_term_candidates c
    set lifecycle_state = 'withdrawn', updated_at = now()
@@ -628,6 +671,7 @@ update semantic_private.user_term_candidates c
    and s.active
    and s.user_facing_predicate = c.user_facing_predicate
    and s.concept_id is not distinct from c.concept_id
+   and s.provisional_entity_id is not distinct from c.provisional_entity_id
    and c.lifecycle_state = 'active'
 """
 
@@ -651,8 +695,10 @@ def apply_feedback(job) -> dict[str, Any]:
         database_url(), row_factory=dict_row, prepare_threshold=None
     ) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(SUPPRESS, arguments)
+            cursor.execute(SUPPRESS_CONCEPT, arguments)
             suppressed = cursor.rowcount
+            cursor.execute(SUPPRESS_PROVISIONAL, arguments)
+            suppressed += cursor.rowcount
             cursor.execute(WITHDRAW, arguments)
             withdrawn = cursor.rowcount
         connection.commit()

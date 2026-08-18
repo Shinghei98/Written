@@ -274,6 +274,11 @@ run_contract 0230_calibration_lifecycle_contract
 # `arm_candidate_overlay`, which `0211` defines and `0232` corrects.
 run_contract 0232_overlay_arming_contract
 
+# **A provisional has one live identity, and a strike survives becoming a
+# concept.** Both are latent while `provisional_entities` is empty, which is
+# why they are asserted before a sink fills it.
+run_contract 0233_provisional_identity_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
