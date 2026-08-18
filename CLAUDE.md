@@ -1596,162 +1596,70 @@ of somebody's data rather than labels applied to them.
 - **The readings are not terms and stayed behind** — the chronotype and step
   average have no entry behind them for anybody to agree with.
 
-### What a music library can mint by itself, and what it cannot
+### What a music library can mint, and what it may never say about somebody
 
-Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
+**The evidence for every rule here — the audits of both accounts, the counts that
+set each bar and the two live examples of a threshold fitted to its own data — is
+`docs/PROJECT-CONTEXT.md`.** Read it before moving a number.
 
-- **A new artist mints automatically, from Spotify as readily as Apple Music.**
+- **A new artist mints automatically, from any source carrying an ISRC.**
   `catalogue.py`'s `SELECT_MISSING_ISRCS` has **no `source_code` filter** —
-  `source_code` is recorded in an `array_agg`, never restricted on — so any
-  active observation carrying an `isrc` is looked up in Apple's catalogue and
-  its artists minted as `creator:apple_<id>`. Armed by a trigger on
-  `ingestion_runs.status = 'succeeded'` with a two-minute debounce, and with **no
-  user-count threshold**: one library is enough. Measured: 94% of Spotify rows
-  carry an ISRC, **89.8%** of its distinct ISRCs are in the catalogue, and
-  **374 concepts are attested by Spotify alone**. `0178` states the position —
-  *"the mint still considers every artist whatever source named them"* — and
-  `external_entity_sources` exists so a restriction is executable later.
-- **A new genre did not.** Both genre mints carried `revoke all` and no grant, so
-  `semantic_worker` could not call either, and an unmatched genre string is
-  silently dropped at the join in `0190:383` — the artist gets no genre parent
-  and blocks to `hub:music`. **`0191`'s header claimed the opposite** (*"the same
-  function is what a later mint calls"*), which was never true of the shipped
-  code. `0202` grants it and `catalogue.mint_for` calls it, **before** the artist
-  mint so an artist can take a genre minted in the same pass as its parent.
-- **It is inert on today's data and that is correct.** Nine stated genre strings
-  resolve to nothing and the suffix rule refuses all nine — `chinese hip hop`
-  because we hold `hip hop rap` and not `hip hop`, which is the synonymy `0191`
-  declined to guess. Coverage is high because `0188`/`0189` imported Apple's
-  whole taxonomy: **50 of 52** stated strings resolve.
-- **A non-game work never mints, and that is settled rather than pending.**
-  `work:apple_*` is minted only for `is_game` soundtrack credits. The 1,422
-  unresolved `work` strings from Apple Music are the largest single block of
-  unresolved evidence, which reads as the obvious next hole to close. **Measured
-  2026-08-17, it is not one**, and minting them would rebuild at 2.5× scale
-  exactly what `0221` removed 560 of.
-  - **The evidence has no independence structure.** Of 575 non-classical works
-    reachable from live observations, **16 have two performers and 2 have
-    three**; average 1.04 performers and 2.34 mentions. A work is attested only
-    by its own recordings, which is why its bar is the 0.25 relief in the first
-    place — and 2.34 mentions at ~0.6 apiece saturates to about **0.19**.
-  - **The classical hypothesis is the one worth having and it is false here.** A
-    composition attested by several ensembles would be a real trait, the same
-    independence that makes the genre rollup work. **0 of 35** classical works
-    reach two performers: this library holds one recording of each.
-  - **Composer is the better target and also fails.** 57 composers, none reaching
-    two performers, **top strength 0.240 against the 0.35 creator bar**.
-  - **And the question is not answerable yet.** `observation_mentions` carries
-    work strings for **one user**, so "held by two or more users" is arithmetic
-    rather than a finding. Cross-user attestation is where a work would get its
-    independence, and it needs a population — the `EmergentTermMiner` five-user
-    floor is the same wall. **A threshold fitted to no data points is the
-    mistake the `work` bar avoided by waiting for three labelled rows.**
-  - **What would change the answer**, and is worth re-running rather than
-    re-deriving: works reaching two distinct performers within one library, or
-    the same work held by several accounts. Neither needs new code to measure.
-  - **`0223` freezes the rule before the population exists**, which is the whole
-    of the method: *rule first, population second, decision last.* A threshold
-    fitted to the library it was read from looks right by construction, and
-    `0220` produced two live examples of that in one afternoon.
-    - **The frozen rule: three or more distinct `primary_performer`s, within
-      one account, on policy-eligible live observations.** Three is **frozen as
-      a literal and does not track `ELIGIBLE_STRENGTH` or `HALF_WEIGHT`** — a
-      rule that moved with the scorer's constants would silently redefine the
-      experiment. It is *derived from* them (`w >= 2.0` at the 0.25 relief, ~0.6
-      per mapping, so ~3.3) and rounded **down**, so the shadow set
-      over-collects: under-collection cannot be repaired afterwards.
-    - **The two qualifiers are `eligible_shadow`, which is not vocabulary** — no
-      concept, no revision, no version, nothing reads them. `0221` removed 560
-      recordings minted only because minting was the sole way to hold a handle
-      on something; this is that handle without the minting.
-    - **`evaluate_work_independence` refuses below five accounts rather than
-      caveating.** A printed number gets quoted, and a threshold read off too
-      little data is the failure being guarded. Five is `EmergentTermMiner`'s
-      floor, reused rather than reinvented.
-    - **The five measurements are named in the row, not chosen afterwards**:
-      works per user, recurrence across users, precision after review,
-      independence of the qualifying evidence, and ontology growth per useful
-      assertion — the last being the ratio that would have flagged `0198`/`0199`
-      early, 779 concepts for 6 mappings and no assertions. **Precision reports
-      `null` until review data exists, never `0`.**
-    - **A trigger enforces the freeze**; only `status` and `notes` may move, and
-      **a superseding rule takes a new key rather than an amendment.**
-      Publication is a separate decision on a held-out population and nothing
-      in `0223` performs it.
-    - **`0224` reports three flags that cannot be read optimistically.**
-      `population_gate_open` (enough accounts), `measurement_complete` (every
-      named measurement produced a value — **not** implied by the gate, and
-      `measurement_blockers` names what is outstanding so the flag is never a
-      bare false), and **`publication_ready`, which is never derived**. A
-      computed one would mean the system publishes vocabulary the moment
-      arithmetic crossed a line, which is the failure this whole apparatus
-      exists to prevent, one level up.
-      - **The attestation ledger is append-only and withdrawal is an event**, so
-        *attested then withdrawn* stays distinguishable from *never attested* —
-        two states one boolean column would collapse. `publication_ready` reads
-        the **latest** event, never `exists(attest)`, which would answer true
-        forever once anything had been attested.
-      - **`m5` was circular in the first draft** — it asked whether any inferred
-        assertion is eligible anywhere, true of 150 rows unrelated to the
-        experiment. A shadow candidate's weight is knowable now, so *would it
-        clear the bar* is computable without minting; the only precondition is
-        having candidates to divide by.
+  `source_code` is recorded in an `array_agg`, never restricted on. Armed by a
+  trigger on `ingestion_runs.status = 'succeeded'` with a two-minute debounce, and
+  with **no user-count threshold**: one library is enough. `external_entity_sources`
+  exists so a restriction is executable later.
+- **A genre mint must be granted and must run first.** Both mints shipped with
+  `revoke all` and no grant, so the worker could call neither; `0202` grants it and
+  `catalogue.mint_for` calls it **before** the artist mint, so an artist can take a
+  genre minted in the same pass as its parent. An unmatched genre string is
+  silently dropped at the join, and the suffix rule declines to guess synonymy.
+- **A non-game work never mints**, and that is settled rather than pending:
+  `work:apple_*` is minted only for `is_game` soundtrack credits.
+- **Rule first, population second, decision last.** A threshold fitted to the
+  library it was read from looks right by construction. `0223` freezes the work
+  rule before the population exists, and that method governs every bar below.
+  - **The frozen work rule: three or more distinct `primary_performer`s, within
+    one account, on policy-eligible live observations.** Three is **frozen as a
+    literal and does not track `ELIGIBLE_STRENGTH` or `HALF_WEIGHT`** — a rule that
+    moved with the scorer's constants would silently redefine the experiment. It is
+    *derived from* them and rounded **down**, so the shadow set over-collects:
+    under-collection cannot be repaired afterwards.
+  - **The two qualifiers are `eligible_shadow`, which is not vocabulary** — no
+    concept, no revision, no version, nothing reads them.
+  - **`evaluate_work_independence` refuses below five accounts rather than
+    caveating.** A printed number gets quoted.
+  - **The five measurements are named in the row, not chosen afterwards.**
+    **Precision reports `null` until review data exists, never `0`.**
+  - **A trigger enforces the freeze**; only `status` and `notes` may move, and **a
+    superseding rule takes a new key rather than an amendment.**
+  - **`publication_ready` is never derived.** A computed one would mean the system
+    publishes vocabulary the moment arithmetic crossed a line, which is the failure
+    this apparatus exists to prevent. **The attestation ledger is append-only and
+    withdrawal is an event**, so read the *latest* event, never `exists(attest)`.
 
 ### A song is a claim only where the evidence is preference, not presence
 
-`0221` removed recordings because **owning a track is not a trait**. That settles
-presence and not the narrower case: a song somebody **rated**, or that is their
-**top track**, or that they **play repeatedly**. `0225` registers that route the
-same way — frozen rule, shadow, gate, attestation — and mints nothing.
+`0221` removed recordings because **owning a track is not a trait**. `0225`
+registers the narrower case the same way — frozen rule, shadow, gate,
+attestation — and mints nothing.
 
 - **The frozen rule is two *distinct* acts of preference** (`rating` 0.880,
-  `top_track` 0.780, `recently_played` 0.780, `heavy_rotation`), plus clearing
-  the 0.25 relief on those acts alone. **`saved_track` (0.600) is excluded**:
-  saving is acquisition, which is the presence `0221` already ruled out, at a
-  higher weight.
-- **Distinct acts, never repetition of one.** Playing something forty times is
-  one relationship observed repeatedly — the same reason forty tracks by one
-  ensemble are one opinion about baroque — and `recently_played` is bounded by
-  the API window, so counting plays measures how recently somebody opened the
-  app.
-- **It selects nothing today, and that is a result rather than a failure.** Of
-  1,345 (account, ISRC) pairs, **679 carry one act of preference and none carry
-  two**; the strongest reaches `strength` 0.104 on preference evidence.
-- **The near-miss is recorded so it is refused rather than unnoticed.** Counting
-  presence too, the strongest song in the database reaches **0.227** against the
-  0.25 bar. **The bar is not moved**, and `0225` asserts the disagreement would
-  raise: a bar that admits the best row in the current data is a bar fitted to
-  it.
-- **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
-  `auto_promote: false`, and a five-user floor a single library cannot reach.
-
-**Spotify emits no `observation_mentions`, and that is a licence rather than a
-gap.** `MINEABLE_SOURCES` in `resolve.py` is an allow-list: **IV.2.1.a** forbids
-ingesting Spotify Content into an ML/AI model and **IV.2.5** says consent does
-not cure it, so growing vocabulary *from Spotify strings* is precisely what may
-not happen. Its route is catalogue identity, which reads an ISRC and discards it
-rather than learning from Content. The consequence to remember: **the
-demand-driven loop is blind to Spotify by design**, so a coverage question about
-Spotify has to be answered by counting mappings, not by reading the mentions
-ledger.
-
-**Spotify `playlist_item` is refused and Apple Music's is not.** 540 rows, no
-mapping of any state. `/v1/me/playlists` returns followed playlists as well as
-owned ones and the item rows carry no owner, so admitting them would count
-Spotify's editorial curation as somebody's own — what `recommendation: 0.000`
-refuses for Apple. **Weighing them 0 while admitting them would be worse**: a
-zero-weight mapping still raises `observation_count`, which confidence saturates
-on. Pinned by a test, because the identical shape — one fact in
-`sources.action_weights` and in `SOURCE_ACTION_WEIGHTS` — already cost this
-project `top_track` and `top_artist` for months.
+  `top_track` 0.780, `recently_played` 0.780, `heavy_rotation`), plus clearing the
+  0.25 relief on those acts alone. **`saved_track` (0.600) is excluded**: saving is
+  acquisition, which is the presence `0221` already ruled out, at a higher weight.
+- **Distinct acts, never repetition of one.** Playing something forty times is one
+  relationship observed repeatedly, and `recently_played` is bounded by the API
+  window, so counting plays measures how recently somebody opened the app.
+- **The bar is not moved**, and `0225` asserts the disagreement would raise: a bar
+  that admits the best row in the current data is a bar fitted to it.
+- **`EmergentTermMiner` is not the growth path** — implemented, never invoked,
+  `auto_promote: false`, five-user floor.
 
 ### Identity is not vocabulary, and the two live in different layers
 
 **A globally identifiable thing is not automatically ontology vocabulary.** An
-ISRC identifies a recording exactly and permanently, which makes it a *verified
-shared catalogue entity* — nothing about that identity is provisional. What has
-not happened, and should not, is **promotion** into something the system may say
-about a person. `0221` separates the two:
+ISRC identifies a recording exactly and permanently; what has not happened, and
+should not, is **promotion** into something the system may say about a person.
 
 | layer | holds | versioned |
 |---|---|---|
@@ -1759,150 +1667,96 @@ about a person. `0221` separates the two:
 | semantic ontology | genres, creators, works, activities, topics | **yes** |
 | evidence — `observation_mappings` | which observation attests what | per run |
 
-- **The 560 recordings are not deleted; ontology 0.34.0 keeps every one.**
-  Published versions are immutable and their runs must stay reproducible, so the
-  only honest way to remove a concept is **not to carry it forward** — 0.35.0
-  simply does not have them. `ontology.is_identity_registry_concept` is the one
+- **Published versions are immutable**, so the only honest way to remove a concept
+  is **not to carry it forward**. `ontology.is_identity_registry_concept` is the one
   place a family is named.
-- **The split is structural, not a convention.** `observation_mappings`
-  references `concept_revisions (ontology_version_id, concept_id)`, so with no
-  recording revision in 0.35.0 a recording mapping is refused by a **foreign
-  key** rather than by code remembering not to write one.
-- **`ontology.copy_forward_version` is the copy-forward, once.** It was
-  hand-written in every version-publishing migration, and **`0213` exists
-  because one of them forgot the fifth table** and took 760 links down to 1. An
-  exclusion that also had to be remembered would be worse than that bug, since
-  forgetting it silently *restores* the concepts.
-- **Why it matters rather than being tidying:** a recording is
-  `concept_kind = 'work'`, and `work` is on the `api.list_assertions` allowlist
-  at the 0.25 relief — so the only thing keeping *"you own this track"* off a
-  profile was that recordings top out at `strength` 0.148. **That is a margin,
-  not a rule.**
-- **"Provisional" means uncertain identity, and an ISRC is not that.**
-  `semantic_private.provisional_entities` has a `music_recording` family and an
-  `identity_state` of `personal_provisional`; a title-and-artist string belongs
-  there, an ISRC-identified recording never does.
+- **The split is structural, not a convention** — `observation_mappings` references
+  `concept_revisions (ontology_version_id, concept_id)`, so a recording mapping is
+  refused by a **foreign key** rather than by code remembering not to write one.
+- **`ontology.copy_forward_version` is the copy-forward, once.** It was hand-written
+  in every version-publishing migration and one of them forgot the fifth table; an
+  exclusion that also had to be remembered would be worse, since forgetting it
+  silently *restores* the concepts.
+- **`work` sits on the `api.list_assertions` allowlist at the 0.25 relief**, so the
+  only thing keeping *"you own this track"* off a profile was that recordings score
+  low. **That is a margin, not a rule.**
+- **"Provisional" means uncertain identity, and an ISRC is not that.** A
+  title-and-artist string belongs in `provisional_entities`; an ISRC-identified
+  recording never does.
 
 ### A recording is not a trait, and it is evidence for a genre
 
-**Owning a track is not something to say about somebody.** The 560 minted
-recordings average 1.31 observations each and the strongest reaches `strength`
-0.148 — correct rather than a shortfall, since a bar that admitted a single
-purchase would admit everything. So the question is what a recording is evidence
-*for*, and it was answered by measuring three rollups rather than by choosing:
-**creator yields nothing** (99 pairs reached, 0 new crossings — the lexical route
-had already found every one), **album is weak** (19 of 254 reach two recordings),
-**genre is the one that works** — because Apple states a genre on the *recording*
-and the artist-level mint never saw it (`0202` resolved none of its nine artist
-genre strings; recording genres resolve 61 of 83).
+The question is what a recording is evidence *for*, and it was answered by
+measuring three rollups rather than by choosing. **Genre is the one that works**,
+because Apple states a genre on the *recording* and the artist-level mint never
+saw it.
 
-- **The artist is the independence unit, and one mapping per (genre, artist) is
-  the whole of the damping.** Forty baroque tracks by one ensemble are one
-  opinion about baroque; two ensembles agreeing are two. `mapping_method` is
-  **`provider_metadata`** — Apple states the genre *about* the recording, which
-  is not an identifier *for* it.
-- **No threshold lives in the resolver; the scorer's curve decides** — and so
-  **the number of artists that clears it is not a constant this route may
-  quote.** Getting that wrong twice in one sitting turned four real crossings
-  into a predicted twenty: the bar for a genre is **`ELIGIBLE_STRENGTH` 0.35**
-  (the **0.25 relief is `concept_kind = 'work'` alone**), and **`w` is not the
-  artist count** — every mapping is multiplied by `recency_weight`,
-  `default_reliability` and `action_weight`, ~0.6 per artist on real libraries.
-  `test_genre_rollup_threshold.py` derives the boundary from the constants so
-  moving either one fails rather than quietly emptying the rollup.
-- **A container genre is a vocabulary problem, never a resolver deny-list.** A
-  rule silencing a parent whose child the account also holds was written,
-  measured against both accounts, and **was wrong in both directions**: it let
-  `genre:apple_19` ("Worldwide") through, the one case it existed for, and struck
-  out `genre:pop` at 227 independent artists and `genre:classical` at 98. The
-  opaque keys are not containers either — `apple_1004` is Indie Rock, `apple_1263`
-  Bollywood.
-- **Weighting does *not* dispose of the container worry, which was measured after
-  the fact and had been asserted the other way.** `genre:apple_19` ("Worldwide")
-  scored **0.391** on the first real run and is an eligible assertion today —
-  the prediction that four artists would leave it short of 0.35 was made from an
-  artist count, which is the same mistake as the one above.
-- **`0222` says it in the ontology, on the concept, and `inference_policy`
-  already had the word.** `explicit_only` means *a person may claim this, the
-  system may never infer it* — so a container stays in the vocabulary, stays
-  scored, stays a parent for its children, and stops being a claim about
-  anybody. Scorer `0.16.0` withholds `explicit_only` and `prohibited` and counts
-  it as `policy_withheld`; **`review_required` is deliberately not honoured**,
-  890 concepts carrying it and every one assertable. `genre:apple_19` and
-  `genre:asian_music` are named — **authored judgement, kept short**, like
-  `0198`'s merge list, because there is no derivable signal: "Worldwide" has 4
-  children and `genre:baroque` has 45. What makes it honest is being a property
-  of the concept that every reader sees rather than literals in one resolver.
-- **A rule that only withholds arrives too late for the rows it was written
-  for**, so the standing inferred assertions are demoted to `inactive`.
-  `explicit_addition` is left alone — what somebody typed is not what was read
-  off their phone, and `explicit_only` is exactly the policy that still permits
-  it.
-
-**`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
-branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped
-`except Exception` in `handler.py`, taking the rollback and the payload-safe
-diagnostic with it, and an expired developer token killed the invocation
-silently. It raises `CatalogueReadFailed` now, which `mint_for` re-raises as
-`CatalogueUnavailable` so the handler declines the job instead of retrying
-against a dead credential. **Apple's response body is not carried** — it echoes
-the `filter[isrc]` it was asked about.
+- **The artist is the independence unit, and one mapping per (genre, artist) is the
+  whole of the damping.** Forty baroque tracks by one ensemble are one opinion;
+  two ensembles agreeing are two. `mapping_method` is **`provider_metadata`** —
+  Apple states the genre *about* the recording, which is not an identifier *for* it.
+- **No threshold lives in the resolver; the scorer's curve decides** — and **the
+  number of artists that clears it is not a constant this route may quote.** The bar
+  is `ELIGIBLE_STRENGTH` 0.35 (the 0.25 relief is `concept_kind = 'work'` alone),
+  and **`w` is not the artist count**: every mapping is multiplied by
+  `recency_weight`, `default_reliability` and `action_weight`.
+  `test_genre_rollup_threshold.py` derives the boundary from the constants so moving
+  either one fails rather than quietly emptying the rollup.
+- **A container genre is a vocabulary problem, never a resolver deny-list.** A rule
+  silencing a parent whose child the account also holds was written, measured, and
+  was wrong in both directions. The opaque keys are not containers either.
+- **`0222` says it on the concept**: `explicit_only` means *a person may claim this,
+  the system may never infer it* — so a container stays in the vocabulary, stays
+  scored, stays a parent, and stops being a claim about anybody. Scorer `0.16.0`
+  withholds `explicit_only` and `prohibited` and counts it as `policy_withheld`;
+  **`review_required` is deliberately not honoured.** The named containers are
+  **authored judgement, kept short**, because there is no derivable signal.
+- **A rule that only withholds arrives too late for the rows it was written for**,
+  so the standing inferred assertions are demoted. **`explicit_addition` is left
+  alone** — what somebody typed is not what was read off their phone.
+- **`tools/apple_catalog.py` is a CLI and a Lambda file at once**, so it must never
+  `sys.exit`: `SystemExit` is a `BaseException` and escapes `except Exception`,
+  taking the rollback and the payload-safe diagnostic with it. It raises
+  `CatalogueReadFailed`, which `mint_for` re-raises as `CatalogueUnavailable` so the
+  handler declines rather than retrying against a dead credential. **Apple's
+  response body is not carried.**
 
 ### Growing the vocabulary: slices, offline, bounded by what the source states
 
 `tools/wikidata_vocab.py` imports whole domains from Wikidata (CC0) on a laptop.
 **It is not the resolver calling out, and nothing about the egress posture
 changed**: `allow_external_resolution` is still written `false`, six projection
-guards still refuse a row where it is not, an external hit is still permanently
-`CANDIDATE`, and `resolve.py` still constructs no provider. What makes an
-offline import honest is that **the query names the slice, never a user's
-string** — `observation_mentions` is read locally to decide *which* slice is
-worth having.
+guards still refuse a row where it is not, and an external hit is still permanently
+`CANDIDATE`. What makes an offline import honest is that **the query names the
+slice, never a user's string**.
 
-- **Notability is a number the source states** — sitelink count, the same shape
-  as `subscriber_count` in `0195`. **And it only works for things whose fame is
-  their own.** An `athletes` slice was written and removed: at any selective
-  bound it returns the most famous *humans* who happen to have a sport recorded
-  — Plato, Joe Biden, two Bushes, Gerald Ford — and requiring a sportsperson
-  occupation does not help, because Camus kept goal. The next step would have
-  been a deny-list of occupations, and **the failure mode of a deny-list is
-  silence**. A person-shaped slice needs a signal *about the thing*, not a
-  louder measure of fame.
-- **A titled work hides its name in the article title.** Wikidata stores no
-  English *label* for Minecraft, GTA V, Tetris, Roblox or Fortnite — the English
-  Wikipedia title carries it — so `SERVICE wikibase:label` answers with the bare
-  QID and `0198` dropped 90 of 304 games without saying so. `0199` reads
-  `schema:about`/`schema:isPartOf <https://en.wikipedia.org/>` as a fallback.
-  Common nouns are unaffected; **any future slice of works must ask for both.**
-- **Refuse at both ends.** `subject:health` passed every key check — the word
-  *health* contains no prohibited fragment — and was caught only by the
-  migration's read-back, which rolled a 724-concept import back. `refusedTopics`
-  now refuses in the tool as well. **It refuses the container, not the field**:
-  `subject:medicine` has been vocabulary since `0134`.
-- **Two entities with one name mint neither**, the key-level form of the rule
-  the resolver already applies to ambiguous labels. **A duplicate is not an
-  ambiguity**, though: an entity satisfying two slices is claimed by the more
-  specific one and reported, or the first run silently loses both — which is how
-  League of Legends became a sport and a work and then neither.
-- **A merge list is authored and stays short.** Six proposals named something
-  already held under another name (`association football` → `activity:soccer`);
-  minting them would split one interest across two concepts with the evidence
-  for each never reaching the other.
-- **Every imported concept must reach a hub** — asserted through
-  `concept_block`, which is what Memories calls. A floating concept lands under
-  "Other" and one parented to a guess is a false claim.
-- **Vocabulary is still not the binding constraint.** `0198`/`0199` added 779
-  concepts across five domains; over both live accounts they drew **6
-  observation mappings and no assertions**. That is the expected shape, not a
-  failure: these libraries are music. Breadth makes an interest *nameable* and
-  manufactures no evidence for it.
+- **Notability is a number the source states**, and **it only works for things whose
+  fame is their own.** A person-shaped slice returns the most famous *humans* who
+  happen to have the attribute, and the next step would be a deny-list of
+  occupations — **the failure mode of a deny-list is silence**. Such a slice needs a
+  signal *about the thing*, not a louder measure of fame.
+- **A titled work hides its name in the article title.** Wikidata stores no English
+  *label* for many games, so `SERVICE wikibase:label` answers with the bare QID; read
+  `schema:about`/`schema:isPartOf <https://en.wikipedia.org/>` as a fallback. **Any
+  future slice of works must ask for both.**
+- **Refuse at both ends** — `refusedTopics` refuses in the import tool as well as the
+  app. **It refuses the container, not the field**: `subject:medicine` has been
+  vocabulary since `0134`.
+- **Two entities with one name mint neither.** **A duplicate is not an ambiguity**:
+  an entity satisfying two slices is claimed by the more specific one and reported.
+- **A merge list is authored and stays short** — minting a name already held under
+  another would split one interest across two concepts.
+- **Every imported concept must reach a hub**, asserted through `concept_block`. A
+  floating concept lands under "Other" and one parented to a guess is a false claim.
+- **Vocabulary is still not the binding constraint.** Breadth makes an interest
+  *nameable* and manufactures no evidence for it.
 
 ### An activity can be watched or done, and the predicate is where that lives
 
 **Two concepts per sport is the wrong repair**: it splits the evidence and still
 cannot say which was meant, because **the evidence decides, not the concept**. So
-one concept accumulates everything and the *claim about it* names the
-engagement — `0200`, scorer `0.15.0`:
+one concept accumulates everything and the *claim about it* names the engagement —
+`0200`, scorer `0.15.0`:
 
     participates_in_activity   any evidence marked participation
     follows_activity           any marked spectating, none participation
@@ -1910,73 +1764,59 @@ engagement — `0200`, scorer `0.15.0`:
 
 - **The obvious predicates could not be used.** `completed_activity`, `watched`,
   `attended_activity_at` and `booked_activity_at` are `observed_action` with
-  `assertion_safe = false` — what somebody did is evidence, not a claim about
-  them — and `guard_user_assertion_relation_class` refuses both properties.
-  *"Asserting it took the whole worker down once."* `likes_activity` is
+  `assertion_safe = false` — what somebody did is evidence, not a claim about them —
+  and `guard_user_assertion_relation_class` refuses them. `likes_activity` is
   `user_claim` and also refused, deliberately. The two new ones are `user_claim`,
-  `assertion_safe`, **zero inference hops** like `affinity_to`, or playing
-  five-a-side would become participating in sport by arithmetic.
-- **Which evidence means which lives in
-  `semantic_private.sources.engagement_modes`**, beside `action_weights` where
-  the next reader looks — never a list in `score.py`. Marked today: HealthKit
-  `workout`/`routine` as participation, YouTube `subscription`/`liked_video`/
-  `watched`/`video`/`liked`/`shared` as spectating. **Most sources are
-  deliberately unmarked and a migration assertion refuses a state where they are
-  not** — a saved track is neither, and booking a yoga class and booking a ticket
-  to a match are the same act on the same source, so calendars cannot be told
-  apart at the level of the action.
+  `assertion_safe`, **zero inference hops**, or playing five-a-side would become
+  participating in sport by arithmetic.
+- **Which evidence means which lives in `semantic_private.sources.engagement_modes`**,
+  beside `action_weights` where the next reader looks — never a list in `score.py`.
+  **Most sources are deliberately unmarked and a migration assertion refuses a state
+  where they are not**: a saved track is neither, and booking a yoga class and
+  booking a ticket to a match are the same act on the same source.
 - **Participation outranks spectating**, being a positive fact watching does not
   contradict. **Only `concept_kind = 'activity'`** is asked the question, less
-  `travel:*`, which `assert_travel` writes outside the concept loop.
-- **A concept whose predicate changes is a new assertion row, and both records of
-  a person's answer are keyed on what just changed** — `assertion_preferences` on
-  the assertion id, `user_suppressions` on the predicate. Unhandled, a re-score
-  puts a suppressed term back on somebody's page. `carry_user_decisions` copies
-  and never invents.
-- **Every demotion statement names every assertable predicate.** They took one
-  while `affinity_to` was all the scorer wrote; left that way, an engagement
-  claim would have been unwithdrawable.
-- **It ships ahead of its data and the measurement says so**: zero mappings onto
-  any activity concept and zero HealthKit observations in the vault. Both
-  branches are exercised in `test_engagement_predicate.py` instead, because a
-  rule that has only ever answered one way is not one to believe. `0198` records
-  each concept's slice and source id in `metadata` for the same reason.
-- **The participation branch fires from `routine`, never from `workout`, and
-  that is structural** — see below. Both are marked `participation` because both
-  mean it; only one can ever arrive.
+  `travel:*`.
+- **A concept whose predicate changes is a new assertion row, and both records of a
+  person's answer are keyed on what just changed** — `assertion_preferences` on the
+  assertion id, `user_suppressions` on the predicate. Unhandled, a re-score puts a
+  suppressed term back on somebody's page. `carry_user_decisions` copies and never
+  invents.
+- **Every demotion statement names every assertable predicate.** They took one while
+  `affinity_to` was all the scorer wrote; left that way, an engagement claim would
+  have been unwithdrawable.
+- **It ships ahead of its data**, so both branches are exercised in
+  `test_engagement_predicate.py` — a rule that has only ever answered one way is not
+  one to believe.
+- **The participation branch fires from `routine`, never from `workout`**, and that
+  is structural. Both are marked `participation` because both mean it; only one can
+  ever arrive.
 - **The app draws it or it is half-built.** `Assertion.engagement` renders
-  *Does* / *Follows* beside the term and `nil` for `affinity_to`, which is every
-  row today.
+  *Does* / *Follows* and `nil` for `affinity_to`.
 
 ### A workout is not the evidence; the habit derived from it is
 
-**`action_weights` for HealthKit is `{activity_day: 0, activity_hour: 0,
-workout: 0, sleep: 0, routine: 0.85}`, and raising any of the zeros changes
-nothing.** The weight multiplies a mapping that cannot exist, refused twice
-over: `ObservationMapper._source_projection_is_valid` admits a HealthKit
-observation only where `data_type = 'fitness_habit'` and `action = 'routine'`
-(plus the sanitised privacy class and an exact metadata shape), and
-`guard_healthkit_observation_mapping` independently requires every HealthKit
-mapping to match a **current validated fitness habit candidate** with
+**HealthKit's `action_weights` zeros are decisions, not unset defaults, and the keys
+stay** — `coalesce(action_weights ->> …, 0.0)` answers the same for an absent key,
+so deleting them would lose the only place the refusal is written as data. `0201`
+says so in a column comment, beside the number.
+
+Raising any of those zeros changes nothing: the mapping is refused twice over.
+`ObservationMapper._source_projection_is_valid` admits a HealthKit observation only
+where `data_type = 'fitness_habit'` and `action = 'routine'` (plus the sanitised
+privacy class and an exact metadata shape), and `guard_healthkit_observation_mapping`
+independently requires a **current validated fitness habit candidate** with
 `evidence_weight` pinned to 1.0.
 
-**A zero here is a decision and not an unset default**, which is why the keys
-stay: `coalesce(action_weights ->> …, 0.0)` answers the same for an absent key,
-so deleting them would lose the only place the refusal is written as data.
-`0201` says so in a column comment, beside the number.
+**The dial that means "how much does a workout count" is `workout_min_sessions` /
+`workout_min_weeks` on `healthkit_fitness_habit_builder`.** What clears it arrives as
+`routine` at **0.85**. **Moving those thresholds needs a device that has recorded
+workouts**, and there are none — a threshold fitted to no data points is the mistake
+the `work` bar avoided by waiting.
 
-**The dial that means "how much does a workout count" is
-`workout_min_sessions` / `workout_min_weeks` on
-`healthkit_fitness_habit_builder`** — 4 sessions across 3 distinct weeks in a
-42-day window today. What clears it arrives as `routine` at **0.85**, above all
-but seven of the ~50 action weights in the system. **Moving those thresholds
-needs a device that has recorded workouts**; there are none, and a threshold
-fitted to no data points is the mistake the `work` bar avoided by waiting for
-three labelled rows.
-
-The same shape holds for calendars — `booked`, `cancelled` and `entered_by_user`
-are zero because calendar rows reach the scorer through the classifier and never
-through the generic mapper.
+The same shape holds for calendars: `booked`, `cancelled` and `entered_by_user` are
+zero because calendar rows reach the scorer through the classifier and never through
+the generic mapper.
 
 ### Which sources may feed a model, and who may say so
 
@@ -2068,35 +1908,26 @@ at the top of the thread.
 
 ### Dyadic rarity is counted, not calibrated
 
-Two people sharing an obscure recording says far more than two sharing a chart
-hit — inverse document frequency, and the right signal for matching. `0226`
-**instruments it and deliberately does not build it.**
+Two people sharing an obscure recording says far more than two sharing a chart hit.
+`0226` **instruments that and deliberately does not build it** — the counts and the
+histogram behind the refusal are in `docs/PROJECT-CONTEXT.md`.
 
-- **`0164`'s two numbers are structural rarity and neither is this.**
-  `specificity` is `1/(1 + mean hops to the bridge)` and `information_value` is
-  `1/(1 + direct children)`; both read the ontology's *shape* and neither knows
-  how many **people** hold a thing. Complementary, not replaced.
-- **Two accounts hold ISRCs, so a document frequency has two possible values** —
-  0.5 or 1.0. **1,340 distinct items, 5 shared**, and the first snapshot's
-  histogram is the whole argument: `{1: 1335, 2: 5}` — no third band for a
-  weight to discriminate between. Any weight derived from that is a choice
-  between two numbers dressed as a statistic. **Counted after
-  `action_weight > 0`**, the scorer's own policy filter, so the instrument
-  measures what the pipeline would weigh; without it the figures are 1,513 and
-  6, which is the wrong denominator for a statistic about evidence.
-- **So counting is safe now and calibrating is not.** `snapshot_dyad_rarity`
-  records aggregate distributions at any population; `dyad_rarity_calibration`
-  **refuses below five accounts**, `EmergentTermMiner`'s floor reused rather
-  than reinvented.
-- **Distributions, never per-item rows.** *How many* items are held by exactly
-  two accounts is an aggregate; *which* item, at a population of two, names one
-  library and then the other. Per-dyad overlap is not stored either — `0164`
-  already refuses a dyad run without an active match authorisation, and an
-  instrument recording overlap for unmatched pairs would route around that
-  rather than respect it.
-- **`definition_version` is stamped on every snapshot** (`dyad_rarity_v1`), so
-  rows measured under different definitions are never silently compared, and a
-  superseding definition takes a new string rather than an edit.
+- **`0164`'s two numbers are structural rarity and neither is this.** `specificity`
+  and `information_value` read the ontology's *shape*; neither knows how many
+  **people** hold a thing. Complementary, not replaced.
+- **Counting is safe now and calibrating is not.** `snapshot_dyad_rarity` records
+  aggregate distributions at any population; `dyad_rarity_calibration` **refuses
+  below five accounts**, `EmergentTermMiner`'s floor reused rather than reinvented.
+- **Counted after `action_weight > 0`**, the scorer's own policy filter, so the
+  instrument measures what the pipeline would weigh.
+- **Distributions, never per-item rows.** *How many* items are held by exactly two
+  accounts is an aggregate; *which* item, at a population of two, names one library
+  and then the other. Per-dyad overlap is not stored either — `0164` already refuses
+  a dyad run without an active match authorisation, and an instrument recording
+  overlap for unmatched pairs would route around that rather than respect it.
+- **`definition_version` is stamped on every snapshot** (`dyad_rarity_v1`), so rows
+  measured under different definitions are never silently compared, and a superseding
+  definition takes a new string rather than an edit.
 - **The migration asserts nothing calls the calibration**, by scanning
   `pg_get_functiondef`. An instrument that quietly acquires a caller has stopped
   being one, and that is the change most easily made later without noticing.

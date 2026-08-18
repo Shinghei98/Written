@@ -337,6 +337,17 @@ which is a decision rather than bookkeeping: two calendars agreeing is often one
 diary reached twice, and `minimum_independence_groups >= 2` would otherwise be
 satisfiable by a duplicate.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Never name a calendar source by literal in `semantic_private`.** Six functions
+decide how a calendar observation is treated and four are *prohibitions*
+(generic mapping lane, mention/feedback lane, evidence under a public surface
+grant, the sanitised projection). A source registered in `sources` but missing
+from those literals is not *unhandled* — it is **permitted**, with nothing
+reporting the difference. **The failure mode of a deny-list is silence.**
+
 ### HealthKit's permission sheet, which is not HealthKit's
 
 It asks SpringBoard to launch `com.apple.HealthPrivacyService` and hosts a remote
@@ -377,6 +388,18 @@ deliberately abandoned. And **a Release build may say what failed** —
 `stageFailed` and `stageTimedOut` rendered identically with the detail behind
 `#if DEBUG`. The detail is the whole run rather than its last line.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+Three rules from the same hunt, none about the sheet. **A failure must be drawn
+against the branch that was attempted**, not against `nextModality`. **A
+`withThrowingTaskGroup` cannot impose a timeout on a call that never returns** —
+that needs an unstructured task deliberately abandoned. And **a Release build may
+say what failed**: `BuildKind.isBeta` prints the diagnostic in Debug and
+TestFlight only, since `stageFailed` and `stageTimedOut` render identically. The
+detail is the whole run, not its last line.
+
 ### Where each source can be tested
 
 **YouTube works in the simulator.** **Apple Music requires a physical iPhone**
@@ -394,6 +417,81 @@ HealthKit reports the result as `Missing com.apple.developer.healthkit
 entitlement` in `log show` and as an ordinary authorization failure on screen.
 `xcodebuild test` signs correctly; building with that flag and hand-installing
 from DerivedData does not.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Live drift to close before any upload:** `Modality.swift` returns `youtube`
+(`:147`) and `google_calendar` (`:175`) while their `ARCHIVED-` markers say they
+were removed. Anything shipped from this tree offers a reviewer both, and both
+403 for accounts off the Testing allowlist. Close it deliberately, in one
+direction or the other.
+
+- **Apple Music** (`AppleMusicDistiller`) — library songs/albums/artists/music
+  videos, playlists + contents, recently added, recently played, heavy rotation,
+  recommendations, ratings.
+  - **A person without an Apple Music subscription gets no music from this app at
+    all**, from either source. The cloud flag cannot tell owned music from
+    downloaded, so **never filter `MusicLibraryDistiller` on it**.
+  - **On a subscriber's phone both sources return the same library with different
+    ids**, so `MusicHighlights.deduplicatedSongs` must collapse on **title and
+    artist**, never on id, and only **within the Apple pair** — reaching across
+    to Spotify discards single-artist tracks and double-counts featured ones.
+
+  **Unresolved, and it decides whether the source is worth having: does Apple
+  Podcasts auto-download episodes of followed shows?** Settle it by following a
+  show on a device, downloading nothing, and looking again. **This ships
+  unanswered**, and an empty source that looks connected is worse than none.
+  Ruled out and not to come back: MusicKit podcast types, iCloud sync, Now
+  Playing metadata, `DeviceActivity`, the privacy.apple.com export,
+  `JournalingSuggestions`.
+
+- **Apple Calendar** (`CalendarDistiller`) — the ticketing bookings and the typed
+  entries nothing else reaches. `url` and `organizer` are kept because they are
+  what tells the two apart (`booked=1` in `extra`).
+  - **Events are stored whole and synced**, unlike HealthKit, because the titles
+    *are* the signal — and `PrivacyInfo.xcprivacy` says so.
+  - **Windows are five years either side** (`AppConfig.calendarLookbackDays` /
+    `calendarLookaheadDays`, capped by `maxCalendarEvents`); a ticket bought
+    today for November only exists ahead of now. One occurrence per recurring
+    identifier, marked `recurring=1`.
+  - **`predicateForEvents` silently returns nothing across more than four
+    years** — chunk the fetch by year, and **walk the chunks outward from
+    today**, or the cap is spent on old standing meetings.
+  - **On iOS 17+ `requestAccess(to:)` grants write-only**, which looks exactly
+    like an empty calendar. Use `requestFullAccessToEvents`, and keep the legacy
+    `NSCalendarsUsageDescription` alongside the modern key for the 16.0 target.
+  - **Three exclusions, three mechanisms, because no one of them reaches the
+    others.** `isGenerated` tests the calendar's *type* first and its *name*
+    last (holidays via Google/Exchange are `caldav`, and the name list will
+    always be incomplete). `PublicHolidays` catches holidays copied into a
+    *primary* calendar as ordinary events, matched **by token, not whole name**.
+    Titles carrying `birthday` or `meeting` are **not drawn** — a reading
+    decision; every such row is still collected, synced and sent on.
+  - **A row with no `cal_type` is not drawn**, and one re-distill fixes it.
+  - **The card ranks events by what made the entry, never by date.**
+
+- **Outlook Calendar** (`OutlookCalendarDistiller`) — Microsoft Graph `v1.0` on
+  the shared PKCE machinery (an `OAuthProvider` case, never MSAL), `common`
+  authority.
+  - **`Calendars.ReadBasic` is not available to personal Microsoft accounts**,
+    and the refusal is a **401 with no body and no `WWW-Authenticate` header**
+    naming no scope. The grant is `Calendars.Read` — wider than what is read,
+    since `$select` names twelve fields and never `body`, `attendees`,
+    `attachments` or `webLink`. That is minimisation our code performs, not one
+    the permission enforces. Never `.ReadWrite`.
+  - **It stamps no `booked=1`** — the `$select` asks for neither organiser nor
+    url, so its events map to `scheduled` alone. Adding `organizer` is possible
+    and is a decision, not a consequence.
+  - Its rows overlap Apple Calendar's; dedupe where it is *shown*, by title and
+    start, and derive that set from **`Modality.plans.recordSources`** rather
+    than writing it out — that set decides both which rows reach the card and
+    which dedupe against each other.
+  - **A tenant can refuse after a successful sign-in**; say so in words
+    (`CalendarError.tenantRefused`). **The row is absent, not disabled, until
+    `AppConfig.microsoftClientID` is real.** **Legacy `distilled_records` path
+    only** until exercised against a real tenant.
 
 ## YouTube: the policy position, for when it comes back
 
@@ -536,6 +634,39 @@ domain, and a proxied CNAME onto one returns Error 1000. The rule is dynamic
 (`concat("https://written-stl.com", http.request.uri.path)`) because Google's
 reviewer follows deep links. A free host subdomain cannot stand in.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Retention: 30 days.** `0016`'s daily `pg_cron` sweeps run over
+`distilled_records`, `discovery_cards.interests` and `raw_source_records`.
+`shared_posts` is deliberately unswept — that video id came from a public URL
+somebody pasted, not an authorised API call.
+
+**Settled 2026-08-13: a channel name that has become ontology vocabulary is not
+API Data**, so `ontology.youtube_channels.canonical_title` and the `creator:*`
+labels are unswept. Three things it does **not** license:
+
+**Revocation.** Revoked at Google, 30 days (the sweep covers it). Revoked in-app,
+or on request, **7 days** — which the sweep cannot cover, hence **Disconnect
+all**. `deleteYouTube(revoking:)` takes the server first and the local copy only
+if the server agreed. **`disconnect()` is not revocation.** `revoke()` POSTs the
+*refresh* token and treats **400 as success**; its local half runs regardless.
+
+**What that amendment does and does not license.** Three levels, only the middle
+turning on it: **reading YouTube's own labels onto our vocabulary** is permitted
+today and already built; **assigning our own sub-genres to videos and channels**
+is what §3 licenses (*"additive and distinct from YouTube's video categories"* —
+that is `written_title_tag`, gated by `allow_title_tags`); **aggregating those
+into a claim about the viewer** is **absent**, all six categories concerning
+channels and videos, so acceptance would not grant a viewer-level claim. Two
+conditions sit around it: the **use-case gate** (*"must reflect an analytics use
+case on YouTube"*) is undefined in the document, so neither pre-refuse nor assume
+it; and the **storage relief excludes what this product wants**, titles and
+creator names still following the 30-day policy. **The amendment covers
+III.E.4.b/c/d only, so III.E.3.b is not in scope** — showing one user's
+YouTube-derived channels to another stays prohibited whatever is accepted.
+
 ## Output pipeline
 
 ```
@@ -636,6 +767,101 @@ Distiller (per source)  →  [DistilledRecord]  →  CSVExporter  →  CSVDocume
 - Exports are git-ignored (`written-distillation-*.csv`) — they are personal data
   and must never enter history.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+- Every source normalizes into the **same** `DistilledRecord` schema:
+  `source, data_type, item_id, name, creator, detail, extra, collected_at`.
+  `extra` is a `key=value;key=value` string — **put platform quirks there rather
+  than widening the schema**.
+- `DistillViewModel` replaces records per-source on re-distill
+  (`replaceRecords(from:with:)`), so distilling twice must not duplicate rows.
+- **Everything leaving the device is on this list, and the value of the list is
+  that it stays short and complete:**
+  - **Postgres, keyed to the account** — the distillation via `SyncService`, the
+    profile, the ban list and derived health signals. **Health takes the same
+    path as every other source.** Keep the `pushConnection` fallback: `push`
+    returns early when rows existed and *every* one was withheld, which for
+    Health is a real shape.
+  - **Lyrics providers** — one artist and one title to lrclib.net, then
+    music.163.com. No user id, no library, cached.
+- **`health/biological_sex` is refused at the wire** by
+  `SyncService.localOnlyTypes` — a per-`source/data_type` list, because the unit
+  of that decision is a row rather than a source. It is a protected
+  characteristic, nothing downstream asks for it, and `public.users.sex` already
+  means the gender somebody *chose*. `localOnlySources` survives, empty, for the
+  next source that may not be stored at all.
+- **The server is the source of truth; the device keeps a cache.**
+  `RestoreService.hydrate()` is the read half.
+- **Nothing in Postgres is ever deleted, and only changes are stored.** The
+  device *replaces*; the server *appends*. **Measured 2026-08-17 on a real
+  second distillation**: a 1,208-row Apple Music library re-distilled appended
+  **100 rows and zero duplicates** — 96 `recommendation`, 3 `playlist_item`,
+  1 `recently_played`, and *nothing* from `library_song`, `album`, `artist`,
+  `heavy_rotation` or `rating`. 97 were items never seen before and 3 were items
+  whose content had changed. Two things make
+  `append_source_records` work and both are easy to break: the comparison is
+  against the **latest** version, not any historical one, and it **excludes
+  `collected_at` / `distilled_at` / `updated_at`**.
+- **Three deletion exceptions, all obligations:** account deletion, the YouTube
+  sweep, and `SyncService.deleteSource(_:)`. **`markedRemoved` cannot stand in
+  for a deletion somebody is owed.** Build such a request with `URLComponents` —
+  `appendingPathComponent` escapes the `?` and asks for a table named
+  `distilled_records?source=eq.youtube`; the unlucky failure is a DELETE with no
+  filter.
+- **Anything that removes a person's data has two halves, and one of them is
+  easy to forget.** *Disconnect all* emptied four tables in `public` and named
+  none of the ones Memories reads, so every term stayed on the page after the
+  sources behind it were gone — it deleted the copy the user could see and kept
+  the one they could not, which is the worse of the two arrangements. The vault
+  half is `api.forget_distillation`; **the rule is that a deletion control names
+  both schemas or it is not finished.**
+- **In the vault an erasure *redacts*: `lifecycle_state = 'deleted'` with both
+  payload columns nulled, never a row delete.** `ingestion_run_items` refuses
+  every operation that is not an `INSERT` and references observations and raw
+  rows `on delete no action`, so a delete either raises or destroys evidence the
+  policy permits keeping. `sweep_youtube_vault_retention` and
+  `invalidate_healthkit_use_on_revocation` are the two precedents, and
+  `raw_source_records_payload_location_check` is what stops the state and the
+  redaction disagreeing. **A deletion cannot be checked by inspection** — the
+  first version of `forget_distillation` walked nine tables in correct
+  foreign-key order and raised on its first statement.
+- **A `before delete` guard on a table that cascades from `auth.users` must
+  permit the erasure case, or account deletion fails.** A row trigger fires on a
+  cascaded delete exactly as on a direct one, so six such guards made every
+  account in this database undeletable — an App Store requirement and one of the
+  three deletions this project calls an obligation. The pattern is
+  `guard_healthkit_grant_delete`'s and `0204` applies it to all of them:
+  **`if exists (select 1 from auth.users where id = old.user_id) then raise` —
+  refuse while the owner exists, permit once they are gone**, since the parent
+  row is deleted before its cascade fires. No flag, no privileged procedure and
+  no new grant. **A trigger fix alone is not enough**: `ingestion_run_items`
+  held two `no action` foreign keys that were not `deferrable`, so cascade order
+  could still raise with every trigger behaving perfectly.
+- **Retiring is not deleting, and inferred claims are retired.** `machine_state
+  = 'inactive'` is what `api.list_assertions` filters on, and the scorer writes
+  whichever state a run computes — so reconnecting and distilling revives a
+  term rather than needing a repair. **`explicit_addition` survives a
+  disconnect**, being the same fact as a `source = 'user'` row: what somebody
+  typed is not what was read off their phone.
+- **Read through the `summary_*` views, never the tables.** They return the
+  latest row per item across runs — a union, deliberately **not** a sum. They are
+  `security_invoker = on`; without it a view runs as its owner and bypasses RLS.
+- **Signing out erases the device**, and **local state must be cleared before the
+  session is dropped** — `AccountScope` reads the stored user id, and after
+  `signOut()` it resolves to `local` and would clear the wrong account's files.
+  `HomeView` is the only place wired for this; `GrowProfileView` deliberately has
+  no `onSignOut`.
+- `PrivacyInfo.xcprivacy` must agree with that list.
+- **A connection is a snapshot, not a subscription**, and **a connection is not
+  the same fact as a row.** Never infer connectedness from record volume —
+  everything reads `branches`, and `ConnectionStore` is the local half of
+  `source_connections`. It matters most for **Podcasts**, where zero is the
+  normal result; for Calendar and Health an empty answer and a refused permission
+  are the same answer, so both keep failing loudly on nothing.
+- Exports are git-ignored — they are personal data and must never enter history.
+
 ## Signing in: three routes, but only one of them creates an account
 
 **All three routes open a session; only phone creates an account.**
@@ -707,6 +933,29 @@ Twilio also gates sending behind **Trust Hub KYC**: an unapproved primary
 compliance profile answers "Primary compliance profile is not approved" and no
 SMS leaves. An Individual profile is enough for Verify.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+- **Apple** — native `ASAuthorization`, identity token traded for a session.
+- **Google** — the same PKCE machinery as YouTube, asked a different question:
+  `openid email profile` into `grant_type=id_token`. No SDK, no client secret;
+  the client ID must be in **Authorized Client IDs**, since Supabase validates
+  `aud` against that list. Two deliberate refusals: it does **not** persist
+  Google's refresh token (it would be filed under `AccountScope.current`, still
+  `local`), and `interactiveIdentityToken` never reuses a cached or refreshed
+  token — reuse is right for reading a library and wrong for proving identity.
+- **Phone** — Twilio Verify. `sendOTP` / `verifyOTP`, sharing `adopt(_:)` with
+  the other two; two copies would be two places to forget the `UserDefaults`
+  write that `AccountScope` reads.
+
+**Route from the step, never from a constant** — `route(for: onboardingStep)`.
+**E.164 is built once** (`PhoneNumberView.e164`) and used for both calls, or a
+correct code fails against a number never messaged.
+
+Twilio gates sending behind **Trust Hub KYC** — an unapproved compliance profile
+sends no SMS at all. An Individual profile is enough for Verify.
+
 ## Launch routing: the first frame must already be the right screen
 
 `RootView` picks one of five screens — `signIn`, `name`, `communication`,
@@ -740,6 +989,34 @@ cannot stand in for one here, because records arrive with `hydrate()`, which
 needs `AppShell`, which needs the route. **The data could not unlock the route
 that would load the data.** Anything added to `onboardingStep` needs a column and
 a line in that select.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+`RootView` picks one of five screens from a single `Route`, never a set of
+booleans that can disagree.
+
+- **Decide synchronously.** Anything the first frame depends on must be
+  answerable without a network call (`hasStoredSession` reads the Keychain,
+  `restoredStep` reads `UserDefaults`). `restoreSession` corrects a route rather
+  than choosing the first.
+- **Onboarding steps are routes, not covers.** A `fullScreenCover` draws
+  `SignInView` underneath, reintroducing the flash the rule above removes.
+- Anything that moves the mirrored server facts — `upsertProfile`, `loadProfile`,
+  `markPhotoStepSeen` — must call `cacheOnboardingStep()`, and `signOut` must
+  clear it with `firstName` and `hasSeenPhotoStep`, or the next account inherits
+  the last one's answers.
+- **`loadProfile` is the correction, and it is the whole of how a new phone skips
+  onboarding.** It runs inside `restoreSession` before the route is recomputed,
+  reads all six facts `onboardingStep` branches on, and `adopt(_:)` fills missing
+  local stores **one direction only** — the local answer wins where it exists.
+- **Anything added to `onboardingStep` needs a column and a line in that
+  select.** A `distilled_records` row cannot stand in: records arrive with
+  `hydrate()`, which needs `AppShell`, which needs the route.
+
+`-route …` opens a screen directly (DEBUG only); `-birthday confirm|error` seeds
+a *state* rather than a screen, since `simctl` can send no taps.
 
 ## Encoding: every generated file must support every language
 
@@ -1027,6 +1304,18 @@ straight onto a screen (DEBUG only). **`-birthday confirm|error`** seeds a
 *state* rather than a screen, for the same reason `-reveal` does: both need a tap
 to reach and `simctl` can send none.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**That pull-up is a reveal**, and `AppShell.page`'s `opacity` hiding — right for
+a bar — is wrong for a drag, since *two* pages are on screen while `tab` still
+names the one being pulled away. `isDrawn` is the fix: *a layer needed during a
+transition, gated on a flag that only moves at the end of it.* **Z-order matters
+too** (the dashboard is built before the garden), hit testing stays on
+`tab == which`, and `gardenLift` returns to **zero at rest**. `-reveal 0.5` /
+`-reveal 1` is **the only way to screenshot Memories from a script**.
+
 ## The tab bar, and why it must never inset
 
 Four tabs: Explore, Chat, the garden, and Memories (the dashboard). Wish — the
@@ -1257,6 +1546,27 @@ machinery, since the separation rule is about people and a video is not one.
 Their ids carry an **appearance number** for the same reason profiles' do: one
 post recurring with one id hands `ForEach` duplicates, which hung the app.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Every card must have a writer.** For a long time only the six synthetic seeds
+existed, because nothing in the app ever wrote one and every real signup was
+invisible — the policies had been there from the start and only the caller was
+missing. `DiscoveryCardService.publish` is it, called from `DistillViewModel.sync`.
+**The viewer is excluded in the query** (`user_id=neq.…`), so it never crosses
+the wire.
+
+**A match profile is two reads and only one of them was ever guarded** — the
+gated function returned school and bio while the name, age, district and
+photographs came from a direct read of a table any signed-in user may read.
+`public.match_card` sits under the same condition, and that condition is factored
+into **`private.may_see_match` — one function called twice**, because a copy
+would be the third place to edit and the first to be forgotten.
+
+`DiscoveryFeed` shows a person repeatedly with different photographs and lines —
+two of each, drawn without replacement, on independent cycles.
+
 ## Embedding YouTube, which took six attempts
 
 **The player will not run in a document with no origin, and an app-built page has
@@ -1278,6 +1588,14 @@ Playback follows the card nearest the middle of the screen, muted, one at a time
 Muted is load-bearing: WebKit blocks unmuted autoplay outright. Sound is a
 preference of the *reader*, so unmuting one video unmutes the feed — and resets
 on launch.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+Playback follows the card nearest the middle, **muted** (WebKit blocks unmuted
+autoplay outright), one at a time. Sound is a preference of the *reader*, so
+unmuting one video unmutes the feed, and resets on launch.
 
 ## The share extension
 
@@ -1354,6 +1672,23 @@ over REST, and the six synthetic accounts are real `auth.users` rows. A simulato
 cannot be the first person; Sign in with Apple needs a device. **Read the
 database after every step rather than trusting the screen** — the first accept in
 that run appeared to open a conversation while writing nothing at all.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Names and photographs come from `discovery_cards`, not from a denormalised
+copy.** `likes.liker_name` copied onto a conversation made a profile read one
+name in Explore and another in the chat header. The stored columns remain as the
+fallback the insert policy needs at creation. **The same gap existed on the two
+single-conversation fetches**, so a thread opened from a notification drew the
+generated portrait and the frozen name.
+
+**`23503` means the person deleted their account.** Every foreign key leads back
+to `public.users`, and a discovery card outlives the account because the feed is
+built once and scrolled. `PostgREST.Failure` carries the error code rather than
+folding it into the message, and the feed says "That profile is no longer
+available."
 
 ## Notifications: a like, a match, a message
 
@@ -1442,6 +1777,14 @@ somebody's saved contact photo on a stranger's profile; `INInteraction.direction
 must be `.incoming`, or Siri learns that *you* messaged everyone who has ever
 messaged you.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**`updating(from:)` renames the title to the sender's display name**, so the
+headline must travel in `subtitle` — otherwise the banner announces somebody
+called "Marco likes you".
+
 ## The semantic contract, and what it supersedes
 
 **`Written-Semantic-System-v0.3.1` is the authority for semantic design, and this
@@ -1496,6 +1839,16 @@ scored concepts 15 → 27; the account still has zero eligible assertions, becau
 its whole vault is 50 YouTube observations. **Vocabulary was never the binding
 constraint — evidence was.**
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**The creator vocabulary is one person's Apple Music library and does not
+generalise** — a second account with seven sources produced zero assertions with
+nothing failing. **Vocabulary was never the binding constraint; evidence was**:
+publishing a wider ontology halved the unresolved terms and still produced no
+eligible assertion, because that whole vault is 50 YouTube observations.
+
 ### YouTube channels are terms, and the flags that decide it
 
 **Everything below the flag was already built and had never been switched on.**
@@ -1545,6 +1898,16 @@ invocations answered `42501` before anybody looked. `semantic_worker` is
 shows only what the *querying* role can see and answers empty for `ontology`; ask
 `has_table_privilege` instead, as `0137` does.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+A run's identity is `(user, revision, ontology version, resolver, scorer)`.
+**A policy grant is not in it**, and `enqueue_recompute_on_analysis_change` only
+enqueues where no run exists for that tuple — so **a behaviour change needs a new
+model version**, and a model version that lags its code makes `semantic_runs`
+state something untrue.
+
 ### Where the informative fields actually are
 
 Measured on one account's YouTube rows, for the repost case: the channel name
@@ -1565,6 +1928,17 @@ which promoted `concept:fashion` (0.190) and `medium:television` outright on
 incidental tags from *unrelated* channels. Fixed in the repository to intersect
 on channel id; **not deployed**, and both assertions are still eligible in
 production.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+On YouTube repost rows the channel name is meaningless, the topics are
+containers, the uploader tags are null — and the **title** carries everything.
+**The projection keeps the fields carrying nothing and excludes the one carrying
+everything**, because III.E.4 requires titles deleted or refreshed within 30 days
+and the payload is frozen. The guard prevents *updates*, and no trigger fires on
+delete — but foreign keys do.
 
 ### The schema, and who may reach it
 
@@ -1893,6 +2267,81 @@ rather than its pass.
   reading it back and refusing to agree the contract compiles if the two have
   drifted in either direction.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+- **Every semantic object is `semantic_private`.** The reference chain uses
+  `private`, which this app already owns (`push_config`, `notify`,
+  `collaborators`). **No executable statement in an adapted migration may name
+  `private`** — the hazard is the grant, not the revoke.
+  **The compiled contract names its sixteen stores `private.*` for the same
+  reason, and the crosswalk is written down rather than performed silently** —
+  `STORAGE_SCHEMA_CROSSWALK` in `tools/compile_semantic_contract.py`, the same
+  class of thing as `hub:game` meaning `hub:games_play`. A compiler that resolved
+  it quietly would hide a semantic table created next to the push secret.
+- **`semantic_private` has RLS on and no policies anywhere.** Access is decided
+  by role grants and `security definer` functions. Adding the first policy costs
+  that sentence, so it needs an argument.
+- **A child table's foreign key carries `user_id`**, referencing
+  `parent(id, user_id)` rather than `parent(id)`. The constraint then *proves* a
+  row belongs to the same account as its parent instead of a query being careful.
+  `0203` had to add `unique (id, user_id)` to `observation_mentions`, which
+  predated the pattern and could not be referenced on those terms.
+- **`review_items` and `review_exposures` are append-only by trigger.** A
+  feedback label is uninterpretable without what was on screen — "they struck
+  this" means nothing except against the rank, tier and epoch it was struck at —
+  so an update would rewrite the question after the answer. Same refusal
+  `ingestion_run_items` applies to evidence.
+- **Two identities, and neither may become the other.** `semantic_ingestor` can
+  call exactly one `security definer` function and holds **zero table
+  privileges** — leaked, it writes vault rows and reads none back.
+  `semantic_worker` is `bypassrls` with an **enumerated** grant list, nothing
+  outside `semantic_private`, asserted from the catalog at migration time.
+- **`on all tables` binds at execution time**, so every table a later migration
+  adds gets no grant unless that migration grants it explicitly.
+- **When a migration needs a grant, read `pg_trigger` for the tables being
+  written and follow what each trigger calls.** That is the first move, not the
+  sixth.
+- **`bypassrls` is not a grant, and checking five tables is not checking the
+  sixth.** The ISRC route joins through `ontology.external_concept_links`;
+  `semantic_worker` had select on `concepts`, `concept_revisions`,
+  `concept_labels`, `versions` and `external_entities`, and not on that one. Six
+  of nineteen `ontology` tables are still unreadable by the worker, deliberately.
+- **A model version that runs *ahead* of working code is the same defect as one
+  that lags it.** `0215` published resolver 0.11.0 describing the ISRC route;
+  the route then did not run, and three completed runs recorded a version whose
+  parameters describe behaviour that did not happen. The remedy is the same — a
+  new version, `0217` — because *the runs state something untrue* either way.
+- **Identifiers are canonicalised where they enter, never at each comparison.**
+  psycopg returns a `uuid` column as a `uuid.UUID`; `observation_from_row` stores
+  `str(row["id"])`. `str in {UUID, …}` is false for every row, and that cost 736
+  silently skipped observations inside a run that reported success. `identity()`
+  in `resolve.py` is the one representation, and a normalisation applied at three
+  call sites out of four is the one that fails.
+- **A skip must have a name, or no total can disagree with it.** Every
+  ISRC-bearing observation lands in exactly one bucket — mapped, not_current,
+  no_catalog_match, ambiguous, ineligible, errored — and `resolve_user` raises if
+  the residual is not zero. A run may legitimately map nothing; it may not *lose*
+  rows, and before the buckets existed those two were indistinguishable.
+- **`tools/replay_contracts.sh` applies the whole chain to a throwaway Postgres,
+  and `tools/ci/unreplayable_migrations.txt` is meant to stay empty.** A
+  migration that asserts against production's own contents cannot replay, and
+  the repair is always the same shape: **assert the transformation, not the
+  precondition.** `0173` refused an empty Apple catalogue and so blocked
+  `0174`–`0205` from ever being replay-tested; seven more behind it named a
+  count, a uuid or an artist that only one database holds. **A count of zero is
+  not a failure to act** — say what must be true *when* the input exists, and
+  the same assertion answers on an empty database and on production.
+- **The compiled contract's database gate runs there too**, fed by
+  `tools/read_live_catalog.py --emit-sql`, so its allowlists are a thing a
+  database said rather than a thing somebody typed. It refuses a snapshot with
+  no `constraint_oids` and no fingerprint. **The eight unregistered pipeline
+  jobs are reported as *pending* while the overlay is off and become failures
+  the moment it is on** — registering a `job_type` before its handler ships is
+  worse than leaving it out, since the job is claimed, found handler-less and
+  marked `dead` with no retry.
+
 ### Keys and crypto
 
 - **Ingestion gets encrypt-only; the worker gets decrypt.** The thing exposed to
@@ -2167,6 +2616,16 @@ revision that now stands.
   internal kind appearing on a profile is worse than a nameable one being missed,
   because only the first is invisible to whoever added it. **A user's own term
   always survives it**, having no concept and therefore no kind.
+  - **`topic` is admitted less three key prefixes**, and the exclusion is the
+    whole of the change: `era:`, `sphere:` and `scene:` are *also*
+    `concept_kind = 'topic'`, and every topic assertion in the database is one
+    of them, so widening on kind alone would have restored exactly the set
+    `0108` removed and added nothing. **The kind cannot separate the axis from
+    the claim** — `score.py`'s `NEVER_ASSERTED_KEY_PREFIXES` says the same from
+    the scorer's side. `genre` and `place` stay out.
+  - It admitted nothing on the day it shipped: the 14 `subject:*` concepts it
+    exists for score 0.054 at best against a 0.35 bar. **It is a precondition
+    for imported vocabulary, not a release of withheld terms.**
 - **YouTube may raise a concept's strength and may never be the only reason it
   crosses to another user** (`0117`, corrected by `0118`). Of 1,139 concepts
   scored, 56 are touched by YouTube: 26 have another witness and cross, 30 are
@@ -2301,6 +2760,15 @@ argument only exists when Xcode launches the app** — from the home screen or t
 app switcher the scheme passes nothing, so every probe silently does nothing.
 All three probes share both traps.
 
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+Two traps all three probes share. **An alert is a single-shot surface** — writing
+`result` twice shows only the first message, so probes print to the console too.
+And **a launch argument only exists when Xcode launches the app**; from the home
+screen or the app switcher every probe silently does nothing.
+
 ### Phase 3: Memories draws assertions, and the legacy cards stay beside it
 
 **Built 2026-08-12** against a surface `0048` had already shipped whole:
@@ -2325,6 +2793,14 @@ defined enough to strike off or understand"* — which took it from 65 rows to 3
 The 13 genres and 16 scenes/spheres remain asserted, scored and evidenced, and
 are what Phase 4's server-owned discovery will match on. **Both readings are on
 screen at once deliberately**, so the two can be compared.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+The surface (`api.list_assertions`, `confirm_assertion`, `add_assertion`,
+`suppress_assertion`, `restore_assertion`, `record_assertion_exposure`) is each
+`security definer` and scoped to `auth.uid()` with **no parameter for whose**.
 
 ### Memories is the ontology's surface
 
@@ -2362,6 +2838,388 @@ not.
 **The readings are not terms and stayed behind.** `lifestyleSection` still draws
 the chronotype and the step average, because there is no entry behind "You start
 at 06:40" for anybody to agree with. Sports left it — a sport is a named thing.
+
+### What a music library can mint by itself, and what it cannot
+
+Audited 2026-08-15, both accounts. **Artists yes, genres and works no.**
+
+- **A new artist mints automatically, from Spotify as readily as Apple Music.**
+  `catalogue.py`'s `SELECT_MISSING_ISRCS` has **no `source_code` filter** —
+  `source_code` is recorded in an `array_agg`, never restricted on — so any
+  active observation carrying an `isrc` is looked up in Apple's catalogue and
+  its artists minted as `creator:apple_<id>`. Armed by a trigger on
+  `ingestion_runs.status = 'succeeded'` with a two-minute debounce, and with **no
+  user-count threshold**: one library is enough. Measured: 94% of Spotify rows
+  carry an ISRC, **89.8%** of its distinct ISRCs are in the catalogue, and
+  **374 concepts are attested by Spotify alone**. `0178` states the position —
+  *"the mint still considers every artist whatever source named them"* — and
+  `external_entity_sources` exists so a restriction is executable later.
+- **A new genre did not.** Both genre mints carried `revoke all` and no grant, so
+  `semantic_worker` could not call either, and an unmatched genre string is
+  silently dropped at the join in `0190:383` — the artist gets no genre parent
+  and blocks to `hub:music`. **`0191`'s header claimed the opposite** (*"the same
+  function is what a later mint calls"*), which was never true of the shipped
+  code. `0202` grants it and `catalogue.mint_for` calls it, **before** the artist
+  mint so an artist can take a genre minted in the same pass as its parent.
+- **It is inert on today's data and that is correct.** Nine stated genre strings
+  resolve to nothing and the suffix rule refuses all nine — `chinese hip hop`
+  because we hold `hip hop rap` and not `hip hop`, which is the synonymy `0191`
+  declined to guess. Coverage is high because `0188`/`0189` imported Apple's
+  whole taxonomy: **50 of 52** stated strings resolve.
+- **A non-game work never mints, and that is settled rather than pending.**
+  `work:apple_*` is minted only for `is_game` soundtrack credits. The 1,422
+  unresolved `work` strings from Apple Music are the largest single block of
+  unresolved evidence, which reads as the obvious next hole to close. **Measured
+  2026-08-17, it is not one**, and minting them would rebuild at 2.5× scale
+  exactly what `0221` removed 560 of.
+  - **The evidence has no independence structure.** Of 575 non-classical works
+    reachable from live observations, **16 have two performers and 2 have
+    three**; average 1.04 performers and 2.34 mentions. A work is attested only
+    by its own recordings, which is why its bar is the 0.25 relief in the first
+    place — and 2.34 mentions at ~0.6 apiece saturates to about **0.19**.
+  - **The classical hypothesis is the one worth having and it is false here.** A
+    composition attested by several ensembles would be a real trait, the same
+    independence that makes the genre rollup work. **0 of 35** classical works
+    reach two performers: this library holds one recording of each.
+  - **Composer is the better target and also fails.** 57 composers, none reaching
+    two performers, **top strength 0.240 against the 0.35 creator bar**.
+  - **And the question is not answerable yet.** `observation_mentions` carries
+    work strings for **one user**, so "held by two or more users" is arithmetic
+    rather than a finding. Cross-user attestation is where a work would get its
+    independence, and it needs a population — the `EmergentTermMiner` five-user
+    floor is the same wall. **A threshold fitted to no data points is the
+    mistake the `work` bar avoided by waiting for three labelled rows.**
+  - **What would change the answer**, and is worth re-running rather than
+    re-deriving: works reaching two distinct performers within one library, or
+    the same work held by several accounts. Neither needs new code to measure.
+  - **`0223` freezes the rule before the population exists**, which is the whole
+    of the method: *rule first, population second, decision last.* A threshold
+    fitted to the library it was read from looks right by construction, and
+    `0220` produced two live examples of that in one afternoon.
+    - **The frozen rule: three or more distinct `primary_performer`s, within
+      one account, on policy-eligible live observations.** Three is **frozen as
+      a literal and does not track `ELIGIBLE_STRENGTH` or `HALF_WEIGHT`** — a
+      rule that moved with the scorer's constants would silently redefine the
+      experiment. It is *derived from* them (`w >= 2.0` at the 0.25 relief, ~0.6
+      per mapping, so ~3.3) and rounded **down**, so the shadow set
+      over-collects: under-collection cannot be repaired afterwards.
+    - **The two qualifiers are `eligible_shadow`, which is not vocabulary** — no
+      concept, no revision, no version, nothing reads them. `0221` removed 560
+      recordings minted only because minting was the sole way to hold a handle
+      on something; this is that handle without the minting.
+    - **`evaluate_work_independence` refuses below five accounts rather than
+      caveating.** A printed number gets quoted, and a threshold read off too
+      little data is the failure being guarded. Five is `EmergentTermMiner`'s
+      floor, reused rather than reinvented.
+    - **The five measurements are named in the row, not chosen afterwards**:
+      works per user, recurrence across users, precision after review,
+      independence of the qualifying evidence, and ontology growth per useful
+      assertion — the last being the ratio that would have flagged `0198`/`0199`
+      early, 779 concepts for 6 mappings and no assertions. **Precision reports
+      `null` until review data exists, never `0`.**
+    - **A trigger enforces the freeze**; only `status` and `notes` may move, and
+      **a superseding rule takes a new key rather than an amendment.**
+      Publication is a separate decision on a held-out population and nothing
+      in `0223` performs it.
+    - **`0224` reports three flags that cannot be read optimistically.**
+      `population_gate_open` (enough accounts), `measurement_complete` (every
+      named measurement produced a value — **not** implied by the gate, and
+      `measurement_blockers` names what is outstanding so the flag is never a
+      bare false), and **`publication_ready`, which is never derived**. A
+      computed one would mean the system publishes vocabulary the moment
+      arithmetic crossed a line, which is the failure this whole apparatus
+      exists to prevent, one level up.
+      - **The attestation ledger is append-only and withdrawal is an event**, so
+        *attested then withdrawn* stays distinguishable from *never attested* —
+        two states one boolean column would collapse. `publication_ready` reads
+        the **latest** event, never `exists(attest)`, which would answer true
+        forever once anything had been attested.
+      - **`m5` was circular in the first draft** — it asked whether any inferred
+        assertion is eligible anywhere, true of 150 rows unrelated to the
+        experiment. A shadow candidate's weight is knowable now, so *would it
+        clear the bar* is computable without minting; the only precondition is
+        having candidates to divide by.
+
+### A song is a claim only where the evidence is preference, not presence
+
+`0221` removed recordings because **owning a track is not a trait**. That settles
+presence and not the narrower case: a song somebody **rated**, or that is their
+**top track**, or that they **play repeatedly**. `0225` registers that route the
+same way — frozen rule, shadow, gate, attestation — and mints nothing.
+
+- **The frozen rule is two *distinct* acts of preference** (`rating` 0.880,
+  `top_track` 0.780, `recently_played` 0.780, `heavy_rotation`), plus clearing
+  the 0.25 relief on those acts alone. **`saved_track` (0.600) is excluded**:
+  saving is acquisition, which is the presence `0221` already ruled out, at a
+  higher weight.
+- **Distinct acts, never repetition of one.** Playing something forty times is
+  one relationship observed repeatedly — the same reason forty tracks by one
+  ensemble are one opinion about baroque — and `recently_played` is bounded by
+  the API window, so counting plays measures how recently somebody opened the
+  app.
+- **It selects nothing today, and that is a result rather than a failure.** Of
+  1,345 (account, ISRC) pairs, **679 carry one act of preference and none carry
+  two**; the strongest reaches `strength` 0.104 on preference evidence.
+- **The near-miss is recorded so it is refused rather than unnoticed.** Counting
+  presence too, the strongest song in the database reaches **0.227** against the
+  0.25 bar. **The bar is not moved**, and `0225` asserts the disagreement would
+  raise: a bar that admits the best row in the current data is a bar fitted to
+  it.
+- **`EmergentTermMiner` is not the growth path.** Implemented, never invoked,
+  `auto_promote: false`, and a five-user floor a single library cannot reach.
+
+**Spotify emits no `observation_mentions`, and that is a licence rather than a
+gap.** `MINEABLE_SOURCES` in `resolve.py` is an allow-list: **IV.2.1.a** forbids
+ingesting Spotify Content into an ML/AI model and **IV.2.5** says consent does
+not cure it, so growing vocabulary *from Spotify strings* is precisely what may
+not happen. Its route is catalogue identity, which reads an ISRC and discards it
+rather than learning from Content. The consequence to remember: **the
+demand-driven loop is blind to Spotify by design**, so a coverage question about
+Spotify has to be answered by counting mappings, not by reading the mentions
+ledger.
+
+**Spotify `playlist_item` is refused and Apple Music's is not.** 540 rows, no
+mapping of any state. `/v1/me/playlists` returns followed playlists as well as
+owned ones and the item rows carry no owner, so admitting them would count
+Spotify's editorial curation as somebody's own — what `recommendation: 0.000`
+refuses for Apple. **Weighing them 0 while admitting them would be worse**: a
+zero-weight mapping still raises `observation_count`, which confidence saturates
+on. Pinned by a test, because the identical shape — one fact in
+`sources.action_weights` and in `SOURCE_ACTION_WEIGHTS` — already cost this
+project `top_track` and `top_artist` for months.
+
+### Identity is not vocabulary, and the two live in different layers
+
+**A globally identifiable thing is not automatically ontology vocabulary.** An
+ISRC identifies a recording exactly and permanently, which makes it a *verified
+shared catalogue entity* — nothing about that identity is provisional. What has
+not happened, and should not, is **promotion** into something the system may say
+about a person. `0221` separates the two:
+
+| layer | holds | versioned |
+|---|---|---|
+| identity registry — `ontology.external_entities` | ISRC → title, artist, genres | no |
+| semantic ontology | genres, creators, works, activities, topics | **yes** |
+| evidence — `observation_mappings` | which observation attests what | per run |
+
+- **The 560 recordings are not deleted; ontology 0.34.0 keeps every one.**
+  Published versions are immutable and their runs must stay reproducible, so the
+  only honest way to remove a concept is **not to carry it forward** — 0.35.0
+  simply does not have them. `ontology.is_identity_registry_concept` is the one
+  place a family is named.
+- **The split is structural, not a convention.** `observation_mappings`
+  references `concept_revisions (ontology_version_id, concept_id)`, so with no
+  recording revision in 0.35.0 a recording mapping is refused by a **foreign
+  key** rather than by code remembering not to write one.
+- **`ontology.copy_forward_version` is the copy-forward, once.** It was
+  hand-written in every version-publishing migration, and **`0213` exists
+  because one of them forgot the fifth table** and took 760 links down to 1. An
+  exclusion that also had to be remembered would be worse than that bug, since
+  forgetting it silently *restores* the concepts.
+- **Why it matters rather than being tidying:** a recording is
+  `concept_kind = 'work'`, and `work` is on the `api.list_assertions` allowlist
+  at the 0.25 relief — so the only thing keeping *"you own this track"* off a
+  profile was that recordings top out at `strength` 0.148. **That is a margin,
+  not a rule.**
+- **"Provisional" means uncertain identity, and an ISRC is not that.**
+  `semantic_private.provisional_entities` has a `music_recording` family and an
+  `identity_state` of `personal_provisional`; a title-and-artist string belongs
+  there, an ISRC-identified recording never does.
+
+### A recording is not a trait, and it is evidence for a genre
+
+**Owning a track is not something to say about somebody.** The 560 minted
+recordings average 1.31 observations each and the strongest reaches `strength`
+0.148 — correct rather than a shortfall, since a bar that admitted a single
+purchase would admit everything. So the question is what a recording is evidence
+*for*, and it was answered by measuring three rollups rather than by choosing:
+**creator yields nothing** (99 pairs reached, 0 new crossings — the lexical route
+had already found every one), **album is weak** (19 of 254 reach two recordings),
+**genre is the one that works** — because Apple states a genre on the *recording*
+and the artist-level mint never saw it (`0202` resolved none of its nine artist
+genre strings; recording genres resolve 61 of 83).
+
+- **The artist is the independence unit, and one mapping per (genre, artist) is
+  the whole of the damping.** Forty baroque tracks by one ensemble are one
+  opinion about baroque; two ensembles agreeing are two. `mapping_method` is
+  **`provider_metadata`** — Apple states the genre *about* the recording, which
+  is not an identifier *for* it.
+- **No threshold lives in the resolver; the scorer's curve decides** — and so
+  **the number of artists that clears it is not a constant this route may
+  quote.** Getting that wrong twice in one sitting turned four real crossings
+  into a predicted twenty: the bar for a genre is **`ELIGIBLE_STRENGTH` 0.35**
+  (the **0.25 relief is `concept_kind = 'work'` alone**), and **`w` is not the
+  artist count** — every mapping is multiplied by `recency_weight`,
+  `default_reliability` and `action_weight`, ~0.6 per artist on real libraries.
+  `test_genre_rollup_threshold.py` derives the boundary from the constants so
+  moving either one fails rather than quietly emptying the rollup.
+- **A container genre is a vocabulary problem, never a resolver deny-list.** A
+  rule silencing a parent whose child the account also holds was written,
+  measured against both accounts, and **was wrong in both directions**: it let
+  `genre:apple_19` ("Worldwide") through, the one case it existed for, and struck
+  out `genre:pop` at 227 independent artists and `genre:classical` at 98. The
+  opaque keys are not containers either — `apple_1004` is Indie Rock, `apple_1263`
+  Bollywood.
+- **Weighting does *not* dispose of the container worry, which was measured after
+  the fact and had been asserted the other way.** `genre:apple_19` ("Worldwide")
+  scored **0.391** on the first real run and is an eligible assertion today —
+  the prediction that four artists would leave it short of 0.35 was made from an
+  artist count, which is the same mistake as the one above.
+- **`0222` says it in the ontology, on the concept, and `inference_policy`
+  already had the word.** `explicit_only` means *a person may claim this, the
+  system may never infer it* — so a container stays in the vocabulary, stays
+  scored, stays a parent for its children, and stops being a claim about
+  anybody. Scorer `0.16.0` withholds `explicit_only` and `prohibited` and counts
+  it as `policy_withheld`; **`review_required` is deliberately not honoured**,
+  890 concepts carrying it and every one assertable. `genre:apple_19` and
+  `genre:asian_music` are named — **authored judgement, kept short**, like
+  `0198`'s merge list, because there is no derivable signal: "Worldwide" has 4
+  children and `genre:baroque` has 45. What makes it honest is being a property
+  of the concept that every reader sees rather than literals in one resolver.
+- **A rule that only withholds arrives too late for the rows it was written
+  for**, so the standing inferred assertions are demoted to `inactive`.
+  `explicit_addition` is left alone — what somebody typed is not what was read
+  off their phone, and `explicit_only` is exactly the policy that still permits
+  it.
+
+**`tools/apple_catalog.py` is a CLI and a Lambda file at once.** Its HTTP failure
+branch called `sys.exit`, and `SystemExit` is a `BaseException` — so it escaped
+`except Exception` in `handler.py`, taking the rollback and the payload-safe
+diagnostic with it, and an expired developer token killed the invocation
+silently. It raises `CatalogueReadFailed` now, which `mint_for` re-raises as
+`CatalogueUnavailable` so the handler declines the job instead of retrying
+against a dead credential. **Apple's response body is not carried** — it echoes
+the `filter[isrc]` it was asked about.
+
+### Growing the vocabulary: slices, offline, bounded by what the source states
+
+`tools/wikidata_vocab.py` imports whole domains from Wikidata (CC0) on a laptop.
+**It is not the resolver calling out, and nothing about the egress posture
+changed**: `allow_external_resolution` is still written `false`, six projection
+guards still refuse a row where it is not, an external hit is still permanently
+`CANDIDATE`, and `resolve.py` still constructs no provider. What makes an
+offline import honest is that **the query names the slice, never a user's
+string** — `observation_mentions` is read locally to decide *which* slice is
+worth having.
+
+- **Notability is a number the source states** — sitelink count, the same shape
+  as `subscriber_count` in `0195`. **And it only works for things whose fame is
+  their own.** An `athletes` slice was written and removed: at any selective
+  bound it returns the most famous *humans* who happen to have a sport recorded
+  — Plato, Joe Biden, two Bushes, Gerald Ford — and requiring a sportsperson
+  occupation does not help, because Camus kept goal. The next step would have
+  been a deny-list of occupations, and **the failure mode of a deny-list is
+  silence**. A person-shaped slice needs a signal *about the thing*, not a
+  louder measure of fame.
+- **A titled work hides its name in the article title.** Wikidata stores no
+  English *label* for Minecraft, GTA V, Tetris, Roblox or Fortnite — the English
+  Wikipedia title carries it — so `SERVICE wikibase:label` answers with the bare
+  QID and `0198` dropped 90 of 304 games without saying so. `0199` reads
+  `schema:about`/`schema:isPartOf <https://en.wikipedia.org/>` as a fallback.
+  Common nouns are unaffected; **any future slice of works must ask for both.**
+- **Refuse at both ends.** `subject:health` passed every key check — the word
+  *health* contains no prohibited fragment — and was caught only by the
+  migration's read-back, which rolled a 724-concept import back. `refusedTopics`
+  now refuses in the tool as well. **It refuses the container, not the field**:
+  `subject:medicine` has been vocabulary since `0134`.
+- **Two entities with one name mint neither**, the key-level form of the rule
+  the resolver already applies to ambiguous labels. **A duplicate is not an
+  ambiguity**, though: an entity satisfying two slices is claimed by the more
+  specific one and reported, or the first run silently loses both — which is how
+  League of Legends became a sport and a work and then neither.
+- **A merge list is authored and stays short.** Six proposals named something
+  already held under another name (`association football` → `activity:soccer`);
+  minting them would split one interest across two concepts with the evidence
+  for each never reaching the other.
+- **Every imported concept must reach a hub** — asserted through
+  `concept_block`, which is what Memories calls. A floating concept lands under
+  "Other" and one parented to a guess is a false claim.
+- **Vocabulary is still not the binding constraint.** `0198`/`0199` added 779
+  concepts across five domains; over both live accounts they drew **6
+  observation mappings and no assertions**. That is the expected shape, not a
+  failure: these libraries are music. Breadth makes an interest *nameable* and
+  manufactures no evidence for it.
+
+### An activity can be watched or done, and the predicate is where that lives
+
+**Two concepts per sport is the wrong repair**: it splits the evidence and still
+cannot say which was meant, because **the evidence decides, not the concept**. So
+one concept accumulates everything and the *claim about it* names the
+engagement — `0200`, scorer `0.15.0`:
+
+    participates_in_activity   any evidence marked participation
+    follows_activity           any marked spectating, none participation
+    affinity_to                evidence that says neither
+
+- **The obvious predicates could not be used.** `completed_activity`, `watched`,
+  `attended_activity_at` and `booked_activity_at` are `observed_action` with
+  `assertion_safe = false` — what somebody did is evidence, not a claim about
+  them — and `guard_user_assertion_relation_class` refuses both properties.
+  *"Asserting it took the whole worker down once."* `likes_activity` is
+  `user_claim` and also refused, deliberately. The two new ones are `user_claim`,
+  `assertion_safe`, **zero inference hops** like `affinity_to`, or playing
+  five-a-side would become participating in sport by arithmetic.
+- **Which evidence means which lives in
+  `semantic_private.sources.engagement_modes`**, beside `action_weights` where
+  the next reader looks — never a list in `score.py`. Marked today: HealthKit
+  `workout`/`routine` as participation, YouTube `subscription`/`liked_video`/
+  `watched`/`video`/`liked`/`shared` as spectating. **Most sources are
+  deliberately unmarked and a migration assertion refuses a state where they are
+  not** — a saved track is neither, and booking a yoga class and booking a ticket
+  to a match are the same act on the same source, so calendars cannot be told
+  apart at the level of the action.
+- **Participation outranks spectating**, being a positive fact watching does not
+  contradict. **Only `concept_kind = 'activity'`** is asked the question, less
+  `travel:*`, which `assert_travel` writes outside the concept loop.
+- **A concept whose predicate changes is a new assertion row, and both records of
+  a person's answer are keyed on what just changed** — `assertion_preferences` on
+  the assertion id, `user_suppressions` on the predicate. Unhandled, a re-score
+  puts a suppressed term back on somebody's page. `carry_user_decisions` copies
+  and never invents.
+- **Every demotion statement names every assertable predicate.** They took one
+  while `affinity_to` was all the scorer wrote; left that way, an engagement
+  claim would have been unwithdrawable.
+- **It ships ahead of its data and the measurement says so**: zero mappings onto
+  any activity concept and zero HealthKit observations in the vault. Both
+  branches are exercised in `test_engagement_predicate.py` instead, because a
+  rule that has only ever answered one way is not one to believe. `0198` records
+  each concept's slice and source id in `metadata` for the same reason.
+- **The participation branch fires from `routine`, never from `workout`, and
+  that is structural** — see below. Both are marked `participation` because both
+  mean it; only one can ever arrive.
+- **The app draws it or it is half-built.** `Assertion.engagement` renders
+  *Does* / *Follows* beside the term and `nil` for `affinity_to`, which is every
+  row today.
+
+### A workout is not the evidence; the habit derived from it is
+
+**`action_weights` for HealthKit is `{activity_day: 0, activity_hour: 0,
+workout: 0, sleep: 0, routine: 0.85}`, and raising any of the zeros changes
+nothing.** The weight multiplies a mapping that cannot exist, refused twice
+over: `ObservationMapper._source_projection_is_valid` admits a HealthKit
+observation only where `data_type = 'fitness_habit'` and `action = 'routine'`
+(plus the sanitised privacy class and an exact metadata shape), and
+`guard_healthkit_observation_mapping` independently requires every HealthKit
+mapping to match a **current validated fitness habit candidate** with
+`evidence_weight` pinned to 1.0.
+
+**A zero here is a decision and not an unset default**, which is why the keys
+stay: `coalesce(action_weights ->> …, 0.0)` answers the same for an absent key,
+so deleting them would lose the only place the refusal is written as data.
+`0201` says so in a column comment, beside the number.
+
+**The dial that means "how much does a workout count" is
+`workout_min_sessions` / `workout_min_weeks` on
+`healthkit_fitness_habit_builder`** — 4 sessions across 3 distinct weeks in a
+42-day window today. What clears it arrives as `routine` at **0.85**, above all
+but seven of the ~50 action weights in the system. **Moving those thresholds
+needs a device that has recorded workouts**; there are none, and a threshold
+fitted to no data points is the mistake the `work` bar avoided by waiting for
+three labelled rows.
+
+The same shape holds for calendars — `booked`, `cancelled` and `entered_by_user`
+are zero because calendar rows reach the scorer through the classifier and never
+through the generic mapper.
 
 ### Which sources may feed a model, and who may say so
 
@@ -2403,6 +3261,38 @@ The bio is a `user` record like education and occupation, so it owns no column
 and applies locally at once. **Capped at 30 characters at the keyboard**, not on
 save: a sheet that accepts forty and then refuses is a dead end that cannot
 explain itself.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**The development team has consented to their data being used for training, and
+that consent comes with a standing requirement: nobody re-distils for us.**
+(Owner, 2026-08-14.) Everything they have given must be stored, retained and
+re-usable for training and testing at any time, without asking them for a tap.
+Two things follow and both are rules rather than aspirations:
+
+- **A change that needs data re-projected is our problem to solve server-side.**
+  Four changes in two days were paid for by asking somebody to open the app —
+  `title_works`, `place_key` three times over, and Spotify's `top_track` weight.
+  Each cost a person's afternoon and one of them silently did not work for a
+  week, because a build gate nobody could see meant the tap did nothing. Design
+  the re-projection to run from stored data, and treat "ask them to distil
+  again" as a bug report about us.
+- **Losing a distillation is losing a person's afternoon.** Deleting or expiring
+  anything a collaborator has given needs a reason that outranks that, which
+  today only the retention obligations do.
+
+**Consent does not move the licensing line, and this is where the two meet.**
+`AppConfig.semanticIngestionSources` currently carries `spotify`, so Spotify
+Content is reaching the vault — enabled deliberately for the data-collection
+prototype and marked as the line to delete before launch. IV.2.1.a forbids
+ingesting it into a model and IV.2.5 says a user's consent does not cure that, so
+**a collaborator's agreement makes their Apple Music, Podcasts, Calendar and
+HealthKit available for training and cannot make their Spotify or YouTube
+available.** Storing it for inspection and excluding it from a corpus are
+different acts; the corpus query at the foot of `0041` is where that exclusion
+lives, and it is the thing to check before any training set is built.
 
 ### The icebreaker
 
@@ -2453,6 +3343,41 @@ this is the narrow channel instead. Anything unrecognised is **them**, including
 null, and a name is never used to guess. **It is not an embedding** — this is
 overlap counting over genres, sports and creators, and it is what the ontology
 stage replaces.
+
+### Dyadic rarity is counted, not calibrated
+
+Two people sharing an obscure recording says far more than two sharing a chart
+hit — inverse document frequency, and the right signal for matching. `0226`
+**instruments it and deliberately does not build it.**
+
+- **`0164`'s two numbers are structural rarity and neither is this.**
+  `specificity` is `1/(1 + mean hops to the bridge)` and `information_value` is
+  `1/(1 + direct children)`; both read the ontology's *shape* and neither knows
+  how many **people** hold a thing. Complementary, not replaced.
+- **Two accounts hold ISRCs, so a document frequency has two possible values** —
+  0.5 or 1.0. **1,340 distinct items, 5 shared**, and the first snapshot's
+  histogram is the whole argument: `{1: 1335, 2: 5}` — no third band for a
+  weight to discriminate between. Any weight derived from that is a choice
+  between two numbers dressed as a statistic. **Counted after
+  `action_weight > 0`**, the scorer's own policy filter, so the instrument
+  measures what the pipeline would weigh; without it the figures are 1,513 and
+  6, which is the wrong denominator for a statistic about evidence.
+- **So counting is safe now and calibrating is not.** `snapshot_dyad_rarity`
+  records aggregate distributions at any population; `dyad_rarity_calibration`
+  **refuses below five accounts**, `EmergentTermMiner`'s floor reused rather
+  than reinvented.
+- **Distributions, never per-item rows.** *How many* items are held by exactly
+  two accounts is an aggregate; *which* item, at a population of two, names one
+  library and then the other. Per-dyad overlap is not stored either — `0164`
+  already refuses a dyad run without an active match authorisation, and an
+  instrument recording overlap for unmatched pairs would route around that
+  rather than respect it.
+- **`definition_version` is stamped on every snapshot** (`dyad_rarity_v1`), so
+  rows measured under different definitions are never silently compared, and a
+  superseding definition takes a new string rather than an edit.
+- **The migration asserts nothing calls the calibration**, by scanning
+  `pg_get_functiondef`. An instrument that quietly acquires a caller has stopped
+  being one, and that is the change most easily made later without noticing.
 
 ### The invitation becomes the first message
 
@@ -2541,6 +3466,17 @@ on a train.
 **Nothing about synchronisation changed**: the server is still the source of
 truth, the cache is still replaced wholesale by every successful fetch, and only
 an *unsuccessful* fetch stopped being mistaken for a successful empty one.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**A failed fetch must never be mistaken for a successful empty one.** The chat
+list drew from cache and then the fetch that followed **wrote its empty answer
+back**. `guard let me = await currentUserID() else { return [] }` is what fires
+offline, and the guard against exactly this tested `lastError`, which that return
+path never set. **The fix is the type, not another boolean** — return an optional,
+nil for *could not ask*, so the caller is `if let`.
 
 ## Photos
 
@@ -2745,6 +3681,21 @@ Apple approval"*.
 **`supabase/auth#1252` did not bite.** It reports that Twilio Verify always
 routes to Twilio and ignores the test OTP; tried 2026-08-07, the number works.
 Kept only as the first place to look if that stops being true.
+
+**Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
+what stands above, the shorter statement is the newer one and the longer one
+is the evidence it was drawn from; neither supersedes the rules file.
+
+**Every upload needs `CURRENT_PROJECT_VERSION` bumped, once per configuration per
+target, all moving together.** **Count it, never remember it**:
+`grep -c CURRENT_PROJECT_VERSION project.pbxproj`. Un-embedding a target does not
+reduce the count.
+
+Two silent ways to get it wrong: **the username must be the ten *national*
+digits** (a pasted `1XXXXXXXXXX` is truncated to ten, still validates, and sends
+the code to a number nobody holds), and **the Notes field is not optional here** —
+a reviewer who taps "Sign in with Apple" is refused with no way to know that
+*Create account* is the only door.
 
 ## Known gaps
 
