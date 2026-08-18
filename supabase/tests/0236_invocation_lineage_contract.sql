@@ -14,6 +14,11 @@ declare
   alice   uuid := '00000000-0000-4000-8000-00000000a11c';
   call_id uuid;
   first   uuid;
+  version uuid;
+  release uuid;
+  run_id  uuid;
+  obs     uuid;
+  ev      uuid;
   raised  boolean;
   n       integer;
   columns text;
@@ -21,12 +26,52 @@ begin
   insert into auth.users (id, email) values (alice, 'alice@example.invalid')
   on conflict (id) do nothing;
 
+  -- **A deployed shadow release.** `0239` derives the lane from a manifest a
+  -- deployment slot points at, so an invocation can no longer state its own —
+  -- and an evaluation lane could not carry the user-scoped items this file is
+  -- about, because evaluation is fixture-only.
+  select id into version from ontology.versions where status = 'published';
+  insert into ontology.release_manifests
+    (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
+     schema_sha256, release_build_sha256, database_fingerprint_sha256,
+     environment, promotion_decision, model_lane_mode,
+     tokenizer_runtime_manifest_sha256, extraction_contract_manifest_sha256,
+     gateway_image_digest, serving_image_digest, prompt_version, grammar_version)
+  values (version, repeat('a', 64), repeat('b', 64), repeat('c', 64),
+          repeat('d', 64), repeat('e', 64), 'contract_probe', 'pending',
+          'shadow', repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
+          'qwen_extractor_v5', 'semantic_grammar_v3')
+  returning id into release;
+  insert into ontology.deployment_slots (slot, ontology_version_id, release_manifest_id)
+  values ('shadow', version, release);
+
+  -- A user-backed success must name live source text, so the fixture needs one.
+  insert into semantic_private.ingestion_runs
+    (user_id, source_code, connector_version, input_hash, status)
+  values (alice, 'apple_music', 'contract-probe', 'probe_0236', 'running')
+  returning id into run_id;
+  insert into semantic_private.observations
+    (user_id, ingestion_run_id, source_code, data_type, observation_kind,
+     action_type, source_item_hmac, record_fingerprint,
+     payload_schema_version, normalized_payload, privacy_class)
+  values (alice, run_id, 'apple_music', 'library_song', 'catalog_entity',
+          'library_song', repeat(md5('0236-obs'), 2), repeat(md5('0236-fp'), 2),
+          'synthetic-v0.3.1', '{}'::jsonb, 'public_catalog')
+  returning id into obs;
+  insert into semantic_private.source_text_evidence
+    (user_id, observation_id, encrypted_text, encryption_key_version,
+     retention_class, expires_at)
+  values (alice, obs, '\x01'::bytea, 'probe-key-v1', 'provider_catalog_text',
+          now() + interval '30 days')
+  returning id into ev;
+
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status, model_lane_mode)
+     grammar_version, output_schema_hash, batch_items, status,
+     release_manifest_id)
   values (alice, 'probe-input', 'Qwen/Qwen3.5-9B', 'probe-rev',
           'qwen_extractor_v5', 'semantic_grammar_v3', repeat('0', 64), 1,
-          'succeeded', 'evaluation')
+          'succeeded', release)
   returning id into call_id;
 
   -- ---------------------------------------------------------------------
@@ -61,9 +106,10 @@ begin
 
   insert into semantic_private.model_invocation_items
     (invocation_id, item_index, user_id, logical_extraction_key, outcome,
-     mention_count, fingerprint_key_version, input_fingerprint)
+     mention_count, fingerprint_key_version, input_fingerprint,
+     source_text_evidence_id)
   values (call_id, 0, alice, 'probe:work', 'succeeded', 3,
-          'lineage-v1', '\x0102'::bytea)
+          'lineage-v1', '\x0102'::bytea, ev)
   returning id into first;
 
   -- ---------------------------------------------------------------------
@@ -90,8 +136,9 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome)
-    values (call_id, 2, alice, 'probe:work', 'succeeded');
+      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
+       source_text_evidence_id)
+    values (call_id, 2, alice, 'probe:work', 'succeeded', ev);
   exception when unique_violation then raised := true;
   end;
   if not raised then

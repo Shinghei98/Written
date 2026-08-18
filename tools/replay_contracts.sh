@@ -301,6 +301,10 @@ run_contract 0237_model_mention_boundary_contract
 # the schema described and refused to allow.
 run_contract 0238_source_text_erasure_contract
 
+# **The counterfactuals 0237 was missing.** An evaluation worker cannot claim
+# shadow, cannot name a user, and cannot write through an alternate table.
+run_contract 0239_model_lane_authority_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:

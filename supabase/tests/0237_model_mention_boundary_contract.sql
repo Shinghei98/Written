@@ -16,6 +16,9 @@ declare
   evidence  uuid;
   eval_call uuid;
   shadow_call uuid;
+  eval_release uuid;
+  shadow_release uuid;
+  version uuid;
   ok_item   uuid;
   bad_item  uuid;
   eval_item uuid;
@@ -47,34 +50,74 @@ begin
           now() + interval '30 days', 'current')
   returning id into evidence;
 
+  -- **A deployed release, because 0239 stopped an invocation naming its own
+  -- lane.** This file used to insert `model_lane_mode = 'shadow'` with no
+  -- manifest at all and then assert that call could create a user mention —
+  -- which made the green here a verification of the bypass rather than a
+  -- refusal of it. The lane now comes from a manifest a deployment slot points
+  -- at, and the caller's value is discarded.
+  select id into version from ontology.versions where status = 'published';
+
+  insert into ontology.release_manifests
+    (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
+     schema_sha256, release_build_sha256, database_fingerprint_sha256,
+     environment, promotion_decision, model_lane_mode,
+     tokenizer_runtime_manifest_sha256, extraction_contract_manifest_sha256,
+     gateway_image_digest, serving_image_digest, prompt_version, grammar_version)
+  values (version, repeat('a', 64), repeat('b', 64), repeat('c', 64),
+          repeat('d', 64), repeat('e', 64), 'contract_probe', 'pending',
+          'shadow', repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
+          'qwen_extractor_v5', 'semantic_grammar_v3')
+  returning id into shadow_release;
+
+  insert into ontology.release_manifests
+    (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
+     schema_sha256, release_build_sha256, database_fingerprint_sha256,
+     environment, promotion_decision, model_lane_mode,
+     tokenizer_runtime_manifest_sha256, extraction_contract_manifest_sha256,
+     gateway_image_digest, serving_image_digest, prompt_version, grammar_version)
+  values (version, repeat('f', 64), repeat('b', 64), repeat('c', 64),
+          repeat('d', 64), repeat('e', 64), 'contract_probe', 'pending',
+          'evaluation', repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
+          'qwen_extractor_v5', 'semantic_grammar_v3')
+  returning id into eval_release;
+
+  insert into ontology.deployment_slots
+    (slot, ontology_version_id, release_manifest_id)
+  values ('shadow', version, shadow_release), ('canary', version, eval_release);
+
   insert into semantic_private.model_invocations
-    (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status, model_lane_mode)
-  values (alice, 'probe', 'Qwen/Qwen3.5-9B', 'rev', 'qwen_extractor_v5',
-          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', 'evaluation')
+    (input_hash, model_id, model_revision, prompt_version, grammar_version,
+     output_schema_hash, batch_items, status, release_manifest_id)
+  values ('probe', 'Qwen/Qwen3.5-9B', 'rev', 'qwen_extractor_v5',
+          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', eval_release)
   returning id into eval_call;
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status, model_lane_mode)
+     grammar_version, output_schema_hash, batch_items, status,
+     release_manifest_id)
   values (alice, 'probe2', 'Qwen/Qwen3.5-9B', 'rev', 'qwen_extractor_v5',
-          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', 'shadow')
+          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', shadow_release)
   returning id into shadow_call;
 
   insert into semantic_private.model_invocation_items
-    (invocation_id, item_index, user_id, observation_id, logical_extraction_key,
-     outcome, mention_count)
-  values (shadow_call, 0, alice, obs, 'probe:ok', 'succeeded', 1)
+    (invocation_id, item_index, user_id, observation_id,
+     source_text_evidence_id, logical_extraction_key, outcome, mention_count)
+  values (shadow_call, 0, alice, obs, evidence, 'probe:ok', 'succeeded', 1)
   returning id into ok_item;
   insert into semantic_private.model_invocation_items
     (invocation_id, item_index, user_id, observation_id, logical_extraction_key,
      outcome)
   values (shadow_call, 1, alice, obs, 'probe:overflow', 'output_overflow')
   returning id into bad_item;
+  -- An evaluation item is fixture-only now, so it cannot carry the user and
+  -- observation this file used to give it. The refusal it was written to prove
+  -- has moved one table earlier and is asserted in 0239's contract; what it can
+  -- still show here is that an item with no user cannot back a user's mention.
   insert into semantic_private.model_invocation_items
-    (invocation_id, item_index, user_id, observation_id, logical_extraction_key,
-     outcome, mention_count)
-  values (eval_call, 0, alice, obs, 'probe:eval', 'succeeded', 1)
+    (invocation_id, item_index, logical_extraction_key, outcome, mention_count)
+  values (eval_call, 0, 'probe:eval', 'succeeded', 1)
   returning id into eval_item;
   -- A fixture belongs to nobody.
   insert into semantic_private.model_invocation_items
@@ -142,22 +185,6 @@ begin
   end;
   if not raised then
     raise exception '0237 contract: a model mention descended from an overflow';
-  end if;
-
-  raised := false;
-  begin
-    insert into semantic_private.observation_mentions
-      (observation_id, user_id, mention_text, normalized_text, mention_role,
-       source_field, extraction_method, type_hint, confidence,
-       safe_for_global_mining, safe_for_external_resolution, evidence_weight,
-       model_invocation_item_id)
-    values (obs, alice, 'Evaluated', 'evaluated', 'primary_subject', 'title',
-            'model_proposed', 'work', 1.0, false, false, 1.0, eval_item);
-  exception when others then raised := true;
-  end;
-  if not raised then
-    raise exception
-      '0237 contract: an evaluation invocation created a user mention';
   end if;
 
   -- A fixture item has no user, so the composite key has no row to point at —
