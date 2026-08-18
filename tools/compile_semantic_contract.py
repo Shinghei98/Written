@@ -65,11 +65,21 @@ VIRTUAL_FAMILIES = frozenset({
     "calendar_event", "travel_itinerary", "event_occurrence", "user_profile",
 })
 
-# The five ontology families the model may never emit. Checked as an exact
-# difference rather than a subset test: a family appearing on one side and not
-# the other is a drift signal whichever direction it points.
+# The ontology families the model may never emit. Checked as an exact difference
+# rather than a subset test: a family appearing on one side and not the other is
+# a drift signal whichever direction it points.
+#
+# **`music_recording` is the sixth, and it is a different kind of entry from the
+# other five.** Those are plumbing the model has no business proposing — a
+# channel is provider identity, a hub is navigation. This one is a decision:
+# `0221` took recordings out of the versioned ontology because identity is not
+# vocabulary, and `mention_extract_v2` dropped the family so a model could not
+# reopen the minting route that closed. The ontology still holds it, for the
+# identity registry and for `provisional_entities`; what ended is the model's
+# licence to propose one.
 MODEL_FORBIDDEN_FAMILIES = frozenset({
     "channel", "event_type", "game_category", "hub", "platform",
+    "music_recording",
 })
 
 

@@ -102,27 +102,40 @@ def test_every_enum_is_sorted_equal_in_both_directions(compiler, config, schema)
     expected = {
         "llm.family.enum": mention["family_hypothesis"]["enum"],
         "llm.mention_role.enum": mention["mention_role"]["enum"],
-        "llm.predicate.enum":
-            schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"],
         "llm.schema.abstain_reasons":
             [v for v in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"] if v],
     }
+    # Only if the schema declares relations. `mention_extract_v2` does not, and
+    # the predicate vocabulary is checked against the grammar instead — see
+    # `test_the_grammar_and_the_workbook_permit_the_same_predicates`.
+    relations = schema["$defs"].get("relation_hypothesis")
+    if relations is not None:
+        expected["llm.predicate.enum"] = relations["properties"]["predicate"]["enum"]
+
     for key, values in expected.items():
         assert sorted(compiler._split(config[key])) == sorted(values), key
-    assert len(expected["llm.family.enum"]) == 18
+    assert len(expected["llm.family.enum"]) == 17
     assert len(expected["llm.mention_role.enum"]) == 15
-    assert len(expected["llm.predicate.enum"]) == 12
     assert len(expected["llm.schema.abstain_reasons"]) == 5
 
 
-def test_the_grammar_and_the_schema_permit_the_same_predicates(compiler, sheets, schema):
+def test_the_grammar_and_the_workbook_permit_the_same_predicates(compiler, sheets, config):
+    """The check that caught the prompt offering seven where twelve were legal.
+
+    It used to compare the grammar against the schema. `mention_extract_v2`
+    carries no relations at all, so the schema has nothing to say here and the
+    workbook's own `llm.predicate.enum` is the other side — which is where the
+    vocabulary lived all along. The defect this guards against is unchanged: a
+    predicate the grammar permits and nothing else knows about is a relation that
+    can never be produced.
+    """
     permitted = compiler.model_predicates(sheets)
-    allowed = schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"]
-    assert sorted(permitted) == sorted(allowed)
+    declared = compiler._split(config["llm.predicate.enum"])
+    assert sorted(permitted) == sorted(declared)
 
 
-def test_a_source_profile_may_narrow_but_never_widen(compiler, config, schema):
-    union = set(schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"])
+def test_a_source_profile_may_narrow_but_never_widen(compiler, sheets, config):
+    union = set(compiler.model_predicates(sheets))
     profiles = {k: v for k, v in config.items() if k.startswith("llm.predicate.profile.")}
     assert profiles, "no source profiles are declared"
     for key, value in profiles.items():
@@ -233,36 +246,51 @@ def test_the_source_hashes_attest_to_the_files_actually_present(compiler, schema
     assert contract["source_hashes"]["mention_schema_sha256"] == compiler._sha256(schema_path)
 
 
-def test_every_predicate_has_a_schema_valid_fixture(compiler, schema):
-    """The spec requires one fixture per predicate; twelve enum members with no
-    exercised example is twelve untested branches."""
-    predicates = schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"]
-    for predicate in predicates:
-        response = {
-            "schema_version": "mention_extract_v1",
-            "items": [{
-                "item_index": 0,
-                "abstain": False,
-                "abstain_reason": None,
-                "mentions": [{
-                    "surface": "FGO",
-                    "source_field": "title",
-                    "source_field_index": None,
-                    "start": 0,
-                    "end": 3,
-                    "canonical_label_hypothesis": "Fate/Grand Order",
-                    "family_hypothesis": "game",
-                    "mention_role": "primary_subject",
-                    "conversation_worthy": True,
-                    "evidence_fields": ["title"],
-                    "lookup_queries": ["Fate/Grand Order"],
-                    "relation_hypotheses": [
-                        {"predicate": predicate, "object_label_hypothesis": "Fate series"}
-                    ],
-                }],
+def test_a_relation_cannot_be_smuggled_into_an_extraction_response(compiler, schema):
+    """The successor to one-fixture-per-predicate, and it asserts more.
+
+    That test built a response carrying a `relation_hypotheses` array and
+    validated it once per predicate — twelve enum members with no exercised
+    example being twelve untested branches. `mention_extract_v2` emits no
+    relations at all, so the honest question changed: not *is each predicate
+    reachable* but *is any of them reachable*. `additionalProperties: false` is
+    what makes the answer no, and it is worth pinning, because a schema that
+    merely omitted the `$def` while tolerating extra keys would let a model send
+    relations that nothing validates and nothing reads.
+    """
+    if "relation_hypothesis" in schema["$defs"]:
+        pytest.skip("this schema declares relations; the older fixture test applies")
+
+    smuggled = {
+        "schema_version": schema["properties"]["schema_version"]["const"],
+        "items": [{
+            "item_index": 0,
+            "status": "extracted",
+            "abstain_reason": None,
+            "mentions": [{
+                "surface": "FGO",
+                "source_field": "title",
+                "source_field_index": None,
+                "start": 0,
+                "end": 3,
+                "canonical_label_hypothesis": "Fate/Grand Order",
+                "family_hypothesis": "game",
+                "mention_role": "primary_subject",
+                "conversation_worthy": True,
+                "relation_hypotheses": [
+                    {"predicate": "part_of_franchise",
+                     "object_label_hypothesis": "Fate series"}
+                ],
             }],
-        }
-        jsonschema.validate(response, schema)
+        }],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(smuggled, schema)
+
+    # And the same response without the smuggled key is legal, so the refusal
+    # above is about the relation rather than about the rest of the shape.
+    smuggled["items"][0]["mentions"][0].pop("relation_hypotheses")
+    jsonschema.validate(smuggled, schema)
 
 
 def test_every_stored_fewshot_is_a_valid_complete_response(compiler, config, schema):

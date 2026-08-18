@@ -35,16 +35,24 @@ def test_the_contract_is_found_and_identifies_itself(contract):
 
 
 def test_the_two_family_vocabularies_are_kept_apart(contract):
-    """18 the model may emit, 23 the ontology stores.
+    """17 the model may emit, 23 the ontology stores.
 
     Conflating them is how a model comes to propose a `hub` — navigation
     furniture rather than a thing anybody is interested in.
+
+    `music_recording` is the sixth in the difference and the only one that is a
+    decision rather than plumbing: `0221` took recordings out of the versioned
+    ontology because identity is not vocabulary, and `mention_extract_v2` dropped
+    the family so a model could not reopen the minting route that closed. The
+    ontology still stores it, for the identity registry and for
+    `provisional_entities`; what ended is the model's licence to propose one.
     """
-    assert len(contract.families) == 18
+    assert len(contract.families) == 17
     assert len(contract.ontology_families) == 23
     assert set(contract.families) < set(contract.ontology_families)
     assert set(contract.ontology_families) - set(contract.families) == {
         "channel", "event_type", "game_category", "hub", "platform",
+        "music_recording",
     }
 
 
