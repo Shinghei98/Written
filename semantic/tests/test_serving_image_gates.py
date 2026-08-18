@@ -118,6 +118,21 @@ class ServingImageGateTests(unittest.TestCase):
                       "the gateway image does have `python`; if that changed, "
                       "this test is the wrong thing to fix")
 
+    def test_the_image_carries_tritons_jit_toolchain(self) -> None:
+        """Triton compiles C at engine start, not at build.
+
+        The first image to reach a GPU loaded all four weight shards in two
+        seconds and then died on "Failed to find C compiler" — a runtime
+        dependency that looks like a build tool. The compiler install and its
+        gate must both survive.
+        """
+        for needed in ("gcc", "python3-dev"):
+            self.assertIn(needed, self.stack,
+                          f"{needed} left the image; triton fails at engine "
+                          f"start, after the weights have loaded")
+        self.assertIn("jit toolchain present", self.stack,
+                      "the gate proving the toolchain is gone")
+
     def test_the_dead_dockerfile_is_gone(self) -> None:
         """It was referenced by nothing and omitted `tokenizer_runtime.py`.
 

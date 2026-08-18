@@ -622,8 +622,14 @@ Resources:
                   ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 \
                       PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
                       HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+                  # **gcc, g++ and the Python headers are runtime dependencies,
+                  # not build tools.** Triton JIT-compiles its CUDA utils module
+                  # from C source at engine start — after the weights have
+                  # loaded, on a billing GPU — and raises "Failed to find C
+                  # compiler" without one. Learned from the first run of this
+                  # image: 4/4 shards loaded in 2 seconds, then this.
                   RUN apt-get update && apt-get install -y --no-install-recommends \
-                        python3 python3-pip ca-certificates \
+                        python3 python3-pip python3-dev ca-certificates gcc g++ \
                    && rm -rf /var/lib/apt/lists/*
                   COPY ${WHEEL} /tmp/${WHEEL}
                   # `--break-system-packages` because 24.04 marks its Python
@@ -697,6 +703,32 @@ Resources:
                                % (torch.__version__, torch.version.cuda))
                   print("engine:", vllm.__version__,
                         "torch:", torch.__version__, "cuda:", torch.version.cuda)
+                  '
+
+                # **The JIT toolchain triton demands at engine start.** After
+                # the weights load, triton compiles a C extension on the spot:
+                # it looks for a C compiler (CC, then cc/gcc/clang on PATH) and
+                # includes Python.h. Neither existed in the first image to run,
+                # so the engine died *after* a flawless 2-second weight load.
+                # The full reproduction — `CudaUtils()` — cannot run here: its
+                # link step wants the libcuda the NVIDIA runtime injects on a
+                # real host. So the gate asserts the two named preconditions,
+                # which are exactly what the error message names.
+                - |
+                  docker run --rm --entrypoint python3 "$URI:$TAG" -c '
+                  import os, shutil, sys, sysconfig
+
+                  compiler = os.environ.get("CC") or shutil.which("cc") \
+                      or shutil.which("gcc") or shutil.which("clang")
+                  if not compiler:
+                      sys.exit("no C compiler in the image; triton raises "
+                               "\"Failed to find C compiler\" at engine start, "
+                               "after the weights have loaded on a billing GPU")
+                  header = os.path.join(sysconfig.get_paths()["include"], "Python.h")
+                  if not os.path.exists(header):
+                      sys.exit("no Python.h (%s); triton compiles a CPython "
+                               "extension and cannot without it" % header)
+                  print("jit toolchain present:", compiler)
                   '
 
                 # **The engine's own lazy imports, walked before a GPU has
