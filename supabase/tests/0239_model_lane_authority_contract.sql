@@ -15,17 +15,20 @@ declare
   alice    uuid := '00000000-0000-4000-8000-00000000a11c';
   bob      uuid := '00000000-0000-4000-8000-00000000b0b0';
   version  uuid;
-  deployed uuid;
+  evaluation_release uuid;
+  shadow_release uuid;
   floating uuid;
-  shadowed uuid;
   call_id  uuid;
   eval_call uuid;
   run_id   uuid;
   obs      uuid;
+  other_obs uuid;
   bob_run  uuid;
   bob_obs  uuid;
   ev       uuid;
+  other_ev uuid;
   lane     text;
+  named    uuid;
   raised   boolean;
 begin
   insert into auth.users (id, email) values
@@ -33,8 +36,6 @@ begin
   on conflict (id) do nothing;
   select id into version from ontology.versions where status = 'published';
 
-  -- An evaluation release, deployed. A shadow release, deployed. And one that
-  -- no slot points at.
   insert into ontology.release_manifests
     (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
      schema_sha256, release_build_sha256, database_fingerprint_sha256,
@@ -45,7 +46,7 @@ begin
           repeat('d', 64), repeat('e', 64), 'probe', 'pending', 'evaluation',
           repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
           'qwen_extractor_v5', 'semantic_grammar_v3')
-  returning id into deployed;
+  returning id into evaluation_release;
   insert into ontology.release_manifests
     (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
      schema_sha256, release_build_sha256, database_fingerprint_sha256,
@@ -56,7 +57,7 @@ begin
           repeat('d', 64), repeat('e', 64), 'probe', 'pending', 'shadow',
           repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
           'qwen_extractor_v5', 'semantic_grammar_v3')
-  returning id into shadowed;
+  returning id into shadow_release;
   insert into ontology.release_manifests
     (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
      schema_sha256, release_build_sha256, database_fingerprint_sha256,
@@ -65,42 +66,72 @@ begin
           repeat('d', 64), repeat('e', 64), 'probe', 'pending', 'off')
   returning id into floating;
 
-  insert into ontology.deployment_slots (slot, ontology_version_id, release_manifest_id)
-  values ('canary', version, deployed), ('shadow', version, shadowed);
-
   -- ---------------------------------------------------------------------
-  -- 1. A manifest nobody deployed authorizes nothing
+  -- 1. With nothing deployed, nothing authorizes a call
   -- ---------------------------------------------------------------------
   raised := false;
   begin
     insert into semantic_private.model_invocations
       (input_hash, model_id, model_revision, prompt_version, grammar_version,
        output_schema_hash, batch_items, status, release_manifest_id)
-    values ('p', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-            repeat('0', 64), 1, 'succeeded', floating);
+    values ('p0', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
+            repeat('0', 64), 1, 'succeeded', shadow_release);
   exception when others then raised := true;
   end;
   if not raised then
-    raise exception '0239 contract: an undeployed manifest authorized a call';
+    raise exception
+      '0239 contract: a call was authorized with no calling-lane deployment';
   end if;
 
   -- ---------------------------------------------------------------------
-  -- 2. A caller-supplied lane is discarded
+  -- 2. Only one calling release may be in force
   -- ---------------------------------------------------------------------
-  -- The forged claim: an evaluation deployment, a caller asking for shadow.
+  insert into ontology.deployment_slots (slot, ontology_version_id, release_manifest_id)
+  values ('canary', version, evaluation_release);
+
+  raised := false;
+  begin
+    insert into ontology.deployment_slots (slot, ontology_version_id, release_manifest_id)
+    values ('shadow', version, shadow_release);
+  exception when others then raised := true;
+  end;
+  if not raised then
+    raise exception
+      '0239 contract: two calling releases were deployed, so a caller picks its lane';
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 3. The caller's release and lane are both discarded
+  -- ---------------------------------------------------------------------
+  -- The forged claim: an evaluation deployment, a caller naming the shadow
+  -- release and asking for shadow. `0239` refused an unbound manifest and still
+  -- let the caller choose among bound ones; the database chooses now.
   insert into semantic_private.model_invocations
     (input_hash, model_id, model_revision, prompt_version, grammar_version,
      output_schema_hash, batch_items, status, release_manifest_id,
      model_lane_mode)
   values ('p2', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-          repeat('0', 64), 1, 'succeeded', deployed, 'shadow')
-  returning id, model_lane_mode into eval_call, lane;
+          repeat('0', 64), 1, 'succeeded', shadow_release, 'shadow')
+  returning id, model_lane_mode, release_manifest_id
+       into eval_call, lane, named;
   if lane <> 'evaluation' then
-    raise exception
-      '0239 contract: a call claimed lane % against an evaluation deployment', lane;
+    raise exception '0239 contract: a call ran as % under an evaluation deployment', lane;
+  end if;
+  if named <> evaluation_release then
+    raise exception '0239 contract: a call chose its own release';
   end if;
 
-  -- And it cannot be edited afterwards either.
+  -- A release nobody deployed is likewise ignored rather than honoured.
+  insert into semantic_private.model_invocations
+    (input_hash, model_id, model_revision, prompt_version, grammar_version,
+     output_schema_hash, batch_items, status, release_manifest_id)
+  values ('p2b', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
+          repeat('0', 64), 1, 'succeeded', floating)
+  returning release_manifest_id into named;
+  if named <> evaluation_release then
+    raise exception '0239 contract: an undeployed release was honoured';
+  end if;
+
   raised := false;
   begin
     update semantic_private.model_invocations
@@ -112,7 +143,7 @@ begin
   end if;
 
   -- ---------------------------------------------------------------------
-  -- 3. Evaluation is fixture-only
+  -- 4. Evaluation is fixture-only
   -- ---------------------------------------------------------------------
   raised := false;
   begin
@@ -121,7 +152,7 @@ begin
        grammar_version, output_schema_hash, batch_items, status,
        release_manifest_id)
     values (alice, 'p3', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-            repeat('0', 64), 1, 'succeeded', deployed);
+            repeat('0', 64), 1, 'succeeded', evaluation_release);
   exception when others then raised := true;
   end;
   if not raised then
@@ -139,9 +170,17 @@ begin
     raise exception '0239 contract: an evaluation item named a user';
   end if;
 
+  -- A fixture item is what that lane may record.
+  insert into semantic_private.model_invocation_items
+    (invocation_id, item_index, logical_extraction_key, outcome)
+  values (eval_call, 1, 'probe:fixture', 'succeeded');
+
   -- ---------------------------------------------------------------------
-  -- 4. A user-backed success must name live evidence
+  -- 5. Shadow: the lineage triple, and the evidence's own observation
   -- ---------------------------------------------------------------------
+  update ontology.deployment_slots
+     set release_manifest_id = shadow_release where slot = 'canary';
+
   insert into semantic_private.ingestion_runs
     (user_id, source_code, connector_version, input_hash, status)
   values (alice, 'apple_music', 'probe', 'probe_0239', 'running')
@@ -154,42 +193,73 @@ begin
           'library_song', repeat(md5('0239-a'), 2), repeat(md5('0239-b'), 2),
           'synthetic-v0.3.1', '{}'::jsonb, 'public_catalog')
   returning id into obs;
+  insert into semantic_private.observations
+    (user_id, ingestion_run_id, source_code, data_type, observation_kind,
+     action_type, source_item_hmac, record_fingerprint, payload_schema_version,
+     normalized_payload, privacy_class)
+  values (alice, run_id, 'apple_music', 'library_song', 'catalog_entity',
+          'library_song', repeat(md5('0239-e'), 2), repeat(md5('0239-f'), 2),
+          'synthetic-v0.3.1', '{}'::jsonb, 'public_catalog')
+  returning id into other_obs;
   insert into semantic_private.source_text_evidence
     (user_id, observation_id, encrypted_text, encryption_key_version,
      retention_class, expires_at)
   values (alice, obs, '\x01'::bytea, 'k-v1', 'provider_catalog_text',
           now() + interval '30 days')
   returning id into ev;
+  insert into semantic_private.source_text_evidence
+    (user_id, observation_id, encrypted_text, encryption_key_version,
+     retention_class, expires_at)
+  values (alice, other_obs, '\x02'::bytea, 'k-v1', 'provider_catalog_text',
+          now() + interval '30 days')
+  returning id into other_ev;
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
      grammar_version, output_schema_hash, batch_items, status,
      release_manifest_id)
   values (alice, 'p4', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-          repeat('0', 64), 1, 'succeeded', shadowed)
+          repeat('0', 64), 1, 'succeeded', shadow_release)
   returning id into call_id;
 
+  -- Two thirds of the lineage is refused, on a failure as much as a success.
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
       (invocation_id, item_index, user_id, observation_id,
-       logical_extraction_key, outcome, mention_count)
-    values (call_id, 0, alice, obs, 'probe:no-evidence', 'succeeded', 1);
-  exception when others then raised := true;
+       logical_extraction_key, outcome)
+    values (call_id, 0, alice, obs, 'probe:two-thirds', 'timeout');
+  exception when check_violation then raised := true;
   end;
   if not raised then
     raise exception
-      '0239 contract: a user-backed success named no source text, so the staleness check was skipped';
+      '0239 contract: a failure carried two thirds of its lineage, so an erasure could not find it';
   end if;
 
-  -- Live evidence is accepted, so the refusals are about the evidence rather
-  -- than about the shape.
+  -- **Evidence from a different observation of the same account.** Two separate
+  -- foreign keys each held their own end and never tied them together.
+  raised := false;
+  begin
+    insert into semantic_private.model_invocation_items
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome, mention_count)
+    values (call_id, 1, alice, obs, other_ev, 'probe:wrong-evidence',
+            'succeeded', 1);
+  exception when foreign_key_violation then raised := true;
+  end;
+  if not raised then
+    raise exception
+      '0239 contract: evidence from another observation was accepted for this one';
+  end if;
+
+  -- The matching triple is accepted, so the refusals are about the relationship
+  -- rather than about the shape.
   insert into semantic_private.model_invocation_items
     (invocation_id, item_index, user_id, observation_id,
      source_text_evidence_id, logical_extraction_key, outcome, mention_count)
-  values (call_id, 1, alice, obs, ev, 'probe:live', 'succeeded', 1);
+  values (call_id, 2, alice, obs, ev, 'probe:live', 'succeeded', 1);
 
-  -- Redacted evidence is not.
+  -- Redacted evidence stops a success.
   update semantic_private.source_text_evidence
      set refresh_status = 'deleted', deleted_at = now(), encrypted_text = null
    where id = ev;
@@ -198,15 +268,22 @@ begin
     insert into semantic_private.model_invocation_items
       (invocation_id, item_index, user_id, observation_id,
        source_text_evidence_id, logical_extraction_key, outcome, mention_count)
-    values (call_id, 2, alice, obs, ev, 'probe:redacted', 'succeeded', 1);
+    values (call_id, 3, alice, obs, ev, 'probe:redacted', 'succeeded', 1);
   exception when others then raised := true;
   end;
   if not raised then
     raise exception '0239 contract: a success committed against redacted text';
   end if;
 
+  -- ...and does not stop the failure that records it, or `source_stale` would
+  -- be unrecordable.
+  insert into semantic_private.model_invocation_items
+    (invocation_id, item_index, user_id, observation_id,
+     source_text_evidence_id, logical_extraction_key, outcome)
+  values (call_id, 4, alice, obs, ev, 'probe:stale', 'source_stale');
+
   -- ---------------------------------------------------------------------
-  -- 5. An item cannot point at another account's observation
+  -- 6. An item cannot point at another account's observation
   -- ---------------------------------------------------------------------
   insert into semantic_private.ingestion_runs
     (user_id, source_code, connector_version, input_hash, status)
@@ -225,8 +302,8 @@ begin
   begin
     insert into semantic_private.model_invocation_items
       (invocation_id, item_index, user_id, observation_id,
-       logical_extraction_key, outcome)
-    values (call_id, 3, alice, bob_obs, 'probe:cross-user', 'timeout');
+       source_text_evidence_id, logical_extraction_key, outcome)
+    values (call_id, 5, alice, bob_obs, other_ev, 'probe:cross-user', 'timeout');
   exception when foreign_key_violation then raised := true;
   end;
   if not raised then
@@ -234,7 +311,7 @@ begin
       '0239 contract: an item named another account''s observation';
   end if;
 
-  raise notice '0239 contract: the lane is derived and the scope is closed';
+  raise notice '0239 contract: the database picks the release and the lineage holds';
 end;
 $$;
 
@@ -284,6 +361,60 @@ begin
   if has_table_privilege('semantic_worker',
                          'semantic_private.model_invocations', 'INSERT') then
     raise exception '0239 contract: semantic_worker can still record a model call';
+  end if;
+end;
+$$;
+
+-- **What the role is, not only what it is granted.** It carries `bypassrls`, so
+-- a path to it is a path past every policy in the schema — and a role reachable
+-- by `set role` from the deterministic worker is not a second identity, it is
+-- the first one wearing another name. Grants alone would not have caught that.
+
+do $$
+declare
+  r record;
+  client text;
+begin
+  if pg_has_role('semantic_worker', 'semantic_model_worker', 'MEMBER') then
+    raise exception
+      '0239 contract: semantic_worker can set role to semantic_model_worker';
+  end if;
+  if pg_has_role('semantic_model_worker', 'semantic_worker', 'MEMBER') then
+    raise exception
+      '0239 contract: semantic_model_worker can set role to semantic_worker';
+  end if;
+  if pg_has_role('semantic_model_worker', 'semantic_ingestor', 'MEMBER')
+     or pg_has_role('semantic_ingestor', 'semantic_model_worker', 'MEMBER') then
+    raise exception
+      '0239 contract: the model and ingestion identities can reach each other';
+  end if;
+
+  foreach client in array array['anon', 'authenticated', 'service_role'] loop
+    if exists (select 1 from pg_roles where rolname = client)
+       and pg_has_role(client, 'semantic_model_worker', 'MEMBER') then
+      raise exception '0239 contract: % can set role to semantic_model_worker', client;
+    end if;
+  end loop;
+
+  select rolcanlogin, rolinherit, rolsuper, rolcreaterole, rolcreatedb,
+         rolbypassrls
+    into r from pg_roles where rolname = 'semantic_model_worker';
+  if r is null then
+    raise exception '0239 contract: semantic_model_worker does not exist';
+  end if;
+  if r.rolcanlogin then
+    raise exception '0239 contract: semantic_model_worker can log in directly';
+  end if;
+  if r.rolinherit then
+    raise exception '0239 contract: semantic_model_worker inherits privileges';
+  end if;
+  if r.rolsuper or r.rolcreaterole or r.rolcreatedb then
+    raise exception
+      '0239 contract: semantic_model_worker holds an administrative attribute';
+  end if;
+  if not r.rolbypassrls then
+    raise exception
+      '0239 contract: semantic_model_worker lost bypassrls, so its refusals now come from RLS rather than its grants';
   end if;
 end;
 $$;

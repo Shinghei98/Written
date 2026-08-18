@@ -16,7 +16,6 @@ declare
   evidence  uuid;
   eval_call uuid;
   shadow_call uuid;
-  eval_release uuid;
   shadow_release uuid;
   version uuid;
   ok_item   uuid;
@@ -70,28 +69,13 @@ begin
           'qwen_extractor_v5', 'semantic_grammar_v3')
   returning id into shadow_release;
 
-  insert into ontology.release_manifests
-    (base_ontology_version_id, compiled_contract_sha256, workbook_sha256,
-     schema_sha256, release_build_sha256, database_fingerprint_sha256,
-     environment, promotion_decision, model_lane_mode,
-     tokenizer_runtime_manifest_sha256, extraction_contract_manifest_sha256,
-     gateway_image_digest, serving_image_digest, prompt_version, grammar_version)
-  values (version, repeat('f', 64), repeat('b', 64), repeat('c', 64),
-          repeat('d', 64), repeat('e', 64), 'contract_probe', 'pending',
-          'evaluation', repeat('1', 64), repeat('2', 64), 'sha256:x', 'sha256:y',
-          'qwen_extractor_v5', 'semantic_grammar_v3')
-  returning id into eval_release;
-
+  -- **One release in force.** `0240` refuses a second calling-lane deployment,
+  -- because three slots to choose from is a caller choosing its lane one
+  -- indirection along. The fixture case below runs under this same release: an
+  -- item with no user cannot back a user's mention whatever lane it ran in.
   insert into ontology.deployment_slots
     (slot, ontology_version_id, release_manifest_id)
-  values ('shadow', version, shadow_release), ('canary', version, eval_release);
-
-  insert into semantic_private.model_invocations
-    (input_hash, model_id, model_revision, prompt_version, grammar_version,
-     output_schema_hash, batch_items, status, release_manifest_id)
-  values ('probe', 'Qwen/Qwen3.5-9B', 'rev', 'qwen_extractor_v5',
-          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', eval_release)
-  returning id into eval_call;
+  values ('shadow', version, shadow_release);
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
@@ -107,9 +91,9 @@ begin
   values (shadow_call, 0, alice, obs, evidence, 'probe:ok', 'succeeded', 1)
   returning id into ok_item;
   insert into semantic_private.model_invocation_items
-    (invocation_id, item_index, user_id, observation_id, logical_extraction_key,
-     outcome)
-  values (shadow_call, 1, alice, obs, 'probe:overflow', 'output_overflow')
+    (invocation_id, item_index, user_id, observation_id,
+     source_text_evidence_id, logical_extraction_key, outcome)
+  values (shadow_call, 1, alice, obs, evidence, 'probe:overflow', 'output_overflow')
   returning id into bad_item;
   -- An evaluation item is fixture-only now, so it cannot carry the user and
   -- observation this file used to give it. The refusal it was written to prove
@@ -117,7 +101,7 @@ begin
   -- still show here is that an item with no user cannot back a user's mention.
   insert into semantic_private.model_invocation_items
     (invocation_id, item_index, logical_extraction_key, outcome, mention_count)
-  values (eval_call, 0, 'probe:eval', 'succeeded', 1)
+  values (shadow_call, 4, 'probe:fixture-two', 'succeeded', 1)
   returning id into eval_item;
   -- A fixture belongs to nobody.
   insert into semantic_private.model_invocation_items

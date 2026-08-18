@@ -83,9 +83,9 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
-       mention_count)
-    values (call_id, 0, alice, 'probe:timeout', 'timeout', 2);
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome, mention_count)
+    values (call_id, 0, alice, obs, ev, 'probe:timeout', 'timeout', 2);
   exception when check_violation then raised := true;
   end;
   if not raised then
@@ -95,9 +95,9 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
-       mention_count)
-    values (call_id, 0, alice, 'probe:abstained', 'semantic_abstention', 1);
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome, mention_count)
+    values (call_id, 0, alice, obs, ev, 'probe:abstained', 'semantic_abstention', 1);
   exception when check_violation then raised := true;
   end;
   if not raised then
@@ -105,11 +105,11 @@ begin
   end if;
 
   insert into semantic_private.model_invocation_items
-    (invocation_id, item_index, user_id, logical_extraction_key, outcome,
-     mention_count, fingerprint_key_version, input_fingerprint,
-     source_text_evidence_id)
-  values (call_id, 0, alice, 'probe:work', 'succeeded', 3,
-          'lineage-v1', '\x0102'::bytea, ev)
+    (invocation_id, item_index, user_id, observation_id,
+     source_text_evidence_id, logical_extraction_key, outcome,
+     mention_count, fingerprint_key_version, input_fingerprint)
+  values (call_id, 0, alice, obs, ev, 'probe:work', 'succeeded', 3,
+          'lineage-v1', '\x0102'::bytea)
   returning id into first;
 
   -- ---------------------------------------------------------------------
@@ -121,9 +121,11 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome,
        input_fingerprint)
-    values (call_id, 1, alice, 'probe:unkeyed', 'schema_invalid', '\x03'::bytea);
+    values (call_id, 1, alice, obs, ev, 'probe:unkeyed', 'schema_invalid',
+            '\x03'::bytea);
   exception when check_violation then raised := true;
   end;
   if not raised then
@@ -136,9 +138,9 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
-       source_text_evidence_id)
-    values (call_id, 2, alice, 'probe:work', 'succeeded', ev);
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome)
+    values (call_id, 2, alice, obs, ev, 'probe:work', 'succeeded');
   exception when unique_violation then raised := true;
   end;
   if not raised then
@@ -148,9 +150,10 @@ begin
   -- A failed attempt at the same work is not a duplicate; it is what a retry
   -- ancestry is made of.
   insert into semantic_private.model_invocation_items
-    (invocation_id, item_index, user_id, logical_extraction_key, outcome,
+    (invocation_id, item_index, user_id, observation_id,
+     source_text_evidence_id, logical_extraction_key, outcome,
      attempt, parent_item_id)
-  values (call_id, 3, alice, 'probe:work', 'output_overflow', 2, first);
+  values (call_id, 3, alice, obs, ev, 'probe:work', 'output_overflow', 2, first);
 
   -- ---------------------------------------------------------------------
   -- 4. A retry is a later attempt
@@ -158,9 +161,10 @@ begin
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, user_id, logical_extraction_key, outcome,
+      (invocation_id, item_index, user_id, observation_id,
+       source_text_evidence_id, logical_extraction_key, outcome,
        attempt, parent_item_id)
-    values (call_id, 4, alice, 'probe:first-attempt', 'timeout', 1, first);
+    values (call_id, 4, alice, obs, ev, 'probe:first-attempt', 'timeout', 1, first);
   exception when check_violation then raised := true;
   end;
   if not raised then
@@ -168,17 +172,22 @@ begin
   end if;
 
   -- ---------------------------------------------------------------------
-  -- 5. An item about an observation is an item about somebody
+  -- 5. Lineage is all three or none
   -- ---------------------------------------------------------------------
+  -- `0240` replaced "an observation-scoped item names a user" with the whole
+  -- relationship: user, observation and evidence together, on failures as well
+  -- as successes, because a timeout on somebody's title is still a row about
+  -- their data and an erasure that walks evidence has to find it.
   raised := false;
   begin
     insert into semantic_private.model_invocation_items
-      (invocation_id, item_index, observation_id, logical_extraction_key, outcome)
-    values (call_id, 5, extensions.gen_random_uuid(), 'probe:ownerless', 'timeout');
+      (invocation_id, item_index, user_id, observation_id,
+       logical_extraction_key, outcome)
+    values (call_id, 5, alice, obs, 'probe:two-thirds', 'timeout');
   exception when check_violation then raised := true;
   end;
   if not raised then
-    raise exception '0236 contract: an observation-scoped item named no user';
+    raise exception '0236 contract: an item carried two thirds of its lineage';
   end if;
 
   -- ---------------------------------------------------------------------
