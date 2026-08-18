@@ -1,9 +1,20 @@
-# The gateway's runtime. Deliberately four lines.
+# The gateway's runtime. Deliberately two lines.
 #
-# `jsonschema` validates both ends of the wire, `httpx` is the only thing that
-# talks to the serving engine, and `tokenizers` is what makes a context-budget
-# check a measurement rather than an estimate. No web framework: the routing is
-# four lines and a framework would add defaults that log request bodies.
+# `jsonschema` validates both ends of the wire — the request against
+# `mention_extract_request_v1` before anything leaves, and the response against
+# `mention_extract_v2` before anything is believed.
+#
+# `httpx` remains for the local harness and for any endpoint reached directly.
+# The deployed path is SageMaker asynchronous inference through boto3, which the
+# Lambda base image already carries; pinning a copy here would drift from the
+# one AWS patches, which is the reasoning aws/worker/build.sh gives for leaving
+# boto3 out of the zip.
+#
+# `tokenizers` is absent on purpose. The context-budget check is a measurement
+# the *deployment* makes, and a 12 MB tokenizer in a Lambda that never calls it
+# is 12 MB of cold start.
+#
+# No web framework: there is no HTTP surface at all, and a framework would add
+# defaults that log the thing this must not log.
 jsonschema==4.26.0
 httpx==0.28.1
-tokenizers==0.23.1

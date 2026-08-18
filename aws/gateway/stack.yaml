@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  The Written extraction gateway: a Lambda container invoked directly by the
+  semantic worker over IAM, and the encrypted bucket SageMaker asynchronous
+  inference hands objects through. No function URL, no API Gateway, no public
+  surface — the only caller is a principal AWS has already authenticated.
+
+  The SageMaker endpoint itself is a separate stack. It costs money whenever it
+  is up, and a template that created it as a side effect of deploying the
+  gateway would make that a surprise rather than a decision.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: The gateway image in ECR, by digest rather than by tag.
+  WorkerRoleArn:
+    Type: String
+    Default: arn:aws:iam::616040526027:role/written-semantic-worker
+    Description: The one principal permitted to invoke the gateway.
+
+Resources:
+  AsyncBucket:
+    Type: AWS::S3::Bucket
+    # Retained on stack delete: an object here is provider text and the
+    # lifecycle rule is what removes it, not a stack operation nobody reviewed.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub written-semantic-async-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # **No versioning.** A version history of deleted provider text is a
+      # retention surface with no owner and no erasure path.
+      VersioningConfiguration:
+        Status: Suspended
+      LifecycleConfiguration:
+        Rules:
+          # The transport deletes both objects as it reads them. This is the
+          # backstop for the call that times out mid-flight, which is a real
+          # shape rather than a hypothetical.
+          - Id: expire-anything-the-sweep-missed
+            Status: Enabled
+            ExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-semantic-gateway
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: async-objects-and-one-endpoint
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Read, write and *delete* — the delete is not incidental, it is
+              # how the retention surface is closed on every call.
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                Resource: !Sub '${AsyncBucket.Arn}/async/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt AsyncBucket.Arn
+              - Effect: Allow
+                Action: sagemaker:InvokeEndpointAsync
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/written-qwen-*
+
+  GatewayFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: written-semantic-gateway
+      PackageType: Image
+      Code: { ImageUri: !Ref ImageUri }
+      Role: !GetAtt GatewayRole.Arn
+      # Async inference queues; the wait is the point of the timeout.
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          WRITTEN_ASYNC_BUCKET: !Ref AsyncBucket
+          WRITTEN_ASYNC_PREFIX: async
+          WRITTEN_ENVIRONMENT: production
+          # Deliberately unset: WRITTEN_SAGEMAKER_ENDPOINT, and the image
+          # digests. With no endpoint the transport is None, which is what
+          # `off` should look like from the inside as well as the outside.
+
+  # **One principal, named.** Not a wildcard and not an account-wide grant: the
+  # worker is the only thing that may call this, and a second caller should have
+  # to appear here first.
+  InvokeFromWorker:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GatewayFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: !Ref WorkerRoleArn
+
+Outputs:
+  GatewayFunctionArn:
+    Value: !GetAtt GatewayFunction.Arn
+  AsyncBucketName:
+    Value: !Ref AsyncBucket

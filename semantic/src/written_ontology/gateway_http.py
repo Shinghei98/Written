@@ -1,4 +1,4 @@
-"""The gateway's transport and its HTTP surface.
+"""The gateway's transport and its request surface.
 
 Kept apart from `gateway` deliberately: that module holds the order of the checks
 and the name of every refusal, and neither needs a socket. This one holds the
@@ -6,9 +6,19 @@ socket and nothing else, so a change to the wire cannot quietly change a rule.
 
 ## Three routes, and two of them answer in every mode
 
-    GET  /health
-    GET  /v1/semantic/attestation
-    POST /v1/semantic/extract
+    health
+    v1/semantic/attestation
+    v1/semantic/extract
+
+**The gateway is a Lambda container invoked directly by the worker over IAM**,
+not a service behind a URL. So a route is a field in an event rather than a path
+in a request line, and there is no public surface to authenticate — IAM is the
+authentication, and `lambda:InvokeFunction` is granted to exactly one role.
+
+`dispatch` is the one definition. The Lambda handler and the local WSGI harness
+are both adapters over it, so a rule cannot hold on one surface and not the
+other; the harness exists to answer the routes over a socket while proving `off`
+and has no production role.
 
 `health` and `attestation` answer whatever the lane is, because a health check
 that only answered when the lane was on could not tell a disabled gateway from a
@@ -24,11 +34,12 @@ column and this is the same rule at the other end of the wire. WSGI is used
 rather than a framework for the same reason there is no framework in this
 repository: one fewer dependency whose defaults include request logging.
 
-## Authentication is a shared secret, as `functions/push` already does it
+## Authentication is IAM, and the shared secret is the harness's
 
-`x-gateway-secret`, compared in constant time. The worker is the only caller and
-it is not a browser; a JWT would add a validation surface for no property this
-does not already have.
+There is no function URL and no API Gateway, so the only caller is a principal
+AWS has already authenticated. The local harness still checks
+`x-gateway-secret`, because a socket on a laptop has no IAM in front of it, and
+an unset secret refuses rather than opens.
 """
 from __future__ import annotations
 
@@ -99,64 +110,84 @@ def _unauthorized(secret: str | None, environ) -> bool:
     return not hmac.compare_digest(secret or "", expected)
 
 
-def application(environ, start_response, *, deployment=None, transport=None,
-                breaker=None):
-    """A WSGI app over the three routes.
+def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
+             breaker=None) -> tuple[int, dict[str, Any]]:
+    """One route, one answer. The only definition of what the gateway does.
 
-    Framework-free on purpose. The routing is four lines; a framework would add
-    a dependency whose defaults include logging the thing this must not log.
+    Returns a status and a body rather than writing either, so the Lambda
+    handler and the local harness cannot disagree about a refusal.
     """
-    path = environ.get("PATH_INFO", "")
-    method = environ.get("REQUEST_METHOD", "GET")
+    route = (request.get("route") or "").strip("/")
 
-    def reply(status: str, body: dict[str, Any]):
-        payload = json.dumps(body).encode()
-        start_response(status, [("content-type", "application/json"),
-                                ("content-length", str(len(payload)))])
-        return [payload]
+    if route == "health":
+        return 200, gateway.health()
 
-    if path == "/health" and method == "GET":
-        return reply("200 OK", gateway.health())
+    if route == "v1/semantic/attestation":
+        return 200, gateway.attestation(deployment)
 
-    if path == "/v1/semantic/attestation" and method == "GET":
-        return reply("200 OK", gateway.attestation(deployment))
-
-    if path == "/v1/semantic/extract" and method == "POST":
-        if _unauthorized(environ.get("HTTP_X_GATEWAY_SECRET"), environ):
-            return reply("401 Unauthorized", {"outcome": "circuit_open",
-                                              "detail": "unauthenticated"})
-        try:
-            length = int(environ.get("CONTENT_LENGTH") or 0)
-            document = json.loads(environ["wsgi.input"].read(length) or b"{}")
-        except (ValueError, KeyError):
-            return reply("400 Bad Request",
-                         {"outcome": "input_oversize", "detail": "unreadable body"})
-
+    if route == "v1/semantic/extract":
         try:
             items = [RequestItem(entry["item_index"], entry["fields"])
-                     for entry in document.get("items", [])]
+                     for entry in request.get("items", [])]
         except (KeyError, TypeError):
-            return reply("400 Bad Request",
-                         {"outcome": "input_oversize", "detail": "malformed items"})
-
+            return 400, {"outcome": "input_oversize", "detail": "malformed items"}
         try:
             result = gateway.extract(
                 items, transport=transport, deployment=deployment,
                 breaker=breaker,
-                source_profile=document.get("source_profile", "youtube"),
-                request_id=document.get("request_id"),
-                timeout_s=float(document.get("timeout_s", DEFAULT_TIMEOUT_S)))
+                source_profile=request.get("source_profile", "youtube"),
+                request_id=request.get("request_id"),
+                timeout_s=float(request.get("timeout_s", DEFAULT_TIMEOUT_S)))
         except gateway.GatewayRefusal as refusal:
             # **A projection refusal is a 4xx.** Sent as 500 it is retried
-            # forever at the head of a FIFO queue, which is the shape the device
-            # half already learned once.
-            status = "503 Service Unavailable" if refusal.code in _TRANSIENT \
-                else "422 Unprocessable Entity"
-            return reply(status, {"outcome": refusal.code, "detail": refusal.detail})
-        return reply("200 OK", result)
+            # forever at the head of a FIFO queue, which the device half already
+            # learned once.
+            status = 503 if refusal.code in _TRANSIENT else 422
+            return status, {"outcome": refusal.code, "detail": refusal.detail}
+        return 200, result
 
-    return reply("404 Not Found", {"outcome": "contract_mismatch",
-                                   "detail": "no such route"})
+    return 404, {"outcome": "contract_mismatch", "detail": "no such route"}
+
+
+def application(environ, start_response, *, deployment=None, transport=None,
+                breaker=None):
+    """A local harness over `dispatch`, and nothing production depends on it.
+
+    The gateway ships as a Lambda container with no URL. This exists so the
+    routes can be answered over a real socket while the lane is off, which is
+    the one thing a flag cannot demonstrate about itself.
+    """
+    path = environ.get("PATH_INFO", "")
+    method = environ.get("REQUEST_METHOD", "GET")
+
+    def reply(code: int, body: dict[str, Any]):
+        payload = json.dumps(body).encode()
+        start_response(f"{code} {_REASON.get(code, 'OK')}",
+                       [("content-type", "application/json"),
+                        ("content-length", str(len(payload)))])
+        return [payload]
+
+    request: dict[str, Any] = {"route": path}
+    if method == "POST":
+        if _unauthorized(environ.get("HTTP_X_GATEWAY_SECRET"), environ):
+            return reply(401, {"outcome": "circuit_open",
+                               "detail": "unauthenticated"})
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+            request |= json.loads(environ["wsgi.input"].read(length) or b"{}")
+        except (ValueError, KeyError):
+            return reply(400, {"outcome": "input_oversize",
+                               "detail": "unreadable body"})
+        request["route"] = path
+
+    code, body = dispatch(request, deployment=deployment, transport=transport,
+                          breaker=breaker)
+    return reply(code, body)
+
+
+_REASON = {200: "OK", 400: "Bad Request", 401: "Unauthorized",
+           404: "Not Found", 422: "Unprocessable Entity",
+           503: "Service Unavailable"}
 
 
 #: The refusals a caller may sensibly try again later. Everything else is about
