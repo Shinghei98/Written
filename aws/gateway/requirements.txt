@@ -1,0 +1,9 @@
+# The gateway's runtime. Deliberately four lines.
+#
+# `jsonschema` validates both ends of the wire, `httpx` is the only thing that
+# talks to the serving engine, and `tokenizers` is what makes a context-budget
+# check a measurement rather than an estimate. No web framework: the routing is
+# four lines and a framework would add defaults that log request bodies.
+jsonschema==4.26.0
+httpx==0.28.1
+tokenizers==0.23.1
