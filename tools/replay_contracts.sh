@@ -279,6 +279,11 @@ run_contract 0232_overlay_arming_contract
 # why they are asserted before a sink fills it.
 run_contract 0233_provisional_identity_contract
 
+# **A typed exact miss becomes one private candidate and nothing more.**
+# Stage 1A's plumbing fixture: it calls the lane's real SQL functions and
+# asserts the required zeros, the idempotent rerun and the erasure.
+run_contract 0234_provisional_sink_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:

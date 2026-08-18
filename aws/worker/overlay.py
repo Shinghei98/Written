@@ -240,6 +240,16 @@ select count(*) as remaining
 """
 
 
+#: **The provisional lane lives in SQL, and this is the whole of the reason.**
+#: Its proof has to seed rows and read them back, which a contract file can do
+#: and a Python string constant cannot — `apply_feedback` is the standing example
+#: of a statement no test can reach. `0234` owns the body; this calls it.
+PROVISION = """
+select minted, provisioned
+  from semantic_private.provision_exact_misses(%(user_id)s::uuid, %(version)s::uuid)
+"""
+
+
 def resolve_mention(job) -> dict[str, Any]:
     """Resolve a bounded batch of one account's mentions against exact labels.
 
@@ -270,7 +280,8 @@ def resolve_mention(job) -> dict[str, Any]:
         database_url(), row_factory=dict_row, prepare_threshold=None
     ) as connection:
         with connection.cursor() as cursor:
-            if _published_version(cursor) is None:
+            published = _published_version(cursor)
+            if published is None:
                 # Nothing to resolve against. A run that wrote `unresolved` for
                 # every mention because the ontology was momentarily absent
                 # would be indistinguishable from a library of unknown names.
@@ -278,6 +289,19 @@ def resolve_mention(job) -> dict[str, Any]:
 
             cursor.execute(RESOLVE, arguments)
             written = cursor.rowcount
+
+            # **The fallback runs inside this job, after the exact verdict for
+            # the same bounded batch exists.** A separate stage would have to
+            # decide for itself whether the exact lane had finished, and its
+            # armer would need a route-aware work test to avoid a provisional
+            # row satisfying the exact route's. One job, one transaction, and
+            # the ordering is guaranteed rather than scheduled.
+            cursor.execute(
+                PROVISION, {"user_id": arguments["user_id"], "version": published}
+            )
+            fallback = cursor.fetchone()
+            minted = fallback["minted"]
+            provisioned = fallback["provisioned"]
 
             cursor.execute(RESOLVE_TALLY, arguments)
             tally = {row["resolution"]: row["rows"] for row in cursor.fetchall()}
@@ -292,6 +316,8 @@ def resolve_mention(job) -> dict[str, Any]:
         "resolved_count": tally.get("resolved_existing", 0),
         "ambiguous_count": tally.get("ambiguous", 0),
         "unresolved_count": tally.get("unresolved", 0),
+        "provisional_minted": minted,
+        "provisional_count": provisioned,
         "remaining_count": remaining,
     }
 
@@ -360,6 +386,14 @@ on conflict (candidate_id, observation_id, route_id) do nothing
 """
 
 
+#: The candidate and evidence half of the same lane, for the same reason.
+BUILD_PROVISIONAL = """
+select candidates, links
+  from semantic_private.build_provisional_candidates(
+         %(user_id)s::uuid, %(predicate)s, %(batch)s::integer)
+"""
+
+
 def build_candidate_overlay(job) -> dict[str, Any]:
     """Turn resolved mentions into candidate terms and the evidence under them.
 
@@ -392,6 +426,11 @@ def build_candidate_overlay(job) -> dict[str, Any]:
             candidates = cursor.rowcount
             cursor.execute(LINK_EVIDENCE, arguments)
             links = cursor.rowcount
+
+            cursor.execute(BUILD_PROVISIONAL, arguments)
+            provisional = cursor.fetchone()
+            candidates += provisional["candidates"]
+            links += provisional["links"]
         connection.commit()
 
     return {
