@@ -321,8 +321,30 @@ Resources:
               commands:
                 - set -euo pipefail
                 - aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
-                - TAG="vllm-${VLLM_VERSION}-$(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-12)"
-                - '[ -n "$TAG" ] || TAG="vllm-${VLLM_VERSION}-manual"'
+                # **The commit component is checked, not the whole tag.**
+                # `CODEBUILD_RESOLVED_SOURCE_VERSION` is empty under NO_SOURCE,
+                # and the guard that was meant to catch that tested `$TAG` —
+                # which is never empty, because the `vllm-0.11.0-` prefix is
+                # always there. It could not fire, and it shipped an image
+                # tagged `vllm-0.11.0-` naming no commit at all. Worse than
+                # cosmetic: with the component gone the tag is a constant, and
+                # an IMMUTABLE repository refuses the next push.
+                #
+                # `WRITTEN_SOURCE_COMMIT` is the pin already — it is what the
+                # serve.py fetch below resolves — so the tag uses the same fact
+                # rather than a second one that can disagree with it.
+                # No `set -eu` here: CodeBuild runs these entries in one
+                # shell session, so a shell option set in this block would
+                # silently govern every command after it. The check below is
+                # explicit instead, and CodeBuild fails the build on `exit 1`.
+                - |
+                  COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
+                  if [ -z "$COMMIT" ]; then
+                    echo "WRITTEN_SOURCE_COMMIT is unset. A tag that cannot name its commit is worse than a build that stops." >&2
+                    exit 1
+                  fi
+                  TAG="vllm-${VLLM_VERSION}-${COMMIT}"
+                  echo "SERVING_IMAGE_TAG=$TAG"
                 - URI="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPOSITORY"
             build:
               commands:

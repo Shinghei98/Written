@@ -1,0 +1,36 @@
+{
+  "_comment": "The two artifact identities the Qwen lane is pinned to, recorded when they were built rather than when they are used. A digest written down at deploy time is a claim; one written down at build time is a fact. Nothing here attests the loaded runtime \u2014 that is Stage 3's job, from the GPU, and until it happens the output budgets remain candidate measurements and qwen_overlay stays off.",
+  "recorded_at": "2026-08-18",
+  "model": {
+    "model_id": "Qwen/Qwen3.5-9B",
+    "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "s3_prefix": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/",
+    "file_count": 16,
+    "total_bytes": 19329393661,
+    "manifest_sha256": "149ab7542464b8972a10a3cb09391ec6ea0704937f33c7da6839350b7a59f55a",
+    "staged_by_source_commit": "97da981ed10b3197054b11a7c14a5085dec2869e",
+    "commit_marker": "COMMITTED.json written last, after every artifact and the manifest"
+  },
+  "serving_image": {
+    "repository": "written-qwen-serving",
+    "digest": "sha256:5350d0f9787a56f3a9202f8c2b90757fa79db4c6cfdfc46139be569b765e4144",
+    "tag_as_pushed": "vllm-0.11.0-",
+    "tag_defect": "The commit component was empty: CODEBUILD_RESOLVED_SOURCE_VERSION is unset under NO_SOURCE, and the fallback guard tested the whole tag rather than the component, so it could never fire. Fixed in the buildspec. The image CONTENT is unaffected \u2014 serve.py was fetched from WRITTEN_SOURCE_COMMIT, which was set correctly.",
+    "built_from_source_commit": "73a1dab53854c9c16cdf687da3718f60c75010ae",
+    "content_equals_head": "serve.py is byte-identical between 73a1dab and 97da981; the only commit between them touched the weights buildspec.",
+    "vllm": "0.11.0 (prebuilt wheel vllm-0.11.0-cp38-abi3-manylinux1_x86_64)",
+    "torch": "2.8.0",
+    "bundled_cuda_runtime": "nvidia-*-cu12 12.8.x, on a CUDA 12.4 base image \u2014 the wheel ships its own runtime, so this is expected, and it is exactly what the Stage 3 load attestation must confirm against the host driver rather than assume."
+  },
+  "not_yet_true": [
+    "No GPU endpoint exists. Service quota L-B0729CB4 (ml.g6e.xlarge for endpoint usage) reads 0, request for 2 still PENDING.",
+    "The loaded runtime is unattested; no release_manifests row names these digests.",
+    "Output budgets remain candidate_exploration_not_a_gate_pass.",
+    "qwen_overlay is off and no invocation has ever been recorded."
+  ],
+  "gateway_image": {
+    "function": "written-semantic-gateway",
+    "digest": "sha256:c6f80de7a03ed3effb469089401c4b5a7a883d64876739eda194ea2d8f85aaea",
+    "note": "Deployed and verified. Health and attestation answer; no model transport is configured, so it cannot call anything."
+  }
+}
