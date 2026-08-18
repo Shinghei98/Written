@@ -13,39 +13,41 @@
   },
   "serving_image": {
     "repository": "written-qwen-serving",
-    "tag": "vllm-0.11.0-59f2cea615b7",
-    "digest": "sha256:6de4b4d2f1a63af9b0d3cf24cce4b36a6c7eec97ce9eff39c4d5df7ca4540d37",
-    "built_from_source_commit": "59f2cea615b7ba732529af5f91ab8918c9d9d727",
+    "tag": "vllm-0.11.0-556634b98c8d",
+    "digest": "sha256:089c9df8d5a325b99acd64500f3c03d0b9efd2aed8821905321f961c6be4c97d",
+    "built_from_source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649",
     "built_by": "CodeBuild written-build-qwen-serving-image",
     "vllm": "0.11.0 (prebuilt wheel vllm-0.11.0-cp38-abi3-manylinux1_x86_64)",
     "torch": "2.8.0",
     "bundled_cuda_runtime": "nvidia-*-cu12 12.8.x on a CUDA 12.4 base image. The wheel ships its own runtime, so this is expected \u2014 and it is exactly what the Stage 3 load attestation must confirm against the host driver rather than assume.",
     "superseded": {
-      "digest": "sha256:5350d0f9787a56f3a9202f8c2b90757fa79db4c6cfdfc46139be569b765e4144",
-      "tag": "vllm-0.11.0-",
-      "why": "Its tag named no commit: CODEBUILD_RESOLVED_SOURCE_VERSION is empty under NO_SOURCE and the fallback guard tested the whole tag rather than the component, so it could never fire. Content was sound; the label was not. Kept rather than deleted, because a digest that was once deployed is history."
+      "digest": "sha256:6de4b4d2f1a63af9b0d3cf24cce4b36a6c7eec97ce9eff39c4d5df7ca4540d37",
+      "tag": "vllm-0.11.0-59f2cea615b7",
+      "why": "Its serve.py answered /ping 200 before the model was loaded, built guided decoding from a schema the gateway never sent, and prompted with the bare request JSON \u2014 no chat template, so enable_thinking was read by nothing."
     }
   },
   "not_yet_true": [
     "No GPU endpoint exists. Service quota L-B0729CB4 (ml.g6e.xlarge for endpoint usage) reads 0, request for 2 still PENDING.",
     "The loaded runtime is unattested; no release_manifests row names these digests.",
     "output_contract.tokenizer_manifest_sha256 is still 'required_from_pinned_deployment_not_yet_measured', deliberately: it must be regenerated from what the GPU actually loads.",
+    "The Step 5 application bridge is unbuilt. overlay.extract_mentions raises in evaluation/shadow, and 0241 asserts semantic_worker cannot execute record_model_invocation \u2014 only semantic_model_worker may. Which identity records an invocation is an open design decision, not a missing function.",
+    "The prompt few-shots are compiled and carried but not yet selected by the retrieval policy; the model is sent role, rules and a worked example.",
     "qwen_overlay is off and no invocation has ever been recorded."
   ],
   "gateway_image": {
     "function": "written-semantic-gateway",
     "repository": "written-semantic-gateway",
-    "tag": "gw-59f2cea615b7",
-    "digest": "sha256:83efeb3518df42f6d5c63d5a7ff21efcf571ddf1784381ed43da2254450dfd0e",
-    "built_from_source_commit": "59f2cea615b7ba732529af5f91ab8918c9d9d727",
+    "tag": "gw-556634b98c8d",
+    "digest": "sha256:6afd42efb3b512f9bdfec68a8cac592dc7fddf552b2e1f1037dca6e3ad060133",
+    "built_from_source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649",
     "built_by": "CodeBuild written-build-gateway-image",
-    "gateway_revision": "df4e8e6ae0ee8b9c6c70f23f8590ff78a1dd24c936a374e69c11925ac00f9ac3",
+    "gateway_revision": "c18425b7bad43f8fd235ce23e0b3902a223add6fed78a0cd1cc6a4936a79b933",
     "deployed": true,
     "verified": "The running function reports this contract's model_revision and gateway_revision, with model_lane_mode off and no deployment loaded.",
     "superseded": {
-      "digest": "sha256:c6f80de7a03ed3effb469089401c4b5a7a883d64876739eda194ea2d8f85aaea",
-      "why": "Built on a laptop at d5e7e3c, ten minutes before sagemaker_transport.py was corrected at cccdabb. It carried the pre-correction transport and a contract full of placeholders, and no check compared the two."
+      "digest": "sha256:83efeb3518df42f6d5c63d5a7ff21efcf571ddf1784381ed43da2254450dfd0e",
+      "why": "Its transport read request_id from the top level while the envelope carries it under input, so every real invocation refused contract_mismatch before reaching SageMaker."
     }
   },
-  "source_commit": "59f2cea615b7ba732529af5f91ab8918c9d9d727"
+  "source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649"
 }
