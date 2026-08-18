@@ -68,6 +68,13 @@ Parameters:
       repointed and the image would change without the manifest noticing, which
       is the same reason the gateway deploys by digest rather than by tag.
 
+      **Pulled from `nvcr.io`, NVIDIA's own registry, not Docker Hub.** Docker
+      Hub rate-limits unauthenticated pulls per IP and a build failed on
+      `429 toomanyrequests` after an earlier one on the same address had spent
+      the quota — a failure that says nothing about the image and costs a whole
+      build to discover. NGC serves this **byte-identical digest** with no such
+      limit, so the pin is unchanged and only where the bytes come from moved.
+
       **12.9 rather than 12.4, and it forces the entrypoint shim below.** The
       engine wheel is a CUDA 12.9 build, so the base has to match it — and
       SageMaker's newest inference AMI runs driver 550.144.01 with CUDA 12.4,
@@ -563,7 +570,7 @@ Resources:
                 # string ${VLLM_VERSION}, pinning nothing and failing at build.
                 - |
                   cat > Dockerfile <<EOF
-                  FROM nvidia/cuda@${CUDA_BASE_DIGEST}
+                  FROM nvcr.io/nvidia/cuda@${CUDA_BASE_DIGEST}
                   ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 \
                       PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
                       HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
