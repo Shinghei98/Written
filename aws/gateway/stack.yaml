@@ -77,6 +77,15 @@ Resources:
               - Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt AsyncBucket.Arn
+              # **The tickets, and nothing else in DynamoDB.** A ticket records
+              # which job is running, never what it is about: a request id, an
+              # inference id and two object keys. No scan and no query — a
+              # ticket is only ever fetched by the id the caller already holds,
+              # so the wider verbs would buy the ability to enumerate other
+              # people's in-flight work and nothing else.
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:GetItem, dynamodb:DeleteItem]
+                Resource: !GetAtt TicketTable.Arn
               - Effect: Allow
                 Action: sagemaker:InvokeEndpointAsync
                 Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/written-qwen-*
@@ -95,6 +104,7 @@ Resources:
         Variables:
           WRITTEN_ASYNC_BUCKET: !Ref AsyncBucket
           WRITTEN_ASYNC_PREFIX: async
+          WRITTEN_TICKET_TABLE: !Ref TicketTable
           WRITTEN_ENVIRONMENT: production
           # Deliberately unset: WRITTEN_SAGEMAKER_ENDPOINT, and the image
           # digests. With no endpoint the transport is None, which is what
@@ -110,8 +120,41 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: !Ref WorkerRoleArn
 
+  # **Where an accepted inference is remembered between invocations.**
+  # Polling used to end in a discarded ticket, so the first request to a
+  # scaled-to-zero endpoint was abandoned along with the GPU-minutes that
+  # produced its answer. This is what a later call reads to collect it.
+  #
+  # `PAY_PER_REQUEST` because the lane is bursty and idle most of the day, and a
+  # TTL because a ticket nobody collects is worthless — the *answer's* retention
+  # is handled where it always was, by deleting it before it is parsed.
+  TicketTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub written-semantic-tickets-${AWS::StackName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        # Deliberately off. Point-in-time recovery would keep copies of rows
+        # whose whole purpose is to expire, and there is nothing here worth
+        # recovering: a lost ticket costs one abandoned answer, and restoring
+        # one would resurrect a pointer to an object already deleted.
+        PointInTimeRecoveryEnabled: false
+
 Outputs:
   GatewayFunctionArn:
     Value: !GetAtt GatewayFunction.Arn
+  TicketTableName:
+    Value: !Ref TicketTable
   AsyncBucketName:
     Value: !Ref AsyncBucket

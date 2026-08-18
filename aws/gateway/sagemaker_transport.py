@@ -79,6 +79,11 @@ class InferenceTicket:
     second one. It holds no request content — an id and two object keys.
     """
 
+    #: What we submitted under, and the key the store is keyed on. Kept beside
+    #: `inference_id` rather than assumed equal to it: SageMaker echoes the id
+    #: it was given today, and a store keyed on what the *service* returned
+    #: would silently stop matching if it ever stopped echoing.
+    request_id: str
     inference_id: str
     output_key: str | None
     failure_key: str | None
@@ -118,13 +123,15 @@ class SageMakerAsyncTransport:
 
     def __init__(self, endpoint_name: str, bucket: str, prefix: str = "async",
                  kms_key_id: str | None = None, poll_interval_s: float = 1.0,
-                 clients: dict[str, Any] | None = None) -> None:
+                 clients: dict[str, Any] | None = None,
+                 tickets: Any | None = None) -> None:
         self._endpoint = endpoint_name
         self._bucket = bucket
         self._prefix = prefix.strip("/")
         self._kms_key_id = kms_key_id
         self._poll = poll_interval_s
         self._clients = clients or {}
+        self._tickets = tickets
 
     def _client(self, name: str):
         if name not in self._clients:
@@ -162,10 +169,19 @@ class SageMakerAsyncTransport:
                 raise gateway.RateLimited(name) from None
             raise RuntimeError(name) from None
 
-        return InferenceTicket(
+        ticket = InferenceTicket(
+            request_id=_inference_id(payload),
             inference_id=started.get("InferenceId") or _inference_id(payload),
             output_key=_key_of(started.get("OutputLocation")),
             failure_key=_key_of(started.get("FailureLocation")))
+
+        # **Written down before the first poll, not after the last one.** A
+        # ticket recorded only when patience runs out is missing in exactly the
+        # case it exists for: the process that dies mid-wait.
+        if self._tickets is not None:
+            self._tickets.put(ticket.request_id, ticket.inference_id,
+                              ticket.output_key, ticket.failure_key)
+        return ticket
 
     def collect(self, ticket: InferenceTicket, timeout_s: float) -> dict[str, Any]:
         """Poll a ticket. **Never enqueues anything.**
@@ -182,6 +198,7 @@ class SageMakerAsyncTransport:
                 # The failure object is provider text too, and the same rule
                 # applies to it: deleting it is not optional.
                 _delete_or_raise(s3, self._bucket, ticket.failure_key)
+                self._forget(ticket)
                 raise RuntimeError("endpoint_failure")
             if ticket.output_key and _exists(s3, self._bucket, ticket.output_key):
                 raw = s3.get_object(
@@ -189,9 +206,39 @@ class SageMakerAsyncTransport:
                 # Deleted before it is parsed, and a failure here withholds the
                 # answer rather than being logged and stepped over.
                 _delete_or_raise(s3, self._bucket, ticket.output_key)
+                self._forget(ticket)
                 return _read(raw)
             time.sleep(self._poll)
+        # Still running. The ticket stays where it is, which is the whole point.
         raise gateway.InferenceInFlight(ticket)
+
+    def resume(self, request_id: str, timeout_s: float) -> dict[str, Any]:
+        """Collect a job submitted by an earlier call. **Submits nothing.**
+
+        This is what makes scale-from-zero survivable: the first request of the
+        day waits on an instance that is still starting, hands back a request
+        id, and the answer is collected on a later call rather than by asking
+        the endpoint to do the work again.
+        """
+        if self._tickets is None:
+            raise gateway.GatewayRefusal(
+                "provider_error", "no ticket store is configured")
+        row = self._tickets.get(request_id)
+        if row is None:
+            # Nothing was submitted under this id, or it was already collected.
+            # Either way there is nothing here to wait for, and inventing a
+            # submission would be the resubmission this avoids.
+            raise gateway.GatewayRefusal("missing_item", "no ticket")
+        return self.collect(
+            InferenceTicket(request_id=request_id,
+                            inference_id=row.get("inference_id", request_id),
+                            output_key=row.get("output_key"),
+                            failure_key=row.get("failure_key")),
+            timeout_s)
+
+    def _forget(self, ticket: InferenceTicket) -> None:
+        if self._tickets is not None:
+            self._tickets.delete(ticket.request_id)
 
 
 def _read(raw: bytes) -> dict[str, Any]:

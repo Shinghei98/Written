@@ -404,6 +404,12 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             "model_id": require(config, "llm.model.default"),
             "model_revision": require(config, "llm.model.revision"),
             "gateway_revision": require(config, "llm.gateway.revision"),
+            # **The serving image, which the contract *can* name.** Unlike the
+            # gateway image, the serving image does not carry this file, so
+            # naming its digest here is not a hash of a layer containing itself.
+            # It is the one image identity that can be an expectation rather
+            # than a record.
+            "serving_image_digest": require(config, "llm.serving.image_digest"),
             # From the schema's own `$id`, so the contract cannot name a schema
             # other than the one it was compiled against.
             "output_schema": schema["$id"],

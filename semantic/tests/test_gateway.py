@@ -42,6 +42,14 @@ def contract_in_lane(tmp_path: pathlib.Path, lane: str) -> SemanticContract:
     """
     data = json.loads(contract_path().read_text())
     data["runtime_requirements"]["qwen_overlay"] = lane
+    # **A fully attested pair, because the attested path is what most of these
+    # exercise.** In the tree these two are placeholders until a GPU measures
+    # one and a build produces the other, and `attestation` correctly withholds
+    # attestation while they are — which is asserted directly in
+    # `test_a_placeholder_expectation_withholds_attestation` rather than left
+    # as the ambient state of every other test.
+    data["output_contract"]["tokenizer_manifest_sha256"] = "tok" * 21 + "1"
+    data["versions"]["serving_image_digest"] = "sha256:serving"
     copy = tmp_path / "compiled_semantic_contract_v1.json"
     copy.write_text(json.dumps(data))
     return SemanticContract(copy)
@@ -52,9 +60,10 @@ def matching_deployment(contract) -> gateway.Deployment:
     return gateway.Deployment(
         model_id=expected["model_id"],
         model_revision=expected["model_revision"],
-        tokenizer_sha256="t",
+        tokenizer_sha256=expected["tokenizer_manifest_sha256"],
+        gateway_revision=expected["gateway_revision"],
         gateway_image_digest="sha256:g",
-        serving_image_digest="sha256:s",
+        serving_image_digest=expected["serving_image_digest"],
         prompt_version=expected["prompt_version"],
         grammar_version=expected["grammar_version"],
         output_schema_sha256=expected["schema_sha256"],
@@ -136,7 +145,8 @@ def test_off_reaches_no_transport_with_a_mismatched_deployment(tmp_path):
     transport = CountingTransport(response=valid_response())
     wrong = gateway.Deployment(
         model_id="somebody-elses-model", model_revision="x", tokenizer_sha256="t",
-        gateway_image_digest="g", serving_image_digest="s", prompt_version="p",
+        gateway_revision="r", gateway_image_digest="g", serving_image_digest="s",
+        prompt_version="p",
         grammar_version="g", output_schema_sha256="s", contract_sha256="c",
         environment="test")
     with pytest.raises(gateway.GatewayRefusal) as refusal:
@@ -396,3 +406,86 @@ def test_a_request_refusal_is_a_4xx_and_a_provider_refusal_a_5xx(shadow, monkeyp
         secret="s3cret", transport=CountingTransport(raises=TimeoutError()),
         deployment=deployment)
     assert status.startswith("503") and body["outcome"] == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Attestation covers every loaded field, or it is not attestation
+# ---------------------------------------------------------------------------
+
+def test_every_loaded_field_is_compared_unless_it_is_named_exempt(tmp_path,
+                                                                    monkeypatch):
+    """A hand-written list of comparisons is a deny-list of what it forgot.
+
+    `tokenizer_sha256` and both image digests were reported under `loaded` and
+    compared against nothing, so `attested: true` was a claim about six fields
+    wearing the name of the deployment. Only fields argued into the exempt set
+    may go uncompared, and this asserts the set rather than the six.
+    """
+    contract = contract_in_lane(tmp_path, "shadow")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+    report = gateway.attestation(matching_deployment(contract))
+    loaded = set(report["loaded"])
+    compared = set(report["matches"]) | set(report["unattested_fields"])
+    assert loaded - compared == gateway._RECORDED_NOT_COMPARED
+    assert report["attested"] is True
+    for field in ("tokenizer_sha256", "serving_image_digest", "gateway_revision"):
+        assert field in report["matches"], f"{field} is not compared"
+
+
+def test_a_placeholder_expectation_withholds_attestation(tmp_path, monkeypatch):
+    """An unmeasured gate is a reason to withhold, not a detail beneath one.
+
+    This is the state of the tree: the tokenizer manifest is regenerated from
+    whatever the GPU loads, and until then there is nothing to compare a
+    measurement against. Treating that absence as agreement is how a deploy gate
+    passes without being run.
+    """
+    import json as _json
+    data = _json.loads(contract_path().read_text())
+    data["runtime_requirements"]["qwen_overlay"] = "shadow"
+    data["output_contract"]["tokenizer_manifest_sha256"] = "tok" * 21 + "1"
+    data["versions"]["serving_image_digest"] = "sha256:serving"
+    copy = tmp_path / "compiled_semantic_contract_v1.json"
+    copy.write_text(_json.dumps(data))
+    contract = SemanticContract(copy)
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+    good = gateway.attestation(matching_deployment(contract))
+    assert good["attested"] is True
+
+    data["output_contract"]["tokenizer_manifest_sha256"] = \
+        "required_from_pinned_deployment_not_yet_measured"
+    copy.write_text(_json.dumps(data))
+    stale = SemanticContract(copy)
+    monkeypatch.setattr(gateway, "_contract", lambda: stale)
+    report = gateway.attestation(matching_deployment(stale))
+    assert report["attested"] is False
+    assert "tokenizer_sha256" in report["unattested_fields"]
+    assert "tokenizer_sha256" not in report["matches"]
+
+
+def test_a_container_answering_with_other_weights_is_refused(tmp_path, monkeypatch):
+    """The runtime block is measured by the container that produced the answer.
+
+    Every other check compares one declaration against another. This is the one
+    that compares a measurement, so it is the one that can catch an endpoint
+    serving weights nobody asked for.
+    """
+    contract = contract_in_lane(tmp_path, "shadow")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+    expected = contract.attestation()
+
+    honest = dict(valid_response())
+    honest["runtime"] = {"model_id": expected["model_id"],
+                         "model_revision": expected["model_revision"],
+                         "tokenizer_sha256": expected["tokenizer_manifest_sha256"]}
+    result = gateway.extract(REQUEST, transport=CountingTransport(response=honest),
+                             deployment=matching_deployment(contract))
+    assert result["outcome"] == "succeeded"
+
+    drifted = dict(honest)
+    drifted["runtime"] = dict(honest["runtime"], model_revision="some-other-commit")
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        gateway.extract(REQUEST, transport=CountingTransport(response=drifted),
+                        deployment=matching_deployment(contract), max_attempts=1)
+    assert refusal.value.code == "contract_mismatch"
+    assert "model_revision" in refusal.value.detail

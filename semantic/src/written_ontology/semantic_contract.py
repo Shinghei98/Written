@@ -154,6 +154,12 @@ class SemanticContract:
             "model_id": self.versions["model_id"],
             "model_revision": self.versions["model_revision"],
             "gateway_revision": self.versions["gateway_revision"],
+            "serving_image_digest": self.versions["serving_image_digest"],
+            # **The tokenizer, which the output budgets rest on.** It was absent
+            # from the attestation entirely, so `tokenizer_sha256` was reported
+            # as loaded and compared against nothing.
+            "tokenizer_manifest_sha256":
+                self.data["output_contract"]["tokenizer_manifest_sha256"],
             # **The mode belongs in the attestation**, because it is the one
             # fact that decides whether a run was permitted to write anything
             # about a person. A release manifest recording model and gateway but

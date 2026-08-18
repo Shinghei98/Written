@@ -37,6 +37,7 @@ GATEWAY_SOURCES = (
     "aws/gateway/handler.py",
     "aws/gateway/manifest.py",
     "aws/gateway/sagemaker_transport.py",
+    "aws/gateway/ticket_store.py",
     "aws/gateway/server.py",
     "semantic/src/written_ontology/gateway.py",
     "semantic/src/written_ontology/gateway_http.py",

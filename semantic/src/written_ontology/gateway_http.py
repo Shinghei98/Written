@@ -52,7 +52,16 @@ from . import gateway
 from .mention_extract_v2 import RequestItem
 
 #: How long the model gets. `llm.gateway.timeout_ms` in the workbook.
-DEFAULT_TIMEOUT_S = 30.0
+#: How long one call waits before handing back a ticket.
+#:
+#: **Not how long the work may take.** Thirty seconds was the whole budget when
+#: there was nothing to hand back, so a slow answer was a lost one; starting a
+#: scaled-to-zero g6e and loading 19 GB is minutes, and every first request of
+#: the day would have been abandoned. With continuation the question is only how
+#: much of one Lambda invocation to spend waiting before returning a request id,
+#: and the function's own timeout is 300 — so this leaves room to answer rather
+#: than being killed mid-poll with the ticket unreported.
+DEFAULT_TIMEOUT_S = 120.0
 
 
 class HttpModelTransport:
@@ -143,8 +152,51 @@ def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
             # forever at the head of a FIFO queue, which the device half already
             # learned once.
             status = 503 if refusal.code in _TRANSIENT else 422
-            return status, {"outcome": refusal.code, "detail": refusal.detail}
+            body = {"outcome": refusal.code, "detail": refusal.detail}
+            resume = getattr(refusal, "resume_request_id", None)
+            if resume:
+                # **The difference between "ask again" and "come back for it".**
+                # A caller told only `timeout` can do nothing but resubmit, and
+                # the work is already running.
+                body["resume"] = {"route": "v1/semantic/collect",
+                                  "request_id": resume}
+            return status, body
         return 200, result
+
+    if route == "v1/semantic/collect":
+        # Collecting is not extracting: it submits nothing, so it does not go
+        # through the lane gate a submission does. It is refused for the one
+        # reason that matters — there is nothing to collect — rather than
+        # answering a caller that holds a real ticket with a policy error.
+        request_id = request.get("request_id")
+        if not request_id:
+            return 400, {"outcome": "contract_mismatch",
+                         "detail": "request_id is required"}
+        if transport is None or not hasattr(transport, "resume"):
+            return 503, {"outcome": "provider_error",
+                         "detail": "this deployment cannot continue a ticket"}
+        try:
+            answer = transport.resume(
+                request_id, float(request.get("timeout_s", DEFAULT_TIMEOUT_S)))
+        except gateway.InferenceInFlight:
+            return 503, {"outcome": "timeout", "detail": "still running",
+                         "resume": {"route": "v1/semantic/collect",
+                                    "request_id": request_id}}
+        except gateway.GatewayRefusal as refusal:
+            status = 503 if refusal.code in _TRANSIENT else 422
+            return status, {"outcome": refusal.code, "detail": refusal.detail}
+        except gateway.RetentionFailure as failure:
+            return 422, {"outcome": "retention_failed", "detail": str(failure)}
+        except Exception as failure:  # noqa: BLE001 - classified, never quoted
+            return 503, {"outcome": "provider_error",
+                         "detail": type(failure).__name__}
+        # **Validated exactly as a fresh answer is.** A late answer is not a
+        # trusted one, and routing it round `_accept` would be a second door
+        # into user semantics with no schema check behind it.
+        try:
+            return 200, gateway.accept_response(answer, request.get("items", []))
+        except gateway.GatewayRefusal as refusal:
+            return 422, {"outcome": refusal.code, "detail": refusal.detail}
 
     return 404, {"outcome": "contract_mismatch", "detail": "no such route"}
 

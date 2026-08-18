@@ -43,6 +43,66 @@ def engine():
     return _engine
 
 
+def _runtime() -> dict:
+    """What is actually loaded here, measured rather than declared.
+
+    The gateway used to assemble its whole attestation from Lambda environment
+    variables — five strings somebody typed, describing a container the gateway
+    had never spoken to. `/ping` answering `{"status": "ok"}` was the other half
+    of that: the one process that *could* say what CUDA, torch, vLLM, tokenizer
+    and weights were in memory said nothing, so the only available answer was
+    the unverified one.
+
+    Everything here is read from the loaded objects. `model_revision` and the
+    tokenizer digest come from the staged directory's own manifest, which the
+    staging job wrote and checksummed, so they describe the bytes on disk rather
+    than a variable that hoped to.
+    """
+    import hashlib  # noqa: PLC0415
+    import pathlib  # noqa: PLC0415
+
+    facts: dict = {}
+    try:
+        import torch  # noqa: PLC0415
+        facts["torch"] = torch.__version__
+        facts["cuda"] = getattr(torch.version, "cuda", None)
+        facts["gpu"] = (torch.cuda.get_device_name(0)
+                        if torch.cuda.is_available() else None)
+    except Exception:  # noqa: BLE001 - a missing fact is reported as missing
+        facts["torch"] = None
+
+    try:
+        import vllm  # noqa: PLC0415
+        facts["vllm"] = vllm.__version__
+    except Exception:  # noqa: BLE001
+        facts["vllm"] = None
+
+    manifest = pathlib.Path(MODEL_PATH) / "manifest.json"
+    if manifest.is_file():
+        try:
+            staged = json.loads(manifest.read_text())
+            facts["model_revision"] = staged.get("model_revision")
+            facts["model_id"] = staged.get("model_id")
+            facts["model_file_count"] = staged.get("file_count")
+            facts["model_total_bytes"] = staged.get("total_bytes")
+            # The tokenizer's own digest, from the manifest that was checksummed
+            # at staging: this is what the output budgets were measured against.
+            for entry in staged.get("files", []):
+                if entry.get("path") == "tokenizer.json":
+                    facts["tokenizer_sha256"] = entry.get("sha256")
+        except Exception:  # noqa: BLE001
+            facts["model_revision"] = None
+
+    tokenizer_file = pathlib.Path(MODEL_PATH) / "tokenizer.json"
+    if "tokenizer_sha256" not in facts and tokenizer_file.is_file():
+        facts["tokenizer_sha256"] = hashlib.sha256(
+            tokenizer_file.read_bytes()).hexdigest()
+
+    facts["serving_image_digest"] = os.environ.get("WRITTEN_SERVING_IMAGE_DIGEST")
+    facts["max_model_len"] = int(os.environ.get("WRITTEN_MAX_MODEL_LEN", "8192"))
+    return facts
+
+
 def _prompt(payload: dict) -> str:
     """The chat template, applied, with the instructions the contract carries.
 
@@ -107,7 +167,10 @@ class Handler(BaseHTTPRequestHandler):
                                      "error": type(_load_error).__name__})
         if not _loaded.is_set():
             return self._reply(503, {"status": "loading"})
-        self._reply(200, {"status": "ok"})
+        # **Healthy says what it is healthy with.** An operator, and the
+        # gateway's attestation, need the loaded runtime rather than the word
+        # "ok" — which is true of a container serving the wrong weights.
+        self._reply(200, {"status": "ok", "runtime": _runtime()})
 
     def do_POST(self):  # noqa: N802
         if self.path != "/invocations":
@@ -142,6 +205,12 @@ class Handler(BaseHTTPRequestHandler):
                 "message": {"content": output.text},
             }],
             "usage": {"completion_tokens": len(output.token_ids)},
+            # **Travels with the answer, not only with the health check.** An
+            # attestation taken at some earlier moment describes the container
+            # that was running then; this one describes the container that
+            # produced *this* answer, which is the claim that matters when the
+            # answer becomes something said about a person.
+            "runtime": _runtime(),
         })
 
     def _reply(self, code: int, body: dict):

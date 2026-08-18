@@ -297,3 +297,108 @@ def test_the_gateway_reaches_the_transport_at_all(module, monkeypatch, tmp_path)
     assert refusal.value.code == "schema_invalid"
     assert len(runtime.calls) == 1, "the gateway never reached the transport"
     assert runtime.calls[0]["InferenceId"] == "req_e2e_001"
+
+
+# ---------------------------------------------------------------------------
+# An accepted job survives the call that submitted it
+# ---------------------------------------------------------------------------
+
+class FakeTickets:
+    """The store, in memory, recording what it was asked to do."""
+
+    def __init__(self):
+        self.rows: dict[str, dict] = {}
+        self.deleted: list[str] = []
+
+    def put(self, request_id, inference_id, output_key, failure_key):
+        self.rows[request_id] = {"inference_id": inference_id,
+                                 "output_key": output_key,
+                                 "failure_key": failure_key}
+
+    def get(self, request_id):
+        return self.rows.get(request_id)
+
+    def delete(self, request_id):
+        self.deleted.append(request_id)
+        self.rows.pop(request_id, None)
+
+
+def test_the_ticket_is_written_before_the_first_poll(module, PAYLOAD):
+    """Recorded when the work is accepted, not when patience runs out.
+
+    A ticket written only on the way out is missing in exactly the case it
+    exists for: the process that dies mid-wait.
+    """
+    tickets = FakeTickets()
+    with pytest.raises(gateway.InferenceInFlight):
+        transport(module, FakeS3({}), FakeRuntime(),
+                  tickets=tickets).complete(PAYLOAD, 0.01)
+    assert "req_abc123" in tickets.rows
+    assert tickets.rows["req_abc123"]["output_key"] == "async/out/answer.json"
+
+
+def test_a_later_call_collects_without_submitting(module, PAYLOAD):
+    """Scale-from-zero, in the small: wait, give up, come back, collect.
+
+    The endpoint is still starting on the first call. The second call finds the
+    answer and does **not** ask the endpoint to do the work again — which on a
+    single-instance GPU would queue a duplicate behind the original and leave
+    the original's answer for the lifecycle rule.
+    """
+    tickets, runtime, s3 = FakeTickets(), FakeRuntime(), FakeS3({})
+    first = transport(module, s3, runtime, tickets=tickets)
+    with pytest.raises(gateway.InferenceInFlight):
+        first.complete(PAYLOAD, 0.01)
+
+    s3.objects["async/out/answer.json"] = ANSWER      # the endpoint finishes
+
+    later = transport(module, s3, runtime, tickets=tickets)   # a new invocation
+    result = later.resume("req_abc123", 5)
+    assert result["output_tokens"] == 7
+    assert len(runtime.calls) == 1, "resuming submitted the work again"
+    assert s3.deleted == ["async/out/answer.json"]
+    assert tickets.deleted == ["req_abc123"], "a collected ticket was kept"
+
+
+def test_resuming_something_never_submitted_is_refused(module):
+    """No ticket means nothing is running; inventing a submission is the defect."""
+    tickets = FakeTickets()
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        transport(module, FakeS3({}), FakeRuntime(),
+                  tickets=tickets).resume("req_never", 1)
+    assert refusal.value.code == "missing_item"
+
+
+def test_without_a_store_it_still_refuses_to_resubmit(module, PAYLOAD):
+    """Absent continuation is not a licence to fall back to a second job."""
+    runtime = FakeRuntime()
+    with pytest.raises(gateway.InferenceInFlight):
+        transport(module, FakeS3({}), runtime).complete(PAYLOAD, 0.01)
+    assert len(runtime.calls) == 1
+    with pytest.raises(gateway.GatewayRefusal) as refusal:
+        transport(module, FakeS3({}), runtime).resume("req_abc123", 1)
+    assert refusal.value.code == "provider_error"
+
+
+def test_the_refusal_tells_the_caller_where_to_come_back(module, monkeypatch,
+                                                         tmp_path):
+    """`timeout` alone leaves a caller nothing to do but resubmit."""
+    from written_ontology import gateway_http
+    from written_ontology.mention_extract_v2 import RequestItem
+    from test_gateway import contract_in_lane, matching_deployment
+
+    contract = contract_in_lane(tmp_path, "shadow")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+
+    tickets = FakeTickets()
+    sent = transport(module, FakeS3({}), FakeRuntime(), tickets=tickets)
+    status, body = gateway_http.dispatch(
+        {"route": "v1/semantic/extract",
+         "items": [{"item_index": 0, "fields": {"title": "Midnight"}}],
+         "request_id": "req_resume_me", "timeout_s": 0.01},
+        deployment=matching_deployment(contract), transport=sent)
+
+    assert status == 503
+    assert body["outcome"] == "timeout"
+    assert body["resume"] == {"route": "v1/semantic/collect",
+                              "request_id": "req_resume_me"}

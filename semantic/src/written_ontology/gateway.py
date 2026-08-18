@@ -155,6 +155,11 @@ class Deployment:
     model_id: str
     model_revision: str
     tokenizer_sha256: str
+    #: A sha256 over the gateway sources **as loaded in this process**, not a
+    #: value handed in. It is the honest counterpart to the image digest, which
+    #: a process cannot learn about itself and which the contract could not name
+    #: without hashing a layer containing the file that names it.
+    gateway_revision: str
     gateway_image_digest: str
     serving_image_digest: str
     prompt_version: str
@@ -216,6 +221,38 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "extraction_enabled": _contract().model_may_be_called}
 
 
+#: Loaded facts with no contract expectation that could exist, named one by one
+#: so that a field added to `Deployment` joins the *compared* set by default and
+#: has to be argued into this one.
+#:
+#: - `gateway_image_digest`: a Lambda cannot learn the digest of the image it is
+#:   running from inside it, and the contract could not name it anyway — the
+#:   compiled contract is copied into that image, so the digest is a hash of a
+#:   layer containing the file that would name it. `gateway_revision` is the
+#:   measurable counterpart and *is* compared.
+#: - `environment`: a label for where this runs, not a claim about what ran.
+_RECORDED_NOT_COMPARED = frozenset({"gateway_image_digest", "environment"})
+
+#: Where a loaded field's expectation lives, when the two are not spelled alike.
+_EXPECTATION_FOR = {
+    "output_schema_sha256": "schema_sha256",
+    "contract_sha256": "compiled_contract_sha256",
+    "tokenizer_sha256": "tokenizer_manifest_sha256",
+}
+
+
+def _is_placeholder(value: Any) -> bool:
+    """An authored stand-in is not an expectation.
+
+    `tokenizer_manifest_sha256` reads
+    `required_from_pinned_deployment_not_yet_measured` until a GPU regenerates
+    it. Comparing a measurement against that string would fail confusingly;
+    treating it as absent and attesting anyway would be worse.
+    """
+    return isinstance(value, str) and (
+        value.startswith("pin_") or value.startswith("required_from_"))
+
+
 def attestation(deployment: Deployment | None = None) -> dict[str, Any]:
     """What is loaded, beside what the contract expects.
 
@@ -238,16 +275,34 @@ def attestation(deployment: Deployment | None = None) -> dict[str, Any]:
 
     loaded = dataclasses.asdict(deployment)
     report["loaded"] = loaded
-    report["matches"] = {
-        "model_id": loaded["model_id"] == expected["model_id"],
-        "model_revision": loaded["model_revision"] == expected["model_revision"],
-        "prompt_version": loaded["prompt_version"] == expected["prompt_version"],
-        "grammar_version": loaded["grammar_version"] == expected["grammar_version"],
-        "output_schema_sha256":
-            loaded["output_schema_sha256"] == expected["schema_sha256"],
-        "contract_sha256": loaded["contract_sha256"] == expected["compiled_contract_sha256"],
-    }
-    report["attested"] = all(report["matches"].values())
+
+    # **Every loaded field is compared unless it is named as exempt, and a field
+    # whose expectation is a placeholder makes the report unattested.**
+    #
+    # The first version listed six comparisons by hand. `tokenizer_sha256`,
+    # `gateway_image_digest` and `serving_image_digest` were reported under
+    # `loaded` and compared against nothing, so `attested: true` was a statement
+    # about six fields dressed as a statement about the deployment — and the
+    # tokenizer is the one the output budgets rest on. A hand-written list of
+    # comparisons is a deny-list of everything it forgot, and the failure mode
+    # of a deny-list is silence.
+    matches: dict[str, bool] = {}
+    unattested: list[str] = []
+    for field in sorted(loaded):
+        if field in _RECORDED_NOT_COMPARED:
+            continue
+        want = expected.get(_EXPECTATION_FOR.get(field, field))
+        if want is None or _is_placeholder(want):
+            # No expectation to compare against. **Not silently skipped**: an
+            # unmeasured deploy gate is the reason to withhold attestation, not
+            # a detail beneath it.
+            unattested.append(field)
+            continue
+        matches[field] = loaded[field] == want
+
+    report["matches"] = matches
+    report["unattested_fields"] = unattested
+    report["attested"] = bool(matches) and all(matches.values()) and not unattested
     return report
 
 
@@ -325,14 +380,22 @@ def extract(
             started = time.monotonic()
             response = transport.complete(payload, timeout_s)
             latency_ms = int((time.monotonic() - started) * 1000)
-        except InferenceInFlight:
+        except InferenceInFlight as flight:
             # **Not retried.** The work exists; a second call would be a second
             # job, not another go at the first. The outcome is still `timeout`
             # — that is what the closed vocabulary calls "we did not get an
             # answer" — but it leaves the loop here rather than round it.
+            #
+            # The request id travels on the refusal so the caller can collect
+            # the same job later. Without it the only available response to a
+            # slow endpoint is to ask again, which is what starting a
+            # scaled-to-zero GPU would otherwise guarantee on every first call.
             if breaker is not None:
                 breaker.record_failure()
-            raise GatewayRefusal("timeout", "accepted, unanswered") from None
+            refusal = GatewayRefusal("timeout", "accepted, unanswered")
+            refusal.resume_request_id = getattr(
+                flight.ticket, "request_id", None) or request["request_id"]
+            raise refusal from None
         except TimeoutError:
             # Nothing was accepted, so nothing is duplicated by asking again.
             last = GatewayRefusal("timeout", f"attempt {attempt}")
@@ -484,6 +547,23 @@ def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
     }
 
 
+def accept_response(response: dict[str, Any],
+                    items: Sequence[Any]) -> dict[str, Any]:
+    """Validate an answer that arrived on a later call.
+
+    A resumed answer goes through exactly the checks a fresh one does — runtime
+    drift, schema, offsets, item coverage. It is the same model output; the only
+    difference is that nobody was holding the socket open when it appeared, and
+    that is not a reason to trust it more.
+    """
+    rebuilt = [
+        item if isinstance(item, RequestItem)
+        else RequestItem(item["item_index"], item["fields"])
+        for item in items
+    ]
+    return _accept(response, rebuilt, _contract())
+
+
 def _accept(response: dict[str, Any], items: Sequence[RequestItem],
             contract) -> dict[str, Any]:
     """Steps 7 through 10."""
@@ -492,6 +572,18 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
         raise GatewayRefusal("output_overflow", "the response was truncated")
     if finish not in {"stop", None}:
         raise GatewayRefusal("provider_error", f"finish_reason {finish!r}")
+
+    # **What answered, checked against what was supposed to.** The runtime block
+    # is measured by the serving container and travels with the answer, so this
+    # is the one comparison that is not a claim about a claim: a container that
+    # loaded other weights, another tokenizer or another engine build is caught
+    # here rather than trusted because a Lambda environment variable agreed with
+    # itself.
+    runtime = response.get("runtime")
+    if isinstance(runtime, dict):
+        drift = _runtime_drift(runtime, contract)
+        if drift:
+            raise GatewayRefusal("contract_mismatch", ",".join(sorted(drift)))
 
     body = response.get("body")
     if not isinstance(body, dict):
@@ -534,6 +626,28 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
         "output_tokens": response.get("output_tokens"),
         "outcome": "succeeded",
     }
+
+
+def _runtime_drift(runtime: dict[str, Any], contract) -> list[str]:
+    """Which measured facts disagree with the contract.
+
+    Silence is not agreement: a fact the container did not report is not
+    treated as matching. It is only skipped where the contract has no
+    expectation to hold it to — and where that expectation is a placeholder,
+    `attestation` has already withheld attestation, so extraction never got
+    this far.
+    """
+    expected = contract.attestation()
+    drift: list[str] = []
+    for measured, expectation in (("model_id", "model_id"),
+                                  ("model_revision", "model_revision"),
+                                  ("tokenizer_sha256", "tokenizer_manifest_sha256")):
+        want = expected.get(expectation)
+        if want is None or _is_placeholder(want):
+            continue
+        if runtime.get(measured) != want:
+            drift.append(measured)
+    return drift
 
 
 #: Which validator refusal is which operational outcome. A mapping rather than a
