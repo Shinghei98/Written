@@ -18,16 +18,51 @@ set -euo pipefail
 
 STACK=written-qwen-serving
 REGION=${AWS_REGION:-us-east-1}
+
+# **The cap is money, and the enforcement is time.** AWS has no hard dollar stop:
+# Budgets cannot terminate a SageMaker endpoint, and its cost data lags hours
+# behind usage, so a $10 budget fires long after $10 has been spent on something
+# billing by the hour. What *can* be enforced exactly is the only thing that
+# spends the money, and the minutes are derived from the live price rather than
+# from a number written here — a rate change cannot make this quietly wrong.
+BUDGET_USD=${BUDGET_USD:-10}
+INSTANCE=${INSTANCE:-ml.g6e.xlarge}
 SERVING_IMAGE=${SERVING_IMAGE:?set SERVING_IMAGE to the full ECR digest URI}
 MODEL_URI=${MODEL_URI:?set MODEL_URI to the staged artifacts prefix}
 OUT=${OUT:-./out/attestation}
 
 started_at=""
+watchdog_pid=""
+schedule_name=""
+
+hourly_rate() {
+  aws pricing get-products --region us-east-1 --service-code AmazonSageMaker \
+    --filters "Type=TERM_MATCH,Field=instanceName,Value=${INSTANCE}" \
+              'Type=TERM_MATCH,Field=component,Value=Hosting' \
+    --max-results 30 --output json \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for raw in d.get('PriceList', []):
+    p = json.loads(raw)
+    if 'US East (N. Virginia)' not in p['product']['attributes'].get('location', ''):
+        continue
+    for term in p['terms']['OnDemand'].values():
+        for dim in term['priceDimensions'].values():
+            print(dim['pricePerUnit']['USD']); raise SystemExit
+raise SystemExit('no hosting price found')
+"
+}
 
 teardown() {
   local code=$?
   echo
   echo "==> teardown (exit ${code})"
+  [ -n "$watchdog_pid" ] && kill "$watchdog_pid" 2>/dev/null || true
+  # The armed deadline is removed only once the endpoint is actually gone, which
+  # the check below verifies. Removing it first would drop the backstop at the
+  # exact moment the teardown might be failing.
+  
   # Deleted whatever happened above. `|| true` because a teardown that fails
   # loudly and stops is worse than one that reports and carries on to the
   # verification below.
@@ -42,12 +77,21 @@ teardown() {
     echo "!! Delete it by hand: aws sagemaker delete-endpoint --endpoint-name <name>" >&2
   fi
 
+  if [ "$endpoints" = "0" ] && [ -n "$schedule_name" ]; then
+    aws scheduler delete-schedule --name "$schedule_name" --region "$REGION" 2>/dev/null || true
+  elif [ -n "$schedule_name" ]; then
+    echo "   deadline schedule ${schedule_name} left armed deliberately" >&2
+  fi
+
   if [ -n "$started_at" ]; then
     local minutes
     minutes=$(( ( $(date +%s) - started_at ) / 60 ))
     # The rate is read from the Pricing API rather than written down here, so a
     # price change cannot make this line quietly wrong.
     echo "instance was up for roughly ${minutes} min"
+    python3 -c "
+rate = ${RATE:-0} or 0
+print(f'estimated charge: \${{ {minutes} / 60 * rate :.2f}}')" 2>/dev/null || true
   fi
   exit "$code"
 }
@@ -58,6 +102,40 @@ aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
   --template-file "$(dirname "$0")/stack.yaml" --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI"
 started_at=$(date +%s)
+
+RATE=$(hourly_rate)
+MINUTES=$(python3 -c "print(max(5, int(float('$BUDGET_USD') / float('$RATE') * 60)))")
+echo "==> budget \$${BUDGET_USD} at \$${RATE}/hr  ->  hard stop after ${MINUTES} min"
+
+ENDPOINT_NAME=$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`EndpointName`].OutputValue' --output text)
+
+# **Switch one: on AWS, and it survives this machine.** A trap does not run when
+# the laptop sleeps, the network drops or the process is SIGKILLed — which are
+# exactly the cases that leave a GPU running. This does not depend on anything
+# here still being alive.
+schedule_name="written-qwen-deadline-$(date +%s)"
+DEADLINE=$(python3 -c "
+import datetime
+print((datetime.datetime.now(datetime.timezone.utc)
+       + datetime.timedelta(minutes=${MINUTES})).strftime('%Y-%m-%dT%H:%M:%S'))")
+aws scheduler create-schedule --name "$schedule_name" --region "$REGION" \
+  --schedule-expression "at(${DEADLINE})" \
+  --flexible-time-window '{"Mode":"OFF"}' \
+  --target "{\"Arn\":\"arn:aws:scheduler:::aws-sdk:sagemaker:deleteEndpoint\",
+             \"RoleArn\":\"arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/written-qwen-teardown\",
+             \"Input\":\"{\\\"EndpointName\\\":\\\"${ENDPOINT_NAME}\\\"}\"}" \
+  --action-after-completion DELETE >/dev/null
+echo "    deadline armed on AWS at ${DEADLINE}Z (schedule ${schedule_name})"
+
+# **Switch two: here, and it is the fast one.** The scheduler is the backstop
+# against this machine disappearing; this is what stops the charge promptly when
+# the pass simply runs long.
+( sleep $(( MINUTES * 60 ))
+  echo "!! budget deadline reached; deleting the endpoint" >&2
+  aws sagemaker delete-endpoint --endpoint-name "$ENDPOINT_NAME" --region "$REGION" || true
+) &
+watchdog_pid=$!
 
 echo "==> wait for InService"
 # `/ping` answers 503 until the 19 GB load finishes, so InService means loaded

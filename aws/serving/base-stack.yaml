@@ -512,6 +512,43 @@ Resources:
                   echo "GATEWAY_IMAGE_DIGEST=$DIGEST"
                   echo "$URI@$DIGEST"
 
+  # -- the dead-man's switch ------------------------------------------------
+  # **A trap in a shell script is not a spending cap.** It does not run if the
+  # laptop sleeps, the network drops, the terminal is closed or the process is
+  # SIGKILLed — and those are the cases where a GPU is left running, not the
+  # tidy failures. So the deadline is also held by something that does not
+  # depend on the machine that started it.
+  #
+  # EventBridge Scheduler calls `sagemaker:DeleteEndpoint` at a one-shot time
+  # computed from the budget and the live hourly rate. Deleting the endpoint is
+  # what stops the instance charge; the stack shell costs nothing and can be
+  # cleaned up afterwards.
+  #
+  # The role can delete endpoints and **nothing else** — not the model, not the
+  # config, not the stack. A wider grant would let a scheduled job dismantle
+  # things whose absence is harder to notice than a stopped endpoint.
+  TeardownSchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-qwen-teardown
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref 'AWS::AccountId'
+      Policies:
+        - PolicyName: delete-the-endpoint-and-nothing-else
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sagemaker:DeleteEndpoint
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/written-qwen-*
+
 Outputs:
   ModelBucketName:
     Value: !Ref ModelBucket
@@ -525,3 +562,5 @@ Outputs:
     Value: !Ref BuildImage
   BuildGatewayImageProject:
     Value: !Ref BuildGatewayImage
+  TeardownSchedulerRoleArn:
+    Value: !GetAtt TeardownSchedulerRole.Arn
