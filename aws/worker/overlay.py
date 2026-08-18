@@ -116,10 +116,290 @@ def extract_mentions(job) -> dict[str, Any]:
     # written, which is enforced where the writes happen rather than here — a
     # handler that decided its own permissions would be a second copy of the
     # rule. What is common to both is that neither can run without a gateway.
-    raise NotImplementedError(
-        f"the qwen extraction lane is in mode {mode!r} and its gateway has not "
-        "shipped"
-    )
+    return _propose_with_model(job, mode)
+
+
+#: What a mention proposed by the model is called, and the only value
+#: `guard_model_mention_lineage` accepts alongside an invocation item.
+_MODEL_METHOD = "model_proposed"
+
+#: The model lane writes a mention exactly as the exact lane does, except for
+#: the two columns that say where it came from. Everything else — the
+#: conflict key, the mining flags, the locale — is deliberately identical, so a
+#: model mention and a projection mention are the same kind of row about the
+#: same observation rather than a parallel vocabulary.
+_INSERT_MODEL_MENTION = """
+insert into semantic_private.observation_mentions (
+  observation_id, user_id, mention_text, normalized_text, mention_role,
+  locale, type_hint, source_field, extraction_method, confidence,
+  safe_for_global_mining, safe_for_external_resolution, evidence_weight,
+  model_invocation_item_id)
+values (
+  %(observation_id)s, %(user_id)s, %(mention_text)s, %(normalized_text)s,
+  %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, 'model_proposed',
+  %(confidence)s, false, false, %(evidence_weight)s,
+  %(model_invocation_item_id)s)
+on conflict (observation_id, normalized_text, mention_role,
+             coalesce(source_field, ''), extraction_method) do nothing
+"""
+
+
+def _propose_with_model(job, mode: str) -> dict[str, Any]:
+    """The bridge: ask the model under one identity, write under another.
+
+    **The two halves cannot be collapsed and the schema is what says so.**
+    `0241` refuses `semantic_worker` the right to record a model call; `0243`
+    refuses it the right to read invocation items. So this handler hands the
+    work to `ModelLane`, which holds the other credential, and receives back a
+    value: an invocation id and one lineage row per requested item. It then
+    writes mentions naming those items — which `guard_model_mention_lineage`
+    permits only where the item exists, succeeded, and belongs to an invocation
+    whose lane may say something about a person.
+
+    A worker that could forge that link would make the guard decorative. It
+    cannot: it has no insert on `model_invocation_items` at all.
+    """
+    user_id = job.payload["user_id"]
+    request_id = job.payload.get("request_id") or _request_id(job)
+    resuming = bool(job.payload.get("resume"))
+
+    import psycopg  # noqa: PLC0415
+    from psycopg.rows import dict_row  # noqa: PLC0415
+
+    from handler import VAULT_KEY_ARN, _kms, database_url  # noqa: PLC0415
+
+    # **The deterministic connection, and only ever this one here.** The model
+    # lane opens its own with the other credential; nothing in this function
+    # touches it, and nothing in that one writes a mention.
+    connection = psycopg.connect(database_url(), row_factory=dict_row,
+                                 prepare_threshold=None)
+    with connection:
+        return _propose_and_write(connection, job, mode, user_id, request_id,
+                                  resuming, _kms, VAULT_KEY_ARN)
+
+
+def _propose_and_write(connection, job, mode, user_id, request_id, resuming,
+                       kms, vault_key_arn) -> dict[str, Any]:
+    from model_lane import InFlight, LaneUnavailable, ModelLane  # noqa: PLC0415
+
+    items = _items_for(connection, user_id, job.payload, kms, vault_key_arn)
+    if not items:
+        # **Nothing to ask about is not a failure.** An account whose evidence
+        # has not been captured yet, or whose text has been erased, produces no
+        # request — and an empty call would record an invocation that asked
+        # nothing.
+        return {"status": "no_op", "abstained": True, "item_count": 0,
+                "reason": "no source text evidence"}
+
+    lane = ModelLane()
+    try:
+        proposed = lane.propose(
+            user_id=user_id,
+            items=[_wire_item(item) for item in items],
+            request_id=request_id,
+            source_profile=job.payload.get("source_profile", "youtube"),
+            resume=resuming)
+    except InFlight as flight:
+        # The endpoint accepted the work and is still starting. Returning this
+        # rather than raising is what stops a scaled-to-zero GPU being asked to
+        # do the same work twice; the job is re-enqueued with the same request
+        # id and collects.
+        return {"status": "in_flight", "abstained": False,
+                "item_count": len(items), "resume_request_id": flight.request_id}
+    except LaneUnavailable as unavailable:
+        # Infrastructural, never an outcome: nothing was recorded, so nothing
+        # should be filed as though the model had answered.
+        raise RuntimeError(f"model lane unavailable: {unavailable}") from None
+
+    written = 0
+    if mode == "evaluation":
+        # **Fixture-only, and the refusal is structural rather than polite.**
+        # `0239` derives the lane from the deployment slot and `0237` refuses a
+        # user mention from anything but `shadow` or `active`, so an evaluation
+        # call that tried this would be rejected by a trigger. Not attempting it
+        # keeps the reason legible instead of relying on the exception.
+        pass
+    else:
+        written = _write_model_mentions(connection, user_id, items, proposed)
+
+    return {
+        "status": "ok",
+        "abstained": False,
+        "item_count": len(items),
+        "invocation_id": proposed["invocation_id"],
+        "mentions_written": written,
+        "lineage": [
+            {"item_index": row["item_index"], "outcome": row["outcome"],
+             "mention_count": row["mention_count"]}
+            for row in proposed["lineage"]
+        ],
+    }
+
+
+def _request_id(job) -> str:
+    """Stable for the job, because a retry must not become a second inference.
+
+    The transport submits under this id and the ticket store is keyed on it, so
+    a job that is retried collects the answer it already paid for. A fresh id
+    per attempt would restore exactly the duplicate-submission the derived id
+    was introduced to remove.
+    """
+    import hashlib  # noqa: PLC0415
+
+    seed = f"{job.payload.get('user_id')}:{job.payload.get('job_id') or job.id}"
+    return "req_" + hashlib.sha256(seed.encode()).hexdigest()[:40]
+
+
+SELECT_EVIDENCE_ITEMS = """
+select e.id as source_text_evidence_id,
+       e.observation_id,
+       e.user_id,
+       o.source_code,
+       o.data_type,
+       e.encrypted_text,
+       e.encryption_key_version
+  from semantic_private.source_text_evidence e
+  join semantic_private.observations o on o.id = e.observation_id
+ where e.user_id = %(user_id)s
+   and e.refresh_status = 'current'
+   and o.lifecycle_state = 'active'
+ order by e.created_at
+ limit %(limit)s
+"""
+
+
+def _items_for(connection, user_id: str, payload: dict[str, Any],
+               kms, vault_key_arn) -> list[dict]:
+    """The evidence this call will ask about, bounded by the contract.
+
+    Bounded here rather than by the gateway, because a request the gateway has
+    to refuse for size is a call that should not have been built. The cap is the
+    contract's own wire maximum — two — which is why the batch is small and why
+    the job is enqueued per batch rather than per account.
+    """
+    contract = load_contract()
+    limit = min(int(payload.get("limit") or contract.max_items_wire),
+                contract.max_items_wire)
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_EVIDENCE_ITEMS,
+                       {"user_id": user_id, "limit": limit})
+        rows = [dict(row) for row in cursor.fetchall()]
+
+    # **Decrypted here, in the identity that holds `Decrypt`.** The plaintext
+    # exists in this process and in the gateway's request; it never reaches
+    # `model_invocation_items`, which has no text column, and it is not written
+    # anywhere by this handler.
+    items = []
+    for index, row in enumerate(rows):
+        text = _plaintext(connection, kms, row, vault_key_arn)
+        if not text:
+            continue
+        items.append({
+            "item_index": index,
+            "fields": {"title": text[:256]},
+            "observation_id": row["observation_id"],
+            "source_text_evidence_id": row["source_text_evidence_id"],
+            # **Stable across retries**, so a second attempt at the same work is
+            # a second attempt rather than a second logical extraction — which
+            # is what `one standing success per logical extraction` counts.
+            "logical_extraction_key":
+                f"model:{row['source_text_evidence_id']}",
+        })
+    return items
+
+
+def _plaintext(connection, kms, row, vault_key_arn) -> str | None:
+    """One evidence row, decrypted, or None if it cannot be read.
+
+    A row whose key is gone is skipped rather than raising: crypto erasure is a
+    supported state, and an account that has exercised it must not make every
+    later job fail.
+    """
+    from observations import decrypt_payload  # noqa: PLC0415
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "select wrapped_dek from semantic_private.user_encryption_keys "
+            "where user_id = %s and key_version = %s",
+            (row["user_id"], row["encryption_key_version"]))
+        key_row = cursor.fetchone()
+    if key_row is None:
+        return None
+    dek = kms.decrypt(CiphertextBlob=bytes(key_row["wrapped_dek"]),
+                      KeyId=vault_key_arn)["Plaintext"]
+    try:
+        envelope = decrypt_payload(dek, bytes(row["encrypted_text"]))
+    except Exception:  # noqa: BLE001 - unreadable is skipped, never guessed at
+        return None
+    if isinstance(envelope, dict):
+        return envelope.get("text") or envelope.get("title")
+    return envelope if isinstance(envelope, str) else None
+
+
+def _wire_item(item: dict[str, Any]) -> dict[str, Any]:
+    """One evidence row, as the request schema permits it to travel.
+
+    The schema is an allowlist, so anything not named here cannot reach the
+    model even by accident — and the two identifiers below travel to the *lane*,
+    not to the gateway: they are how the invocation item is attributed, and the
+    request document carries neither.
+    """
+    return {
+        "item_index": item["item_index"],
+        "fields": item["fields"],
+        "observation_id": str(item["observation_id"]),
+        "source_text_evidence_id": str(item["source_text_evidence_id"]),
+        "logical_extraction_key": item["logical_extraction_key"],
+    }
+
+
+def _write_model_mentions(connection, user_id: str, items: list[dict],
+                          proposed: dict[str, Any]) -> int:
+    """Write what the model proposed, each row naming the item that earned it.
+
+    The mention is written by the deterministic worker — the identity that may
+    write mentions and may not record invocations. That is the whole point of
+    the handoff, and it is why the lineage arrives as a value rather than being
+    looked up here.
+    """
+    by_index = {row["item_index"]: row for row in proposed["lineage"]}
+    rows = []
+    for answered in proposed["items"]:
+        lineage = by_index.get(answered.get("item_index"))
+        if lineage is None or lineage["outcome"] != "succeeded":
+            # An item that did not succeed cannot carry mentions; the trigger
+            # refuses it and the check constraint refused the count already.
+            continue
+        for mention in answered.get("mentions", []):
+            rows.append({
+                "observation_id": lineage["observation_id"],
+                "user_id": user_id,
+                "mention_text": mention["surface"],
+                "normalized_text": _normalize(mention["surface"]),
+                "mention_role": mention.get("mention_role"),
+                "type_hint": mention.get("family_hypothesis"),
+                "source_field": mention.get("source_field"),
+                "confidence": mention.get("confidence", 1.0),
+                "evidence_weight": 1.0,
+                "model_invocation_item_id": lineage["item_id"],
+            })
+    if not rows:
+        return 0
+    with connection.cursor() as cursor:
+        cursor.executemany(_INSERT_MODEL_MENTION, rows)
+    return len(rows)
+
+
+def _normalize(surface: str) -> str:
+    """The same normalisation the exact lane uses, asked for rather than copied.
+
+    A second definition here would resolve differently from the one the exact
+    resolver matches against, and the disagreement would look like the model
+    proposing labels the ontology does not hold.
+    """
+    from written_ontology.normalize import normalize_text  # noqa: PLC0415
+
+    return normalize_text(surface)
 
 
 # ---------------------------------------------------------------------------

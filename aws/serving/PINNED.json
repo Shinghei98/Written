@@ -13,17 +13,17 @@
   },
   "serving_image": {
     "repository": "written-qwen-serving",
-    "tag": "vllm-0.11.0-556634b98c8d",
-    "digest": "sha256:089c9df8d5a325b99acd64500f3c03d0b9efd2aed8821905321f961c6be4c97d",
-    "built_from_source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649",
+    "tag": "vllm-0.11.0-62bfe354e9da",
+    "digest": "sha256:fae5a8730982d4be687519ac531b83b602806ccddb17f4fa4fa98834ea52327c",
+    "built_from_source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5",
     "built_by": "CodeBuild written-build-qwen-serving-image",
     "vllm": "0.11.0 (prebuilt wheel vllm-0.11.0-cp38-abi3-manylinux1_x86_64)",
     "torch": "2.8.0",
     "bundled_cuda_runtime": "nvidia-*-cu12 12.8.x on a CUDA 12.4 base image. The wheel ships its own runtime, so this is expected \u2014 and it is exactly what the Stage 3 load attestation must confirm against the host driver rather than assume.",
     "superseded": {
-      "digest": "sha256:6de4b4d2f1a63af9b0d3cf24cce4b36a6c7eec97ce9eff39c4d5df7ca4540d37",
-      "tag": "vllm-0.11.0-59f2cea615b7",
-      "why": "Its serve.py answered /ping 200 before the model was loaded, built guided decoding from a schema the gateway never sent, and prompted with the bare request JSON \u2014 no chat template, so enable_thinking was read by nothing."
+      "digest": "sha256:089c9df8d5a325b99acd64500f3c03d0b9efd2aed8821905321f961c6be4c97d",
+      "tag": "vllm-0.11.0-556634b98c8d",
+      "why": "Its /ping answered only {\"status\": \"ok\"} and reported none of the loaded runtime."
     }
   },
   "not_yet_true": [
@@ -37,17 +37,17 @@
   "gateway_image": {
     "function": "written-semantic-gateway",
     "repository": "written-semantic-gateway",
-    "tag": "gw-556634b98c8d",
-    "digest": "sha256:6afd42efb3b512f9bdfec68a8cac592dc7fddf552b2e1f1037dca6e3ad060133",
-    "built_from_source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649",
+    "tag": "gw-62bfe354e9da",
+    "digest": "sha256:95b2196f968c087325e560c4c267ae6c6eac777371d5a4bd0c430960d259142d",
+    "built_from_source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5",
     "built_by": "CodeBuild written-build-gateway-image",
-    "gateway_revision": "c18425b7bad43f8fd235ce23e0b3902a223add6fed78a0cd1cc6a4936a79b933",
+    "gateway_revision": "a4b096fb222d08ea5070289cf21f5192a6ef79fec15347e4dbdf97ee32daa96b",
     "deployed": true,
     "verified": "The running function reports this contract's model_revision and gateway_revision, with model_lane_mode off and no deployment loaded.",
     "superseded": {
-      "digest": "sha256:83efeb3518df42f6d5c63d5a7ff21efcf571ddf1784381ed43da2254450dfd0e",
-      "why": "Its transport read request_id from the top level while the envelope carries it under input, so every real invocation refused contract_mismatch before reaching SageMaker."
+      "digest": "sha256:6afd42efb3b512f9bdfec68a8cac592dc7fddf552b2e1f1037dca6e3ad060133",
+      "why": "Its attestation compared six of ten loaded fields and discarded an accepted inference ticket on timeout."
     }
   },
-  "source_commit": "556634b98c8db2f8d06588fe4a9c1e4ef6f35649"
+  "source_commit": "62bfe354e9da71634d848bad4dd5919f25e2cda5"
 }
