@@ -387,6 +387,131 @@ Resources:
                   echo "SERVING_IMAGE_DIGEST=$DIGEST"
                   echo "$URI@$DIGEST"
 
+  # -- the gateway image ----------------------------------------------------
+  # **Here rather than in the gateway stack, because this file is where images
+  # are built.** The gateway image was previously built on a laptop, which is
+  # exactly the path this stack exists to close: an artifact whose provenance is
+  # "somebody's machine, at some point" cannot be reconciled against a commit
+  # afterwards, and that is not hypothetical — the deployed gateway was built
+  # ten minutes before the transport was corrected, and nothing could tell.
+  #
+  # It pushes to the repository the gateway stack consumes. That repository is
+  # named rather than created here: it already exists, and adopting it into a
+  # template would mean a stack that can delete it.
+  BuildGatewayImageRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-build-gateway-image
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: push-one-repository-and-log
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:DescribeImages
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/written-semantic-gateway
+              # No model bucket, no KMS, no SageMaker. It builds one image.
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+
+  BuildGatewayImage:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: written-build-gateway-image
+      ServiceRole: !GetAtt BuildGatewayImageRole.Arn
+      TimeoutInMinutes: 60
+      Artifacts: { Type: NO_ARTIFACTS }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY
+            Value: written-semantic-gateway
+          - Name: ACCOUNT
+            Value: !Ref 'AWS::AccountId'
+          - Name: REGION
+            Value: !Ref 'AWS::Region'
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                # One script, with its own `set -euo pipefail`. A CodeBuild
+                # phase runs its entries in one shell session but does not carry
+                # `set -e` between them, so a multi-step job that must stop on
+                # the first failure has to be one step.
+                - |
+                  set -euo pipefail
+
+                  COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
+                  if [ -z "$COMMIT" ]; then
+                    echo "WRITTEN_SOURCE_COMMIT is unset. An image that cannot name its source is the defect this job exists to remove." >&2
+                    exit 1
+                  fi
+
+                  # **The whole tree at the pinned commit.** The gateway image
+                  # copies the contract, its schemas and written_ontology, so
+                  # fetching individual files by name would silently miss one.
+                  curl -fsSL -o source.tar.gz \
+                    "https://codeload.github.com/Shinghei98/Written/tar.gz/$WRITTEN_SOURCE_COMMIT"
+                  mkdir -p src && tar xzf source.tar.gz -C src --strip-components=1
+                  cd src
+                  test -f aws/gateway/Dockerfile
+                  test -f semantic/contracts/compiled_semantic_contract_v1.json
+
+                  # The contract inside the image must be the one this commit
+                  # compiled. A stale artifact committed by accident would
+                  # otherwise be baked in and attested as current.
+                  python3 - <<'CHECK'
+                  import json, pathlib, sys
+                  c = json.loads(pathlib.Path(
+                      "semantic/contracts/compiled_semantic_contract_v1.json").read_text())
+                  v = c["versions"]
+                  bad = [k for k in ("model_revision", "gateway_revision")
+                         if str(v.get(k, "")).startswith("pin_")]
+                  if bad:
+                      sys.exit(f"the contract still carries placeholders: {bad}")
+                  print("contract revisions:", v["model_revision"], v["gateway_revision"])
+                  CHECK
+
+                  aws ecr get-login-password --region "$REGION" \
+                    | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+                  URI="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPOSITORY"
+                  TAG="gw-$COMMIT"
+
+                  docker build --platform linux/amd64 -f aws/gateway/Dockerfile -t "$URI:$TAG" .
+                  ARCH=$(docker image inspect "$URI:$TAG" --format '{{.Architecture}}')
+                  [ "$ARCH" = "amd64" ] || { echo "built $ARCH, expected amd64"; exit 1; }
+                  docker push "$URI:$TAG"
+
+                  DIGEST=$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                    --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)
+                  echo "GATEWAY_SOURCE_COMMIT=$WRITTEN_SOURCE_COMMIT"
+                  echo "GATEWAY_IMAGE_TAG=$TAG"
+                  echo "GATEWAY_IMAGE_DIGEST=$DIGEST"
+                  echo "$URI@$DIGEST"
+
 Outputs:
   ModelBucketName:
     Value: !Ref ModelBucket
@@ -398,3 +523,5 @@ Outputs:
     Value: !Ref StageWeights
   BuildImageProject:
     Value: !Ref BuildImage
+  BuildGatewayImageProject:
+    Value: !Ref BuildGatewayImage

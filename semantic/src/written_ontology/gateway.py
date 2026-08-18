@@ -101,6 +101,26 @@ class RateLimited(RuntimeError):
     """
 
 
+class InferenceInFlight(RuntimeError):
+    """The work was accepted and had not finished when patience ran out.
+
+    **Distinct from `TimeoutError`, and the distinction is the whole point.** A
+    `TimeoutError` may mean nothing was ever enqueued, which a second call can
+    fix. This means a job exists. Answering it with another call does not retry
+    the work, it duplicates it — on an endpoint held at one instance the copy
+    queues behind the original, and the original's answer then lands in a bucket
+    with nobody left to read it or delete it.
+
+    So it is terminal for the attempt. The ticket travels on the exception so a
+    caller that wants the answer can collect the same job later rather than
+    starting a second one.
+    """
+
+    def __init__(self, ticket: Any) -> None:
+        super().__init__("the endpoint accepted the work and has not answered")
+        self.ticket = ticket
+
+
 class RetentionFailure(RuntimeError):
     """The answer was read and its copy could not be deleted.
 
@@ -305,7 +325,16 @@ def extract(
             started = time.monotonic()
             response = transport.complete(payload, timeout_s)
             latency_ms = int((time.monotonic() - started) * 1000)
+        except InferenceInFlight:
+            # **Not retried.** The work exists; a second call would be a second
+            # job, not another go at the first. The outcome is still `timeout`
+            # — that is what the closed vocabulary calls "we did not get an
+            # answer" — but it leaves the loop here rather than round it.
+            if breaker is not None:
+                breaker.record_failure()
+            raise GatewayRefusal("timeout", "accepted, unanswered") from None
         except TimeoutError:
+            # Nothing was accepted, so nothing is duplicated by asking again.
             last = GatewayRefusal("timeout", f"attempt {attempt}")
         except RateLimited:
             last = GatewayRefusal("rate_limited", f"attempt {attempt}")

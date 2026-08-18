@@ -29,21 +29,84 @@ should do. `retention_failed` is the outcome (`0242`), and the bucket's one-day
 lifecycle rule is a backstop for a process that died rather than a licence to
 proceed past this.
 
+## Submitted once, and a poll that runs out is not a licence to submit again
+
+The first version minted `InferenceId=uuid.uuid4().hex` **inside** the call, so
+every retry was a fresh submission. `timeout` is not in the gateway's
+`_NOT_RETRYABLE` set, which made that the ordinary path rather than an edge
+case: one slow answer became two inferences on an endpoint deliberately capped
+at a single instance, the second queued behind the first, and the first
+answer landed in S3 with nobody left to read it or delete it. A module that
+refuses to swallow a delete failure was leaking objects through its own retry.
+
+So the identifier is **derived from the request** rather than generated, and
+submission is separated from collection:
+
+- `submit` enqueues and returns an `InferenceTicket`.
+- `collect` polls a ticket and never enqueues anything.
+- `complete` is the two in sequence, for a caller that wants one call.
+
+When polling runs out **after** the work was accepted, the failure raised is
+`InferenceInFlight`, carrying the ticket. That is a different fact from "the
+endpoint could not be reached", and the gateway treats it as terminal for the
+attempt: the work exists, so asking for it again is not a retry, it is a second
+job. A caller holding the ticket can `collect` it later without resubmitting.
+
+The residual is honest and small: an abandoned ticket leaves an output object
+that no one deletes, and the bucket's one-day lifecycle rule is what removes it.
+That is the backstop this module already names — a process that died — rather
+than something the happy path walks into twice per slow answer.
+
 Nothing is written to the log. A provider error string can quote the input it
 choked on, so the status and the exception type are all that survive.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import time
-import uuid
 from typing import Any
 
 from written_ontology import gateway
 
 
+@dataclasses.dataclass(frozen=True)
+class InferenceTicket:
+    """Work that has been accepted, and where its answer will appear.
+
+    Returned by `submit` and carried by `InferenceInFlight`, so a caller that
+    ran out of patience can collect the same job later instead of starting a
+    second one. It holds no request content — an id and two object keys.
+    """
+
+    inference_id: str
+    output_key: str | None
+    failure_key: str | None
+
+
+def _inference_id(payload: dict[str, Any]) -> str:
+    """The request's own id, never a generated one.
+
+    `request_id` is defined by the request schema as opaque, unique to the
+    request and carrying nothing about whose it is — which is exactly what an
+    inference id must be, so minting a second identifier alongside it would add
+    a handle without adding a fact. Deriving it also makes resubmission
+    *visible*: two jobs with one id are the same work twice, and two jobs with
+    two random ids are indistinguishable from two pieces of work.
+
+    SageMaker accepts up to 64 characters; the schema bounds `request_id` to the
+    same 64 and to `[A-Za-z0-9_-]`, so anything the validator passed fits here.
+    """
+    request_id = payload.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        # Never fall back to a random id: that is the defect this replaced.
+        raise gateway.GatewayRefusal(
+            "contract_mismatch", "the request carries no request_id to submit under")
+    return request_id
+
+
 class SageMakerAsyncTransport:
-    """One asynchronous call, polled to completion and then swept."""
+    """One asynchronous call: submitted once, collected separately."""
 
     def __init__(self, endpoint_name: str, bucket: str, prefix: str = "async",
                  kms_key_id: str | None = None, poll_interval_s: float = 1.0,
@@ -62,6 +125,15 @@ class SageMakerAsyncTransport:
         return self._clients[name]
 
     def complete(self, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+        """Submit, then collect. The two halves are separable on purpose."""
+        return self.collect(self.submit(payload, timeout_s), timeout_s)
+
+    def submit(self, payload: dict[str, Any], timeout_s: float) -> InferenceTicket:
+        """Enqueue exactly one job and say where its answer will appear.
+
+        Everything that can fail *before* the endpoint accepts the work fails
+        here, where retrying is free because nothing was enqueued.
+        """
         runtime = self._client("sagemaker-runtime")
         body = json.dumps(payload, ensure_ascii=False).encode()
 
@@ -73,35 +145,45 @@ class SageMakerAsyncTransport:
                 Body=body,
                 ContentType="application/json",
                 InvocationTimeoutSeconds=int(timeout_s),
-                InferenceId=uuid.uuid4().hex)
+                InferenceId=_inference_id(payload))
+        except gateway.GatewayRefusal:
+            raise
         except Exception as failure:  # noqa: BLE001 - classified, never quoted
             name = type(failure).__name__
             if "Throttling" in name or "TooManyRequests" in name:
                 raise gateway.RateLimited(name) from None
             raise RuntimeError(name) from None
 
-        return self._await(self._client("s3"),
-                           _key_of(started.get("OutputLocation")),
-                           _key_of(started.get("FailureLocation")),
-                           timeout_s)
+        return InferenceTicket(
+            inference_id=started.get("InferenceId") or _inference_id(payload),
+            output_key=_key_of(started.get("OutputLocation")),
+            failure_key=_key_of(started.get("FailureLocation")))
 
-    def _await(self, s3, output_key: str | None, failure_key: str | None,
-               timeout_s: float) -> dict[str, Any]:
+    def collect(self, ticket: InferenceTicket, timeout_s: float) -> dict[str, Any]:
+        """Poll a ticket. **Never enqueues anything.**
+
+        Running out of time here raises `InferenceInFlight` rather than
+        `TimeoutError`, because the two are different facts: one means the work
+        exists and has not finished, the other means it may never have started.
+        Only the second is safe to answer with another submission.
+        """
+        s3 = self._client("s3")
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            if failure_key and _exists(s3, self._bucket, failure_key):
+            if ticket.failure_key and _exists(s3, self._bucket, ticket.failure_key):
                 # The failure object is provider text too, and the same rule
                 # applies to it: deleting it is not optional.
-                _delete_or_raise(s3, self._bucket, failure_key)
+                _delete_or_raise(s3, self._bucket, ticket.failure_key)
                 raise RuntimeError("endpoint_failure")
-            if output_key and _exists(s3, self._bucket, output_key):
-                raw = s3.get_object(Bucket=self._bucket, Key=output_key)["Body"].read()
+            if ticket.output_key and _exists(s3, self._bucket, ticket.output_key):
+                raw = s3.get_object(
+                    Bucket=self._bucket, Key=ticket.output_key)["Body"].read()
                 # Deleted before it is parsed, and a failure here withholds the
                 # answer rather than being logged and stepped over.
-                _delete_or_raise(s3, self._bucket, output_key)
+                _delete_or_raise(s3, self._bucket, ticket.output_key)
                 return _read(raw)
             time.sleep(self._poll)
-        raise TimeoutError("the endpoint did not answer in time")
+        raise gateway.InferenceInFlight(ticket)
 
 
 def _read(raw: bytes) -> dict[str, Any]:
