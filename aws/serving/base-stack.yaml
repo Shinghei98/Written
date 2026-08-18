@@ -153,7 +153,18 @@ Resources:
               commands:
                 - |
                   set -euo pipefail
-                  PREFIX="models/qwen3.5-9b/${MODEL_REVISION}"
+                  # **A layout version in the prefix.** `manifest.json` used to
+                  # sit beside `artifacts/`, which is outside the tree SageMaker
+                  # mounts — so `/opt/ml/model/manifest.json` did not exist and
+                  # the container could not say what it had loaded. Fixing that
+                  # means moving an object inside an already-committed prefix,
+                  # and a committed prefix is immutable by construction: the
+                  # marker's whole meaning is that what it describes is final.
+                  #
+                  # So this is a new prefix rather than an edit. The old one
+                  # stays exactly as it was, still valid, still reconciled.
+                  LAYOUT="v2"
+                  PREFIX="models/qwen3.5-9b/${MODEL_REVISION}/${LAYOUT}"
 
                   # A complete sha, never a branch: a branch can move under a
                   # tag and the deployment would silently change.
@@ -232,16 +243,93 @@ Resources:
                   print(f"{len(rows)} files, {total/1e9:.1f} GB")
                   PY
 
+                  # **The tokenizer runtime manifest, by the one definition.**
+                  # Fetched rather than reimplemented: the serving container
+                  # recomputes this from what it loaded, and a second
+                  # implementation here would have the generator and the verifier
+                  # agree because the same person wrote both rather than because
+                  # they compute the same function.
+                  #
+                  # The library versions recorded here are the ones the image
+                  # pins; the container reports the ones it actually imported,
+                  # and the gateway compares the digests. A disagreement is the
+                  # point of having two.
+                  curl -fsSL -o /tmp/tokenizer_runtime.py \
+                    "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/tokenizer_runtime.py"
+                  python3 - <<'PY'
+                  import json, os, pathlib, sys
+                  sys.path.insert(0, "/tmp")
+                  import tokenizer_runtime
+
+                  manifest = tokenizer_runtime.build_manifest(
+                      "/tmp/model",
+                      model_id=os.environ["MODEL_ID"],
+                      model_revision=os.environ["MODEL_REVISION"],
+                      library_versions={
+                          "transformers": None, "tokenizers": None,
+                          "vllm": os.environ.get("VLLM_VERSION"),
+                          "torch": None})
+                  digest = tokenizer_runtime.manifest_sha256(manifest)
+                  pathlib.Path("/tmp/tokenizer_runtime_manifest.json").write_text(
+                      json.dumps(manifest, indent=2, sort_keys=True))
+                  print("TOKENIZER_RUNTIME_MANIFEST_SHA256=" + digest)
+                  PY
+
                   # Uncompressed, so SageMaker mounts the hierarchy directly
                   # through ModelDataSource. No 20 GB tarball to unpack on a GPU.
                   aws s3 sync /tmp/model "s3://$MODEL_BUCKET/$PREFIX/artifacts/" \
                     --exclude '.cache/*' \
                     --sse aws:kms --sse-kms-key-id "$KMS_KEY_ID" --only-show-errors
 
-                  # Metadata outside artifacts/, so the mounted tree is weights only.
+                  # **Inside the mounted tree**, so the container finds it at
+                  # `/opt/ml/model/manifest.json`. Without this the runtime block
+                  # reported no model id, revision or tokenizer, and the
+                  # gateway's drift check — which treats a missing fact as a
+                  # mismatch — refused every answer.
+                  for OBJECT in manifest tokenizer_runtime_manifest; do
+                    aws s3api put-object --bucket "$MODEL_BUCKET" \
+                      --key "$PREFIX/artifacts/$OBJECT.json" \
+                      --body "/tmp/$OBJECT.json" \
+                      --server-side-encryption aws:kms \
+                      --ssekms-key-id "$KMS_KEY_ID" >/dev/null
+                  done
+
+                  # And a copy outside it, because operational tooling reads the
+                  # manifest without mounting anything.
                   aws s3api put-object --bucket "$MODEL_BUCKET" \
                     --key "$PREFIX/manifest.json" --body /tmp/manifest.json \
                     --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID" >/dev/null
+
+                  # **Reconciled before the marker, not after.** The marker means
+                  # what it describes is final, so anything worth checking is
+                  # worth checking first.
+                  python3 - <<'PY'
+                  import json, os, pathlib, subprocess, sys
+
+                  prefix = os.environ["PREFIX"]; bucket = os.environ["MODEL_BUCKET"]
+                  local = json.loads(pathlib.Path("/tmp/manifest.json").read_text())
+                  listing = json.loads(subprocess.run(
+                      ["aws", "s3api", "list-objects-v2", "--bucket", bucket,
+                       "--prefix", f"{prefix}/artifacts/", "--output", "json"],
+                      capture_output=True, text=True, check=True).stdout or "{}")
+                  have = {o["Key"].split("/artifacts/", 1)[1]: o["Size"]
+                          for o in listing.get("Contents", [])}
+
+                  # The two manifests live in the tree and are not weights.
+                  for extra in ("manifest.json", "tokenizer_runtime_manifest.json"):
+                      have.pop(extra, None)
+
+                  missing = [f["path"] for f in local["files"] if f["path"] not in have]
+                  mismatched = [f["path"] for f in local["files"]
+                                if f["path"] in have and have[f["path"]] != f["bytes"]]
+                  if missing or mismatched:
+                      sys.exit(f"missing={missing} mismatched={mismatched}")
+                  if sum(have.values()) != local["total_bytes"]:
+                      sys.exit(f"total bytes {sum(have.values())} != {local['total_bytes']}")
+                  if len(have) != local["file_count"]:
+                      sys.exit(f"object count {len(have)} != {local['file_count']}")
+                  print(f"reconciled {len(have)} objects, {sum(have.values())} bytes")
+                  PY
 
                   # **Written last, and only if nothing is there.** The endpoint
                   # may use a revision only when this exists, so a half-finished

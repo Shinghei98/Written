@@ -24,11 +24,6 @@ Parameters:
     Description: >
       The customer-managed key the model bucket is encrypted with. Named here
       because the artifact stack owns it and this one is deliberately separate.
-  ServingImageDigest:
-    Type: String
-    Description: >
-      The digest of ServingImageUri, passed separately because a container
-      cannot read its own image digest from inside itself.
   InstanceType:
     Type: String
     Default: ml.g6e.xlarge
@@ -127,7 +122,13 @@ Resources:
           # runtime block, which is the only place the answer's author is
           # recorded; without it the field was simply absent and the gateway's
           # drift check treated absence as disagreement.
-          WRITTEN_SERVING_IMAGE_DIGEST: !Ref ServingImageDigest
+          # **Derived from the URI, so the two cannot disagree.** Taking the
+          # digest as its own parameter meant two independently supplied values
+          # describing one image, and the failure would be silent: a container
+          # attesting a digest it is not running, with the gateway comparing
+          # against the declaration rather than the thing. `ServingImageUri` is
+          # pinned by digest, so the digest is already in it.
+          WRITTEN_SERVING_IMAGE_DIGEST: !Select [1, !Split ['@', !Ref ServingImageUri]]
 
   EndpointConfig:
     Type: AWS::SageMaker::EndpointConfig

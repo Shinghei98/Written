@@ -671,9 +671,19 @@ def _runtime_drift(runtime: dict[str, Any], contract) -> list[str]:
     """
     expected = contract.attestation()
     drift: list[str] = []
-    for measured, expectation in (("model_id", "model_id"),
-                                  ("model_revision", "model_revision"),
-                                  ("tokenizer_sha256", "tokenizer_manifest_sha256")):
+    # **The canonical runtime manifest digest, not the tokenizer file's.** The
+    # container reports both; only this one is what the contract pins, because
+    # only this one covers the chat template and the library versions the
+    # budgets were measured under.
+    #
+    # `serving_image_digest` is here because a container answering from an image
+    # nobody attested is exactly the case the per-answer check exists for — and
+    # it was the one identity reported and never compared.
+    for measured, expectation in (
+            ("model_id", "model_id"),
+            ("model_revision", "model_revision"),
+            ("tokenizer_runtime_manifest_sha256", "tokenizer_manifest_sha256"),
+            ("serving_image_digest", "serving_image_digest")):
         want = expected.get(expectation)
         if want is None or _is_placeholder(want):
             continue

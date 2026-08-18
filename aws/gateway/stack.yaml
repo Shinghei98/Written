@@ -33,6 +33,17 @@ Parameters:
       The digest of the image this function runs. **Declared, not measured** —
       a process cannot learn its own image digest from inside it, which is why
       `gateway_revision` exists beside it and is the value actually compared.
+  SagemakerEndpointName:
+    Type: String
+    Default: ''
+    Description: >
+      The serving endpoint, when one exists. **Passed in, never imported.** A
+      CloudFormation export/import would make the gateway stack a consumer of the
+      serving stack and block deleting it — and that stack is deliberately
+      disposable, torn down after every pass. So the endpoint's name travels as a
+      parameter set by a controlled gateway update, and is cleared again on
+      teardown. Empty means no transport is configured, which is what `off`
+      should look like.
   WorkerRoleArn:
     Type: String
     Default: arn:aws:iam::616040526027:role/written-semantic-worker
@@ -108,7 +119,13 @@ Resources:
                 Resource: !GetAtt TicketTable.Arn
               - Effect: Allow
                 Action: sagemaker:InvokeEndpointAsync
-                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/written-qwen-*
+                # **The named endpoint, not the family.** `written-qwen-*` let
+                # this function invoke any endpoint whose name began that way,
+                # including one somebody stood up by hand and nobody attested.
+                # When no endpoint is configured the ARN names the empty string
+                # and matches nothing, which is the correct amount of reach for a
+                # deployment with no model.
+                Resource: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${SagemakerEndpointName}
 
   GatewayFunction:
     Type: AWS::Lambda::Function
@@ -137,7 +154,12 @@ Resources:
           WRITTEN_SERVING_IMAGE_DIGEST: !Ref ServingImageDigest
           WRITTEN_GATEWAY_IMAGE_DIGEST: !Ref GatewayImageDigest
           WRITTEN_ENVIRONMENT: production
-          # Deliberately unset: WRITTEN_SAGEMAKER_ENDPOINT, and the image
+          # Empty until an endpoint exists. `handler._transport()` returns None
+          # without it, so extraction refuses for want of a transport rather
+          # than by a flag — which is the honest state and is what the tests
+          # assert.
+          WRITTEN_SAGEMAKER_ENDPOINT: !Ref SagemakerEndpointName
+          # Deliberately unset: the image
           # digests. With no endpoint the transport is None, which is what
           # `off` should look like from the inside as well as the outside.
 

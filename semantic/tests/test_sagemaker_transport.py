@@ -298,7 +298,9 @@ def test_the_gateway_reaches_the_transport_at_all(module, monkeypatch, tmp_path)
         "usage": {"completion_tokens": 7},
         "runtime": {"model_id": expected["model_id"],
                     "model_revision": expected["model_revision"],
-                    "tokenizer_sha256": expected["tokenizer_manifest_sha256"]},
+                    "tokenizer_runtime_manifest_sha256":
+                        expected["tokenizer_manifest_sha256"],
+                    "serving_image_digest": expected["serving_image_digest"]},
     }).encode()
     runtime, s3 = FakeRuntime(), FakeS3({"async/out/answer.json": answer})
     sent = transport(module, s3, runtime)

@@ -28,6 +28,15 @@ REGION=${AWS_REGION:-us-east-1}
 BUDGET_USD=${BUDGET_USD:-5}
 INSTANCE=${INSTANCE:-ml.g6e.xlarge}
 SERVING_IMAGE=${SERVING_IMAGE:?set SERVING_IMAGE to the full ECR digest URI}
+# **Digest-pinned or refused.** The stack derives the container's declared digest
+# by splitting this on `@`, so a tag-pinned URI would give it an empty string and
+# the gateway would then refuse every answer for a runtime mismatch it could not
+# explain. Failing here says why.
+case "$SERVING_IMAGE" in
+  *@sha256:*) : ;;
+  *) echo "SERVING_IMAGE must be pinned by digest (…@sha256:…), got: $SERVING_IMAGE" >&2
+     exit 1 ;;
+esac
 MODEL_URI=${MODEL_URI:?set MODEL_URI to the staged artifacts prefix}
 OUT=${OUT:-./out/attestation}
 
@@ -54,11 +63,36 @@ raise SystemExit('no hosting price found')
 "
 }
 
+gateway_endpoint() {
+  # **A controlled gateway update, not an import.** Every other parameter is
+  # carried forward with `UsePreviousValue`, so this changes exactly one thing
+  # and cannot silently reset the image the gateway is running to a default.
+  local name="$1"
+  local params=(ParameterKey=SagemakerEndpointName,ParameterValue="$name")
+  local key
+  for key in ImageUri GatewayImageDigest ServingImageDigest TokenizerSha256 \
+             ModelId ModelRevision WorkerRoleArn; do
+    params+=("ParameterKey=${key},UsePreviousValue=true")
+  done
+  aws cloudformation update-stack --stack-name written-semantic-gateway \
+    --region "$REGION" --use-previous-template \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameters "${params[@]}" >/dev/null 2>&1 || true
+  aws cloudformation wait stack-update-complete \
+    --stack-name written-semantic-gateway --region "$REGION" 2>/dev/null || true
+}
+
 teardown() {
   local code=$?
   echo
   echo "==> teardown (exit ${code})"
   [ -n "$watchdog_pid" ] && kill "$watchdog_pid" 2>/dev/null || true
+
+  # **Unwired before the endpoint is deleted.** A gateway pointing at an endpoint
+  # that no longer exists would answer `provider_error` for a reason that reads
+  # like an outage, and its IAM statement would name a resource that is gone.
+  echo "==> clearing the gateway's endpoint"
+  gateway_endpoint ""
   # The armed deadline is removed only once the endpoint is actually gone, which
   # the check below verifies. Removing it first would drop the backstop at the
   # exact moment the teardown might be failing.
@@ -140,9 +174,10 @@ watchdog_pid=$!
 echo "==> wait for InService"
 # `/ping` answers 503 until the 19 GB load finishes, so InService means loaded
 # rather than merely started — which is the whole point of that change.
-aws sagemaker wait endpoint-in-service \
-  --endpoint-name "$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
-      --query 'Stacks[0].Outputs[?OutputKey==`EndpointName`].OutputValue' --output text)"
+aws sagemaker wait endpoint-in-service --endpoint-name "$ENDPOINT_NAME"
+
+echo "==> wiring the gateway to the endpoint"
+gateway_endpoint "$ENDPOINT_NAME"
 
 mkdir -p "$OUT"
 echo "==> attest the loaded runtime"

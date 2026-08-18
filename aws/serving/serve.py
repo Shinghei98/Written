@@ -43,6 +43,16 @@ def engine():
     return _engine
 
 
+def _version(package: str) -> str | None:
+    """A library's version, or None. Absent is reported, never assumed."""
+    try:
+        import importlib.metadata  # noqa: PLC0415
+
+        return importlib.metadata.version(package)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _runtime() -> dict:
     """What is actually loaded here, measured rather than declared.
 
@@ -85,18 +95,37 @@ def _runtime() -> dict:
             facts["model_id"] = staged.get("model_id")
             facts["model_file_count"] = staged.get("file_count")
             facts["model_total_bytes"] = staged.get("total_bytes")
-            # The tokenizer's own digest, from the manifest that was checksummed
-            # at staging: this is what the output budgets were measured against.
-            for entry in staged.get("files", []):
-                if entry.get("path") == "tokenizer.json":
-                    facts["tokenizer_sha256"] = entry.get("sha256")
         except Exception:  # noqa: BLE001
             facts["model_revision"] = None
 
+    # **Two tokenizer identities, and only one of them is the pin.**
+    # `tokenizer_json_sha256` identifies a file. The runtime manifest identifies
+    # the tokenizer *plus* the chat template that wraps every request and the
+    # library versions that interpret both — which is what the output budgets
+    # were measured against, and what the contract's
+    # `tokenizer_manifest_sha256` means. Two deployments can share a
+    # `tokenizer.json` and tokenize differently.
     tokenizer_file = pathlib.Path(MODEL_PATH) / "tokenizer.json"
-    if "tokenizer_sha256" not in facts and tokenizer_file.is_file():
-        facts["tokenizer_sha256"] = hashlib.sha256(
+    if tokenizer_file.is_file():
+        facts["tokenizer_json_sha256"] = hashlib.sha256(
             tokenizer_file.read_bytes()).hexdigest()
+
+    try:
+        import tokenizer_runtime  # noqa: PLC0415 - beside serve.py in the image
+
+        runtime_manifest = tokenizer_runtime.build_manifest(
+            MODEL_PATH,
+            model_id=facts.get("model_id") or "",
+            model_revision=facts.get("model_revision") or "",
+            library_versions={"transformers": _version("transformers"),
+                              "tokenizers": _version("tokenizers"),
+                              "vllm": facts.get("vllm"),
+                              "torch": facts.get("torch")})
+        facts["tokenizer_runtime_manifest_sha256"] = \
+            tokenizer_runtime.manifest_sha256(runtime_manifest)
+        facts["tokenizer_runtime_manifest"] = runtime_manifest
+    except Exception:  # noqa: BLE001 - reported as missing, never guessed
+        facts["tokenizer_runtime_manifest_sha256"] = None
 
     facts["serving_image_digest"] = os.environ.get("WRITTEN_SERVING_IMAGE_DIGEST")
     facts["max_model_len"] = int(os.environ.get("WRITTEN_MAX_MODEL_LEN", "8192"))

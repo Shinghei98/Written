@@ -83,7 +83,13 @@ def matching_runtime(contract=None):
     expected = (contract or gateway._contract()).attestation()
     return {"model_id": expected["model_id"],
             "model_revision": expected["model_revision"],
-            "tokenizer_sha256": expected["tokenizer_manifest_sha256"],
+            # **The canonical runtime manifest digest**, which is what the
+            # contract pins — not `tokenizer_json_sha256`, which identifies a
+            # file and says nothing about the chat template or the library
+            # versions the budgets were measured under.
+            "tokenizer_runtime_manifest_sha256":
+                expected["tokenizer_manifest_sha256"],
+            "serving_image_digest": expected["serving_image_digest"],
             "vllm": "0.11.0", "torch": "2.8.0"}
 
 
@@ -490,10 +496,8 @@ def test_a_container_answering_with_other_weights_is_refused(tmp_path, monkeypat
     monkeypatch.setattr(gateway, "_contract", lambda: contract)
     expected = contract.attestation()
 
-    honest = dict(valid_response())
-    honest["runtime"] = {"model_id": expected["model_id"],
-                         "model_revision": expected["model_revision"],
-                         "tokenizer_sha256": expected["tokenizer_manifest_sha256"]}
+    honest = dict(valid_response(contract=contract))
+    honest["runtime"] = matching_runtime(contract)
     result = gateway.extract(REQUEST, transport=CountingTransport(response=honest),
                              deployment=matching_deployment(contract))
     assert result["outcome"] == "succeeded"
