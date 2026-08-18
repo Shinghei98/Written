@@ -64,8 +64,20 @@ def sheets(compiler):
 
 
 @pytest.fixture(scope="module")
-def schema(compiler):
-    return json.loads(compiler.SCHEMA.read_text())
+def schema_path(compiler, sheets):
+    """The schema the workbook names, not one this file picks.
+
+    Reading it through `output_schema_path` is what keeps these tests pointed at
+    whatever is authoritative: before `0234`'s compiler change the path was a
+    module constant and a test could pass against a schema the contract did not
+    use.
+    """
+    return compiler.output_schema_path(compiler.config_of(sheets))
+
+
+@pytest.fixture(scope="module")
+def schema(schema_path):
+    return json.loads(schema_path.read_text())
 
 
 @pytest.fixture(scope="module")
@@ -192,23 +204,23 @@ def test_the_packing_budget_is_arithmetically_consistent(compiler, config):
     assert int(config["llm.batch.calibrated_max_items"]) <= int(config["llm.batch.max_items"])
 
 
-def test_compilation_is_deterministic(compiler, sheets, schema):
+def test_compilation_is_deterministic(compiler, schema_path, sheets, schema):
     """The deploy validator recompiles and compares; that is worthless if the
     compiler is not a function of its inputs."""
-    first = compiler.compile_contract(sheets, schema, "1970-01-01T00:00:00.000Z")
-    second = compiler.compile_contract(sheets, schema, "2026-08-16T23:18:42.426Z")
+    first = compiler.compile_contract(sheets, schema, schema_path, "1970-01-01T00:00:00.000Z")
+    second = compiler.compile_contract(sheets, schema, schema_path, "2026-08-16T23:18:42.426Z")
     assert compiler.canonical(first) == compiler.canonical(second)
     assert first["generated_at"] != second["generated_at"]
 
 
-def test_the_checked_in_contract_is_what_these_artifacts_compile_to(compiler, sheets, schema):
+def test_the_checked_in_contract_is_what_these_artifacts_compile_to(compiler, schema_path, sheets, schema):
     """The contract is generated. If it is edited by hand, this fails."""
     existing = json.loads(compiler.CONTRACT.read_text())
-    fresh = compiler.compile_contract(sheets, schema, existing["generated_at"])
+    fresh = compiler.compile_contract(sheets, schema, schema_path, existing["generated_at"])
     assert compiler.canonical(existing) == compiler.canonical(fresh)
 
 
-def test_the_source_hashes_attest_to_the_files_actually_present(compiler):
+def test_the_source_hashes_attest_to_the_files_actually_present(compiler, schema_path):
     """The supplied contract claimed a schema hash matching no shipped file.
 
     Every enum agreed and every field was derivable, so nothing else caught it:
@@ -218,7 +230,7 @@ def test_the_source_hashes_attest_to_the_files_actually_present(compiler):
     """
     contract = json.loads(compiler.CONTRACT.read_text())
     assert contract["source_hashes"]["workbook_sha256"] == compiler._sha256(compiler.WORKBOOK)
-    assert contract["source_hashes"]["mention_schema_sha256"] == compiler._sha256(compiler.SCHEMA)
+    assert contract["source_hashes"]["mention_schema_sha256"] == compiler._sha256(schema_path)
 
 
 def test_every_predicate_has_a_schema_valid_fixture(compiler, schema):
@@ -480,7 +492,7 @@ def _required_keys(compiler):
     return keys
 
 
-def test_every_required_workbook_key_is_refused_when_removed(compiler, sheets, schema):
+def test_every_required_workbook_key_is_refused_when_removed(compiler, schema_path, sheets, schema):
     """A missing key must stop the build, never fall back to a default.
 
     `semantic_gate_report_v1` is why this exists. It appeared in the compiled
@@ -499,9 +511,18 @@ def test_every_required_workbook_key_is_refused_when_removed(compiler, sheets, s
         read by the emitter, so removing them produced a contract while the real
         pipeline would already have stopped. A test of half the pipeline answers
         about half the pipeline.
+
+        `llm.output.schema_version` was the third, and it arrived the moment the
+        schema stopped being a module constant: `main()` resolves the path from
+        that key before anything else runs, so a harness given a path resolved
+        outside cannot notice the key is gone. Resolving it here from the same
+        sheets is what keeps this test about the whole pipeline — and
+        `envelope_token_reserve` is no longer a survivor because the emitter now
+        publishes it.
         """
+        path = compiler.output_schema_path(compiler.config_of(source))
         compiler.validate(source, schema)
-        return compiler.compile_contract(source, schema, generated)
+        return compiler.compile_contract(source, schema, path, generated)
 
     build(sheets)  # the intact baseline
 
@@ -647,3 +668,69 @@ def test_unregistered_jobs_are_pending_while_the_overlay_is_off_and_failing_once
     complete = live_with(job_type=contract["runtime_requirements"]["jobs"])
     assert compiler.check_database(contract, complete) == []
     assert compiler.check_database(switched_on, complete) == []
+
+
+def test_the_schema_is_chosen_by_the_workbook(compiler, sheets, schema_path):
+    """`llm.output.schema_version` names the file, and nothing else does.
+
+    It was a module constant, so evaluating a new output contract meant editing
+    the compiler while the workbook already carried the version it claimed to be
+    authoritative — one fact in two places with the code winning. Naming a schema
+    and compiling against it are now the same act.
+    """
+    version = compiler.require(compiler.config_of(sheets), "llm.output.schema_version")
+    assert schema_path.name == f"{version}.schema.json"
+    assert schema_path.parent == compiler.SCHEMA_DIR
+
+
+def test_a_schema_version_with_no_file_is_refused_by_name(compiler, sheets):
+    """The refusal says which name failed.
+
+    The likely cause is a version named before its schema was written, and an
+    `OSError` on a path the author never typed is a worse thing to read than the
+    value they did.
+    """
+    wounded = copy.deepcopy(sheets)
+    for row in wounded["runtime_config"]:
+        if row and row[0] == "llm.output.schema_version":
+            row[1] = "mention_extract_v99"
+    with pytest.raises(compiler.ContractError) as refusal:
+        compiler.output_schema_path(compiler.config_of(wounded))
+    assert "mention_extract_v99" in str(refusal.value)
+
+
+def test_the_contract_publishes_the_envelope_reserve(compiler, sheets):
+    """Demanded by `validate` since it was written, and never emitted.
+
+    `output_budget_report.py` could not read it and hard-coded 512 twice
+    instead — once as `int(...) and 512`, which reads like a derivation of the
+    contract value and is a constant. A limit the contract requires and does not
+    publish is a limit every reader copies.
+    """
+    contract = json.loads(compiler.CONTRACT.read_text())
+    published = contract["output_contract"]["envelope_token_reserve"]
+    authored = int(compiler.require(
+        compiler.config_of(sheets), "llm.output.envelope_token_reserve"))
+    assert published == authored
+
+
+def test_predicates_are_not_read_from_a_schema_that_emits_none(compiler, sheets, schema):
+    """A relation vocabulary is not an extraction fact.
+
+    `mention_extract_v2` carries no `relation_hypothesis`, so reading the
+    predicate list off the schema reads a `$def` that is not there. The grammar
+    sheet is the authority either way, and `output_contract.predicates` says what
+    the model may emit — which for a schema without relations is nothing.
+    """
+    relationless = copy.deepcopy(schema)
+    relationless["$defs"].pop("relation_hypothesis", None)
+
+    # It validates rather than raising: a schema that declares no relations is
+    # not drift, it is a schema with a smaller wire contract. The old code
+    # raised `KeyError` here on a `$def` that was simply absent.
+    compiler.validate(sheets, relationless)
+
+    compiled = compiler.compile_contract(
+        sheets, relationless, compiler.CONTRACT, "1970-01-01T00:00:00.000Z")
+    assert compiled["output_contract"]["predicates"] == []
+    assert compiled["ontology_compiler"]["model_predicates"] == compiler.model_predicates(sheets)

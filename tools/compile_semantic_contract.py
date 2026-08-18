@@ -43,7 +43,13 @@ from typing import Any
 
 REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
 WORKBOOK = REPOSITORY / "semantic" / "ontology" / "terms.xlsx"
-SCHEMA = REPOSITORY / "semantic" / "contracts" / "mention_extract_v1.schema.json"
+#: **The schema is chosen by the workbook, not by this constant.** It was
+#: `mention_extract_v1.schema.json` here, so the only way to evaluate a new
+#: output contract was to edit the compiler — and `llm.output.schema_version`
+#: already said which schema was authoritative, one fact in two places with the
+#: code winning. `output_schema_path` derives the file from that key, so naming a
+#: schema and compiling against it are the same act.
+SCHEMA_DIR = REPOSITORY / "semantic" / "contracts"
 CONTRACT = REPOSITORY / "semantic" / "contracts" / "compiled_semantic_contract_v1.json"
 
 CONTRACT_VERSION = "compiled_semantic_contract_v1"
@@ -129,6 +135,23 @@ def require(config: dict[str, str], key: str) -> str:
     return config[key]
 
 
+def output_schema_path(config: dict[str, str]) -> pathlib.Path:
+    """The response schema the workbook says is authoritative.
+
+    A missing file is a `ContractError` rather than an `OSError`, because the
+    likely cause is a version named before its schema was written and the
+    author should be told which name failed.
+    """
+    version = require(config, "llm.output.schema_version")
+    path = SCHEMA_DIR / f"{version}.schema.json"
+    if not path.exists():
+        raise ContractError(
+            f"llm.output.schema_version names {version!r} and "
+            f"{path.name} does not exist"
+        )
+    return path
+
+
 def model_predicates(sheets: dict[str, Any]) -> list[str]:
     """Predicates the grammar permits the model to propose, in grammar order.
 
@@ -159,8 +182,6 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
     schema_enums = {
         "llm.family.enum": mention["family_hypothesis"]["enum"],
         "llm.mention_role.enum": mention["mention_role"]["enum"],
-        "llm.predicate.enum":
-            schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"],
         "llm.schema.abstain_reasons":
             [v for v in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"] if v],
     }
@@ -168,6 +189,16 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
     # 1. Enum parity, both directions. Sorted equality rather than a subset test:
     #    a value in the workbook and not the schema is as wrong as the reverse,
     #    and only one of those is visible from the model's side.
+    # **A relation vocabulary is not an extraction fact.** `mention_extract_v2`
+    # emits no `relation_hypothesis` at all, so reading the predicate list off
+    # the schema is reading a `$def` that is not there. The grammar sheet is the
+    # authority either way — `ontology_compiler.model_predicates` has always been
+    # sourced from it — and the schema is asked only when it actually declares
+    # what the model may propose.
+    relations = schema["$defs"].get("relation_hypothesis")
+    if relations is not None:
+        schema_enums["llm.predicate.enum"] = relations["properties"]["predicate"]["enum"]
+
     for key, values in schema_enums.items():
         workbook_values = sorted(_split(require(config, key)))
         if workbook_values != sorted(values):
@@ -183,15 +214,22 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
     #    the schema allowed twelve, which silently made every sports roster
     #    relation unreachable.
     grammar_predicates = model_predicates(sheets)
-    if sorted(grammar_predicates) != sorted(schema_enums["llm.predicate.enum"]):
+    if "llm.predicate.enum" in schema_enums:
+        if sorted(grammar_predicates) != sorted(schema_enums["llm.predicate.enum"]):
+            raise ContractError(
+                "grammar llm_may_propose=T predicates disagree with the schema: "
+                f"grammar={sorted(grammar_predicates)} "
+                f"schema={sorted(schema_enums['llm.predicate.enum'])}"
+            )
+    elif sorted(grammar_predicates) != sorted(_split(require(config, "llm.predicate.enum"))):
         raise ContractError(
-            "grammar llm_may_propose=T predicates disagree with the schema: "
+            "grammar llm_may_propose=T predicates disagree with the workbook: "
             f"grammar={sorted(grammar_predicates)} "
-            f"schema={sorted(schema_enums['llm.predicate.enum'])}"
+            f"workbook={sorted(_split(require(config, 'llm.predicate.enum')))}"
         )
 
     # 3. A source profile may narrow the union; it may never widen it.
-    union = set(schema_enums["llm.predicate.enum"])
+    union = set(grammar_predicates)
     for key, value in config.items():
         if key.startswith("llm.predicate.profile."):
             extra = sorted(set(_split(value)) - union)
@@ -284,7 +322,7 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any]) -> None:
 
 
 def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
-                     generated_at: str) -> dict[str, Any]:
+                     schema_path: pathlib.Path, generated_at: str) -> dict[str, Any]:
     config = config_of(sheets)
     mention = schema["$defs"]["mention"]["properties"]
 
@@ -295,7 +333,7 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             # Recomputed, never copied. A hash carried in the workbook would be a
             # claim about the workbook made by the workbook.
             "workbook_sha256": _sha256(WORKBOOK),
-            "mention_schema_sha256": _sha256(SCHEMA),
+            "mention_schema_sha256": _sha256(schema_path),
         },
         "versions": {
             "term_family_map": require(config, "term_family.map.version"),
@@ -314,9 +352,15 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             # and a reader comparing the two should see the same sequence.
             "families": list(mention["family_hypothesis"]["enum"]),
             "mention_roles": list(mention["mention_role"]["enum"]),
+            # **What the model may emit, which under v2 is nothing.** The
+            # relation vocabulary itself is not gone — it is
+            # `ontology_compiler.model_predicates`, sourced from the grammar
+            # sheet, where it has always been. An extraction contract that
+            # listed predicates the schema cannot carry would be describing a
+            # different schema.
             "predicates": list(
                 schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"]
-            ),
+            ) if "relation_hypothesis" in schema["$defs"] else [],
             "abstain_reasons": [
                 value
                 for value in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"]
@@ -329,6 +373,13 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             "max_output_tokens": int(require(config, "llm.max_output_tokens")),
             "uncalibrated_item_reserve_tokens":
                 int(require(config, "llm.output.uncalibrated_item_reserve_tokens")),
+            # **Demanded by `validate` since it was written, and never emitted.**
+            # `output_budget_report.py` could not read it and hard-coded 512 in
+            # two places instead — one of them an `int(...) and 512` that reads
+            # like a derivation and is a constant. A limit the contract requires
+            # and does not publish is a limit every reader has to copy.
+            "envelope_token_reserve":
+                int(require(config, "llm.output.envelope_token_reserve")),
             "predictor_quantile": float(require(config, "llm.output.predictor.quantile")),
             "packing_headroom": float(require(config, "llm.output.packing_headroom")),
             "packing_formula": require(config, "llm.batch.output_budget_formula"),
@@ -637,7 +688,12 @@ def main() -> int:
         return 1 if problems else 0
 
     sheets = load_workbook()
-    schema = json.loads(SCHEMA.read_text())
+    try:
+        schema_path = output_schema_path(config_of(sheets))
+    except ContractError as refusal:
+        print(f"contract refused: {refusal}", file=sys.stderr)
+        return 1
+    schema = json.loads(schema_path.read_text())
 
     try:
         validate(sheets, schema)
@@ -649,7 +705,7 @@ def main() -> int:
     from datetime import datetime, timezone
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + \
         f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z"
-    contract = compile_contract(sheets, schema, stamp)
+    contract = compile_contract(sheets, schema, schema_path, stamp)
 
     if arguments.emit:
         CONTRACT.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n")

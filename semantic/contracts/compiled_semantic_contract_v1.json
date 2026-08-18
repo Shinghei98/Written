@@ -1,6 +1,6 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-17T23:06:38.907Z",
+  "generated_at": "2026-08-18T01:24:05.078Z",
   "source_hashes": {
     "workbook_sha256": "3c06a921a3f8874593a0160ac94073e4bff28fd4f62a92c14ceebade5608b362",
     "mention_schema_sha256": "5d1dc7fa7a3d7e8a85bd632956b98f0944b35713c935079b23afef38f5bc97e6"
@@ -80,6 +80,7 @@
     "max_mentions_per_item": 5,
     "max_output_tokens": 4096,
     "uncalibrated_item_reserve_tokens": 1280,
+    "envelope_token_reserve": 512,
     "predictor_quantile": 0.99,
     "packing_headroom": 0.2,
     "packing_formula": "512+ceil(1.20*sum(item_q99_token_estimates))<=4096 AND items<=4",
