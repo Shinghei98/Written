@@ -79,10 +79,10 @@ begin
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status,
+     grammar_version, output_schema_hash, batch_items,
      release_manifest_id)
   values (alice, 'probe2', 'Qwen/Qwen3.5-9B', 'rev', 'qwen_extractor_v5',
-          'semantic_grammar_v3', repeat('0', 64), 1, 'succeeded', shadow_release)
+          'semantic_grammar_v3', repeat('0', 64), 1, shadow_release)
   returning id into shadow_call;
 
   insert into semantic_private.model_invocation_items

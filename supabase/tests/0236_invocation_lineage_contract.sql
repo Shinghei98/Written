@@ -67,11 +67,11 @@ begin
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status,
+     grammar_version, output_schema_hash, batch_items,
      release_manifest_id)
   values (alice, 'probe-input', 'Qwen/Qwen3.5-9B', 'probe-rev',
           'qwen_extractor_v5', 'semantic_grammar_v3', repeat('0', 64), 1,
-          'succeeded', release)
+          release)
   returning id into call_id;
 
   -- ---------------------------------------------------------------------

@@ -75,7 +75,7 @@ begin
       (input_hash, model_id, model_revision, prompt_version, grammar_version,
        output_schema_hash, batch_items, status, release_manifest_id)
     values ('p0', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-            repeat('0', 64), 1, 'succeeded', shadow_release);
+            repeat('0', 64), 1, shadow_release);
   exception when others then raised := true;
   end;
   if not raised then
@@ -108,10 +108,10 @@ begin
   -- let the caller choose among bound ones; the database chooses now.
   insert into semantic_private.model_invocations
     (input_hash, model_id, model_revision, prompt_version, grammar_version,
-     output_schema_hash, batch_items, status, release_manifest_id,
+     output_schema_hash, batch_items, release_manifest_id,
      model_lane_mode)
   values ('p2', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-          repeat('0', 64), 1, 'succeeded', shadow_release, 'shadow')
+          repeat('0', 64), 1, shadow_release, 'shadow')
   returning id, model_lane_mode, release_manifest_id
        into eval_call, lane, named;
   if lane <> 'evaluation' then
@@ -124,9 +124,9 @@ begin
   -- A release nobody deployed is likewise ignored rather than honoured.
   insert into semantic_private.model_invocations
     (input_hash, model_id, model_revision, prompt_version, grammar_version,
-     output_schema_hash, batch_items, status, release_manifest_id)
+     output_schema_hash, batch_items, release_manifest_id)
   values ('p2b', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-          repeat('0', 64), 1, 'succeeded', floating)
+          repeat('0', 64), 1, floating)
   returning release_manifest_id into named;
   if named <> evaluation_release then
     raise exception '0239 contract: an undeployed release was honoured';
@@ -152,7 +152,7 @@ begin
        grammar_version, output_schema_hash, batch_items, status,
        release_manifest_id)
     values (alice, 'p3', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-            repeat('0', 64), 1, 'succeeded', evaluation_release);
+            repeat('0', 64), 1, evaluation_release);
   exception when others then raised := true;
   end;
   if not raised then
@@ -216,10 +216,10 @@ begin
 
   insert into semantic_private.model_invocations
     (user_id, input_hash, model_id, model_revision, prompt_version,
-     grammar_version, output_schema_hash, batch_items, status,
+     grammar_version, output_schema_hash, batch_items,
      release_manifest_id)
   values (alice, 'p4', 'm', 'r', 'qwen_extractor_v5', 'semantic_grammar_v3',
-          repeat('0', 64), 1, 'succeeded', shadow_release)
+          repeat('0', 64), 1, shadow_release)
   returning id into call_id;
 
   -- Two thirds of the lineage is refused, on a failure as much as a success.
@@ -348,11 +348,21 @@ begin
       writable;
   end if;
 
+  -- **And it cannot write a call one table at a time.** `0241` replaced the two
+  -- table grants with one function, so a partial write — an invocation with no
+  -- items, or items without their call — is not something this role can express.
+  if has_table_privilege('semantic_model_worker',
+                         'semantic_private.model_invocations', 'INSERT')
+     or has_table_privilege('semantic_model_worker',
+                            'semantic_private.model_invocation_items', 'INSERT') then
+    raise exception
+      '0239 contract: the model lane can still write a call one table at a time';
+  end if;
+
   -- It can still do its own job, or the separation is just a broken worker.
-  if not has_table_privilege('semantic_model_worker',
-                             'semantic_private.model_invocations', 'INSERT')
-     or not has_table_privilege('semantic_model_worker',
-                                'semantic_private.model_invocation_items', 'INSERT') then
+  if not has_function_privilege('semantic_model_worker',
+        'semantic_private.record_model_invocation(integer, jsonb, text, text, text, text, text, text, uuid, text, text, integer, integer, integer, text, text, text)',
+        'EXECUTE') then
     raise exception '0239 contract: the model lane cannot record its own calls';
   end if;
 

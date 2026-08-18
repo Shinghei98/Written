@@ -305,6 +305,11 @@ run_contract 0238_source_text_erasure_contract
 # shadow, cannot name a user, and cannot write through an alternate table.
 run_contract 0239_model_lane_authority_contract
 
+# **One call, one write.** batch_items and item_index derived from the array,
+# an unanswered item recorded as `missing_item` rather than left out, and the
+# call-level status derived from the items rather than stored beside them.
+run_contract 0241_guarded_invocation_write_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
