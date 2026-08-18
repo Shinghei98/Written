@@ -60,6 +60,24 @@ Parameters:
     Description: >
       The wheel's sha256, verified before it is installed. A URL alone names a
       location rather than an artifact.
+  TorchPin:
+    Type: String
+    Default: ''
+    Description: >
+      The torch requirement, named with its local version — e.g.
+      `torch==2.13.0+cu129`.
+
+      **The engine names its torch by version and the version does not say which
+      CUDA.** vLLM's wheel asks for `torch==2.13.0`, which both PyPI and the
+      cu129 index satisfy; offering the cu129 index alongside PyPI was not enough
+      to decide it, and pip took PyPI's CUDA 13 build while correctly taking
+      `torchvision==0.28.0+cu129` from the index in the same command. Naming the
+      artifact is what removes the ambiguity — the same rule the wheel URL and
+      the image digests follow.
+
+      It must agree with whatever the pinned vLLM wheel requires. If it stops
+      agreeing, pip raises a resolution conflict, which is the loud failure to
+      prefer over a silently mismatched runtime.
   CudaBaseDigest:
     Type: String
     Default: sha256:59e37ec1a44489f498791a0ab8143422eeec2fe9381c67350bca87bac8e0cefb
@@ -430,6 +448,8 @@ Resources:
             Value: !Ref VllmWheelUrl
           - Name: VLLM_WHEEL_SHA256
             Value: !Ref VllmWheelSha256
+          - Name: TORCH_PIN
+            Value: !Ref TorchPin
           - Name: CUDA_BASE_DIGEST
             Value: !Ref CudaBaseDigest
           - Name: REPOSITORY
@@ -477,6 +497,10 @@ Resources:
                   # exists to refuse everywhere else in this file.
                   if [ -z "${VLLM_WHEEL_URL:-}" ] || [ -z "${VLLM_WHEEL_SHA256:-}" ]; then
                     echo "VLLM_WHEEL_URL and VLLM_WHEEL_SHA256 must both be set. PyPI cannot serve a +cu129 wheel — PEP 440 forbids local versions there — so the artifact is named by URL and pinned by hash." >&2
+                    exit 1
+                  fi
+                  if [ -z "${TORCH_PIN:-}" ]; then
+                    echo "TORCH_PIN is unset. The engine asks for a torch version and a version does not say which CUDA; unnamed, pip takes PyPI's CUDA 13 build under a cu129 engine." >&2
                     exit 1
                   fi
 
@@ -592,7 +616,7 @@ Resources:
                         python3 python3-pip ca-certificates \
                    && rm -rf /var/lib/apt/lists/*
                   COPY ${WHEEL} /tmp/${WHEEL}
-                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" \
+                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" "${TORCH_PIN}" \
                         --extra-index-url https://download.pytorch.org/whl/cu129 \
                    && rm -f "/tmp/${WHEEL}"
                   COPY serve.py /opt/serve.py
@@ -649,9 +673,15 @@ Resources:
                   # and must name the same CUDA; a 12.4 base under a cu129 wheel
                   # is a runtime failure with a very confusing message.
                   if (torch.version.cuda or "").split(".")[:2] != ["12", "9"]:
-                      sys.exit("torch reports CUDA %r, expected 12.9 to match the wheel"
-                               % (torch.version.cuda,))
-                  print("engine:", vllm.__version__, "cuda:", torch.version.cuda)
+                      # **Name the build, not just the mismatch.** The first time
+                      # this fired it said only "CUDA 13.0", and which torch had
+                      # been chosen — and therefore what to pin — cost a whole
+                      # build to find out of an incomplete log.
+                      sys.exit("torch %s reports CUDA %r, expected 12.9 to match "
+                               "the engine wheel; pin TORCH_PIN at the +cu129 build"
+                               % (torch.__version__, torch.version.cuda))
+                  print("engine:", vllm.__version__,
+                        "torch:", torch.__version__, "cuda:", torch.version.cuda)
                   '
 
                 # **The engine must recognise this exact architecture.**
