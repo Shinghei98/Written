@@ -96,6 +96,28 @@ class ServingImageGateTests(unittest.TestCase):
             "from vllm.sampling_params import GuidedDecodingParams")
         self.assertLess(modern, legacy)
 
+    def test_the_serving_gates_invoke_python3(self) -> None:
+        """The two images do not agree about what `python` is.
+
+        The serving base installs `python3` and `python3-pip` and creates no
+        `python` alias; the gateway image is a Lambda python base and does have
+        one. So the same `--entrypoint python` is right in one build and, in the
+        other, `exec: "python": executable file not found` — which is what the
+        first real run of these gates reported, after the image had been built.
+
+        Asserted per build rather than globally, because the difference is real
+        and a rule that forced them to match would be wrong about the gateway.
+        """
+        serving, gateway = self.stack.split("BuildGatewayImage:", 1)
+        for line in serving.splitlines():
+            if "--entrypoint python" in line:
+                self.assertIn(
+                    "--entrypoint python3", line,
+                    "the serving image has no `python`, only `python3`: " + line.strip())
+        self.assertIn("--entrypoint python ", gateway,
+                      "the gateway image does have `python`; if that changed, "
+                      "this test is the wrong thing to fix")
+
     def test_the_dead_dockerfile_is_gone(self) -> None:
         """It was referenced by nothing and omitted `tokenizer_runtime.py`.
 

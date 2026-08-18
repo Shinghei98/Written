@@ -615,7 +615,7 @@ Resources:
                 # because the installed wheel reports the local version
                 # (`0.27.1+cu129`) that the tag cannot carry.
                 - |
-                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  docker run --rm --entrypoint python3 "$URI:$TAG" -c '
                   import os, sys, vllm, torch
 
                   declared = os.environ["VLLM_VERSION"]
@@ -643,7 +643,7 @@ Resources:
                 # VLLM_VERSION, so it failed every gateway build for a reason
                 # that had nothing to do with the gateway.
                 - |
-                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  docker run --rm --entrypoint python3 "$URI:$TAG" -c '
                   import sys
 
                   required = "Qwen3_5ForConditionalGeneration"
@@ -672,7 +672,7 @@ Resources:
                 # `ForConditionalGeneration` one and carries a vision tower this
                 # product never sends anything to.
                 - |
-                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  docker run --rm --entrypoint python3 "$URI:$TAG" -c '
                   import dataclasses, sys
                   from vllm.engine.arg_utils import EngineArgs
 
@@ -691,7 +691,7 @@ Resources:
                 # rather than answering unconstrained, and that refusal belongs
                 # here rather than in front of a reader.
                 - |
-                  docker run --rm --entrypoint python \
+                  docker run --rm --entrypoint python3 \
                     -v "$PWD/output_schema.json:/tmp/output_schema.json:ro" \
                     -e PYTHONPATH=/opt "$URI:$TAG" -c '
                   import json, sys
