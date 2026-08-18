@@ -25,7 +25,7 @@ REGION=${AWS_REGION:-us-east-1}
 # billing by the hour. What *can* be enforced exactly is the only thing that
 # spends the money, and the minutes are derived from the live price rather than
 # from a number written here — a rate change cannot make this quietly wrong.
-BUDGET_USD=${BUDGET_USD:-10}
+BUDGET_USD=${BUDGET_USD:-5}
 INSTANCE=${INSTANCE:-ml.g6e.xlarge}
 SERVING_IMAGE=${SERVING_IMAGE:?set SERVING_IMAGE to the full ECR digest URI}
 MODEL_URI=${MODEL_URI:?set MODEL_URI to the staged artifacts prefix}

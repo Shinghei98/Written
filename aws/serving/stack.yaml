@@ -69,6 +69,23 @@ Resources:
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub arn:aws:s3:::${AsyncOutputBucket}/async/*
+              # **Pulling the image is a permission, not a consequence of
+              # naming it.** The role could read the weights and decrypt them
+              # and had no way to fetch the container that would do it, so the
+              # endpoint would have failed at image pull — which reads as a bad
+              # digest rather than a missing grant. `GetAuthorizationToken` is
+              # account-level and takes `*`; the other three are scoped to the
+              # one repository, because a serving role that could pull any image
+              # could run one nobody attested.
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/written-qwen-serving
               - Effect: Allow
                 Action: [logs:CreateLogStream, logs:PutLogEvents, logs:CreateLogGroup]
                 Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*
