@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Persistent artifacts for the Qwen lane: the model bucket, its key, the serving
+  image repository, and the two CodeBuild jobs that fill them.
+
+  Deliberately separate from the GPU. Everything here is durable and costs
+  almost nothing idle; the endpoint is disposable and costs money whenever it is
+  up, so it lives in its own stack and is created only once the artifacts it
+  needs already exist.
+
+  Neither job is VPC-attached: one needs public Hugging Face access and the
+  other needs public package registries, and neither handles user data. That is
+  the whole reason the model bucket is separate from the async bucket — these
+  are immutable public model artifacts, not retained provider text, and they get
+  versioning for exactly the reason the async bucket must not.
+
+Parameters:
+  ModelId:
+    Type: String
+    Default: Qwen/Qwen3.5-9B
+  ModelRevision:
+    Type: String
+    Default: c202236235762e1c871ad0ccb60c8ee5ba337b9a
+    Description: The complete Hugging Face commit SHA. Never a branch name.
+  VllmVersion:
+    Type: String
+    Default: 0.11.0
+  CudaBaseDigest:
+    Type: String
+    Default: sha256:2fcc4280646484290cc50dce5e65f388dd04352b07cbe89a635703bd1f9aedb6
+    Description: >
+      nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04, by digest. A tag can be
+      repointed and the image would change without the manifest noticing, which
+      is the same reason the gateway deploys by digest rather than by tag.
+
+Resources:
+  ModelKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Written model artifacts
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: 'kms:*'
+            Resource: '*'
+  ModelKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/written-semantic-models
+      TargetKeyId: !Ref ModelKey
+
+  ModelBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub written-semantic-models-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref ModelKey
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # **Versioning on, unlike the async bucket, and for the opposite reason.**
+      # These are immutable public model files. A version history of them is a
+      # record of what was deployed; a version history of provider text would be
+      # a retention surface with no erasure path.
+      VersioningConfiguration:
+        Status: Enabled
+
+  ServingRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: written-qwen-serving
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+
+  # -- the weights job ------------------------------------------------------
+  StageWeightsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-stage-weights
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-one-prefix-and-log
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:ListBucket]
+                Resource:
+                  - !GetAtt ModelBucket.Arn
+                  - !Sub '${ModelBucket.Arn}/models/*'
+              # **No delete.** A write-once prefix that the writer could empty
+              # is not write-once.
+              - Effect: Allow
+                Action: [kms:GenerateDataKey, kms:Decrypt]
+                Resource: !GetAtt ModelKey.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+
+  StageWeights:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: written-stage-qwen-weights
+      ServiceRole: !GetAtt StageWeightsRole.Arn
+      TimeoutInMinutes: 180
+      Artifacts: { Type: NO_ARTIFACTS }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: MODEL_ID
+            Value: !Ref ModelId
+          - Name: MODEL_REVISION
+            Value: !Ref ModelRevision
+          - Name: MODEL_BUCKET
+            Value: !Ref ModelBucket
+          - Name: KMS_KEY_ID
+            Value: !Ref ModelKey
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              commands:
+                - pip install --quiet "huggingface_hub[cli]==0.35.3"
+            build:
+              commands:
+                - set -euo pipefail
+                - PREFIX="models/qwen3.5-9b/${MODEL_REVISION}"
+                # Refuse an already-committed revision rather than write over it.
+                - |
+                  if aws s3api head-object --bucket "$MODEL_BUCKET" \
+                       --key "$PREFIX/COMMITTED.json" >/dev/null 2>&1; then
+                    echo "revision already committed; refusing to restage"; exit 1
+                  fi
+                # The full commit SHA, never a branch: a branch can move under
+                # a tag and the deployment would silently change.
+                - |
+                  python3 - <<'PY'
+                  import os, re, sys
+                  rev = os.environ["MODEL_REVISION"]
+                  if not re.fullmatch(r"[0-9a-f]{40}", rev):
+                      sys.exit(f"MODEL_REVISION {rev!r} is not a complete commit sha")
+                  PY
+                - mkdir -p /tmp/model
+                - |
+                  hf download "$MODEL_ID" --revision "$MODEL_REVISION" \
+                    --local-dir /tmp/model --max-workers 8
+                # Symlinks and stray paths are refused: the manifest must
+                # describe files, and a link describes somewhere else.
+                - |
+                  python3 - <<'PY'
+                  import hashlib, json, os, pathlib, sys
+                  root = pathlib.Path("/tmp/model")
+                  rows, total = [], 0
+                  for path in sorted(root.rglob("*")):
+                      if path.is_symlink():
+                          sys.exit(f"symlink refused: {path.relative_to(root)}")
+                      if path.is_dir():
+                          continue
+                      rel = str(path.relative_to(root))
+                      if rel.startswith(".") or ".." in rel:
+                          sys.exit(f"unexpected path refused: {rel}")
+                      digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                      rows.append({"path": rel, "bytes": path.stat().st_size,
+                                   "sha256": digest})
+                      total += path.stat().st_size
+                  manifest = {
+                      "model_id": os.environ["MODEL_ID"],
+                      "model_revision": os.environ["MODEL_REVISION"],
+                      "codebuild_id": os.environ.get("CODEBUILD_BUILD_ID"),
+                      "source_commit": os.environ.get("WRITTEN_SOURCE_COMMIT"),
+                      "file_count": len(rows), "total_bytes": total,
+                      "files": rows,
+                  }
+                  pathlib.Path("/tmp/manifest.json").write_text(
+                      json.dumps(manifest, indent=2, sort_keys=True))
+                  print(f"{len(rows)} files, {total/1e9:.1f} GB")
+                  PY
+                # Uncompressed, so SageMaker mounts the hierarchy directly
+                # through ModelDataSource. No 20 GB tarball to unpack on a GPU.
+                - |
+                  aws s3 sync /tmp/model "s3://$MODEL_BUCKET/$PREFIX/artifacts/" \
+                    --sse aws:kms --sse-kms-key-id "$KMS_KEY_ID" --only-show-errors
+                # Metadata outside artifacts/, so the mounted tree is weights only.
+                - |
+                  aws s3api put-object --bucket "$MODEL_BUCKET" \
+                    --key "$PREFIX/manifest.json" --body /tmp/manifest.json \
+                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID"
+                # **The marker is written last and only if nothing exists.** The
+                # endpoint may use a revision only when this is present, so a
+                # half-finished stage is unusable rather than subtly wrong.
+                - |
+                  printf '{"model_id":"%s","model_revision":"%s","codebuild_id":"%s"}' \
+                    "$MODEL_ID" "$MODEL_REVISION" "$CODEBUILD_BUILD_ID" > /tmp/committed.json
+                  aws s3api put-object --bucket "$MODEL_BUCKET" \
+                    --key "$PREFIX/COMMITTED.json" --body /tmp/committed.json \
+                    --if-none-match '*' \
+                    --server-side-encryption aws:kms --ssekms-key-id "$KMS_KEY_ID"
+                - echo "committed s3://$MODEL_BUCKET/$PREFIX/"
+
+  # -- the image job --------------------------------------------------------
+  BuildImageRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: written-build-serving-image
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: push-one-repository-and-log
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:DescribeImages
+                Resource: !GetAtt ServingRepository.Arn
+              # **No model-bucket access at all.** The weights stay out of the
+              # image, and a builder that could read them might put them in.
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+
+  BuildImage:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: written-build-qwen-serving-image
+      ServiceRole: !GetAtt BuildImageRole.Arn
+      TimeoutInMinutes: 180
+      Artifacts: { Type: NO_ARTIFACTS }
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: VLLM_VERSION
+            Value: !Ref VllmVersion
+          - Name: CUDA_BASE_DIGEST
+            Value: !Ref CudaBaseDigest
+          - Name: REPOSITORY
+            Value: !Ref ServingRepository
+          - Name: ACCOUNT
+            Value: !Ref 'AWS::AccountId'
+          - Name: REGION
+            Value: !Ref 'AWS::Region'
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - set -euo pipefail
+                - aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+                - TAG="vllm-${VLLM_VERSION}-$(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-12)"
+                - '[ -n "$TAG" ] || TAG="vllm-${VLLM_VERSION}-manual"'
+                - URI="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPOSITORY"
+            build:
+              commands:
+                # The serving shim, from the pinned source revision. NO_SOURCE
+                # means nothing is checked out, so it is fetched by commit
+                # rather than by branch — the same rule the weights follow.
+                - |
+                  curl -fsSL -o serve.py \
+                    "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/serve.py"
+                - test -s serve.py
+                # **Unquoted heredoc, deliberately.** With `<<'EOF'` the shell
+                # expands nothing and the Dockerfile would carry the literal
+                # string ${VLLM_VERSION}, pinning nothing and failing at build.
+                - |
+                  cat > Dockerfile <<EOF
+                  FROM nvidia/cuda@${CUDA_BASE_DIGEST}
+                  ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 \
+                      PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+                      HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+                  RUN apt-get update && apt-get install -y --no-install-recommends \
+                        python3 python3-pip ca-certificates \
+                   && rm -rf /var/lib/apt/lists/*
+                  RUN pip install --no-cache-dir --break-system-packages "vllm==${VLLM_VERSION}"
+                  COPY serve.py /opt/serve.py
+                  EXPOSE 8080
+                  ENV MODEL_PATH=/opt/ml/model VLLM_VERSION=${VLLM_VERSION}
+                  ENTRYPOINT ["python3", "/opt/serve.py"]
+                  EOF
+                - docker build --platform linux/amd64 -t "$URI:$TAG" .
+                # Verify what was actually produced rather than what was asked
+                # for: a builder that assumes its own platform is how an arm64
+                # image reaches an x86 endpoint and fails at first boot.
+                - |
+                  ARCH=$(docker image inspect "$URI:$TAG" --format '{{.Architecture}}')
+                  [ "$ARCH" = "amd64" ] || { echo "built $ARCH, expected amd64"; exit 1; }
+                - docker push "$URI:$TAG"
+                - |
+                  DIGEST=$(aws ecr describe-images --repository-name "$REPOSITORY" \
+                    --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)
+                  echo "SERVING_IMAGE_DIGEST=$DIGEST"
+                  echo "$URI@$DIGEST"
+
+Outputs:
+  ModelBucketName:
+    Value: !Ref ModelBucket
+  ModelKeyArn:
+    Value: !GetAtt ModelKey.Arn
+  ServingRepositoryUri:
+    Value: !GetAtt ServingRepository.RepositoryUri
+  StageWeightsProject:
+    Value: !Ref StageWeights
+  BuildImageProject:
+    Value: !Ref BuildImage
