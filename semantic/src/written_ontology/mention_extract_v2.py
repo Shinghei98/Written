@@ -128,18 +128,34 @@ def _validate_item(item: dict, request_item: RequestItem) -> None:
                                     f"{end} > {len(source)}")
 
         surface = mention["surface"]
-        if surface != source[start:end]:
+        expected = source[start:end]
+
+        # **The normalisation case is diagnosed first, because after the
+        # equality it cannot be diagnosed at all.** This read
+        # `if surface != expected: raise` and then asked whether the two differed
+        # in normalisation state — of two strings the previous line had just
+        # established were equal. `NFC(x) != x and NFC(x) == x` is a
+        # contradiction, so `surface_not_normalised_like_source` could never be
+        # raised, and the one branch with no test was the one that could not
+        # fire. That is the usual signature.
+        #
+        # Ordered this way the two refusals answer different questions: the model
+        # pointed at the right span and disagreed about composition, or it
+        # pointed at the wrong span. Both are structural failures and neither is
+        # an abstention.
+        #
+        # **Normalisation is compared, never applied.** Rewriting either side to
+        # NFC would make the equality pass for a response that did not agree with
+        # the source, which is the whole point of comparing them.
+        if surface != expected:
             # The message carries no payload — neither the surface nor the
             # source — because a mismatch is most likely on somebody's title.
+            if (unicodedata.normalize("NFC", surface)
+                    == unicodedata.normalize("NFC", expected)):
+                raise ExtractionInvalid("surface_normalization_mismatch",
+                                        f"{field}[{start}:{end}]")
             raise ExtractionInvalid("surface_offset_mismatch",
                                     f"{field}[{start}:{end}]")
-
-        # **Normalisation is checked, not applied.** Rewriting the surface to
-        # NFC here would make the equality above pass for a response that did
-        # not actually agree with the source, which is the check's whole point.
-        if unicodedata.normalize("NFC", surface) != surface and \
-           unicodedata.normalize("NFC", source[start:end]) == source[start:end]:
-            raise ExtractionInvalid("surface_not_normalised_like_source")
 
         key = (field, index, start, end, mention["mention_role"])
         if key in spans:

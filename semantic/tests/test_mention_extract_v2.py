@@ -181,6 +181,69 @@ def test_surface_must_equal_the_source_slice():
     assert caught.value.code == "surface_offset_mismatch"
 
 
+# ---------------------------------------------------------------------------
+# Normalisation, which is compared and never applied
+# ---------------------------------------------------------------------------
+#
+# `é` has two legal spellings: one code point (NFC, U+00E9) and two (NFD, e +
+# U+0301). A model that echoes the composed form against a decomposed source has
+# not pointed at the wrong text — it has disagreed about composition, and saying
+# so is the difference between a bug report and a shrug. The refusal used to be
+# unreachable: it was asked after an equality check had already established the
+# two strings were identical.
+
+NFD_SOURCE = "Beyonce\u0301"      # 8 code points: "Beyonce" + combining acute
+NFC_SURFACE = "Beyonc\u00e9"      # 7 code points: "Beyonc" + precomposed é
+
+
+def test_a_decomposed_surface_matching_a_decomposed_source_is_accepted():
+    """Equality first, and no rewriting on either side.
+
+    The source is NFD and the surface is the same NFD text. Nothing here needs
+    normalising and nothing is normalised — a validator that folded both to NFC
+    would accept this too, and would also accept the case below, which is what
+    makes folding wrong rather than merely lenient.
+    """
+    request = [RequestItem(0, {"title": NFD_SOURCE})]
+    validate_response(
+        response([extracted(mentions=[mention(surface=NFD_SOURCE, start=0,
+                                              end=len(NFD_SOURCE))])]),
+        request)
+
+
+def test_a_composed_surface_against_a_decomposed_source_is_a_normalisation_mismatch():
+    """The refusal that could never fire.
+
+    Same characters, different composition, and the span is right — so the
+    diagnosis is about normalisation rather than about offsets. It is still a
+    structural failure and still not an abstention: the model misbehaved, it did
+    not report that the item had no durable subject.
+    """
+    request = [RequestItem(0, {"title": NFD_SOURCE})]
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(
+            response([extracted(mentions=[mention(surface=NFC_SURFACE, start=0,
+                                                  end=len(NFD_SOURCE))])]),
+            request)
+    assert caught.value.code == "surface_normalization_mismatch"
+
+
+def test_genuinely_different_text_is_still_an_offset_mismatch():
+    """Ordering the normalisation case first must not swallow the general one.
+
+    "Beyonce!" is not a normalisation variant of anything in the source, so it
+    falls through to the offset diagnosis — which is the check that catches a
+    model pointing at the wrong span.
+    """
+    request = [RequestItem(0, {"title": NFD_SOURCE})]
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(
+            response([extracted(mentions=[mention(surface="Beyonce!", start=0,
+                                                  end=len(NFD_SOURCE))])]),
+            request)
+    assert caught.value.code == "surface_offset_mismatch"
+
+
 def test_offsets_are_code_points_not_utf16():
     """**The check `surface` exists for.**
 
@@ -232,11 +295,24 @@ def test_no_refusal_is_an_abstention():
     """
     reasons = {"no_durable_subject", "hard_suppressed", "ambiguous",
                "insufficient_context", "invalid_input"}
-    for bad in (
-        response([extracted(mentions=[mention(end=99)])]),
-        response([extracted(mentions=[mention(surface="wrong")])]),
-        response([extracted(0), extracted(0)]),
+    # Each case carries its own request. The normalisation refusal cannot be
+    # reached against `REQUEST` — "Midnight" has no composed form to disagree
+    # about — so a case appended to a fixed-request sweep would have raised
+    # `surface_offset_mismatch`, passed, and tested nothing.
+    nfd = [RequestItem(0, {"title": NFD_SOURCE})]
+    seen = set()
+    for bad, request in (
+        (response([extracted(mentions=[mention(end=99)])]), REQUEST),
+        (response([extracted(mentions=[mention(surface="wrong")])]), REQUEST),
+        (response([extracted(mentions=[mention(surface=NFC_SURFACE, start=0,
+                                               end=len(NFD_SOURCE))])]), nfd),
+        (response([extracted(0), extracted(0)]), REQUEST),
     ):
         with pytest.raises(ExtractionInvalid) as caught:
-            validate_response(bad, REQUEST)
+            validate_response(bad, request)
         assert caught.value.code not in reasons
+        seen.add(caught.value.code)
+
+    # And the normalisation refusal was actually among them, rather than a case
+    # that quietly fell through to a different diagnosis.
+    assert "surface_normalization_mismatch" in seen
