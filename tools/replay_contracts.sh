@@ -261,6 +261,13 @@ echo
 echo "==> applying the rest of the chain"
 apply_after "0064_z"
 
+# **The calibration and erasure lifecycle, once the whole chain exists.** It
+# seeds its own users and candidates, exercises the three client verbs through
+# `api` with `auth.uid()` set from a JWT claim, and rolls back. Run here rather
+# than beside an earlier migration because the surface it tests is built by
+# `0227`-`0230` and the guards it relies on by `0229`.
+run_contract 0230_calibration_lifecycle_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
