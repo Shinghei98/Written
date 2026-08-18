@@ -292,6 +292,10 @@ run_contract 0235_release_gate_report_contract
 # writes it. Every property here is latent while the table is empty.
 run_contract 0236_invocation_lineage_contract
 
+# **The mode boundary at the write.** No model mention without a successful,
+# in-lane invocation item — and the deterministic lanes may not borrow one.
+run_contract 0237_model_mention_boundary_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:
