@@ -185,7 +185,16 @@ class PostgresJobQueue:
                     update {self._jobs}
                     set status = 'queued',
                         available_at = now() + make_interval(secs => %(delay)s),
-                        locked_at = null, locked_by = null
+                        locked_at = null, locked_by = null,
+                        -- **The claim already spent one, so give it back.**
+                        -- `claim` does `attempts = attempts + 1` and only
+                        -- claims `where attempts < 5`, so five polls of a cold
+                        -- GPU would make the job unclaimable and then
+                        -- `lease_expired_after_max_attempts` — abandoning an
+                        -- inference that was submitted and paid for. Leaving
+                        -- `attempts` alone was not enough: not adding to it is
+                        -- not the same as not spending it.
+                        attempts = greatest(0, attempts - 1)
                     where id = %(job_id)s::uuid and locked_by = %(lease_token)s
                     """,
                     {"job_id": job_id, "lease_token": lease_token,

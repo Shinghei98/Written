@@ -612,13 +612,18 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
         first = rows[0].get("source_code")
         rows = [row for row in rows if row.get("source_code") == first]
 
+    # **Indices are assigned after the skips, not before them.** Enumerating the
+    # selected rows and skipping the unreadable ones left holes — `item_index`
+    # 0 and 2 with no 1 — which the request schema refuses outright, so one
+    # unreadable row would have failed the whole batch.
     items = []
-    for index, row in enumerate(rows):
+    for row in rows:
         text = _plaintext(connection, kms, row, vault_key_arn)
         if not text:
+            _mark_unreadable(connection, row)
             continue
         items.append({
-            "item_index": index,
+            "item_index": len(items),
             "fields": {"title": text[:256]},
             "observation_id": row["observation_id"],
             "source_text_evidence_id": row["source_text_evidence_id"],
@@ -632,6 +637,29 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
             "source_profile": model_input_profile(row.get("source_code")),
         })
     return items
+
+
+def _mark_unreadable(connection, row) -> None:
+    """Retire evidence nothing can read, so it stops being outstanding.
+
+    **Otherwise it blocks the account for ever.** The batch is selected by
+    anti-join against invocation items, and an unreadable row never earns one —
+    so it is picked again on every run, fills the two-item batch, and no later
+    evidence is ever reached. The lane would report work outstanding and make no
+    progress, indefinitely.
+
+    Retired the way everything else here is: redacted, not deleted. `deleted` is
+    the state the payload-location check and the lineage guard already
+    understand, and the row keeps its identity.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "update semantic_private.source_text_evidence"
+            "   set encrypted_text = null, refresh_status = 'deleted',"
+            "       deleted_at = now()"
+            " where id = %s and refresh_status <> 'deleted'",
+            (row["source_text_evidence_id"],))
+    connection.commit()
 
 
 def _plaintext(connection, kms, row, vault_key_arn) -> str | None:

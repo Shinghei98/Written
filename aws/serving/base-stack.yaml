@@ -24,7 +24,18 @@ Parameters:
     Description: The complete Hugging Face commit SHA. Never a branch name.
   VllmVersion:
     Type: String
-    Default: 0.11.0
+    Default: ''
+    Description: >
+      **No default, deliberately.** `0.11.0` was pinned because it installed
+      cleanly, which is not the same as being able to run this model: Qwen's own
+      card directs Qwen3.5 users to a vLLM main/nightly build, and 0.11's release
+      notes do not list the architecture. An engine that installs and cannot load
+      the weights fails at first inference, on a GPU that is already billing, and
+      reads as a bad artifact rather than a wrong engine.
+
+      A build must therefore be chosen against the model card rather than
+      inherited from whatever was convenient. Leaving this empty makes the build
+      refuse instead of quietly repeating the unverified pin.
   CudaBaseDigest:
     Type: String
     Default: sha256:2fcc4280646484290cc50dce5e65f388dd04352b07cbe89a635703bd1f9aedb6
@@ -164,7 +175,13 @@ Resources:
                   # So this is a new prefix rather than an edit. The old one
                   # stays exactly as it was, still valid, still reconciled.
                   LAYOUT="v2"
-                  PREFIX="models/qwen3.5-9b/${MODEL_REVISION}/${LAYOUT}"
+                  # **Exported.** A shell assignment is not an environment
+                  # variable, and the reconcile step below reads
+                  # `os.environ["PREFIX"]` — so the build failed with a KeyError
+                  # after the weights were uploaded and before the marker,
+                  # leaving a prefix that looks staged and is not committed.
+                  export PREFIX="models/qwen3.5-9b/${MODEL_REVISION}/${LAYOUT}"
+                  export MODEL_BUCKET
 
                   # A complete sha, never a branch: a branch can move under a
                   # tag and the deployment would silently change.
@@ -243,37 +260,18 @@ Resources:
                   print(f"{len(rows)} files, {total/1e9:.1f} GB")
                   PY
 
-                  # **The tokenizer runtime manifest, by the one definition.**
-                  # Fetched rather than reimplemented: the serving container
-                  # recomputes this from what it loaded, and a second
-                  # implementation here would have the generator and the verifier
-                  # agree because the same person wrote both rather than because
-                  # they compute the same function.
+                  # **The tokenizer runtime manifest is not written here.**
+                  # It names the library versions that interpret the tokenizer,
+                  # and this job has no vLLM, no transformers and no GPU — so
+                  # the only manifest it could write would record nulls where
+                  # the container records real versions, and the two digests
+                  # would differ by construction. Every answer would then be
+                  # refused for a drift that was manufactured at staging time.
                   #
-                  # The library versions recorded here are the ones the image
-                  # pins; the container reports the ones it actually imported,
-                  # and the gateway compares the digests. A disagreement is the
-                  # point of having two.
-                  curl -fsSL -o /tmp/tokenizer_runtime.py \
-                    "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/tokenizer_runtime.py"
-                  python3 - <<'PY'
-                  import json, os, pathlib, sys
-                  sys.path.insert(0, "/tmp")
-                  import tokenizer_runtime
-
-                  manifest = tokenizer_runtime.build_manifest(
-                      "/tmp/model",
-                      model_id=os.environ["MODEL_ID"],
-                      model_revision=os.environ["MODEL_REVISION"],
-                      library_versions={
-                          "transformers": None, "tokenizers": None,
-                          "vllm": os.environ.get("VLLM_VERSION"),
-                          "torch": None})
-                  digest = tokenizer_runtime.manifest_sha256(manifest)
-                  pathlib.Path("/tmp/tokenizer_runtime_manifest.json").write_text(
-                      json.dumps(manifest, indent=2, sort_keys=True))
-                  print("TOKENIZER_RUNTIME_MANIFEST_SHA256=" + digest)
-                  PY
+                  # A runtime is measured by the thing running it. The container
+                  # computes this at load, through the same
+                  # `tokenizer_runtime.py`, and it is pinned from what it
+                  # reports rather than from what this job guessed.
 
                   # Uncompressed, so SageMaker mounts the hierarchy directly
                   # through ModelDataSource. No 20 GB tarball to unpack on a GPU.
@@ -286,13 +284,11 @@ Resources:
                   # reported no model id, revision or tokenizer, and the
                   # gateway's drift check — which treats a missing fact as a
                   # mismatch — refused every answer.
-                  for OBJECT in manifest tokenizer_runtime_manifest; do
-                    aws s3api put-object --bucket "$MODEL_BUCKET" \
-                      --key "$PREFIX/artifacts/$OBJECT.json" \
-                      --body "/tmp/$OBJECT.json" \
-                      --server-side-encryption aws:kms \
-                      --ssekms-key-id "$KMS_KEY_ID" >/dev/null
-                  done
+                  aws s3api put-object --bucket "$MODEL_BUCKET" \
+                    --key "$PREFIX/artifacts/manifest.json" \
+                    --body /tmp/manifest.json \
+                    --server-side-encryption aws:kms \
+                    --ssekms-key-id "$KMS_KEY_ID" >/dev/null
 
                   # And a copy outside it, because operational tooling reads the
                   # manifest without mounting anything.
@@ -316,8 +312,7 @@ Resources:
                           for o in listing.get("Contents", [])}
 
                   # The two manifests live in the tree and are not weights.
-                  for extra in ("manifest.json", "tokenizer_runtime_manifest.json"):
-                      have.pop(extra, None)
+                  have.pop("manifest.json", None)
 
                   missing = [f["path"] for f in local["files"] if f["path"] not in have]
                   mismatched = [f["path"] for f in local["files"]
@@ -426,6 +421,14 @@ Resources:
                 # silently govern every command after it. The check below is
                 # explicit instead, and CodeBuild fails the build on `exit 1`.
                 - |
+                  # **Refused rather than defaulted**, for the reason in the
+                  # parameter description: an engine that cannot load Qwen3.5
+                  # fails on a billing GPU and looks like a bad artifact.
+                  if [ -z "${VLLM_VERSION:-}" ]; then
+                    echo "VLLM_VERSION is unset. Pin a build verified against the Qwen3.5 model card — 0.11.0 installs but is not listed as supporting this architecture." >&2
+                    exit 1
+                  fi
+
                   COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
                   if [ -z "$COMMIT" ]; then
                     echo "WRITTEN_SOURCE_COMMIT is unset. A tag that cannot name its commit is worse than a build that stops." >&2
@@ -440,9 +443,17 @@ Resources:
                 # means nothing is checked out, so it is fetched by commit
                 # rather than by branch — the same rule the weights follow.
                 - |
-                  curl -fsSL -o serve.py \
-                    "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/serve.py"
-                - test -s serve.py
+                  # **Both files.** `serve.py` imports `tokenizer_runtime`, and
+                  # fetching only the first left the container unable to compute
+                  # the manifest digest at all — reported as absent, which the
+                  # gateway's drift check reads as a mismatch, which refuses
+                  # every answer.
+                  for MODULE in serve tokenizer_runtime; do
+                    curl -fsSL -o "$MODULE.py" \
+                      "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/aws/serving/$MODULE.py"
+                    test -s "$MODULE.py"
+                  done
+
                 # **Unquoted heredoc, deliberately.** With `<<'EOF'` the shell
                 # expands nothing and the Dockerfile would carry the literal
                 # string ${VLLM_VERSION}, pinning nothing and failing at build.
@@ -457,6 +468,7 @@ Resources:
                    && rm -rf /var/lib/apt/lists/*
                   RUN pip install --no-cache-dir "vllm==${VLLM_VERSION}"
                   COPY serve.py /opt/serve.py
+                  COPY tokenizer_runtime.py /opt/tokenizer_runtime.py
                   EXPOSE 8080
                   ENV MODEL_PATH=/opt/ml/model VLLM_VERSION=${VLLM_VERSION}
                   ENTRYPOINT ["python3", "/opt/serve.py"]
@@ -552,6 +564,14 @@ Resources:
                 - |
                   set -euo pipefail
 
+                  # **Refused rather than defaulted**, for the reason in the
+                  # parameter description: an engine that cannot load Qwen3.5
+                  # fails on a billing GPU and looks like a bad artifact.
+                  if [ -z "${VLLM_VERSION:-}" ]; then
+                    echo "VLLM_VERSION is unset. Pin a build verified against the Qwen3.5 model card — 0.11.0 installs but is not listed as supporting this architecture." >&2
+                    exit 1
+                  fi
+
                   COMMIT="$(printf '%s' "${WRITTEN_SOURCE_COMMIT:-}" | cut -c1-12)"
                   if [ -z "$COMMIT" ]; then
                     echo "WRITTEN_SOURCE_COMMIT is unset. An image that cannot name its source is the defect this job exists to remove." >&2
@@ -610,6 +630,30 @@ Resources:
                   # a gateway built ten minutes before its transport was
                   # corrected — measured inside the image rather than asserted
                   # about it from outside.
+                  # **A third gate: the engine must recognise the architecture.**
+                  # Checking a version string proves nothing about whether this
+                  # build can load these weights, and the failure it prevents
+                  # happens on a GPU that is already charging.
+                  echo "==> the engine recognises the model architecture"
+                  docker run --rm --entrypoint python "$URI:$TAG" -c '
+                  import sys
+                  from vllm.model_executor.models import registry
+
+                  wanted = "Qwen3ForCausalLM"
+                  known = set(getattr(registry, "_VLLM_MODELS", {}) or {})
+                  if not known:
+                      try:
+                          known = set(registry.ModelRegistry.get_supported_archs())
+                      except Exception as failure:
+                          sys.exit(f"cannot enumerate supported architectures: {failure!r}")
+                  matches = sorted(a for a in known if a.startswith("Qwen3"))
+                  if not matches:
+                      sys.exit(
+                          "this vLLM build lists no Qwen3 architecture; it cannot load "
+                          "these weights and would fail on a billing GPU")
+                  print("qwen architectures:", matches)
+                  '
+
                   echo "==> the image agrees with the contract it carries"
                   docker run --rm --entrypoint python "$URI:$TAG" -c '
                   import json, os, pathlib

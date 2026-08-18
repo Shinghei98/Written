@@ -74,12 +74,22 @@ gateway_endpoint() {
              ModelId ModelRevision WorkerRoleArn; do
     params+=("ParameterKey=${key},UsePreviousValue=true")
   done
-  aws cloudformation update-stack --stack-name written-semantic-gateway \
-    --region "$REGION" --use-previous-template \
-    --capabilities CAPABILITY_NAMED_IAM \
-    --parameters "${params[@]}" >/dev/null 2>&1 || true
+  # **A failure here stops the pass.** Swallowing it meant the endpoint came up,
+  # the gateway stayed pointed at nothing, and the attestation failed for a
+  # reason that read like a broken model. The one tolerated non-zero is "no
+  # updates are to be performed", which is success spelled as an error.
+  local out
+  if ! out=$(aws cloudformation update-stack --stack-name written-semantic-gateway \
+       --region "$REGION" --use-previous-template \
+       --capabilities CAPABILITY_NAMED_IAM \
+       --parameters "${params[@]}" 2>&1); then
+    case "$out" in
+      *"No updates are to be performed"*) return 0 ;;
+      *) echo "gateway update failed: $out" >&2; return 1 ;;
+    esac
+  fi
   aws cloudformation wait stack-update-complete \
-    --stack-name written-semantic-gateway --region "$REGION" 2>/dev/null || true
+    --stack-name written-semantic-gateway --region "$REGION"
 }
 
 teardown() {
@@ -92,7 +102,9 @@ teardown() {
   # that no longer exists would answer `provider_error` for a reason that reads
   # like an outage, and its IAM statement would name a resource that is gone.
   echo "==> clearing the gateway's endpoint"
-  gateway_endpoint ""
+  # Reported, not fatal: teardown must continue to the endpoint delete whatever
+  # this does, because leaving the GPU running is the worse outcome.
+  gateway_endpoint "" || echo "!! the gateway still names a deleted endpoint" >&2
   # The armed deadline is removed only once the endpoint is actually gone, which
   # the check below verifies. Removing it first would drop the backstop at the
   # exact moment the teardown might be failing.
@@ -177,7 +189,11 @@ echo "==> wait for InService"
 aws sagemaker wait endpoint-in-service --endpoint-name "$ENDPOINT_NAME"
 
 echo "==> wiring the gateway to the endpoint"
-gateway_endpoint "$ENDPOINT_NAME"
+gateway_endpoint "$ENDPOINT_NAME" || {
+  echo "the gateway could not be pointed at $ENDPOINT_NAME; refusing to attest "\
+       "against a gateway that is not connected" >&2
+  exit 1
+}
 
 mkdir -p "$OUT"
 echo "==> attest the loaded runtime"

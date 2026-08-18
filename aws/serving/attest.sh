@@ -102,13 +102,22 @@ echo "==> submitting once, inference id $REQUEST_ID"
 # and for the same reason: a request is somebody's text and the best handling of
 # a file is not to create one. `--output json` so the acknowledgement is
 # parseable rather than tabular.
+# **No positional output file, and an inline body.** `invoke-endpoint` takes an
+# output path because it returns the answer; `invoke-endpoint-async` does not,
+# because the answer arrives in S3 later — passing one is an unknown positional
+# argument and the call fails outright. `--body` is a real parameter here
+# (`--input-location` is optional), so the request never becomes an S3 object,
+# which is the same choice the transport makes and for the same reason.
 aws sagemaker-runtime invoke-endpoint-async \
   --endpoint-name "$ENDPOINT" --region "$REGION" \
   --content-type application/json \
   --inference-id "$REQUEST_ID" \
   --body "fileb://$WORK/envelope.json" \
-  --output json \
-  "$WORK/discarded.json" > "$WORK/ack.json"
+  --output json > "$WORK/ack.json" 2>"$WORK/invoke.err" || {
+    echo "invoke-endpoint-async failed:" >&2
+    sed -n '1,5p' "$WORK/invoke.err" >&2
+    exit 1
+  }
 
 # **The acknowledgement is the JSON returned by the call, not the file.** The
 # previous version read the output file the CLI writes and called that the

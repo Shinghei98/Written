@@ -28,8 +28,11 @@
 -- ## And something calls it
 --
 -- `arm_candidate_overlay` already runs on the schedule that arms the rest of the
--- overlay, so this is added there rather than given a second caller. Ingestion
--- finalization enqueues that path already; a bounded drain is not needed on top.
+-- overlay, so the call is added there rather than given a second caller.
+-- Ingestion finalization enqueues that path already; a bounded drain is not
+-- needed on top. **The call is added below** — an earlier draft of this header
+-- claimed it while adding nothing, which is the shape of a comment that
+-- describes an intention as though it were code.
 
 create or replace function semantic_private.model_input_source_codes()
 returns text[]
@@ -128,6 +131,40 @@ grant execute on function semantic_private.model_input_source_codes()
   to semantic_worker, semantic_model_worker;
 
 -- ---------------------------------------------------------------------------
+-- The caller.
+-- ---------------------------------------------------------------------------
+--
+-- Appended to the overlay armer rather than scheduled separately: one thing arms
+-- the overlay, and a second scheduler would be a second place to look when the
+-- lane is idle.
+
+do $$
+declare
+  body text;
+begin
+  body := pg_get_functiondef(
+    'semantic_private.arm_candidate_overlay(uuid, text)'::regprocedure);
+  if position('arm_extract_mentions' in body) > 0 then
+    raise notice '0247: arm_candidate_overlay already calls the model armer';
+  else
+    -- The model armer is called for the same account the overlay armer was
+    -- given, so a per-user arming stays per-user. Its result is discarded: a
+    -- model lane with nothing to do must not change what the overlay armer
+    -- reports about the deterministic lanes.
+    execute replace(
+      body,
+      'begin' || chr(10) || '  armed integer := 0;',
+      'begin' || chr(10) || '  armed integer := 0;');
+    execute regexp_replace(
+      body,
+      '(\n\s*)return armed;',
+      E'\\1perform semantic_private.arm_extract_mentions(target_user);\\1return armed;',
+      'n');
+  end if;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- What must stay true.
 -- ---------------------------------------------------------------------------
 
@@ -152,17 +189,28 @@ begin
   -- exercises the whole statement.
   declare armed integer;
   begin
-    armed := semantic_private.arm_extract_mentions();
-    if armed <> 0 then
-      raise exception
-        '0247: the armer produced % jobs with nothing to arm for', armed;
-    end if;
+    -- **Scoped to an account that cannot exist, and never called globally.**
+    -- The first version of this probe called `arm_extract_mentions()` with no
+    -- target: on an empty replay that arms nothing, and on production it would
+    -- have armed a real job for every eligible account and then raised because
+    -- it found some. A self-test that changes the database it is testing is not
+    -- a self-test, and this one would have failed the deploy while doing it.
     armed := semantic_private.arm_extract_mentions(
       '00000000-0000-4000-8000-00000000dead');
     if armed <> 0 then
       raise exception '0247: arming for an unknown account produced % jobs', armed;
     end if;
   end;
+
+  -- **The claimed caller must exist.** A header that says something is wired
+  -- while nothing was added is worse than an unwired lane, because the next
+  -- reader stops looking.
+  if position('arm_extract_mentions' in pg_get_functiondef(
+       'semantic_private.arm_candidate_overlay(uuid, text)'::regprocedure)) = 0 then
+    raise exception
+      '0247: arm_candidate_overlay does not call the model armer, so nothing '
+      'ever arms the model lane';
+  end if;
 
   -- The armer must name the list rather than repeating it, or the assertion
   -- above protects a literal nothing consults.
