@@ -296,6 +296,11 @@ run_contract 0236_invocation_lineage_contract
 # in-lane invocation item — and the deterministic lanes may not borrow one.
 run_contract 0237_model_mention_boundary_contract
 
+# **Forgetting reaches the retained provider text.** The only mutable text
+# store in the vault, which the erasure did not name and whose deleted state
+# the schema described and refused to allow.
+run_contract 0238_source_text_erasure_contract
+
 echo
 echo "########## the compiled semantic contract against the built schema ##########"
 # `compiled_semantic_contract_v1.json` declares `concept_kind_authority:

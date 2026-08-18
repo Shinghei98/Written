@@ -193,8 +193,13 @@ begin
   -- ---------------------------------------------------------------------
   -- 8. Deleted source text stops the commit
   -- ---------------------------------------------------------------------
+  -- A real deletion, payload and all. `0238` added
+  -- `source_text_evidence_payload_location_check`, so marking the row deleted
+  -- while it still held its text is refused — which is the constraint doing
+  -- exactly what it was added for, and this test was written before it existed.
   update semantic_private.source_text_evidence
-     set refresh_status = 'deleted', deleted_at = now() where id = evidence;
+     set refresh_status = 'deleted', deleted_at = now(), encrypted_text = null
+   where id = evidence;
   raised := false;
   begin
     insert into semantic_private.observation_mentions
