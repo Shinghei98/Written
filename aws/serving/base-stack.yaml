@@ -513,6 +513,20 @@ Resources:
                     "https://raw.githubusercontent.com/Shinghei98/Written/$WRITTEN_SOURCE_COMMIT/semantic/contracts/mention_extract_v2.schema.json"
                   test -s output_schema.json
 
+                # **The torch index is not optional, and `pip check` cannot
+                # see why.** Resolved against PyPI alone, a `+cu129` vLLM pulled
+                # `torch-2.13.0` built for **CUDA 13** — `nvidia_cudnn_cu13`,
+                # `nvidia_nccl_cu13`, `nvidia_cusparselt_cu13` — which is a
+                # consistent dependency graph and the wrong one. CUDA 13 wants a
+                # driver of 580 or better; the host is 550 and this image's
+                # compat libraries reach 575.57.08, so it would have failed on a
+                # billing GPU with a message about neither.
+                #
+                # `--extra-index-url` rather than `--index-url`: the same version
+                # carrying a local tag sorts above the plain one under PEP 440,
+                # so pip prefers `2.13.0+cu129` while everything else still comes
+                # from PyPI. It is what vLLM's own variant-install docs show.
+
                 # **The wheel, fetched here and verified before the build.**
                 # Downloading inside the Dockerfile would put the hash check in
                 # a layer whose failure is easy to read as a network blip; doing
@@ -578,7 +592,9 @@ Resources:
                         python3 python3-pip ca-certificates \
                    && rm -rf /var/lib/apt/lists/*
                   COPY ${WHEEL} /tmp/${WHEEL}
-                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" && rm -f "/tmp/${WHEEL}"
+                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" \
+                        --extra-index-url https://download.pytorch.org/whl/cu129 \
+                   && rm -f "/tmp/${WHEEL}"
                   COPY serve.py /opt/serve.py
                   COPY tokenizer_runtime.py /opt/tokenizer_runtime.py
                   COPY entrypoint.sh /opt/entrypoint.sh

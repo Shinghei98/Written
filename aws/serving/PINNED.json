@@ -4,17 +4,18 @@
   "model": {
     "model_id": "Qwen/Qwen3.5-9B",
     "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
-    "s3_prefix": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/",
+    "s3_prefix": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/v2/artifacts/",
     "file_count": 16,
     "total_bytes": 19329393661,
     "manifest_sha256": "149ab7542464b8972a10a3cb09391ec6ea0704937f33c7da6839350b7a59f55a",
     "staged_by_source_commit": "97da981ed10b3197054b11a7c14a5085dec2869e",
     "commit_marker": "COMMITTED.json written last, after every artifact and the manifest",
-    "layout": "v1 (manifest.json beside artifacts/, not inside it)",
-    "s3_prefix_pending_v2": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/v2/  — not staged yet",
+    "layout": "v2 (manifest.json INSIDE artifacts/, staged and committed 2026-08-18). This prefix is what the endpoint mounts.",
     "note": "The v1 prefix stays valid and committed. v2 exists because a committed prefix is immutable: its marker means what it describes is final.",
     "declared_architecture": "Qwen3_5ForConditionalGeneration",
-    "declared_architecture_note": "Read from the staged artifacts/config.json on 2026-08-18. The image build requires this exact string from vLLM's ModelRegistry. It is a literal in base-stack.yaml rather than derived, because BuildImageRole deliberately has no model-bucket access — so a model revision that changed the architecture would have to be noticed here. config.json also carries vision_config, image_token_id and video_token_id: the checkpoint is the hybrid one, which is why serve.py passes language_model_only=True."
+    "declared_architecture_note": "Read from the staged artifacts/config.json on 2026-08-18. The image build requires this exact string from vLLM's ModelRegistry. It is a literal in base-stack.yaml rather than derived, because BuildImageRole deliberately has no model-bucket access — so a model revision that changed the architecture would have to be noticed here. config.json also carries vision_config, image_token_id and video_token_id: the checkpoint is the hybrid one, which is why serve.py passes language_model_only=True.",
+    "why_v2": "v1 put manifest.json beside artifacts/ rather than inside it, and SageMaker mounts only what is under the prefix it is given — so no single MODEL_PATH could hold both the manifest and the weights. Mounting the v1 root left vLLM with no config.json and the engine never loaded; mounting v1/artifacts/ loaded but reported no model_id or model_revision, which attest.sh refuses as an incomplete runtime block. Both failures land on a billing GPU. A committed prefix is immutable by construction, so this is a new prefix rather than an edit; v1 stays valid and reconciled.",
+    "s3_prefix_v1_superseded": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/"
   },
   "serving_image": {
     "status": "pinned, not yet built",
