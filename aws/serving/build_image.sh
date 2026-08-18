@@ -14,6 +14,19 @@
 #
 #     ./aws/serving/build_image.sh              # HEAD, once it is pushed
 #     ./aws/serving/build_image.sh <commit>
+#
+# **Deploying the base stack needs an S3 bucket**, because the template carries
+# its buildspecs inline and has passed CloudFormation's 51,200-byte limit for a
+# template sent in the request body:
+#
+#     aws cloudformation deploy --stack-name written-semantic-model-artifacts \
+#       --template-file aws/serving/base-stack.yaml --capabilities CAPABILITY_NAMED_IAM \
+#       --s3-bucket written-semantic-models-616040526027 --s3-prefix cloudformation \
+#       --parameter-overrides ...
+#
+# Inline is still the right place for those buildspecs: a gate that lived in a
+# separate file could be edited without the template noticing, and the whole
+# point is that the stack describes what the build actually does.
 set -euo pipefail
 
 REGION=${AWS_REGION:-us-east-1}

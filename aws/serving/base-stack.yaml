@@ -80,9 +80,9 @@ Parameters:
       prefer over a silently mismatched runtime.
   CudaBaseDigest:
     Type: String
-    Default: sha256:59e37ec1a44489f498791a0ab8143422eeec2fe9381c67350bca87bac8e0cefb
+    Default: sha256:d02c4310b6d57ca0b16cd80298bdb33a74187baafe2eccd8a6a16180ddc90802
     Description: >
-      nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04, by digest. A tag can be
+      nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04, by digest. A tag can be
       repointed and the image would change without the manifest noticing, which
       is the same reason the gateway deploys by digest rather than by tag.
 
@@ -100,6 +100,16 @@ Parameters:
       forward compatibility, which is why this image ships
       `/usr/local/cuda/compat` (the `cuda-compat` package every nvidia/cuda
       image carries) and why the entrypoint decides at boot whether to use it.
+      Measured on the real host: driver **535.309.01**, compat ceiling
+      575.57.08, compat engaged.
+
+      **24.04 rather than 22.04, and the reason is Python.** 22.04 gives Python
+      3.10, and vLLM's `flashinfer` dependency annotates
+      `array.array[int]` at module scope — evaluated at import, so it raises
+      `TypeError: 'type' object is not subscriptable` and the engine dies before
+      loading a single weight. 24.04 gives 3.12. It cost a model load on a
+      billing GPU to learn, because every gate imported `vllm` itself and the
+      failure is two lazily-imported modules deeper.
 
 Resources:
   ModelKey:
@@ -616,7 +626,12 @@ Resources:
                         python3 python3-pip ca-certificates \
                    && rm -rf /var/lib/apt/lists/*
                   COPY ${WHEEL} /tmp/${WHEEL}
-                  RUN pip install --no-cache-dir "/tmp/${WHEEL}" "${TORCH_PIN}" \
+                  # `--break-system-packages` because 24.04 marks its Python
+                  # externally managed (PEP 668) and pip otherwise refuses to
+                  # install into it at all. There is no virtualenv here on
+                  # purpose: the container is the environment.
+                  RUN pip install --no-cache-dir --break-system-packages \
+                        "/tmp/${WHEEL}" "${TORCH_PIN}" \
                         --extra-index-url https://download.pytorch.org/whl/cu129 \
                    && rm -f "/tmp/${WHEEL}"
                   COPY serve.py /opt/serve.py
@@ -682,6 +697,32 @@ Resources:
                                % (torch.__version__, torch.version.cuda))
                   print("engine:", vllm.__version__,
                         "torch:", torch.__version__, "cuda:", torch.version.cuda)
+                  '
+
+                # **The engine's own lazy imports, walked before a GPU has
+                # to.** Importing `vllm` proves almost nothing: the module that
+                # killed the first real load was two levels deeper and is
+                # imported only when the compilation backend is built, which
+                # happens after the weights are mounted and the instance is
+                # billing. `flashinfer.comm` annotated `array.array[int]` at
+                # module scope, which Python 3.10 evaluates and refuses, and the
+                # engine died having loaded nothing.
+                #
+                # So the gate reaches for the backend the way the engine does.
+                # It needs no GPU: the failure is at import, not at execution.
+                - |
+                  docker run --rm --entrypoint python3 "$URI:$TAG" -c '
+                  import sys
+
+                  try:
+                      import vllm.compilation.backends  # noqa: F401
+                  except Exception as failure:
+                      sys.exit(
+                          "the engine cannot build its compilation backend on "
+                          "this image: %r. This is the import chain that runs "
+                          "after the weights are mounted, so it fails on a "
+                          "billing GPU rather than here." % (failure,))
+                  print("compilation backend imports:", sys.version.split()[0])
                   '
 
                 # **The engine must recognise this exact architecture.**
