@@ -159,6 +159,43 @@ class PostgresJobQueue:
                     raise RuntimeError("job lease was lost before success could be persisted")
             connection.commit()
 
+    def defer(
+        self,
+        job_id: str,
+        *,
+        lease_token: str,
+        delay_seconds: int = 120,
+    ) -> None:
+        """Re-queue work that is running elsewhere, without calling it a failure.
+
+        **`fail` is wrong for this in three ways.** It writes `last_error`, which
+        is a record of something going wrong; it increments nothing but is
+        counted against `attempts < 5`, so five polls of a cold GPU would mark
+        the job `dead`; and `dead` is terminal, so the inference that was
+        submitted and paid for would never be collected.
+
+        This touches neither `attempts` nor `last_error`. It moves the job back
+        to `queued` with a delay and releases the lease — the same shape as a
+        lease expiring, which is what waiting actually is.
+        """
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    update {self._jobs}
+                    set status = 'queued',
+                        available_at = now() + make_interval(secs => %(delay)s),
+                        locked_at = null, locked_by = null
+                    where id = %(job_id)s::uuid and locked_by = %(lease_token)s
+                    """,
+                    {"job_id": job_id, "lease_token": lease_token,
+                     "delay": max(30, min(3600, int(delay_seconds)))},
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError(
+                        "job lease was lost before the deferral could be persisted")
+            connection.commit()
+
     def fail(
         self,
         job_id: str,

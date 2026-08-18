@@ -37,6 +37,7 @@ and marked `dead` with no retry.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from written_ontology.semantic_contract import load as load_contract
@@ -144,6 +145,21 @@ on conflict (observation_id, normalized_text, mention_role,
 """
 
 
+class InferenceDeferred(Exception):
+    """The work is accepted and unfinished; come back rather than fail.
+
+    **Not a handler error and not a receipt.** `in_flight` is not one of the nine
+    status words `worker_job_result_is_safe_v03` permits, so it cannot be
+    persisted as a result — and raising an ordinary exception would record
+    `handler_error`, spend a failure attempt, and eventually mark the job dead
+    while the inference it is waiting for is still running perfectly well.
+    """
+
+    def __init__(self, item_count: int) -> None:
+        super().__init__("the endpoint accepted the work and has not answered")
+        self.item_count = item_count
+
+
 def _propose_with_model(job, mode: str) -> dict[str, Any]:
     """The bridge: ask the model under one identity, write under another.
 
@@ -202,8 +218,13 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
     # one. An evaluation lane that quietly ran against real accounts would be
     # the exact failure the mode exists to prevent.
     if mode == "evaluation":
-        return {"status": "no_op", "abstained": True, "item_count": 0,
-                "reason": "evaluation is fixture-only and no fixture set is configured"}
+        # **The receipt vocabulary is closed.** `worker_job_result_is_safe_v03`
+        # permits a fixed set of keys and nine status words; a free-text `reason`
+        # is refused outright, so the explanation lives in this comment and in
+        # the log rather than in a durable row that would be rejected. The reason
+        # is: evaluation is fixture-only and no fixture corpus is configured.
+        print(json.dumps({"extract_mentions": "evaluation_no_fixture_corpus"}))
+        return {"status": "no_op", "abstained": True, "item_count": 0}
 
     # **File evidence before asking for it.** Nothing in production wrote
     # `source_text_evidence`, so the lane had nothing to read and would have run
@@ -219,8 +240,10 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
         # has not been captured yet, or whose text has been erased, produces no
         # request — and an empty call would record an invocation that asked
         # nothing.
-        return {"status": "no_op", "abstained": True, "item_count": 0,
-                "reason": "no source text evidence"}
+        # Same closed vocabulary: nothing to ask about is `no_op`, and why is a
+        # log line rather than a rejected column.
+        print(json.dumps({"extract_mentions": "no_evidence"}))
+        return {"status": "no_op", "abstained": True, "item_count": 0}
 
     lane = ModelLane()
     try:
@@ -231,14 +254,28 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
             # **From the evidence, not from the payload.** The source profile is
             # a property of the rows being asked about; a job key would let the
             # enqueuer describe somebody else's data.
-            source_profile=items[0].get("source_profile") or "youtube")
+            # **Refused rather than defaulted.** `"youtube"` as a fallback was
+            # the worst possible default: the one profile whose data may not be
+            # here at all.
+            source_profile=_one_profile(items))
     except InFlight as flight:
         # The endpoint accepted the work and is still starting. Returning this
         # rather than raising is what stops a scaled-to-zero GPU being asked to
         # do the same work twice; the job is re-enqueued with the same request
         # id and collects.
-        return {"status": "in_flight", "abstained": False,
-                "item_count": len(items), "resume_request_id": flight.request_id}
+        # **A queue state, not a receipt.** `in_flight` is not one of the nine
+        # permitted status words, and `resume_request_id` is not a permitted key
+        # — so this cannot be persisted as a result at all. It is raised as a
+        # dedicated exception the runner understands, which defers the job
+        # without spending an ordinary failure attempt and without writing
+        # `last_error`.
+        #
+        # The request id does not need to travel: it is derived from the job, so
+        # the next attempt computes the same one and collects the same
+        # inference rather than starting a second.
+        print(json.dumps({"extract_mentions": "in_flight",
+                          "items": len(items)}))
+        raise InferenceDeferred(len(items))
     except LaneUnavailable as unavailable:
         # Infrastructural, never an outcome: nothing was recorded, so nothing
         # should be filed as though the model had answered.
@@ -249,18 +286,34 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
     # from. One rule, in one place.
     written = _write_model_mentions(connection, user_id, items, proposed)
 
+    # **Bounded and in the permitted vocabulary.** `ok` is not a status word;
+    # `invocation_id` is not a permitted id key; `lineage` is not a permitted key
+    # at all — and it should not be, because the invocation ledger already holds
+    # every one of those facts. A receipt duplicating them is a second copy that
+    # can disagree with the first.
+    print(json.dumps({"extract_mentions": {
+        "invocation_id": proposed["invocation_id"],
+        "outcomes": [row["outcome"] for row in proposed["lineage"]]}}))
     return {
-        "status": "ok",
+        "status": "succeeded",
         "abstained": False,
         "item_count": len(items),
-        "invocation_id": proposed["invocation_id"],
-        "mentions_written": written,
-        "lineage": [
-            {"item_index": row["item_index"], "outcome": row["outcome"],
-             "mention_count": row["mention_count"]}
-            for row in proposed["lineage"]
-        ],
+        "created_count": written,
     }
+
+
+def _one_profile(items: list[dict]) -> str:
+    """The batch's single profile, or a refusal.
+
+    Every item must agree. A batch that disagreed would be described to the
+    model by whichever row happened to be first, and the profile decides which
+    predicates the source is allowed to produce.
+    """
+    profiles = {item.get("source_profile") for item in items}
+    if len(profiles) != 1 or None in profiles:
+        raise RuntimeError(
+            f"a batch must carry exactly one permitted profile, got {sorted(str(p) for p in profiles)}")
+    return profiles.pop()
 
 
 def _request_id(job) -> str:
@@ -291,14 +344,11 @@ select c.current_raw_source_record_id as raw_id,
   join semantic_private.raw_source_records r
     on r.id = c.current_raw_source_record_id
  where c.user_id = %(user_id)s
-   -- **Neither source may reach a model, and consent does not move the line.**
-   -- IV.2.1.a forbids ingesting Spotify Content into any ML/AI model and IV.2.5
-   -- says a user's consent does not cure that; III.E.4.h is YouTube's
-   -- equivalent. `AppConfig.semanticIngestionSources` already excludes them from
-   -- dual-write on the same grounds, and this is the same rule one layer down —
-   -- written as an exclusion in the query rather than a check somewhere later,
-   -- because text that is never selected cannot be sent by a later mistake.
-   and c.source_code not in ('spotify', 'youtube')
+   -- **An allowlist, passed in, so an unknown source is denied by absence.**
+   -- The list is `MODEL_INPUT_PROFILES`, which is also where each source's
+   -- contract profile lives — one table, because permission and profile are one
+   -- decision and two tables would eventually disagree.
+   and c.source_code = any(%(allowed)s)
    and c.current_observation_id is not null
    and r.encrypted_payload is not null
    and not exists (
@@ -339,7 +389,8 @@ def _file_evidence(connection, user_id: str, kms, vault_key_arn,
 
     with connection.cursor() as cursor:
         cursor.execute(SELECT_UNFILED_VAULT_ROWS,
-                       {"user_id": user_id, "limit": limit})
+                       {"user_id": user_id, "limit": limit,
+                        "allowed": list(MODEL_INPUT_PROFILES)})
         rows = [dict(row) for row in cursor.fetchall()]
     if not rows:
         return 0
@@ -397,16 +448,64 @@ def _file_evidence(connection, user_id: str, kms, vault_key_arn,
     return filed
 
 
+#: **The sources whose text may reach a model, and the contract profile each
+#: maps to. One table, because they are one decision.**
+#:
+#: A denylist naming Spotify and YouTube was the wrong shape: the failure mode of
+#: a deny-list is silence, and a source added next month would be permitted by
+#: nobody having thought about it. Here an unknown source is absent, and absent
+#: means denied — which is also why the profile lives in the same mapping rather
+#: than being derived from the source code. `music_library` is not a profile the
+#: request schema knows; passing a raw source code through would have been
+#: refused at the wire, or worse, accepted as a profile that means something else.
+#:
+#: **Four sources may feed a model and two may not.** Apple Music, Apple
+#: Podcasts, Apple Calendar and HealthKit carry no term restricting downstream
+#: use; YouTube (III.E.4.h) and Spotify (IV.2.1.a, and IV.2.5 closes the consent
+#: route) both forbid it. Calendar is licensed and still absent here: its titles
+#: reach the scorer through the classifier Lambda and never through this lane,
+#: and HealthKit has no text at all. Adding either is a decision to make in this
+#: table.
+MODEL_INPUT_PROFILES = {
+    "apple_music": "apple_music",
+    "music_library": "music_catalog",
+    "apple_podcasts": "podcast",
+    "podcast": "podcast",
+}
+
+
+def model_input_profile(source_code: str | None) -> str | None:
+    """The contract profile for a source, or None if it may not be sent.
+
+    None is the answer for an unknown source as well as a prohibited one, and
+    that is deliberate: the two are the same fact from here, which is that
+    nothing has decided this source may feed a model.
+    """
+    if not source_code:
+        return None
+    return MODEL_INPUT_PROFILES.get(source_code)
+
+
 #: Where a title actually lives. **Both envelope wire forms**, because
 #: `schema_version` is `written-source-envelope-v2`, v1 rows exist forever and a
 #: reader must handle both — v1 put the payload under an enum's associated value
 #: and v2 puts it under `payload`. Reading only the top level found a title in
 #: neither, so every row was skipped and the lane reported an empty account.
 _TITLE_PATHS = (
-    ("payload", "name"), ("payload", "title"),
-    ("value", "name"), ("value", "title"),
-    ("name",), ("title",),
+    # v2 wraps the case's value under `value`.
+    ("typed_payload", "value", "title"),
+    ("typed_payload", "value", "name"),
+    # v1 put the associated value under the case name, Swift's `_0`. The case
+    # itself varies by data type, so the case key is walked rather than named —
+    # bounded to one level, which is not a recursive search.
+    ("typed_payload", "name"),
+    ("typed_payload", "title"),
 )
+
+#: v1's shape is `typed_payload.<case>._0.title`, and `<case>` is the data type.
+#: Handled by walking one level of case keys rather than enumerating every data
+#: type, which would be a list to forget to extend.
+_V1_INNER = ("_0",)
 
 
 def _title_of(envelope: Any) -> str | None:
@@ -418,16 +517,36 @@ def _title_of(envelope: Any) -> str | None:
     """
     if not isinstance(envelope, dict):
         return None
+
     for path in _TITLE_PATHS:
-        node: Any = envelope
-        for step in path:
-            if not isinstance(node, dict):
-                node = None
-                break
-            node = node.get(step)
-        if isinstance(node, str) and node.strip():
-            return node.strip()
+        found = _at(envelope, path)
+        if found:
+            return found
+
+    # v1: `typed_payload.<case>._0.{title,name}`. The case key is whatever the
+    # data type was called, so one level is walked — and only into `_0`, never
+    # into arbitrary keys, so this cannot return the first string it happens to
+    # meet.
+    typed = envelope.get("typed_payload")
+    if isinstance(typed, dict):
+        for case in typed.values():
+            if not isinstance(case, dict):
+                continue
+            for inner in _V1_INNER:
+                for field in ("title", "name"):
+                    found = _at(case, (inner, field))
+                    if found:
+                        return found
     return None
+
+
+def _at(node: Any, path: tuple[str, ...]) -> str | None:
+    """One named traversal, returning a non-empty string or nothing."""
+    for step in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(step)
+    return node.strip() if isinstance(node, str) and node.strip() else None
 
 
 SELECT_EVIDENCE_ITEMS = """
@@ -443,7 +562,21 @@ select e.id as source_text_evidence_id,
  where e.user_id = %(user_id)s
    and e.refresh_status = 'current'
    and o.lifecycle_state = 'active'
- order by e.created_at
+   -- **The allowlist again, because this is a second boundary.** Evidence filed
+   -- before a source was removed from the list must not become sendable, and a
+   -- row inserted by hand must not be selectable either.
+   and o.source_code = any(%(allowed)s)
+   -- **Never twice.** Without this the same two rows were reselected on every
+   -- run: the batch never advanced, and a converged account looked identical to
+   -- one that had never started.
+   and not exists (
+     select 1 from semantic_private.model_invocation_items i
+      where i.source_text_evidence_id = e.id
+   )
+ -- Deterministic, so the armer and the handler see the same ordered set. Ties
+ -- on `created_at` are real — a batch inserted in one statement shares the
+ -- transaction timestamp — so `id` breaks them.
+ order by e.created_at, e.id
  limit %(limit)s
 """
 
@@ -463,13 +596,22 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
     limit = contract.max_items_wire
     with connection.cursor() as cursor:
         cursor.execute(SELECT_EVIDENCE_ITEMS,
-                       {"user_id": user_id, "limit": limit})
+                       {"user_id": user_id, "limit": limit,
+                        "allowed": list(MODEL_INPUT_PROFILES)})
         rows = [dict(row) for row in cursor.fetchall()]
 
     # **Decrypted here, in the identity that holds `Decrypt`.** The plaintext
     # exists in this process and in the gateway's request; it never reaches
     # `model_invocation_items`, which has no text column, and it is not written
     # anywhere by this handler.
+    # **One profile per batch.** A request carries a single `source_profile`, so
+    # a batch spanning two sources would describe every item by the first row's
+    # rules. The batch is narrowed to the first source rather than refused: the
+    # remainder is still outstanding and the next job takes it.
+    if rows:
+        first = rows[0].get("source_code")
+        rows = [row for row in rows if row.get("source_code") == first]
+
     items = []
     for index, row in enumerate(rows):
         text = _plaintext(connection, kms, row, vault_key_arn)
@@ -485,7 +627,9 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
             # is what `one standing success per logical extraction` counts.
             "logical_extraction_key":
                 f"model:{row['source_text_evidence_id']}",
-            "source_profile": row.get("source_code"),
+            # The contract's profile, never the raw source code — `music_library`
+            # is not a profile the request schema knows.
+            "source_profile": model_input_profile(row.get("source_code")),
         })
     return items
 
@@ -1379,10 +1523,24 @@ def evaluate_release(job) -> dict[str, Any]:
             # test could never pass once the lane ran at all, which made
             # `candidate_attestation` and `staging_e2e` unreachable: both
             # require the lane to have run, and the gate demanded it had not.
+            # **The mapped column, for every comparison.** The completeness
+            # check learned the crosswalk and this did not, so
+            # `manifest["tokenizer_manifest_sha256"]` raised `KeyError` on every
+            # release — the row calls it `tokenizer_runtime_manifest_sha256`.
+            # A raised evaluator is worse than a failing one: a failed report is
+            # recorded and readable, an exception is a job that died.
+            #
+            # The test id keeps the **contract** field name, because that is what
+            # a reader is checking against; the column is an implementation
+            # detail of where the manifest keeps it.
             tests = [
                 {
                     "id": f"{field}_matches_manifest",
-                    "status": "passed" if manifest[field] == value else "failed",
+                    "status": (
+                        "passed"
+                        if manifest.get(MANIFEST_COLUMN_FOR.get(field, field)) == value
+                        else "failed"
+                    ),
                 }
                 for field, value in attested.items()
             ]

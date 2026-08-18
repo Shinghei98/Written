@@ -14,6 +14,20 @@ from .repository import PostgresJobQueue, WorkerJob
 JobHandler = Callable[[WorkerJob], dict[str, Any]]
 
 
+def _deferred_types() -> tuple[type[BaseException], ...]:
+    """The deferral exception, if the handler package defines one.
+
+    Imported lazily and tolerantly: the queue runner is vendored and must not
+    fail to load because a handler module is absent in some deployment.
+    """
+    try:
+        from overlay import InferenceDeferred  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        class InferenceDeferred(Exception):  # noqa: N801 - unreachable sentinel
+            pass
+    return (InferenceDeferred,)
+
+
 class SemanticWorker:
     def __init__(
         self,
@@ -63,6 +77,15 @@ class SemanticWorker:
             }
         try:
             result = handler(job)
+        except _deferred_types() as deferred:  # noqa: PERF203 - one narrow case
+            # **A deferral is not a failure.** The work exists and is running;
+            # recording `handler_error` would spend an ordinary attempt and
+            # eventually mark the job dead while the inference it waits for is
+            # fine. `defer` re-queues without touching `last_error` or the
+            # attempt count.
+            self.queue.defer(job.id, lease_token=job.lease_token,
+                             delay_seconds=getattr(deferred, "delay_seconds", 120))
+            return {"claimed": True, "job_id": job.id, "status": "deferred"}
         except Exception:  # noqa: BLE001 - worker boundary
             self.queue.fail(
                 job.id,
@@ -71,20 +94,9 @@ class SemanticWorker:
                 lease_token=job.lease_token,
             )
             return {"claimed": True, "job_id": job.id, "status": "retry_scheduled"}
-        # **A handler that has not finished must not be marked as having
-        # finished.** Every non-raising return used to succeed the job, so an
-        # accepted-but-unanswered model call — the ordinary state while a
-        # scaled-to-zero GPU starts — closed the job, and the answer nobody
-        # collected sat in a bucket until the lifecycle rule removed it. The
-        # work was done, paid for, and thrown away.
-        #
-        # `in_flight` is the one status that means *come back*, and it is
-        # deliberately not an exception: raising would record `handler_error`,
-        # which is a claim that something went wrong.
-        if isinstance(result, dict) and result.get("status") == "in_flight":
-            self.queue.fail(job.id, "in_flight", retry=True,
-                            lease_token=job.lease_token)
-            return {"claimed": True, "job_id": job.id,
-                    "status": "retry_scheduled", "reason": "in_flight"}
+        # A handler that has not finished raises `InferenceDeferred` and is
+        # handled above. It cannot say so in its result: `in_flight` is not one
+        # of the nine status words the receipt schema permits, so a result
+        # carrying it would be refused by the database.
         self.queue.succeed(job.id, result, lease_token=job.lease_token)
         return {"claimed": True, "job_id": job.id, "status": "succeeded"}

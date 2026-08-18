@@ -134,7 +134,9 @@ def test_evaluation_reads_nothing_and_calls_nothing(overlay, monkeypatch):
         FakeConnection(), _job(), "evaluation", "u-1", "req_x", None, None)
     assert result["status"] == "no_op"
     assert result["abstained"] is True
-    assert "fixture" in result["reason"]
+    # **No free-text reason.** `worker_job_result_is_safe_v03` permits a fixed
+    # set of keys and would refuse one, so the explanation is a log line.
+    assert set(result) <= {"status", "abstained", "item_count", "created_count"}
 
 
 def test_shadow_writes_the_mention(overlay, monkeypatch):
@@ -148,17 +150,21 @@ def test_shadow_writes_the_mention(overlay, monkeypatch):
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
     monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for",
-                        lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
-                                          "observation_id": "o",
-                                          "source_text_evidence_id": "e",
-                                          "logical_extraction_key": "k"}])
+                        lambda *a, **k: [_stub_item()])
     result = overlay._propose_and_write(
         connection, _job(), "shadow", "u-1", "req_x", None, None)
-    assert result["mentions_written"] == 1
+    # `created_count`, not `mentions_written`: the receipt vocabulary is closed.
+    assert result["created_count"] == 1
+    assert result["status"] == "succeeded"
 
 
-def test_an_in_flight_call_is_reported_not_retried(overlay, monkeypatch):
-    """Scale-from-zero: the job comes back with an id, not with a second job."""
+def test_an_in_flight_call_defers_the_job(overlay, monkeypatch):
+    """Scale-from-zero, and it is a queue state rather than a receipt.
+
+    `in_flight` is not one of the nine status words the receipt schema permits,
+    so it cannot be persisted as a result at all. It raises, and the runner
+    defers — without writing `last_error` and without spending an attempt.
+    """
     class Lane:
         def __init__(self, *a, **k): pass
         def propose(self, **kwargs):
@@ -167,14 +173,11 @@ def test_an_in_flight_call_is_reported_not_retried(overlay, monkeypatch):
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
     monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
     monkeypatch.setattr(overlay, "_items_for",
-                        lambda *a, **k: [{"item_index": 0, "fields": {"title": "x"},
-                                          "observation_id": "o",
-                                          "source_text_evidence_id": "e",
-                                          "logical_extraction_key": "k"}])
-    result = overlay._propose_and_write(
-        FakeConnection(), _job(), "shadow", "u-1", "req_x", None, None)
-    assert result["status"] == "in_flight"
-    assert result["resume_request_id"] == "req_resume"
+                        lambda *a, **k: [_stub_item()])
+    with pytest.raises(overlay.InferenceDeferred) as deferred:
+        overlay._propose_and_write(
+            FakeConnection(), _job(), "shadow", "u-1", "req_x", None, None)
+    assert deferred.value.item_count == 1
 
 
 def test_no_evidence_is_not_a_failure(overlay, monkeypatch):
@@ -188,6 +191,7 @@ def test_no_evidence_is_not_a_failure(overlay, monkeypatch):
     result = overlay._propose_and_write(
         FakeConnection(), _job(), "shadow", "u-1", "req_x", None, None)
     assert result["status"] == "no_op" and result["item_count"] == 0
+    assert "reason" not in result
 
 
 # -- scaffolding ------------------------------------------------------------
@@ -211,6 +215,18 @@ def _module_with(lane_class):
     module.InFlight = _INFLIGHT
     module.LaneUnavailable = _UNAVAILABLE
     return module
+
+
+def _stub_item():
+    """One item as `_items_for` builds it — **including its profile**.
+
+    A stub without `source_profile` is not a simpler item: `_one_profile`
+    refuses it, and rightly, since the profile decides which predicates the
+    source may produce. `music_catalog` is what `music_library` maps to.
+    """
+    return {"item_index": 0, "fields": {"title": "x"},
+            "observation_id": "o", "source_text_evidence_id": "e",
+            "logical_extraction_key": "k", "source_profile": "music_catalog"}
 
 
 def _job():
