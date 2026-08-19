@@ -196,16 +196,22 @@ Resources:
           # through instead of stalling the wake for hours. All pools run the
           # same digest-pinned image and mount the same weights, so nothing
           # attested varies — `runtime.json.gpu` is recorded, never compared.
+          # SageMaker refuses a one-entry pool list outright ("use InstanceType
+          # for single instance type endpoints"), so the two properties are
+          # emitted mutually exclusively: pools when a fallback is named, the
+          # plain type when not — which is what a qualification stack wants,
+          # since falling back would test the wrong instance.
+          InstanceType: !If [HasFallbackA, !Ref 'AWS::NoValue', !Ref InstanceType]
           InstancePools: !If
-            - HasFallbackB
-            - - { InstanceType: !Ref InstanceType, Priority: 1 }
-              - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
-              - { InstanceType: !Ref FallbackInstanceTypeB, Priority: 3 }
+            - HasFallbackA
             - !If
-              - HasFallbackA
+              - HasFallbackB
               - - { InstanceType: !Ref InstanceType, Priority: 1 }
                 - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
+                - { InstanceType: !Ref FallbackInstanceTypeB, Priority: 3 }
               - - { InstanceType: !Ref InstanceType, Priority: 1 }
+                - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
+            - !Ref 'AWS::NoValue' 
           InitialInstanceCount: 1
           ModelDataDownloadTimeoutInSeconds: 1800
           ContainerStartupHealthCheckTimeoutInSeconds: 1800
