@@ -10,18 +10,21 @@
     "weights_layout": "v2/artifacts (immutable, committed)",
     "tokenizer_manifest_sha256": "22b186f14646edf812947346f505b67e17832ebe2b6b6c454628db66184278a9",
     "engine": "vllm 0.27.1 (+cu129 wheel), torch 2.13.0+cu129, CUDA 12.9, Python 3.12",
-    "max_model_len": 8192, "gpu_memory_utilization": 0.9
+    "max_model_len": 8192,
+    "gpu_memory_utilization": 0.9
   },
   "trials": [
     {
-      "attempt": 1, "time": "2026-08-19T15:03Z",
+      "attempt": 1,
+      "time": "2026-08-19T15:03Z",
       "host_ami": "SageMaker default for g5",
       "outcome": "CannotStartContainerError",
       "classification": "host_driver_gate",
       "evidence": "No log group was ever created - the NVIDIA container runtime refused the CUDA 12.9 container before the entrypoint's first echo. Not OOM, not capacity."
     },
     {
-      "attempt": 2, "time": "2026-08-19T15:24Z",
+      "attempt": 2,
+      "time": "2026-08-19T15:24Z",
       "host_ami": "al2-ami-sagemaker-inference-gpu-2-1 (driver 535.309.01)",
       "outcome": "engine_init_oom",
       "classification": "terminal_for_unchanged_contract",
@@ -39,14 +42,21 @@
     "A_provisioning_and_container_health": "FAIL at step 5 (engine init OOM); steps 1-4 passed on attempt 2 with pinned AMI",
     "B_through_E": "not reached; terminal per memo rule"
   },
-  "inference_not_tested": "ml.g6.xlarge (L4, 24 GB) shares the VRAM arithmetic and is expected to fail identically; untested.",
   "variant_out_of_scope": "A reduced-context or higher-utilization or eager-mode variant might fit an A10G but is a separate model variant per the memo's constraints; not proposed here.",
   "template_changes_bought": [
     "InferenceAmiVersion parameter (host lever; required for ANY non-g6e family - the default g5 AMI's driver refuses the CUDA 12.9 container outright)",
     "InstanceType/InstancePools mutual exclusivity (SageMaker rejects one-entry pools)",
     "stack-scoped serving role (qualification stacks can exist beside production)"
   ],
-  "cost_usd": {"attempt_1": 0.0, "attempt_2": "~0.70 (about 30 min of g5 at $1.408/hr)"},
+  "cost_usd": {
+    "attempt_1": 0.0,
+    "attempt_2": "~0.70 (about 30 min of g5 at $1.408/hr)"
+  },
   "teardown": "stack delete queued; manual deadline written-qwen-deadline-g5test-manual armed at 17:49Z as backstop",
-  "recommendation": "Retain g6e (xlarge + 2xlarge pools) as the only qualified family for the unchanged contract. The availability problem is addressed by the two-pool fallback; a cheaper family requires a deliberate model variant with its own release, evaluation, and wire contract."
+  "recommendation": "Retain g6e (xlarge + 2xlarge pools) as the only qualified family for the unchanged contract. The availability problem is addressed by the two-pool fallback; a cheaper family requires a deliberate model variant with its own release, evaluation, and wire contract.",
+  "second_candidate_g6": {
+    "instance": "ml.g6.xlarge (NVIDIA L4, 24 GB)",
+    "decision": "RULED_OUT_BY_ARITHMETIC",
+    "reasoning": "Identical VRAM to the measured A10G failure, so the identical -0.0 GiB KV outcome loading identical bytes; additionally ~half the A10G's memory bandwidth, and our endpoint quota for it is 0. No trial spent."
+  }
 }
