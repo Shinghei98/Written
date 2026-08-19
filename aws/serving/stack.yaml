@@ -43,10 +43,21 @@ Parameters:
     Type: String
     Default: ''
     Description: Third-priority pool, empty for none.
+  InferenceAmiVersion:
+    Type: String
+    Default: ''
+    Description: >
+      The host AMI, empty for SageMaker's default. **A host lever, not a model
+      change**: the container is digest-pinned either way. Exists because the
+      g5 qualification container died with zero log lines — the NVIDIA runtime
+      refusing a CUDA 12.9 container against the default g5 host driver before
+      the entrypoint could echo once — and the newer inference AMIs carry newer
+      drivers (gpu-2: 535, gpu-3: 550).
 
 Conditions:
   HasFallbackA: !Not [!Equals [!Ref FallbackInstanceTypeA, '']]
   HasFallbackB: !Not [!Equals [!Ref FallbackInstanceTypeB, '']]
+  HasAmiVersion: !Not [!Equals [!Ref InferenceAmiVersion, '']]
 
 Resources:
   ServingRole:
@@ -212,6 +223,7 @@ Resources:
               - - { InstanceType: !Ref InstanceType, Priority: 1 }
                 - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
             - !Ref 'AWS::NoValue' 
+          InferenceAmiVersion: !If [HasAmiVersion, !Ref InferenceAmiVersion, !Ref 'AWS::NoValue']
           InitialInstanceCount: 1
           ModelDataDownloadTimeoutInSeconds: 1800
           ContainerStartupHealthCheckTimeoutInSeconds: 1800
