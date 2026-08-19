@@ -417,7 +417,18 @@ def extract(
                 breaker.record_failure()
             raise GatewayRefusal("retention_failed", str(failure)) from None
         except Exception as failure:  # noqa: BLE001 - classified, never quoted
-            last = GatewayRefusal("provider_error", type(failure).__name__)
+            # **The type name AND the message, because the transport already
+            # classified.** `sagemaker_transport` raises `RuntimeError(<the boto
+            # exception's type name>)` — payload-safe by construction, never the
+            # quoted error — and reporting only `type(failure).__name__` here
+            # collapsed that to the string "RuntimeError", which is how a
+            # missing botocore parameter spent a debugging session disguised as
+            # a provider outage. The message of a classified exception is a
+            # name, and names are what a detail is for.
+            last = GatewayRefusal(
+                "provider_error",
+                f"{type(failure).__name__}: {failure}" if str(failure)
+                else type(failure).__name__)
         else:
             try:
                 result = _accept(response, items, contract)

@@ -5,10 +5,15 @@
 # `mention_extract_v2` before anything is believed.
 #
 # `httpx` remains for the local harness and for any endpoint reached directly.
-# The deployed path is SageMaker asynchronous inference through boto3, which the
-# Lambda base image already carries; pinning a copy here would drift from the
-# one AWS patches, which is the reasoning aws/worker/build.sh gives for leaving
-# boto3 out of the zip.
+#
+# **`boto3` is pinned, and the reasoning that left it out was measured wrong.**
+# "The base image already carries it" was true and insufficient: the base's
+# botocore (1.42.97 in the deployed image) predates inline `Body` on
+# `InvokeEndpointAsync`, so the transport's one call failed client-side
+# validation in milliseconds — surfaced as `provider_error: RuntimeError`,
+# which cost a debugging session to trace to a parameter the installed model
+# had never heard of. An API the code depends on is a dependency; the version
+# that supports it gets pinned like any other.
 #
 # `tokenizers` is absent on purpose. The context-budget check is a measurement
 # the *deployment* makes, and a 12 MB tokenizer in a Lambda that never calls it
@@ -18,3 +23,4 @@
 # defaults that log the thing this must not log.
 jsonschema==4.26.0
 httpx==0.28.1
+boto3==1.43.74
