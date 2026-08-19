@@ -72,5 +72,8 @@
     "layout": "The repository's paths, preserved. The checker has one layout, not two."
   },
   "source_commit": "354a76961e1c851bddad0c5a2a9c080ce2d00c48",
-  "_status": "Serving image attested from a GPU; contract pinned to the measurement; gateway rebuilt carrying that contract and deployed declaring the same digests. SagemakerEndpointName is empty because no endpoint runs — the lane is off, and off looks like this on purpose."
+  "_status": "Serving image attested from a GPU; contract pinned to the measurement; gateway rebuilt carrying that contract and deployed declaring the same digests. SagemakerEndpointName is empty because no endpoint runs — the lane is off, and off looks like this on purpose.",
+  "gpu_qualification": {
+    "Q5-HW-G5": "FAIL — ml.g5.xlarge cannot hold the unchanged BF16 contract: 16.8 GiB weights + overhead leave -0.0 GiB KV on 24 GB. Full report in aws/serving/Q5-HW-G5-report.json. g6.xlarge (L4, 24 GB) shares the arithmetic, untested. The qualified family is g6e only; availability is addressed by the two-pool fallback (2xlarge P1, xlarge P2), and any cheaper family means a deliberate model variant with its own release."
+  }
 }
