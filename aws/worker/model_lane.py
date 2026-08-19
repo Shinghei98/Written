@@ -113,7 +113,19 @@ class ModelLane:
     def _client(self):
         if self._lambda is None:
             import boto3  # noqa: PLC0415
-            self._lambda = boto3.client("lambda")
+            from botocore.config import Config  # noqa: PLC0415
+
+            # **The read timeout must outlive the gateway's answer, and the
+            # retries must be zero.** botocore's defaults are a 60-second read
+            # and silent retries — against a gateway that legitimately polls
+            # for tens of seconds, that stacked several invisible re-invokes
+            # into one call, burned the worker Lambda to its own 300-second
+            # kill, and the killed worker never deferred: five expired leases
+            # marked the job dead. The queue is this system's retry layer;
+            # botocore must not be a second, hidden one.
+            self._lambda = boto3.client("lambda", config=Config(
+                read_timeout=90, connect_timeout=10,
+                retries={"max_attempts": 0}))
         return self._lambda
 
     def call_gateway(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -300,6 +312,15 @@ class ModelLane:
         request: dict[str, Any] = {"route": "v1/semantic/extract",
                                    "request_id": request_id,
                                    "source_profile": source_profile,
+                                   # **Stated, never inherited.** Without this
+                                   # the gateway polls its own default (120 s),
+                                   # which is longer than the boto read timeout
+                                   # above — every un-answered poll then became
+                                   # a client-side timeout and a hidden retry.
+                                   # 25 s keeps the whole round trip near 30 s;
+                                   # anything unfinished comes back as a resume
+                                   # ticket, which is the designed path.
+                                   "timeout_s": 25,
                                    "items": items}
 
         answer = self.call_gateway(request)
