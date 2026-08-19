@@ -52,7 +52,12 @@ Resources:
   ServingRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: written-qwen-serving
+      # **Stack-scoped, so a qualification stack can exist beside production.**
+      # The fixed name `written-qwen-serving` made the template single-instance:
+      # the Q5-HW-G5 isolation stack failed at creation because the role it
+      # needed already belonged to the production stack. Nothing outside this
+      # stack references the role by name — the endpoint takes its ARN.
+      RoleName: !Sub written-qwen-srv-${AWS::StackName}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
