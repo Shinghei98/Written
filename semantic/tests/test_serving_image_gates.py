@@ -130,8 +130,16 @@ class ServingImageGateTests(unittest.TestCase):
             self.assertIn(needed, self.stack,
                           f"{needed} left the image; triton fails at engine "
                           f"start, after the weights have loaded")
-        self.assertIn("jit toolchain present", self.stack,
+        self.assertIn("jit toolchain runs", self.stack,
                       "the gate proving the toolchain is gone")
+        # Locating a tool proved nothing: which() found a ninja whose build
+        # still exited 127. The gate must RUN nvcc at the path flashinfer
+        # resolves, which is what an existence check of /usr/local/cuda missed.
+        self.assertIn('"--version"', self.stack)
+        self.assertIn("devel-ubuntu24.04", self.stack,
+                      "the base must be the devel image; runtime has "
+                      "/usr/local/cuda without bin/nvcc, which is exactly the "
+                      "trap flashinfer's fallback walks into")
 
     def test_the_dead_dockerfile_is_gone(self) -> None:
         """It was referenced by nothing and omitted `tokenizer_runtime.py`.

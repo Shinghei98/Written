@@ -80,9 +80,9 @@ Parameters:
       prefer over a silently mismatched runtime.
   CudaBaseDigest:
     Type: String
-    Default: sha256:d02c4310b6d57ca0b16cd80298bdb33a74187baafe2eccd8a6a16180ddc90802
+    Default: sha256:a2e1e2360c85298ac47ec2543b406ab1e8cec42e31ee47e4d32140ebc82e1067
     Description: >
-      nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04, by digest. A tag can be
+      nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04, by digest. A tag can be
       repointed and the image would change without the manifest noticing, which
       is the same reason the gateway deploys by digest rather than by tag.
 
@@ -102,6 +102,17 @@ Parameters:
       image carries) and why the entrypoint decides at boot whether to use it.
       Measured on the real host: driver **535.309.01**, compat ceiling
       575.57.08, compat engaged.
+
+      **devel rather than runtime, and the reason is flashinfer.** It
+      JIT-compiles CUDA kernels at engine warmup, resolving its toolkit as
+      CUDA_HOME, then `which nvcc`, then the fallback `/usr/local/cuda` — which
+      the runtime flavour *has* (lib64 and compat, no compiler), so flashinfer
+      confidently wrote `/usr/local/cuda/bin/nvcc` into build.ninja and the rule
+      failed 127. pip's ninja propagates a rule's exit code where apt's returns
+      1, which is why the failure read as "ninja not found" for a whole GPU run
+      after ninja was installed. The devel image carries nvcc, the headers and
+      cub definitionally — after a night of discovering toolkit pieces one
+      billing run at a time, "definitionally" is the property being bought.
 
       **24.04 rather than 22.04, and the reason is Python.** 22.04 gives Python
       3.10, and vLLM's `flashinfer` dependency annotates
@@ -734,14 +745,29 @@ Resources:
                   if not os.path.exists(header):
                       sys.exit("no Python.h (%s); triton compiles a CPython "
                                "extension and cannot without it" % header)
-                  # flashinfer builds its warmup kernels with ninja; without it
-                  # the engine dies at exit 127 *after* the triton graph has
-                  # compiled, which is as late as a toolchain failure can be.
-                  ninja = shutil.which("ninja")
-                  if not ninja:
-                      sys.exit("no ninja in the image; flashinfer JIT fails at "
-                               "engine warmup with exit 127 on a billing GPU")
-                  print("jit toolchain present:", compiler, "and", ninja)
+                  # **Run the tools, never merely locate them.** which() found
+                  # ninja in an image whose flashinfer build still exited 127,
+                  # because the failure was a rule inside the build — nvcc —
+                  # and pip'"'"'s ninja propagates a rule'"'"'s exit code.
+                  import subprocess
+                  for tool in (["ninja", "--version"],):
+                      done = subprocess.run(tool, capture_output=True, text=True)
+                      if done.returncode != 0:
+                          sys.exit("%s failed rc=%d: %s" % (tool, done.returncode, done.stderr))
+                  # Mirror flashinfer'"'"'s own resolution: CUDA_HOME, which nvcc,
+                  # else /usr/local/cuda — then RUN what it resolves to. The
+                  # runtime image passed an existence check of the directory and
+                  # died at the binary inside it.
+                  home = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
+                  if not home:
+                      found = shutil.which("nvcc")
+                      home = os.path.dirname(os.path.dirname(found)) if found else "/usr/local/cuda"
+                  nvcc = os.path.join(home, "bin", "nvcc")
+                  done = subprocess.run([nvcc, "--version"], capture_output=True, text=True)
+                  if done.returncode != 0:
+                      sys.exit("flashinfer will resolve %s and it does not run: "
+                               "the JIT dies at warmup on a billing GPU" % nvcc)
+                  print("jit toolchain runs: cc, ninja, and", nvcc)
                   '
 
                 # **The engine's own lazy imports, walked before a GPU has
