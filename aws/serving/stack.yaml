@@ -43,6 +43,12 @@ Parameters:
     Type: String
     Default: ''
     Description: Third-priority pool, empty for none.
+  AlarmEmail:
+    Type: String
+    Default: ''
+    Description: >
+      Where the fleet-below-one alarm sends. Empty leaves the alarm visible in
+      CloudWatch with no notification action.
   InferenceAmiVersion:
     Type: String
     Default: ''
@@ -58,6 +64,7 @@ Conditions:
   HasFallbackA: !Not [!Equals [!Ref FallbackInstanceTypeA, '']]
   HasFallbackB: !Not [!Equals [!Ref FallbackInstanceTypeB, '']]
   HasAmiVersion: !Not [!Equals [!Ref InferenceAmiVersion, '']]
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
 
 Resources:
   ServingRole:
@@ -243,7 +250,7 @@ Resources:
       ServiceNamespace: sagemaker
       ResourceId: !Sub endpoint/${Endpoint.EndpointName}/variant/primary
       ScalableDimension: sagemaker:variant:DesiredInstanceCount
-      MinCapacity: 0
+      MinCapacity: 1
       MaxCapacity: 1
       RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/sagemaker.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_SageMakerEndpoint
 
@@ -256,48 +263,6 @@ Resources:
   # policy on it is what turns one instance on. Target tracking then does the
   # ordinary work once something is running. Both are needed; neither replaces
   # the other.
-  WakeFromZeroPolicy:
-    Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    Properties:
-      PolicyName: written-qwen-wake-from-zero
-      PolicyType: StepScaling
-      ScalingTargetId: !Ref ScalableTarget
-      StepScalingPolicyConfiguration:
-        AdjustmentType: ChangeInCapacity
-        # One instance, because MaxCapacity is one. The cooldown is long enough
-        # that a burst does not ask for a second start while the first is still
-        # loading a 19 GB model.
-        Cooldown: 600
-        MetricAggregationType: Average
-        StepAdjustments:
-          - MetricIntervalLowerBound: 0
-            ScalingAdjustment: 1
-
-  BacklogWithoutCapacityAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub written-qwen-${AWS::StackName}-backlog-without-capacity
-      AlarmDescription: >
-        Work is queued and nothing is running. Starts the one instance.
-      Namespace: AWS/SageMaker
-      MetricName: HasBacklogWithoutCapacity
-      Statistic: Average
-      Period: 60
-      EvaluationPeriods: 1
-      DatapointsToAlarm: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      # **`missing`, not `breaching` and not `notBreaching`.** The metric is not
-      # published while the endpoint is idle and empty, and treating that
-      # absence as either answer would make the alarm state a guess about a
-      # thing that said nothing.
-      TreatMissingData: missing
-      Dimensions:
-        - Name: EndpointName
-          Value: !GetAtt Endpoint.EndpointName
-      AlarmActions:
-        - !Ref WakeFromZeroPolicy
-
   ScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
@@ -315,6 +280,47 @@ Resources:
               Value: !GetAtt Endpoint.EndpointName
         ScaleInCooldown: 300
         ScaleOutCooldown: 60
+
+  # **The fleet is never voluntarily released.** 2026-08-19 measured what an
+  # instance costs to reacquire: the g6e pools were dry for six-plus hours of
+  # US business time, across two instance types. Scale-to-zero saved ~$63/day
+  # and priced a cold start at "unknown, possibly hours" — the wrong trade for
+  # a lane whose instance is the scarce half. So MinCapacity is 1, the
+  # wake-from-zero machinery is gone (nothing scales below one, so nothing
+  # needs waking), and SageMaker's blue/green update semantics keep the old
+  # fleet serving whenever an update cannot provision its replacement.
+  #
+  # **This alarm is the tripwire**: CPUUtilization stops being published the
+  # moment no instance backs the variant, and missing data is treated as
+  # breaching — so it fires within minutes of the fleet falling below one,
+  # whatever the cause.
+  InstanceLostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub written-qwen-${AWS::StackName}-fleet-below-one
+      Namespace: /aws/sagemaker/Endpoints
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: EndpointName
+          Value: !Sub written-qwen-${AWS::StackName}
+        - Name: VariantName
+          Value: primary
+      Statistic: SampleCount
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: !If [HasAlarmEmail, [!Ref FleetAlarmTopic], !Ref 'AWS::NoValue']
+
+  FleetAlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlarmEmail
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
 
 Outputs:
   EndpointName:
