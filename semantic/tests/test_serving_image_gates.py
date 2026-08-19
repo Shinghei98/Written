@@ -126,7 +126,7 @@ class ServingImageGateTests(unittest.TestCase):
         dependency that looks like a build tool. The compiler install and its
         gate must both survive.
         """
-        for needed in ("gcc", "python3-dev"):
+        for needed in ("gcc", "python3-dev", "ninja-build"):
             self.assertIn(needed, self.stack,
                           f"{needed} left the image; triton fails at engine "
                           f"start, after the weights have loaded")

@@ -628,8 +628,14 @@ Resources:
                   # loaded, on a billing GPU — and raises "Failed to find C
                   # compiler" without one. Learned from the first run of this
                   # image: 4/4 shards loaded in 2 seconds, then this.
+                  # `ninja-build` joined after gcc did: flashinfer JIT-compiles
+                  # its sampling kernels at engine warmup and drives the build
+                  # with ninja — exit 127 on a GPU that had already loaded the
+                  # weights and compiled a triton graph. The JIT toolchain is
+                  # three tools, not one, and each was discovered one billing
+                  # run at a time.
                   RUN apt-get update && apt-get install -y --no-install-recommends \
-                        python3 python3-pip python3-dev ca-certificates gcc g++ \
+                        python3 python3-pip python3-dev ca-certificates gcc g++ ninja-build \
                    && rm -rf /var/lib/apt/lists/*
                   COPY ${WHEEL} /tmp/${WHEEL}
                   # `--break-system-packages` because 24.04 marks its Python
@@ -728,7 +734,14 @@ Resources:
                   if not os.path.exists(header):
                       sys.exit("no Python.h (%s); triton compiles a CPython "
                                "extension and cannot without it" % header)
-                  print("jit toolchain present:", compiler)
+                  # flashinfer builds its warmup kernels with ninja; without it
+                  # the engine dies at exit 127 *after* the triton graph has
+                  # compiled, which is as late as a toolchain failure can be.
+                  ninja = shutil.which("ninja")
+                  if not ninja:
+                      sys.exit("no ninja in the image; flashinfer JIT fails at "
+                               "engine warmup with exit 127 on a billing GPU")
+                  print("jit toolchain present:", compiler, "and", ninja)
                   '
 
                 # **The engine's own lazy imports, walked before a GPU has
