@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-19T04:10:22.252Z",
+  "generated_at": "2026-08-19T04:36:54.633Z",
   "source_hashes": {
-    "workbook_sha256": "c03f56fc7277404229346d5497bf20631cd99ab1060f306772ed0d571c0609d9",
+    "workbook_sha256": "99f4ddb9dddbf5e2bf5a4860bff61a07542cdaf47c00fc17f77a20c19f160007",
     "mention_schema_sha256": "0cdf52b572f7d89d72447c5bc2e5aa67aaec3047cbfbcbf10dcb0df7fdc5de38",
     "request_schema_sha256": "74f2b0a46676c2bcc09758854b0604f1f52fefa9d969021604d377ff8fa1e02d"
   },
@@ -269,7 +269,7 @@
       ]
     },
     "initial_mode": "exact_only",
-    "qwen_overlay": "off",
+    "qwen_overlay": "evaluation",
     "deployment_gates": [
       "artifact_contract",
       "candidate_attestation",

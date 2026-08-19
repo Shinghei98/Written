@@ -89,11 +89,18 @@ def test_storage_names_resolve_to_this_databases_schema(contract):
     assert not any(name.startswith("private.") for name in contract.required_tables)
 
 
-def test_the_overlay_is_off_and_that_is_read_from_the_artifact(contract):
-    """Not a build flag — turning it on must be a contract change a deploy compares."""
+def test_the_overlay_is_in_evaluation_and_that_is_read_from_the_artifact(contract):
+    """Not a build flag — turning it on was a contract change a deploy compares.
+
+    Flipped from `off` on 2026-08-19, after the serving image was attested from
+    a GPU and both hashes were pinned. `evaluation` may call the model — against
+    the synthetic corpus only — and **may still write nothing attributable to a
+    person**; that second assertion is the one that must survive every mode
+    short of `shadow`, and moving it is a decision this test exists to force.
+    """
     assert contract.initial_mode == "exact_only"
-    assert contract.model_lane_mode == "off"
-    assert contract.model_may_be_called is False
+    assert contract.model_lane_mode == "evaluation"
+    assert contract.model_may_be_called is True
     assert contract.may_write_user_candidates is False
     assert len(contract.jobs) == 9
     assert "extract_mentions" in contract.jobs

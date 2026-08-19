@@ -685,11 +685,16 @@ def test_unregistered_jobs_are_pending_while_the_overlay_is_off_and_failing_once
     moment the model may actually be called.
     """
     contract = json.loads(compiler.CONTRACT.read_text())
-    assert compiler.overlay_disabled(contract)
+    # **Both branches synthesized**, so this tests the rule rather than the
+    # artifact's current mode — which moved to `evaluation` on 2026-08-19 and
+    # will move again.
+    off = copy.deepcopy(contract)
+    off["runtime_requirements"]["qwen_overlay"] = "off"
+    assert compiler.overlay_disabled(off)
 
     live = live_with(job_type=["recompute_user"])
     pending: list[str] = []
-    problems = compiler.check_database(contract, live, pending)
+    problems = compiler.check_database(off, live, pending)
     assert problems == []
     assert any("extract_mentions" in note for note in pending)
 

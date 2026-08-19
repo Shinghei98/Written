@@ -124,17 +124,29 @@ def valid_response(items=REQUEST, contract=None):
 # Off
 # ---------------------------------------------------------------------------
 
-def test_health_answers_when_the_lane_is_off():
+def test_health_answers_when_the_lane_is_off(monkeypatch, tmp_path):
     """A health check that answered only when the lane was on could not tell a
     disabled gateway from a dead one, which is the question it exists for."""
+    _lane_off(monkeypatch, tmp_path)
     report = gateway.health()
     assert report["status"] == "ok"
     assert report["extraction_enabled"] is False
 
 
-def test_attestation_answers_when_the_lane_is_off():
+def _lane_off(monkeypatch, tmp_path):
+    """The artifact moved to `evaluation` on 2026-08-19; `off` is synthesized.
+
+    These tests are about what `off` *refuses*, which must keep being tested
+    after the shipped mode has moved — a mode ladder climbs back down too.
+    """
+    contract = contract_in_lane(tmp_path, "off")
+    monkeypatch.setattr(gateway, "_contract", lambda: contract)
+
+
+def test_attestation_answers_when_the_lane_is_off(monkeypatch, tmp_path):
     """Attesting a deployment is how off-to-evaluation is decided, so it has to
     work before the transition rather than after it."""
+    _lane_off(monkeypatch, tmp_path)
     report = gateway.attestation()
     assert report["model_lane_mode"] == "off"
     assert report["extraction_enabled"] is False
@@ -143,9 +155,10 @@ def test_attestation_answers_when_the_lane_is_off():
     assert report["loaded"] is None
 
 
-def test_off_reaches_no_transport():
+def test_off_reaches_no_transport(monkeypatch, tmp_path):
     """**The one that matters.** Not that `off` refuses, but that nothing is
     called in it."""
+    _lane_off(monkeypatch, tmp_path)
     transport = CountingTransport(response=valid_response())
     with pytest.raises(gateway.GatewayRefusal) as refusal:
         gateway.extract(REQUEST, transport=transport)
@@ -153,17 +166,19 @@ def test_off_reaches_no_transport():
     assert transport.calls == 0
 
 
-def test_off_reaches_no_transport_even_for_a_malformed_request():
+def test_off_reaches_no_transport_even_for_a_malformed_request(monkeypatch, tmp_path):
     """The lane check precedes request validation deliberately: a bad request in
     `off` must still not produce a call, and an ordering that validated first
     would make the refusal depend on the caller getting the request right."""
+    _lane_off(monkeypatch, tmp_path)
     transport = CountingTransport(response=valid_response())
     with pytest.raises(gateway.GatewayRefusal):
         gateway.extract([], transport=transport)
     assert transport.calls == 0
 
 
-def test_off_reaches_no_transport_with_a_mismatched_deployment(tmp_path):
+def test_off_reaches_no_transport_with_a_mismatched_deployment(monkeypatch, tmp_path):
+    _lane_off(monkeypatch, tmp_path)
     transport = CountingTransport(response=valid_response())
     wrong = gateway.Deployment(
         model_id="somebody-elses-model", model_revision="x", tokenizer_sha256="t",
@@ -372,21 +387,26 @@ def call(path, method="GET", body=None, secret=None, **kwargs):
     return captured["status"], json.loads(b"".join(payload))
 
 
-def test_health_and_attestation_answer_over_http_while_the_lane_is_off():
+def test_health_and_attestation_report_the_artifact_mode():
+    """The mode moved to `evaluation` on 2026-08-19; these follow the artifact."""
     status, body = call("/health")
-    assert status.startswith("200") and body["extraction_enabled"] is False
+    assert status.startswith("200") and body["extraction_enabled"] is True
     status, body = call("/v1/semantic/attestation")
-    assert status.startswith("200") and body["model_lane_mode"] == "off"
+    assert status.startswith("200") and body["model_lane_mode"] == "evaluation"
 
 
-def test_extract_over_http_reaches_no_transport_while_the_lane_is_off(monkeypatch):
+def test_extract_with_the_lane_on_but_nothing_attested_reaches_no_transport(monkeypatch):
     monkeypatch.setenv("WRITTEN_GATEWAY_SECRET", "s3cret")
     transport = CountingTransport(response=valid_response())
     status, body = call("/v1/semantic/extract", "POST",
                         {"items": [{"item_index": 0, "fields": {"title": "Midnight"}}]},
                         secret="s3cret", transport=transport)
-    assert status.startswith("503")
-    assert body["outcome"] == "circuit_open"
+    # **422 `contract_mismatch`, and it is deliberately not transient.** With the
+    # lane on and nothing attested as loaded, the refusal must not be retried —
+    # a retry would keep asking an unattested deployment — and above all the
+    # transport must never be touched.
+    assert status.startswith("422")
+    assert body["outcome"] == "contract_mismatch"
     assert transport.calls == 0
 
 
