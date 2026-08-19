@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-18T18:46:14.708Z",
+  "generated_at": "2026-08-19T04:10:22.252Z",
   "source_hashes": {
-    "workbook_sha256": "e66c97a8df36e88fbce0c6bada622353b8ed858f12c6694bf7e116ba29cff9a1",
+    "workbook_sha256": "c03f56fc7277404229346d5497bf20631cd99ab1060f306772ed0d571c0609d9",
     "mention_schema_sha256": "0cdf52b572f7d89d72447c5bc2e5aa67aaec3047cbfbcbf10dcb0df7fdc5de38",
     "request_schema_sha256": "74f2b0a46676c2bcc09758854b0604f1f52fefa9d969021604d377ff8fa1e02d"
   },
@@ -13,7 +13,7 @@
     "model_id": "Qwen/Qwen3.5-9B",
     "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
     "gateway_revision": "a8d422ceb020993c2ebe001e0ff64c694884993fb3859600b8b0c95a53ca0edc",
-    "serving_image_digest": "required_from_pinned_deployment_not_yet_measured",
+    "serving_image_digest": "sha256:57b87e2ea3434d788517bf674bc6e17787a54dca6631e9c940c9ee3fb3e6575a",
     "output_schema": "https://written.app/schemas/mention_extract_v2.schema.json",
     "request_schema": "https://written.app/schemas/mention_extract_request_v1.schema.json",
     "output_budget_policy": "qwen_output_budget_v1_unvalidated"
@@ -89,7 +89,7 @@
     "predictor_quantile": 0.99,
     "packing_headroom": 0.2,
     "packing_formula": "512+ceil(1.20*sum(item_q99_token_estimates))<=4096 AND items<=2",
-    "tokenizer_manifest_sha256": "required_from_pinned_deployment_not_yet_measured",
+    "tokenizer_manifest_sha256": "22b186f14646edf812947346f505b67e17832ebe2b6b6c454628db66184278a9",
     "stress_fixture_version": "kpop_cjk_output_stress_v1",
     "output_budget_gate": "blocked_until_deployed_singleton_distribution_and_forced_overflow_pass"
   },

@@ -18,7 +18,7 @@
     "s3_prefix_v1_superseded": "s3://written-semantic-models-616040526027/models/qwen3.5-9b/c202236235762e1c871ad0ccb60c8ee5ba337b9a/"
   },
   "serving_image": {
-    "status": "pinned, not yet built",
+    "status": "built and attested",
     "vllm_version": "0.27.1",
     "vllm_wheel_url": "https://github.com/vllm-project/vllm/releases/download/v0.27.1/vllm-0.27.1%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl",
     "vllm_wheel_sha256": "bf0d52faa2a51e7a01c6856a7a8a2d1307fd0ff711415d34168a67ffac0fa47b",
@@ -40,13 +40,19 @@
     "superseded": {
       "digest": "sha256:28e6e9d9dc18763ee091468600ad5c4dc54e778b5f5bc0aede375680bdaf186d",
       "why": "vllm==0.11.0. Kept as history. Not to be deployed."
-    }
+    },
+    "digest": "sha256:57b87e2ea3434d788517bf674bc6e17787a54dca6631e9c940c9ee3fb3e6575a",
+    "attested": {
+      "when": "2026-08-19T04:03Z",
+      "instance": "ml.g6e.2xlarge (NVIDIA L40S), host driver 535.309.01, cuda compat engaged",
+      "model_latency_seconds": 4.59,
+      "tokenizer_runtime_manifest_sha256": "22b186f14646edf812947346f505b67e17832ebe2b6b6c454628db66184278a9",
+      "note": "Both hashes are pinned into the compiled contract as of this commit; runtime.json is the source and was measured on the GPU, not typed. vllm reports 0.27.1 (the +cu129 wheel carries the plain version string); torch reports 2.13.0+cu129."
+    },
+    "boot_dependency_chain": "Learned one billing run at a time, now all gated in CodeBuild: Python 3.12 (flashinfer annotations), gcc/g++/python3-dev (triton JIT), the devel CUDA base (flashinfer resolves /usr/local/cuda and needs bin/nvcc inside it; pip ninja propagates a rule's 127), and a chunked-body reader in serve.py (async delivery sends no Content-Length)."
   },
   "not_yet_true": [
-    "No GPU endpoint exists and nothing is running. Quota L-B0729CB4 is now 2 for ml.g6e.xlarge endpoint usage (the case was granted; read back from Service Quotas 2026-08-18), so the quota is no longer what blocks a pass.",
-    "The serving image is pinned but not built: no CodeBuild run has produced a digest under the 0.27.1 pin, so serving_image_digest is still unmeasured.",
-    "attested is false, correctly: serving_image_digest and tokenizer_sha256 have no contract expectation yet, both being placeholders until a GPU measures them. They are reported as unattested rather than passed over.",
-    "The Step 5 bridge is built and untested against a real endpoint.",
+    "The Step 5 bridge (worker to model lane) is untested against a real endpoint end to end — the credential is proven by connection, the gateway is not yet redeployed with the pinned contract.",
     "qwen_overlay is off and no invocation has ever been recorded."
   ],
   "gateway_image": {
@@ -68,5 +74,5 @@
     "note": "`gateway_revision_in_tree` is the current source; the deployed image predates this commit's gateway changes and must be rebuilt before it is attested again."
   },
   "source_commit": "05fd46a5a55428a8a72522371cf9564c7404094c",
-  "_status": "**Describes what is deployed and staged now, not what a past step produced.** The serving image and the v2 artifact prefix below are NOT built or staged yet: the vLLM pin was withdrawn because 0.11.0 is unverified against Qwen3.5, and the staging job's v2 layout has not run. Recorded as pending rather than as a digest, because a pinned identity that names nothing is worse than an absent one."
+  "_status": "The serving image is built, gated and attested from a GPU; both attestation hashes are pinned in the compiled contract. The gateway must be rebuilt so the image it runs carries this contract, and redeployed declaring the new digests."
 }
