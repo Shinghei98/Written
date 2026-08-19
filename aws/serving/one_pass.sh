@@ -16,8 +16,20 @@
 # `off`; nothing here writes a user semantic.
 set -euo pipefail
 
-STACK=written-qwen-serving
+# Overridable so a boot test of a new instance pool can run beside the
+# persistent endpoint instead of hijacking its stack (they shared this name
+# once, and a test teardown would have deleted production).
+STACK=${STACK:-written-qwen-serving}
 REGION=${AWS_REGION:-us-east-1}
+# The fallback pools for the endpoint config; empty means the single named
+# INSTANCE only — which is what a boot *test* wants, since falling back to a
+# known-good pool would pass the test for the wrong instance.
+FALLBACK_INSTANCE_A=${FALLBACK_INSTANCE_A:-}
+FALLBACK_INSTANCE_B=${FALLBACK_INSTANCE_B:-}
+# WIRE_GATEWAY=0 skips pointing the production gateway at this endpoint (and
+# skips clearing it in teardown — the clear would otherwise unwire whatever
+# the gateway was correctly pointing at before the test).
+WIRE_GATEWAY=${WIRE_GATEWAY:-1}
 
 # **The cap is money, and the enforcement is time.** AWS has no hard dollar stop:
 # Budgets cannot terminate a SageMaker endpoint, and its cost data lags hours
@@ -101,10 +113,16 @@ teardown() {
   # **Unwired before the endpoint is deleted.** A gateway pointing at an endpoint
   # that no longer exists would answer `provider_error` for a reason that reads
   # like an outage, and its IAM statement would name a resource that is gone.
-  echo "==> clearing the gateway's endpoint"
-  # Reported, not fatal: teardown must continue to the endpoint delete whatever
-  # this does, because leaving the GPU running is the worse outcome.
-  gateway_endpoint "" || echo "!! the gateway still names a deleted endpoint" >&2
+  if [ "$WIRE_GATEWAY" = "1" ]; then
+    echo "==> clearing the gateway's endpoint"
+    # Reported, not fatal: teardown must continue to the endpoint delete whatever
+    # this does, because leaving the GPU running is the worse outcome.
+    gateway_endpoint "" || echo "!! the gateway still names a deleted endpoint" >&2
+  else
+    # A test that never wired the gateway must not clear it either — the clear
+    # would unwire whatever production endpoint the gateway correctly names.
+    echo "==> gateway untouched (WIRE_GATEWAY=$WIRE_GATEWAY)"
+  fi
   # The armed deadline is removed only once the endpoint is actually gone, which
   # the check below verifies. Removing it first would drop the backstop at the
   # exact moment the teardown might be failing.
@@ -181,7 +199,8 @@ started_at=$(date +%s)
 if ! aws cloudformation deploy --stack-name "$STACK" --region "$REGION" \
   --template-file "$(dirname "$0")/stack.yaml" --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides ServingImageUri="$SERVING_IMAGE" ModelDataS3Uri="$MODEL_URI" \
-    InstanceType="$INSTANCE"; then
+    InstanceType="$INSTANCE" FallbackInstanceTypeA="$FALLBACK_INSTANCE_A" \
+    FallbackInstanceTypeB="$FALLBACK_INSTANCE_B"; then
   # **A capacity failure is not a code failure, and the generic CFN error hides
   # that.** It surfaces as a rolled-back stack with the reason buried in the
   # events — and it has now presented twice as a silent half-hour `Creating`
@@ -211,12 +230,16 @@ echo "==> wait for InService"
 # rather than merely started — which is the whole point of that change.
 aws sagemaker wait endpoint-in-service --endpoint-name "$ENDPOINT_NAME"
 
+if [ "$WIRE_GATEWAY" != "1" ]; then
+  echo "==> gateway wiring skipped (WIRE_GATEWAY=$WIRE_GATEWAY); attest calls the endpoint directly"
+else
 echo "==> wiring the gateway to the endpoint"
 gateway_endpoint "$ENDPOINT_NAME" || {
   echo "the gateway could not be pointed at $ENDPOINT_NAME; refusing to attest "\
        "against a gateway that is not connected" >&2
   exit 1
 }
+fi
 
 mkdir -p "$OUT"
 echo "==> attest the loaded runtime"

@@ -27,7 +27,26 @@ Parameters:
   InstanceType:
     Type: String
     Default: ml.g6e.xlarge
-    Description: One 48 GB L40S. BF16, text-only, context bounded by the contract.
+    Description: >
+      The first-priority instance pool. One 48 GB L40S by default. BF16,
+      text-only, context bounded by the contract.
+  FallbackInstanceTypeA:
+    Type: String
+    Default: ''
+    Description: >
+      Second-priority pool, empty for none. **Capacity pools are independent per
+      instance type**, and the first evaluation invocation waited two-plus hours
+      on one dry pool while its sibling had quota — SageMaker provisions from
+      the lowest priority with capacity, so each named fallback multiplies the
+      odds a wake-from-zero finds an instance at all.
+  FallbackInstanceTypeB:
+    Type: String
+    Default: ''
+    Description: Third-priority pool, empty for none.
+
+Conditions:
+  HasFallbackA: !Not [!Equals [!Ref FallbackInstanceTypeA, '']]
+  HasFallbackB: !Not [!Equals [!Ref FallbackInstanceTypeB, '']]
 
 Resources:
   ServingRole:
@@ -151,7 +170,11 @@ Resources:
   EndpointConfig:
     Type: AWS::SageMaker::EndpointConfig
     Properties:
-      EndpointConfigName: !Sub written-qwen-${AWS::StackName}
+      # **No fixed name, deliberately.** EndpointConfig is immutable, so any
+      # change here replaces it — and a replacement cannot be created under the
+      # name the old one still holds. The *endpoint's* name is the stable
+      # identity everything keys on (the gateway, the teardown, the deadline);
+      # the config's name identifies nothing and CloudFormation may generate it.
       AsyncInferenceConfig:
         OutputConfig:
           S3OutputPath: !Sub s3://${AsyncOutputBucket}/async/out/
@@ -163,7 +186,21 @@ Resources:
       ProductionVariants:
         - VariantName: primary
           ModelName: !GetAtt Model.ModelName
-          InstanceType: !Ref InstanceType
+          # **Priority-ordered pools, not one type.** SageMaker provisions from
+          # the lowest priority that has capacity; a dry first pool falls
+          # through instead of stalling the wake for hours. All pools run the
+          # same digest-pinned image and mount the same weights, so nothing
+          # attested varies — `runtime.json.gpu` is recorded, never compared.
+          InstancePools: !If
+            - HasFallbackB
+            - - { InstanceType: !Ref InstanceType, Priority: 1 }
+              - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
+              - { InstanceType: !Ref FallbackInstanceTypeB, Priority: 3 }
+            - !If
+              - HasFallbackA
+              - - { InstanceType: !Ref InstanceType, Priority: 1 }
+                - { InstanceType: !Ref FallbackInstanceTypeA, Priority: 2 }
+              - - { InstanceType: !Ref InstanceType, Priority: 1 }
           InitialInstanceCount: 1
           ModelDataDownloadTimeoutInSeconds: 1800
           ContainerStartupHealthCheckTimeoutInSeconds: 1800

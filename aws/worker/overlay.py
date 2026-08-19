@@ -275,9 +275,18 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
                           "items": len(items)}))
         raise InferenceDeferred(len(items))
     except LaneUnavailable as unavailable:
-        # Infrastructural, never an outcome: nothing was recorded, so nothing
-        # should be filed as though the model had answered.
-        raise RuntimeError(f"model lane unavailable: {unavailable}") from None
+        # **Deferred, exactly as the evaluation path does — never failed.**
+        # Unavailability here includes an open breaker cooling off and a
+        # capacity drought on a scaled-to-zero endpoint, both transient by
+        # definition. The previous RuntimeError spent a real attempt per tick;
+        # five ticks of drought would mark the job dead, and a dead row blocks
+        # its own re-arm by identical idempotency key (`0210`) with the sweeper
+        # deliberately unscheduled — a multi-hour drought during shadow would
+        # have wedged that user's work permanently. Deferral costs the queue
+        # nothing: `defer` refunds the attempt, and the work is unchanged.
+        print(json.dumps({"extract_mentions": "lane_unavailable_deferred",
+                          "items": len(items)}))
+        raise InferenceDeferred(len(items)) from unavailable
 
     # Evaluation returned above without reading anything, so anything reaching
     # here is `shadow` or `active` — the two lanes `0237` permits a user mention
