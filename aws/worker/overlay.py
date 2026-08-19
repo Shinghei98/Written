@@ -374,7 +374,12 @@ def _evaluate_against_fixtures(job, request_id: str) -> dict[str, Any]:
         print(json.dumps({"extract_mentions": "evaluation_in_flight"}))
         raise InferenceDeferred(len(items)) from None
     except LaneUnavailable as unavailable:
-        raise RuntimeError(f"model lane unavailable: {unavailable}") from None
+        # **Deferred, not failed.** Unavailability includes an open breaker
+        # cooling off after a wake — transient by definition — and a failed job
+        # would either dead-letter or complete, and completing is what consumed
+        # a release idempotency key on an invocation that never invoked.
+        print(json.dumps({"extract_mentions": "lane_unavailable_deferred"}))
+        raise InferenceDeferred(len(items)) from unavailable
 
     print(json.dumps({"extract_mentions": {
         "evaluation": EVALUATION_CORPUS,

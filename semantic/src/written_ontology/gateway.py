@@ -399,8 +399,14 @@ def extract(
             # the same job later. Without it the only available response to a
             # slow endpoint is to ask again, which is what starting a
             # scaled-to-zero GPU would otherwise guarantee on every first call.
-            if breaker is not None:
-                breaker.record_failure()
+            # **Deliberately NOT a breaker failure.** In-flight is the designed
+            # cold-start path of a scaled-to-zero endpoint — the paragraph above
+            # says so — and counting it opened the breaker by arithmetic on
+            # every wake: threshold 5, a ~12-minute boot, a ~2-minute retry
+            # cadence. The first ever wake-from-zero tripped it and the retry
+            # after cool-off was refused `circuit_open` without ever asking. A
+            # breaker exists to notice a *sick* provider; a waking one is
+            # exactly the provider doing what was asked of it.
             refusal = GatewayRefusal("timeout", "accepted, unanswered")
             refusal.resume_request_id = getattr(
                 flight.ticket, "request_id", None) or request["request_id"]

@@ -314,6 +314,17 @@ class ModelLane:
                 # closed vocabulary has no word for "still running" because it
                 # describes what happened rather than what is happening.
                 raise InFlight(resume_block["request_id"])
+            # **An open breaker is unavailability, never an outcome.** Nothing
+            # was submitted — the gateway refused before touching the transport
+            # — so recording an invocation would file provenance for a call
+            # that never happened, and completing the job would consume the
+            # armer idempotency key that work gets once per release. That is
+            # exactly what happened to the second release: five wake deferrals
+            # opened the breaker, the sixth attempt recorded `circuit_open`
+            # items as final, and the lane wedged. Deferral is the honest
+            # answer: the breaker cools off in a minute, the work is unchanged.
+            if outcome == "circuit_open":
+                raise LaneUnavailable("the gateway breaker is open")
             return self._record(user_id, items, answer, outcome=outcome)
 
         return self._record(user_id, items, answer, outcome="succeeded")
