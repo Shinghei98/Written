@@ -796,6 +796,33 @@ Resources:
                   print("compilation backend imports:", sys.version.split()[0])
                   '
 
+                # **The body SageMaker actually sends.** Async delivery is
+                # chunked; the first fully healthy boot answered its own probe
+                # with "response_format.schema is required" because do_POST read
+                # Content-Length, got zero bytes of a chunked body, and refused
+                # a valid request. Every production call would have done the
+                # same. The gate feeds serve.read_body a chunked stream and
+                # requires the bytes back.
+                - |
+                  docker run --rm --entrypoint python3 -e PYTHONPATH=/opt "$URI:$TAG" -c '
+                  import io, sys
+                  sys.path.insert(0, "/opt")
+                  import serve
+
+                  body = b"{\"response_format\": {\"schema\": {}}}"
+                  stream = io.BytesIO(
+                      hex(len(body))[2:].encode() + b"\r\n" + body + b"\r\n0\r\n\r\n")
+                  class Headers(dict):
+                      def get(self, key, default=None):
+                          return super().get(key.lower(), default)
+                  got = serve.read_body(Headers({"transfer-encoding": "chunked"}), stream)
+                  if got != body:
+                      sys.exit("serve.read_body dropped a chunked body: %r != %r "
+                               "— every async request would 400 as schema-less"
+                               % (got, body))
+                  print("chunked body read:", len(got), "bytes")
+                  '
+
                 # **The engine must recognise this exact architecture.**
                 # A version string proves nothing about what a build can load,
                 # and `startswith("Qwen3")` proves almost as little: a build

@@ -188,6 +188,38 @@ def _structured_params(schema: dict, max_tokens: int):
             "must not be asked to extract") from failure
 
 
+def read_body(headers, rfile) -> bytes:
+    """The request body, under either framing SageMaker uses.
+
+    **Async delivery is chunked, and `Content-Length` reads zero of it.** A
+    synchronous `invoke-endpoint` arrives with a length header; the async
+    channel — which is the only channel this endpoint serves — delivers the
+    payload with `Transfer-Encoding: chunked` and no length. The first version
+    read the header, got 0, parsed `{}` and refused its own valid request as
+    `response_format.schema is required` — on a GPU that had finally booted,
+    with the whole engine healthy behind it. Reproduced locally with one
+    chunked curl, which is how this must be tested forever after.
+
+    A module function rather than a method so a build gate and a unit test can
+    feed it a fake stream without standing up a server.
+    """
+    if "chunked" in (headers.get("transfer-encoding") or "").lower():
+        chunks = []
+        while True:
+            size_line = rfile.readline()
+            if not size_line:
+                break  # a truncated stream yields what arrived
+            size = int(size_line.split(b";")[0].strip() or b"0", 16)
+            if size == 0:
+                rfile.readline()  # the CRLF closing the terminal chunk
+                break
+            chunks.append(rfile.read(size))
+            rfile.readline()  # the CRLF closing this chunk
+        return b"".join(chunks)
+    length = int(headers.get("content-length") or 0)
+    return rfile.read(length)
+
+
 def _prompt(payload: dict) -> str:
     """The chat template, applied, with the instructions the contract carries.
 
@@ -260,8 +292,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if self.path != "/invocations":
             return self._reply(404, {})
-        length = int(self.headers.get("content-length") or 0)
-        payload = json.loads(self.rfile.read(length) or b"{}")
+        payload = json.loads(read_body(self.headers, self.rfile) or b"{}")
 
         # **Refused rather than answered unconstrained.** The gateway sends the
         # schema; an engine asked to extract without one returns prose, which
