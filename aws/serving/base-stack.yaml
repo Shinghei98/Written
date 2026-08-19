@@ -748,13 +748,13 @@ Resources:
                   # **Run the tools, never merely locate them.** which() found
                   # ninja in an image whose flashinfer build still exited 127,
                   # because the failure was a rule inside the build — nvcc —
-                  # and pip'"'"'s ninja propagates a rule'"'"'s exit code.
+                  # and the pip ninja propagates the exit code of a rule.
                   import subprocess
                   for tool in (["ninja", "--version"],):
                       done = subprocess.run(tool, capture_output=True, text=True)
                       if done.returncode != 0:
                           sys.exit("%s failed rc=%d: %s" % (tool, done.returncode, done.stderr))
-                  # Mirror flashinfer'"'"'s own resolution: CUDA_HOME, which nvcc,
+                  # Mirror how flashinfer resolves its toolkit: CUDA_HOME, which nvcc,
                   # else /usr/local/cuda — then RUN what it resolves to. The
                   # runtime image passed an existence check of the directory and
                   # died at the binary inside it.
