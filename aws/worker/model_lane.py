@@ -344,8 +344,22 @@ class ModelLane:
             # opened the breaker, the sixth attempt recorded `circuit_open`
             # items as final, and the lane wedged. Deferral is the honest
             # answer: the breaker cools off in a minute, the work is unchanged.
-            if outcome == "circuit_open":
-                raise LaneUnavailable("the gateway breaker is open")
+            # **The gateway already knows which refusals are transient, and
+            # the lane must not record what the gateway would retry.** Its
+            # `_TRANSIENT` set is {timeout, rate_limited, provider_error,
+            # circuit_open}; recording any of them as a final invocation files
+            # provenance for a condition that will pass — and completes the
+            # job, consuming the armer idempotency key that work gets once per
+            # release. That key has now been spent three times on transients:
+            # an open breaker (release 2), and a provider_error raced against
+            # an endpoint still Creating (release 3, twice). One rule replaces
+            # the circuit_open special case: transient means defer. A provider
+            # that is *permanently* broken shows up as a visibly deferring
+            # queue, which is recoverable and observable — the opposite of a
+            # silently spent key.
+            if outcome in ("timeout", "rate_limited", "provider_error",
+                           "circuit_open"):
+                raise LaneUnavailable(f"transient at the gateway: {outcome}")
             return self._record(user_id, items, answer, outcome=outcome)
 
         return self._record(user_id, items, answer, outcome="succeeded")
