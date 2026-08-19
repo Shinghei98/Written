@@ -52,27 +52,25 @@
     "boot_dependency_chain": "Learned one billing run at a time, now all gated in CodeBuild: Python 3.12 (flashinfer annotations), gcc/g++/python3-dev (triton JIT), the devel CUDA base (flashinfer resolves /usr/local/cuda and needs bin/nvcc inside it; pip ninja propagates a rule's 127), and a chunked-body reader in serve.py (async delivery sends no Content-Length)."
   },
   "not_yet_true": [
-    "The Step 5 bridge (worker to model lane) is untested against a real endpoint end to end — the credential is proven by connection, the gateway is not yet redeployed with the pinned contract.",
-    "qwen_overlay is off and no invocation has ever been recorded."
+    "qwen_overlay is off and no invocation has ever been recorded. Turning the lane on is a deliberate decision with its own gates (release manifest row, evaluate_release, 0240's authorized_model_release), not a deploy.",
+    "The evaluation corpus is scored as transport only (original item 6, deferred by decision)."
   ],
   "gateway_image": {
     "function": "written-semantic-gateway",
     "repository": "written-semantic-gateway",
-    "tag": "gw-d16578b117de",
-    "digest": "sha256:896b3ff7f438506e7c391b85e9cbf254fcbd95a777977caaf38f5598c6a7fc08",
-    "built_from_source_commit": "d16578b117de3f065a557bb204472057b19cf089",
+    "tag": "gw-354a76961e1c",
+    "digest": "sha256:910866e6f8f83fd9b2f6be59249e06dd9e55e74cc6a930e8aa01b7a135839a6d",
+    "built_from_source_commit": "354a76961e1c851bddad0c5a2a9c080ce2d00c48",
     "built_by": "CodeBuild written-build-gateway-image",
     "gateway_revision": "aab5e27e7a6aea5c8bd532600d7c8f4209bdb2b0e8d156a987b971e87c6b95c9",
     "deployed": true,
-    "verified": "Two gates ran inside the image before it was pushed: every module imports as laid out, and gateway_revision recomputed from the image's own files equals the contract the image carries. After deploy, matches.gateway_revision is true.",
+    "verified": "Both in-image gates passed; deployed 2026-08-19 declaring ServingImageDigest and TokenizerSha256 at the GPU-measured values now pinned in the contract it carries. No placeholder remains, so attestation compares every field.",
     "superseded": {
       "digest": "sha256:95b2196f968c087325e560c4c267ae6c6eac777371d5a4bd0c430960d259142d",
       "why": "Built from a flattened image layout, which gateway_revision could only handle because the checker tried two candidate roots — a checker that agrees with two trees. And nothing verified the image before it was pushed."
     },
-    "layout": "The repository's paths, preserved. The checker has one layout, not two.",
-    "gateway_revision_in_tree": "a8d422ceb020993c2ebe001e0ff64c694884993fb3859600b8b0c95a53ca0edc",
-    "note": "`gateway_revision_in_tree` is the current source; the deployed image predates this commit's gateway changes and must be rebuilt before it is attested again."
+    "layout": "The repository's paths, preserved. The checker has one layout, not two."
   },
-  "source_commit": "05fd46a5a55428a8a72522371cf9564c7404094c",
-  "_status": "The serving image is built, gated and attested from a GPU; both attestation hashes are pinned in the compiled contract. The gateway must be rebuilt so the image it runs carries this contract, and redeployed declaring the new digests."
+  "source_commit": "354a76961e1c851bddad0c5a2a9c080ce2d00c48",
+  "_status": "Serving image attested from a GPU; contract pinned to the measurement; gateway rebuilt carrying that contract and deployed declaring the same digests. SagemakerEndpointName is empty because no endpoint runs — the lane is off, and off looks like this on purpose."
 }
