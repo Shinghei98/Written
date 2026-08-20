@@ -23,6 +23,43 @@ and anything cut from either file is in `git log -p`.
 it is waiting on, and the two one-line things that must not be missed at launch.
 It is a plan rather than a record: an entry is deleted when it stops being true.
 
+## The Qwen lane's sole purpose: global term discovery (central rule, owner, 2026-08-20)
+
+**The only reason Qwen exists in Written is open-vocabulary discovery.**
+Extracting terms Written already knows is a regression path, never the
+success criterion. The rule has three parts and all three are the product:
+
+1. **Global term discovery** — Qwen recognizes meaningful terms absent from
+   every existing vocabulary route (concepts, aliases, stable-ID mappings,
+   authored imports), and the deterministic resolver must have missed first.
+2. **Memories exhibition of identified global terms** — a kept term enters
+   the governed catalogue-minting route, becomes one global concept, is
+   scored by the normal scorer under the unchanged rules, and appears in
+   Memories; future occurrences resolve to it deterministically without a
+   second model call, a second provisional, or a duplicate concept.
+3. **The strike-off mechanism** — strike is both immediate per-user
+   suppression of the unchanged proposal and an append-only feedback event
+   that, aggregated across distinct users with smoothing, support floors and
+   bounded multipliers, recalibrates future evidence weights through
+   immutable versioned calibration releases. Keep is the positive event;
+   edit counts the original proposal as negative and is never a Qwen
+   success; restore re-pends without erasing history.
+
+The authority order is structural, never arithmetic:
+`model_proposed provisional -> displayable suggestion -> user keep/edit ->
+catalogue mint -> confirmed mapping evidence -> scorer -> assertion`.
+Qwen never emits or chooses IDs, authority states, SQL, URLs or tool calls;
+the trusted catalogue layer allocates identities and performs writes.
+
+**Where this supersedes older lines in this file:** the user-kept
+mint-request route is a governed, user-decision-driven exception to
+"`EmergentTermMiner` is not the growth path" — the miner's five-user floor
+governs *emergent* strings, while a keep is one person's explicit decision
+about their own proposed term, minted through the catalogue's collision- and
+alias-checked transaction. The scope of record is the owner's revised memo
+(`Written_Qwen_to_Memories_Corrective_Implementation_Plan_2026-08-20 (1).md`),
+binding at 100%: never shrink it by discretion.
+
 ## The prime design constraint: minimum friction
 
 Data extraction must feel like a **one-button experience** per app. OAuth is the
