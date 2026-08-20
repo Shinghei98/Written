@@ -1759,6 +1759,14 @@ select (mr.outcome ->> 'concept_id')::uuid as concept_id,
        coalesce(
          jsonb_agg(distinct g) filter (where g is not null), '[]'::jsonb
        ) as stated_genres,
+       -- **YouTube states topics where music states genres**, and reading one
+       -- is the same act as reading the other: `topicDetails.topicCategories`
+       -- is the source's own label, which III.E.4 permits reading and forbids
+       -- only inferring. Without this a YouTube keep has nothing to be placed
+       -- by, and the lane the discovery rule exists for is the one that floats.
+       coalesce(
+         jsonb_agg(distinct t) filter (where t is not null), '[]'::jsonb
+       ) as stated_topics,
        min(o.source_code) as source_code
   from semantic_private.mint_requests mr
   left join semantic_private.candidate_support_links l
@@ -1768,6 +1776,9 @@ select (mr.outcome ->> 'concept_id')::uuid as concept_id,
   left join lateral jsonb_array_elements_text(
          case when jsonb_typeof(o.normalized_payload -> 'genres') = 'array'
               then o.normalized_payload -> 'genres' else '[]'::jsonb end) g on true
+  left join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(o.normalized_payload -> 'topics') = 'array'
+              then o.normalized_payload -> 'topics' else '[]'::jsonb end) t on true
  where mr.status = 'completed'
    and mr.outcome ->> 'concept_id' is not null
    and semantic_private.concept_block(
@@ -1800,6 +1811,14 @@ select mr.id as mint_request_id,
        coalesce(
          jsonb_agg(distinct g) filter (where g is not null), '[]'::jsonb
        ) as stated_genres,
+       -- **YouTube states topics where music states genres**, and reading one
+       -- is the same act as reading the other: `topicDetails.topicCategories`
+       -- is the source's own label, which III.E.4 permits reading and forbids
+       -- only inferring. Without this a YouTube keep has nothing to be placed
+       -- by, and the lane the discovery rule exists for is the one that floats.
+       coalesce(
+         jsonb_agg(distinct t) filter (where t is not null), '[]'::jsonb
+       ) as stated_topics,
        min(o.source_code) as source_code
   from semantic_private.mint_requests mr
   left join semantic_private.candidate_support_links l
@@ -1809,6 +1828,9 @@ select mr.id as mint_request_id,
   left join lateral jsonb_array_elements_text(
          case when jsonb_typeof(o.normalized_payload -> 'genres') = 'array'
               then o.normalized_payload -> 'genres' else '[]'::jsonb end) g on true
+  left join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(o.normalized_payload -> 'topics') = 'array'
+              then o.normalized_payload -> 'topics' else '[]'::jsonb end) t on true
  where mr.status = 'pending'
  group by mr.id
 """
@@ -1837,6 +1859,22 @@ with recursive climb(concept_id, depth) as (
 select concept_id, max(depth) as depth from climb group by concept_id
 """
 
+#: Anything a term may be filed under: the genres above plus hubs and topics,
+#: which is what a YouTube topic slug resolves to. Same rule as the genre join
+#: — a label naming more than one concept resolves to nothing rather than to a
+#: guess.
+SELECT_PLACEABLE_CONCEPTS = """
+select l.normalized_label, min(l.concept_id::text)::uuid as concept_id
+  from ontology.concept_labels l
+  join ontology.concept_revisions cr
+    on cr.concept_id = l.concept_id and cr.ontology_version_id = l.ontology_version_id
+  join ontology.versions v on v.id = l.ontology_version_id
+ where v.status = 'published' and l.status = 'active' and cr.status = 'active'
+   and cr.concept_kind in ('hub', 'topic', 'genre')
+ group by l.normalized_label
+having count(distinct l.concept_id) = 1
+"""
+
 #: The hub a source's own material belongs to. Reading it is not a claim about
 #: the term — it is a claim about where the material came from, which the source
 #: code already states.
@@ -1848,6 +1886,11 @@ select c.id as concept_id
 
 #: Music sources land under the music hub. Not a genre and not a guess: the
 #: floor beneath a term whose stated genre this vocabulary cannot yet name.
+#: The five `refusedTopics` families, dropped wherever a topic is read. Named
+#: here because this is a second place topics are read and the rule is the
+#: app's, not this file's invention.
+_REFUSED_TOPIC_WORDS = ("Religion", "Politic", "Health", "Military", "Society")
+
 _SOURCE_HUBS = {
     "apple_music": "hub:music",
     "music_library": "hub:music",
@@ -1887,6 +1930,9 @@ def _kept_parents(connection) -> dict[str, str]:
         cursor.execute(SELECT_GENRE_CONCEPTS)
         by_label = {row["normalized_label"]: str(row["concept_id"])
                     for row in cursor.fetchall()}
+        cursor.execute(SELECT_PLACEABLE_CONCEPTS)
+        for row in cursor.fetchall():
+            by_label.setdefault(row["normalized_label"], str(row["concept_id"]))
         cursor.execute(SELECT_GENRE_DEPTHS)
         depth = {str(row["concept_id"]): row["depth"] for row in cursor.fetchall()}
 
@@ -1916,6 +1962,9 @@ def _resolve_parents(connection, rows: list[dict], *, key: str,
             cursor.execute(SELECT_GENRE_CONCEPTS)
             by_label = {row["normalized_label"]: str(row["concept_id"])
                         for row in cursor.fetchall()}
+            cursor.execute(SELECT_PLACEABLE_CONCEPTS)
+            for row in cursor.fetchall():
+                by_label.setdefault(row["normalized_label"], str(row["concept_id"]))
             cursor.execute(SELECT_GENRE_DEPTHS)
             depth = {str(row["concept_id"]): row["depth"]
                      for row in cursor.fetchall()}
@@ -1926,6 +1975,17 @@ def _resolve_parents(connection, rows: list[dict], *, key: str,
         candidates = []
         for name in stated:
             concept = by_label.get(normalize_text(english_genre(name) or ""))
+            if concept is not None:
+                candidates.append(concept)
+        # **Then what YouTube states**, folded from its slug — `Pop_music`
+        # is written the way Wikipedia writes it, not the way a label is.
+        # Refused topics are dropped here as everywhere else: a content tag is
+        # how a protected characteristic arrives without anyone deciding to
+        # collect it.
+        for name in (row.get("stated_topics") or []):
+            if any(word in name for word in _REFUSED_TOPIC_WORDS):
+                continue
+            concept = by_label.get(normalize_text(name.replace("_", " ")))
             if concept is not None:
                 candidates.append(concept)
         if candidates:

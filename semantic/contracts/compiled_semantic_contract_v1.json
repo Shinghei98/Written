@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-20T12:05:21.484Z",
+  "generated_at": "2026-08-20T18:25:44.680Z",
   "source_hashes": {
-    "workbook_sha256": "ed608d527e68f2b7a3e34c3c5de1e8830cabff9dea1d2bf7b6f272e675ff68b8",
+    "workbook_sha256": "1dee07a6972b54cc3c4ee8521581be7815bb9ee8cb1856254a8699f6e8d57510",
     "mention_schema_sha256": "8a53529b30c9ae0b7689dc34a1e6cd5379df833b0e492e473db7df78eb42bc40",
     "request_schema_sha256": "b48ac69a5f4831db5a92bd4e809e2a8225f2500040d7a18c14063a1e8508f7c9"
   },
@@ -12,7 +12,7 @@
     "prompt": "qwen_extractor_v6",
     "model_id": "Qwen/Qwen3.5-9B",
     "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
-    "gateway_revision": "44a2209b7c98fd7d593f30e8188de11239d3729fcb3400d0d31601095c835e70",
+    "gateway_revision": "288c38060a00731270ba16334b6966e3a6a288e92f6d17c90d4bc28a519c6f3e",
     "serving_image_digest": "sha256:57b87e2ea3434d788517bf674bc6e17787a54dca6631e9c940c9ee3fb3e6575a",
     "output_schema": "https://written.app/schemas/mention_extract_v2.schema.json",
     "request_schema": "https://written.app/schemas/mention_extract_request_v1.schema.json",

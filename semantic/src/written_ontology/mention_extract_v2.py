@@ -247,9 +247,33 @@ def repair_offsets(response: dict, request: list[RequestItem]) -> int:
                          and 0 <= start and end <= len(source))
             if in_bounds and source[start:end] == surface:
                 continue  # arithmetic already right; nothing to repair
-            if source.count(surface) != 1:
-                continue  # absent or ambiguous: refusal, not repair
-            found = source.index(surface)
+            occurrences = []
+            at = source.find(surface)
+            while at != -1:
+                occurrences.append(at)
+                at = source.find(surface, at + 1)
+            if not occurrences:
+                continue  # absent: hallucination, and a refusal rather than a repair
+            if len(occurrences) == 1:
+                found = occurrences[0]
+            else:
+                # **Repeated surface: the nearest occurrence to what the model
+                # said.** Declining here was costing far more than it protected
+                # — measured 2026-08-20 on the live lane, 382 of 540 YouTube
+                # extractions were refused as `offset_invalid` against 46 of
+                # 251 for music, because a long title repeats its own words and
+                # every repeat made the span "ambiguous".
+                #
+                # It was never ambiguous about *the term*. Every candidate span
+                # holds the identical string, so whichever is chosen the mention
+                # text is the same; only the span differs, and the span is
+                # provenance rather than meaning. Choosing the one closest to
+                # the model's stated start uses its claim as the hint it is,
+                # and still cannot invent: the span always contains the exact
+                # surface, and a surface absent from the source is refused
+                # above as it always was.
+                hint = start if isinstance(start, int) else 0
+                found = min(occurrences, key=lambda index: (abs(index - hint), index))
             mention["start"] = found
             mention["end"] = found + len(surface)
             repaired += 1

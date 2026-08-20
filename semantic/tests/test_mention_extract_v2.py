@@ -371,16 +371,26 @@ def test_repair_leaves_correct_offsets_alone():
     assert repair_offsets(resp, REQUEST) == 0
 
 
-def test_repair_never_guesses_between_two_occurrences():
-    """Ambiguity is a refusal, not a coin flip — the condition that keeps the
-    repair from ever inventing a span."""
+def test_repair_chooses_between_two_occurrences_by_the_stated_offset(schema):
+    """**This reverses a rule, and the reversal is the point.**
+
+    Refusing a repeated surface was written to make inventing a span
+    impossible. It does not: every occurrence holds the identical string, so
+    the mention text is the same whichever is chosen and only the provenance
+    span moves. What it did do was refuse 382 of 540 YouTube extractions as
+    `offset_invalid` against 46 of 251 for music — long titles repeat their own
+    words, so the lane whose whole purpose is discovery lost 71% of it to a
+    guard protecting nothing. The stated offset picks between them.
+    """
     from written_ontology.mention_extract_v2 import repair_offsets
 
     request = [RequestItem(0, {"title": "Midnight to Midnight"})]
     resp = response([extracted(mentions=[mention(start=3, end=11)])])
-    assert repair_offsets(resp, request) == 0
-    with pytest.raises(ExtractionInvalid):
-        validate_response(resp, request)
+    assert repair_offsets(resp, request) == 1
+    repaired = resp["items"][0]["mentions"][0]
+    assert request[0].fields["title"][repaired["start"]:repaired["end"]] == "Midnight"
+    # 0 and 12 both hold it; the stated 3 is nearer 0.
+    assert repaired["start"] == 0
 
 
 def test_repair_leaves_an_absent_surface_for_the_validator():
@@ -416,3 +426,46 @@ def test_repair_catches_a_clamped_slice_whose_end_is_out_of_bounds():
     m = resp["items"][0]["mentions"][0]
     assert (m["start"], m["end"]) == (0, 8)
     validate_response(resp, REQUEST)
+
+
+def test_a_repeated_surface_is_repaired_to_the_nearest_occurrence(schema):
+    """It was refused, and refusing cost 71% of the YouTube lane.
+
+    Every occurrence of a repeated surface holds the identical string, so the
+    term extracted is the same whichever is chosen; only the provenance span
+    differs. The model's stated start picks between them.
+    """
+    from written_ontology.mention_extract_v2 import RequestItem, repair_offsets
+
+    source = "Live at Wembley (Live) [Live Version]"
+    item = RequestItem(0, {"title": source})
+    # Three occurrences of "Live"; the model meant the third and miscounted.
+    response = {"items": [{"item_index": 0, "status": "extracted",
+                           "abstain_reason": None,
+                           "mentions": [{"surface": "Live", "start": 26, "end": 30,
+                                         "source_field": "title",
+                                         "source_field_index": None,
+                                         "mention_role": "primary_subject",
+                                         "type_hint": "work",
+                                         "evidence_fields": ["title"]}]}]}
+    assert repair_offsets(response, [item]) == 1
+    mention = response["items"][0]["mentions"][0]
+    assert source[mention["start"]:mention["end"]] == "Live"
+    # Three occurrences — 0, 17, 24 — and the stated 26 names the last.
+    assert mention["start"] == 24
+
+
+def test_a_surface_absent_from_the_source_is_still_refused(schema):
+    """The widening must not reach the case it exists to catch."""
+    from written_ontology.mention_extract_v2 import RequestItem, repair_offsets
+
+    item = RequestItem(0, {"title": "Live at Wembley"})
+    response = {"items": [{"item_index": 0, "status": "extracted",
+                           "abstain_reason": None,
+                           "mentions": [{"surface": "Glastonbury", "start": 0, "end": 11,
+                                         "source_field": "title",
+                                         "source_field_index": None,
+                                         "mention_role": "primary_subject",
+                                         "type_hint": "work",
+                                         "evidence_fields": ["title"]}]}]}
+    assert repair_offsets(response, [item]) == 0
