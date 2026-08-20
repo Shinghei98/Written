@@ -503,6 +503,15 @@ select c.current_raw_source_record_id as raw_id,
    and c.source_code = any(%(allowed)s)
    and c.current_observation_id is not null
    and r.encrypted_payload is not null
+   -- **The Events wall, at filing as well as at mention.** A calendar row
+   -- files only when the classifier judged it a public ticketed event
+   -- eligible for private semantics; every other calendar row stays evidence
+   -- that never reaches the model. Belt beside 0289's braces: the mention
+   -- guard would refuse it anyway, but by then the title would already sit in
+   -- source_text_evidence, and text that need not leave the vault should not.
+   and (c.source_code not in ('apple_calendar', 'google_calendar', 'outlook_calendar')
+        or semantic_private.calendar_public_event_is_eligible(
+             c.current_observation_id, c.user_id))
    and not exists (
      select 1 from semantic_private.source_text_evidence e
       where e.observation_id = c.current_observation_id
@@ -627,7 +636,21 @@ MODEL_INPUT_PROFILES = {
     "apple_podcasts": "podcast",
     "podcast": "podcast",
     "youtube": "youtube",
+    # Spotify under the owner's interpretation of record (2026-08-21), put to
+    # them with the IV.2.1.a/IV.2.5 conflict named. The wire profile existed
+    # in the request schema from the start.
+    "spotify": "spotify",
+    # Events, all three calendars, each row individually behind the
+    # classifier's wall — the SQL below and `0289`'s guard both consult
+    # `calendar_public_event_is_eligible`, so an unclassified or private row
+    # neither files nor mentions.
+    "apple_calendar": "calendar",
+    "google_calendar": "calendar",
+    "outlook_calendar": "calendar",
 }
+
+#: The calendar lanes, named once for the per-row gate below.
+_CALENDAR_LANES = ("apple_calendar", "google_calendar", "outlook_calendar")
 
 
 def model_input_profile(source_code: str | None) -> str | None:
@@ -712,6 +735,12 @@ select e.id as source_text_evidence_id,
        o.source_code,
        o.action_type,
        o.data_type,
+       -- The music lane's stated context (2026-08-21). Read off the
+       -- observation, which is where Apple states it; the evidence row keeps
+       -- holding only the title.
+       o.normalized_payload ->> 'primary_performer' as performer,
+       o.normalized_payload ->> 'composer' as composer,
+       o.normalized_payload ->> 'album' as album,
        e.encrypted_text,
        e.encryption_key_version
   from semantic_private.source_text_evidence e
@@ -789,9 +818,19 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
         if not text:
             _mark_unreadable(connection, row)
             continue
+        # **Stated context beside the title.** What Apple says about the row —
+        # performer, composer, album — is what lets the model name the artist
+        # instead of the track, and infer the film a song belongs to. Absent
+        # keys are omitted, not sent empty: `minProperties` is satisfied by the
+        # title and the schema refuses nothing it never saw.
+        fields = {"title": text[:256]}
+        for key in ("performer", "composer", "album"):
+            value = row.get(key)
+            if value:
+                fields[key] = str(value)[:256]
         items.append({
             "item_index": len(items),
-            "fields": {"title": text[:256]},
+            "fields": fields,
             "observation_id": row["observation_id"],
             "source_text_evidence_id": row["source_text_evidence_id"],
             # **Stable across retries**, so a second attempt at the same work is

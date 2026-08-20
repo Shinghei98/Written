@@ -290,6 +290,11 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
             "channel_label": int(require(config, "llm.input.max_channel_chars")),
             "description_excerpt":
                 int(require(config, "llm.input.max_description_chars")),
+            # The music lane's stated context (2026-08-21): what Apple says
+            # about the row, so a song can nominate its film or artist.
+            "performer": int(require(config, "llm.input.max_performer_chars")),
+            "composer": int(require(config, "llm.input.max_composer_chars")),
+            "album": int(require(config, "llm.input.max_album_chars")),
         }
         for field, bound in expected_bounds.items():
             if fields[field]["maxLength"] != bound:

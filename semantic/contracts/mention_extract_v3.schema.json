@@ -151,7 +151,10 @@
           "enum": [
             "title",
             "channel_label",
-            "description_excerpt"
+            "description_excerpt",
+            "performer",
+            "composer",
+            "album"
           ]
         },
         "source_field_index": {

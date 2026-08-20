@@ -60,6 +60,38 @@ alias-checked transaction. The scope of record is the owner's revised memo
 (`Written_Qwen_to_Memories_Corrective_Implementation_Plan_2026-08-20 (1).md`),
 binding at 100%: never shrink it by discretion.
 
+## The Cardinal Ontology specification is the scope of record (owner, 2026-08-21)
+
+**`Written_Cardinal_Ontology_and_Adaptive_Predicate_Engineering_Specification.docx`
+(Downloads, 2026-08-21) is the binding redesign specification for Release A
+completion**, superseding legacy exact-family classification. Eight immutable
+cardinal roots (person, group, organization, work, franchise, activity,
+concept, event); one primary parent path per term; typed predicate registry
+with per-predicate λ propagation; four separate confidence domains that are
+never collapsed; keep/strike/edit with reason codes and Δ-log-odds
+recalibration; atomic mint with redirects and deterministic later resolution.
+Source-action integrity and the privacy filters remain binding under it: a
+like is not a watch, a library item is not a play, a booking is not
+attendance, a private calendar row stays evidence and only an independently
+public event identity may be globally minted.
+
+**All three lanes feed the model**: YouTube, Music, and Events converge on one
+graph while their evidence semantics stay distinct. Cross-media inference is
+the point — a song may nominate its film (`soundtrack_of`), its franchise, its
+culture — and cross-lane convergence happens at the dictionary and identity
+layers, never by flattening actions.
+
+## Spotify in the model lane: the owner's interpretation of record (2026-08-21)
+
+**The owner directed, 2026-08-21, with the IV.2.1.a/IV.2.5 conflict expressly
+put to them, that Spotify joins the model lanes.** This is an owner's
+interpretation of record, analogous to the YouTube one: it supersedes this
+file's older lines that Spotify may not feed a model, for the mention-discovery
+lane. What does NOT move: Spotify still cannot ship to real users
+(development-mode caps), the app-side removal-before-launch plan stands, and
+the training-corpus exclusion at the foot of `0041` is a separate question
+this interpretation does not touch.
+
 ## YouTube in the model lane: the owner's interpretation of record (2026-08-20)
 
 **YouTube is a first-class term-discovery lane.** The owner's standing

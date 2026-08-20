@@ -89,7 +89,7 @@
       }
     },
     "fields": {
-      "description": "The four source fields the response schema's source_field enum names, and nothing else. A field the model cannot cite in an offset has no business being sent.",
+      "description": "The source fields the response schema's source_field enum names, and nothing else. A field the model cannot cite in an offset has no business being sent. performer, composer and album are the music lane's stated context — Apple states them on the row — and are what lets a song nominate its film, its franchise or its artist instead of standing alone.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
@@ -113,6 +113,18 @@
             "type": "string",
             "maxLength": 64
           }
+        },
+        "performer": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "composer": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 256
         }
       }
     }
