@@ -5,22 +5,50 @@
   "description": "What may be sent to the extraction gateway. An allowlist, not a deny-list: additionalProperties is false everywhere, so a user id, an observation id, an email address or a calendar payload is refused because it was never permitted rather than because somebody remembered to name it. The failure mode of a deny-list is silence. Every bound here is authored in terms.xlsx under llm.input.* and llm.batch.*, and the compiler refuses to compile if the two disagree.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "prompt_version", "grammar_version", "source_profile", "request_id", "items"],
+  "required": [
+    "schema_version",
+    "prompt_version",
+    "grammar_version",
+    "source_profile",
+    "request_id",
+    "items"
+  ],
   "properties": {
-    "schema_version": { "const": "mention_extract_request_v1" },
-    "prompt_version": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "grammar_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "schema_version": {
+      "const": "mention_extract_request_v1"
+    },
+    "prompt_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "grammar_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
     "source_profile": {
       "description": "Which source's predicate profile applies. Not the source's data.",
-      "enum": ["youtube", "calendar", "apple_music", "spotify", "music_catalog", "podcast"]
+      "enum": [
+        "youtube",
+        "calendar",
+        "apple_music",
+        "spotify",
+        "music_catalog",
+        "podcast"
+      ]
     },
-    "request_id": { "$ref": "#/$defs/opaque_id" },
+    "request_id": {
+      "$ref": "#/$defs/opaque_id"
+    },
     "items": {
       "description": "Two at most, matching items.maxItems in the response schema. Raising it is a schema version change on both sides at once, which is the point of stating it twice and checking it once.",
       "type": "array",
       "minItems": 1,
       "maxItems": 2,
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     }
   },
   "$defs": {
@@ -34,11 +62,30 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["item_index", "item_id", "fields"],
+      "required": [
+        "item_index",
+        "item_id",
+        "fields"
+      ],
       "properties": {
-        "item_index": { "type": "integer", "minimum": 0, "maximum": 1 },
-        "item_id": { "$ref": "#/$defs/opaque_id" },
-        "fields": { "$ref": "#/$defs/fields" }
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "item_id": {
+          "$ref": "#/$defs/opaque_id"
+        },
+        "fields": {
+          "$ref": "#/$defs/fields"
+        },
+        "source_action": {
+          "description": "The exact observed provider action beneath this item — liked_video, library_song, subscription, followed — so the model knows what kind of fact it is reading (three-lane contract 8.1: input MUST include the exact observed action). Optional for wire compatibility with requests built before it existed; the worker always sends it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9_]+$"
+        }
       }
     },
     "fields": {
@@ -47,13 +94,25 @@
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
-        "title": { "type": "string", "maxLength": 256 },
-        "channel_label": { "type": "string", "maxLength": 128 },
-        "description_excerpt": { "type": "string", "maxLength": 512 },
+        "title": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "channel_label": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "description_excerpt": {
+          "type": "string",
+          "maxLength": 512
+        },
         "tags": {
           "type": "array",
           "maxItems": 20,
-          "items": { "type": "string", "maxLength": 64 }
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
         }
       }
     }

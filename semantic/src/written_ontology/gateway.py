@@ -498,6 +498,11 @@ def build_request(items: Sequence[RequestItem], contract, *,
                 "item_index": item.item_index,
                 "item_id": ids.get(item.item_index, _default_item_id(item.item_index)),
                 "fields": dict(item.fields),
+                # Contract 8.1: the exact observed action rides beside the text,
+                # absent rather than null when the caller did not state one —
+                # the request schema marks it optional for exactly that case.
+                **({"source_action": item.source_action}
+                   if item.source_action else {}),
             }
             for item in items
         ],

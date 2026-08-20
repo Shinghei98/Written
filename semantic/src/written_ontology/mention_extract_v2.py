@@ -65,6 +65,12 @@ class RequestItem:
 
     item_index: int
     fields: dict[str, str | list[str]]
+    # The exact observed provider action beneath this item (liked_video,
+    # subscription, library_song, ...). Contract 8.1: the model must know what
+    # kind of fact it is reading, so a like is never dressed up as a watch.
+    # Optional with a None default so every existing constructor call — and
+    # every request built before the field existed — stays valid.
+    source_action: str | None = None
 
     def source_string(self, field: str, index: int | None) -> str:
         if field not in self.fields:

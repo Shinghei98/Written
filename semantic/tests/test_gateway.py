@@ -383,6 +383,23 @@ def test_an_item_id_carries_nothing_by_default(shadow):
     assert [i["item_id"] for i in request["items"]] == ["i0", "i1"]
 
 
+def test_the_observed_action_travels_with_the_item(shadow):
+    """Contract 8.1: the model must know what kind of fact it is reading.
+
+    Stated by the caller, the exact action rides in the wire item and the
+    request schema admits it; unstated, the key is absent rather than null —
+    the schema marks it optional for requests built before it existed.
+    """
+    import jsonschema
+
+    stated = gateway.build_request(
+        [RequestItem(0, {"title": "a"}, "liked_video"),
+         RequestItem(1, {"title": "b"})], shadow)
+    jsonschema.validate(stated, shadow.request_schema)
+    assert stated["items"][0]["source_action"] == "liked_video"
+    assert "source_action" not in stated["items"][1]
+
+
 # ---------------------------------------------------------------------------
 # The HTTP surface
 # ---------------------------------------------------------------------------

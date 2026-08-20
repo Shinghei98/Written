@@ -654,6 +654,7 @@ select e.id as source_text_evidence_id,
        e.observation_id,
        e.user_id,
        o.source_code,
+       o.action_type,
        o.data_type,
        e.encrypted_text,
        e.encryption_key_version
@@ -738,6 +739,9 @@ def _items_for(connection, user_id: str, payload: dict[str, Any],
             # The contract's profile, never the raw source code — `music_library`
             # is not a profile the request schema knows.
             "source_profile": model_input_profile(row.get("source_code")),
+            # Contract 8.1: the exact observed action travels with the item, so
+            # the model reads "liked_video" as a like and never as a watch.
+            "source_action": row.get("action_type"),
         })
     return items
 
@@ -805,6 +809,9 @@ def _wire_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "item_index": item["item_index"],
         "fields": item["fields"],
+        # Contract 8.1: the observed action IS request content — the gateway
+        # copies it into the wire document, unlike the two identifiers below.
+        "source_action": item.get("source_action"),
         "observation_id": str(item["observation_id"]),
         "source_text_evidence_id": str(item["source_text_evidence_id"]),
         "logical_extraction_key": item["logical_extraction_key"],

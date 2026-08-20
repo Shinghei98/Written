@@ -151,7 +151,8 @@ def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
 
     if route == "v1/semantic/extract":
         try:
-            items = [RequestItem(entry["item_index"], entry["fields"])
+            items = [RequestItem(entry["item_index"], entry["fields"],
+                                 entry.get("source_action"))
                      for entry in request.get("items", [])]
         except (KeyError, TypeError):
             return 400, {"outcome": "input_oversize", "detail": "malformed items"}
