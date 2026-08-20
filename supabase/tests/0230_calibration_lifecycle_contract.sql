@@ -217,12 +217,67 @@ begin
   end if;
 
   -- ---------------------------------------------------------------------
+  -- 4b. Keep and edit, the two verbs the lane exists for
+  -- ---------------------------------------------------------------------
+  -- **Absent from every contract file until 0269**, and all three of their
+  -- defects were fatal on the first call: a join on
+  -- `user_term_candidates.ontology_version_id`, a column that has never
+  -- existed (42703), and two `review_events.reason` values — 'user_keep' and
+  -- 'user_correction' — that the column's fourteen-word check constraint has
+  -- never admitted. A keep is what authorises a mint, so this is the path the
+  -- whole discovery-to-Memories story runs through, and nothing called it.
+  perform api.keep_calibration_item(prov_item);
+  set constraints all immediate;
+
+  select count(*) into n from semantic_private.review_events
+   where review_item_id = prov_item and action = 'keep';
+  if n <> 1 then
+    raise exception '0230 contract: keep wrote % events', n;
+  end if;
+  -- Exactly one mint request, which is the authority step itself.
+  select count(*) into n from semantic_private.mint_requests
+   where review_item_id = prov_item and origin = 'keep';
+  if n <> 1 then
+    raise exception '0230 contract: keep wrote % mint requests', n;
+  end if;
+  -- Idempotent: a second tap is not a second authorisation to mint.
+  perform api.keep_calibration_item(prov_item);
+  select count(*) into n from semantic_private.mint_requests
+   where review_item_id = prov_item;
+  if n <> 1 then
+    raise exception '0230 contract: a second keep wrote % mint requests', n;
+  end if;
+  -- The request carries the label that was on screen, not a null.
+  if exists (select 1 from semantic_private.mint_requests
+              where review_item_id = prov_item
+                and (requested_label is null or btrim(requested_label) = '')) then
+    raise exception '0230 contract: the mint request names no label';
+  end if;
+
+  -- The edit supersedes with the owner's own words and counts the original
+  -- proposal as negative — never as a model success.
+  perform api.edit_calibration_item(item, 'a corrected label', 'work');
+  set constraints all immediate;
+  select count(*) into n from semantic_private.review_events
+   where review_item_id = item and action = 'edit';
+  if n <> 1 then
+    raise exception '0230 contract: edit wrote % events', n;
+  end if;
+  if exists (select 1 from semantic_private.review_events
+              where review_item_id = item and action = 'edit'
+                and reason = 'correct') then
+    raise exception '0230 contract: an edit was recorded as a model success';
+  end if;
+
+  -- ---------------------------------------------------------------------
   -- 5. Abandonment writes no implicit keeps
   -- ---------------------------------------------------------------------
   -- Alice has struck one of two and walked away. `prov_item` was exposed and
   -- left alone; without a completion it must carry no positive label.
+  -- The explicit keep above is excluded by name: this is about what silence
+  -- writes, and silence must still write nothing.
   select count(*) into n from semantic_private.review_events
-   where user_id = alice and action = 'keep';
+   where user_id = alice and action = 'keep' and review_item_id <> prov_item;
   if n <> 0 then
     raise exception '0230 contract: an abandoned review wrote % keeps', n;
   end if;
@@ -235,7 +290,7 @@ begin
   perform api.finish_calibration(900);
 
   select count(*) into n from semantic_private.review_events
-   where user_id = alice and action = 'keep';
+   where user_id = alice and action = 'keep' and review_item_id <> prov_item;
   if n <> 0 then
     raise exception '0230 contract: an all-struck completion wrote % keeps', n;
   end if;
