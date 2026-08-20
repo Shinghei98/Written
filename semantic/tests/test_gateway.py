@@ -99,7 +99,7 @@ def valid_response(items=REQUEST, contract=None):
         "output_tokens": 120,
         "runtime": matching_runtime(contract),
         "body": {
-            "schema_version": "mention_extract_v2",
+            "schema_version": "mention_extract_v3",
             "items": [{
                 "item_index": item.item_index,
                 "status": "extracted",
@@ -114,6 +114,9 @@ def valid_response(items=REQUEST, contract=None):
                     "family_hypothesis": "work",
                     "mention_role": "work_or_franchise",
                     "conversation_worthy": True,
+            "english_label": None,
+            "original_label": None,
+            "relation_hypotheses": [],
                 }],
             } for item in items],
         },

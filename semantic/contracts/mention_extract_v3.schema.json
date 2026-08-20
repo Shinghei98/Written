@@ -1,0 +1,522 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://written.app/schemas/mention_extract_v3.schema.json",
+  "title": "Written mention extraction envelope v3",
+  "description": "What one model call may say about a bounded batch of source records. v3 adds the inferred mention: a term the model asserts from its own knowledge rather than reads out of the text, which is what dictionary building needs and what v2 made structurally impossible. An inferred mention carries no offsets, so a v2 validator cannot read one — hence a new version rather than an edit, the same reason v2 was a new file. Every guard on an EXTRACTED mention is unchanged: surface still equals the source slice exactly, and a hallucinated span is still refused. No `pattern` appears anywhere: xgrammar 0.2.3's token matcher leaks on pattern-constrained strings, so the bounds live in the Python validator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mention_extract_v3"
+    },
+    "items": {
+      "description": "Two, not four. The gateway accepts at most two indexed items and the contract calibrates for two; the schema is set to the same number so a third cannot be emitted by a model that misread its instructions. Raising it is a schema version change, which is correct: batch size is part of the output contract, not a runtime dial.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/item_extracted"
+          },
+          {
+            "$ref": "#/$defs/item_abstained"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "item_extracted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "extracted"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              },
+              {
+                "$ref": "#/$defs/mention_inferred"
+              }
+            ]
+          }
+        },
+        "abstain_reason": {
+          "type": "null"
+        }
+      }
+    },
+    "item_abstained": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "abstained"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              }
+            ]
+          }
+        },
+        "abstain_reason": {
+          "type": "string",
+          "enum": [
+            "no_durable_subject",
+            "hard_suppressed",
+            "ambiguous",
+            "insufficient_context",
+            "invalid_input"
+          ]
+        }
+      }
+    },
+    "mention_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "conversation_worthy",
+        "english_label",
+        "original_label",
+        "relation_hypotheses"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": [
+            "title",
+            "channel_label",
+            "description_excerpt"
+          ]
+        },
+        "source_field_index": {
+          "description": "Null outside tags.",
+          "type": "null"
+        },
+        "start": {
+          "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "idea",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "conversation_worthy": {
+          "type": "boolean"
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        }
+      }
+    },
+    "mention_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "conversation_worthy",
+        "english_label",
+        "original_label",
+        "relation_hypotheses"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": [
+            "tags"
+          ]
+        },
+        "source_field_index": {
+          "description": "Required for tags: the index of the tag the span is in.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
+        },
+        "start": {
+          "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "idea",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "conversation_worthy": {
+          "type": "boolean"
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        }
+      }
+    },
+    "relation_hypothesis": {
+      "description": "A relation the model believes holds between this mention and another term — 'Luffy part_of_franchise One Piece'. The object is a bare label, never an id: the model does not know what has been minted and must never choose one. Optional by the owner's decision: an inferred term needs no tether to be admitted, and a relation is recorded when the model has one rather than demanded before it may speak.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predicate",
+        "object_label_hypothesis"
+      ],
+      "properties": {
+        "predicate": {
+          "type": "string",
+          "enum": [
+            "part_of_franchise",
+            "features",
+            "about",
+            "performed_by",
+            "composed_by",
+            "recording_of",
+            "soundtrack_of",
+            "member_of_group",
+            "played_for",
+            "official_channel_of",
+            "represented_team_in",
+            "located_in"
+          ]
+        },
+        "object_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "mention_inferred": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "conversation_worthy",
+        "english_label",
+        "original_label",
+        "relation_hypotheses"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "description": "Always 'inferred'; this mention was not read from a field.",
+          "type": "string",
+          "enum": [
+            "inferred"
+          ]
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "idea",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "conversation_worthy": {
+          "type": "boolean"
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        }
+      },
+      "description": "A term the model asserts from its own knowledge — the franchise behind a character, the artist behind a track, the English name of a foreign one. It has no span because it is not in the text, so `start`, `end` and `source_field_index` are absent rather than nulled: a reader must not be able to mistake an inferred mention for an extracted one whose offsets happened to be zero. `source_field` is the constant 'inferred', which is how the variant is told apart, the same mechanism `mention_tag` uses."
+    }
+  }
+}

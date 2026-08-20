@@ -67,14 +67,21 @@ begin
   -- redirect target in property 8. Both need an active revision at `version`
   -- because `user_assertions` carries a composite foreign key into
   -- `concept_revisions (ontology_version_id, concept_id)`.
+  -- **Not `work`-kinded, and the exclusion is load-bearing.** `0283` stopped
+  -- offering song- and album-level terms for review, so a fixture that took
+  -- whichever concept sorted first was passing on luck: the day that concept
+  -- happened to be a `work`, `begin_calibration` exposed one item instead of
+  -- two and every property below it measured a page that was not there.
   select cr.concept_id into concept
     from ontology.concept_revisions cr
    where cr.ontology_version_id = version and cr.status = 'active'
+     and cr.concept_kind <> 'work'
    order by cr.concept_id::text
    limit 1;
   select cr.concept_id into other
     from ontology.concept_revisions cr
    where cr.ontology_version_id = version and cr.status = 'active'
+     and cr.concept_kind <> 'work'
      and cr.concept_id <> concept
    order by cr.concept_id::text
    limit 1;

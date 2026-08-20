@@ -140,7 +140,14 @@ def extract_mentions(job) -> dict[str, Any]:
 #: What a mention proposed by the model is called, and the only value
 #: `guard_model_mention_lineage` accepts alongside an invocation item.
 _MODEL_METHOD = "model_proposed"
+_INFERRED_METHOD = "model_inferred"
 
+#: **The method travels with the row.** A mention the model *read* and one it
+#: *asserted* are both its output and are stored alike, but they are not the
+#: same claim: one can be checked against a source string and one cannot, and
+#: a dictionary that forgot which was which could not be audited afterwards.
+#: `0286` admits the fourth value.
+#:
 #: The model lane writes a mention exactly as the exact lane does, except for
 #: the two columns that say where it came from. Everything else — the
 #: conflict key, the mining flags, the locale — is deliberately identical, so a
@@ -154,7 +161,7 @@ insert into semantic_private.observation_mentions (
   model_invocation_item_id)
 values (
   %(observation_id)s, %(user_id)s, %(mention_text)s, %(normalized_text)s,
-  %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, 'model_proposed',
+  %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, %(extraction_method)s,
   %(confidence)s, false, false, %(evidence_weight)s,
   %(model_invocation_item_id)s)
 on conflict (observation_id, normalized_text, mention_role,
@@ -884,7 +891,9 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
     looked up here.
     """
     by_index = {row["item_index"]: row for row in proposed["lineage"]}
-    rows = []
+    rows: list[dict] = []
+    dictionary: list[tuple[dict, bool]] = []
+    relations: list[tuple[dict, dict]] = []
     for answered in proposed["items"]:
         lineage = by_index.get(answered.get("item_index"))
         if lineage is None or lineage["outcome"] != "succeeded":
@@ -892,6 +901,7 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
             # refuses it and the check constraint refused the count already.
             continue
         for mention in answered.get("mentions", []):
+            inferred = mention.get("source_field") == "inferred"
             rows.append({
                 "observation_id": lineage["observation_id"],
                 "user_id": user_id,
@@ -900,15 +910,97 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
                 "mention_role": mention.get("mention_role"),
                 "type_hint": mention.get("family_hypothesis"),
                 "source_field": mention.get("source_field"),
+                "extraction_method": (
+                    _INFERRED_METHOD if inferred else _MODEL_METHOD),
                 "confidence": mention.get("confidence", 1.0),
                 "evidence_weight": 1.0,
                 "model_invocation_item_id": lineage["item_id"],
             })
+            dictionary.append((mention, inferred))
+            for relation in mention.get("relation_hypotheses") or []:
+                relations.append((mention, relation))
     if not rows:
         return 0
     with connection.cursor() as cursor:
         cursor.executemany(_INSERT_MODEL_MENTION, rows)
+    _write_dictionary(connection, dictionary, relations)
     return len(rows)
+
+
+#: **Every term enters the dictionary, including the object of a relation.**
+#: The owner's rule is unqualified, and the object is the whole reason a
+#: franchise is known the first time any character of it is seen. `origin`
+#: records how the term arrived; nothing here decides whether it is true.
+_INSERT_PRESUMED_TERM = """
+insert into semantic_private.presumed_terms
+  (normalized_label, family, canonical_label, english_label, original_label,
+   origin, source_lanes)
+values (%(normalized_label)s, %(family)s, %(canonical_label)s,
+        %(english_label)s, %(original_label)s, %(origin)s, %(source_lanes)s)
+on conflict (normalized_label, family) do update
+   set last_seen_at = now(),
+       english_label = coalesce(semantic_private.presumed_terms.english_label,
+                                excluded.english_label),
+       original_label = coalesce(semantic_private.presumed_terms.original_label,
+                                 excluded.original_label)
+"""
+
+#: A relation the model proposed, into the table `0203` built for exactly this
+#: and nothing has ever written. `traversable` stays false by check constraint
+#: until something verifies it, so a presumed relation can never be walked for
+#: inference — which is what makes it safe to record one the model invented.
+_INSERT_RELATION = """
+insert into semantic_private.candidate_relation_proposals
+  (user_id, subject_provisional_id, predicate, object_label_hypothesis,
+   authority_state, traversable, provenance)
+select null, p.id, %(predicate)s, %(object_label)s,
+       'model_proposed', false,
+       jsonb_build_object('source', 'model_lane', 'subject_surface', %(subject)s)
+  from semantic_private.provisional_entities p
+ where p.normalized_label = %(subject_normalized)s
+ limit 1
+on conflict do nothing
+"""
+
+
+def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
+                      relations: list[tuple[dict, dict]]) -> None:
+    """Put every proposed term in the dictionary, and record its relations.
+
+    Failures here must never fail the extraction: the mentions are already
+    written and are the evidence, while the dictionary is a global convenience
+    rebuilt from them. A dictionary write that could roll back a person's
+    distillation would be the tail wagging the dog.
+    """
+    entries = []
+    for mention, inferred in dictionary:
+        family = mention.get("family_hypothesis")
+        if not family:
+            continue
+        entries.append({
+            "normalized_label": _normalize(mention["surface"]),
+            "family": family,
+            "canonical_label": mention.get("canonical_label_hypothesis")
+                               or mention["surface"],
+            "english_label": mention.get("english_label"),
+            "original_label": mention.get("original_label"),
+            "origin": "inferred" if inferred else "extracted",
+            "source_lanes": [],
+        })
+
+    try:
+        with connection.cursor() as cursor:
+            if entries:
+                cursor.executemany(_INSERT_PRESUMED_TERM, entries)
+            for mention, relation in relations:
+                cursor.execute(_INSERT_RELATION, {
+                    "predicate": relation["predicate"],
+                    "object_label": relation["object_label_hypothesis"],
+                    "subject": mention["surface"],
+                    "subject_normalized": _normalize(mention["surface"]),
+                })
+    except Exception as error:  # noqa: BLE001 - reported, never fatal
+        print(json.dumps({"dictionary_write_failed": type(error).__name__}))
 
 
 def _normalize(surface: str) -> str:

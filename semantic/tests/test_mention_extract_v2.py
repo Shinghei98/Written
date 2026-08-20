@@ -20,7 +20,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v2.schema.json")
+               / "contracts" / "mention_extract_v3.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -39,13 +39,36 @@ def mention(**overrides) -> dict:
         "family_hypothesis": "work",
         "mention_role": "work_or_franchise",
         "conversation_worthy": True,
+        # v3: present on every variant, and nullable/empty rather than
+        # optional — a model permitted to omit a field omits it, and the
+        # English name is the one the owner asked for by name.
+        "english_label": None,
+        "original_label": None,
+        "relation_hypotheses": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def inferred_mention(**overrides) -> dict:
+    """A term the model asserts rather than reads. No span, by construction."""
+    base = {
+        "surface": "One Piece",
+        "source_field": "inferred",
+        "canonical_label_hypothesis": "One Piece",
+        "family_hypothesis": "franchise",
+        "mention_role": "work_or_franchise",
+        "conversation_worthy": True,
+        "english_label": "One Piece",
+        "original_label": "ワンピース",
+        "relation_hypotheses": [],
     }
     base.update(overrides)
     return base
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v2", "items": items}
+    return {"schema_version": "mention_extract_v3", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:
@@ -87,9 +110,12 @@ def test_removed_fields_are_refused(schema):
     """`additionalProperties: false` is what makes the removal real."""
     import jsonschema
 
+    # **`relation_hypotheses` is no longer among them.** v3 restored it, so a
+    # term can arrive with its predicate attached — "Luffy part_of_franchise
+    # One Piece". The other two stay removed because nothing reads them, which
+    # was always the reason.
     for field, value in (("evidence_fields", ["title"]),
-                         ("lookup_queries", ["q"]),
-                         ("relation_hypotheses", [])):
+                         ("lookup_queries", ["q"])):
         bad = response([extracted(mentions=[mention(**{field: value})])])
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.Draft202012Validator(schema).validate(bad)
@@ -469,3 +495,72 @@ def test_a_surface_absent_from_the_source_is_still_refused(schema):
                                          "type_hint": "work",
                                          "evidence_fields": ["title"]}]}]}
     assert repair_offsets(response, [item]) == 0
+
+
+# ---------------------------------------------------------------------------
+# The inferred variant
+# ---------------------------------------------------------------------------
+
+def test_an_inferred_mention_needs_no_span(schema):
+    """**The change the dictionary exists for.** "One Piece" is not in a title
+    that says 路飛, so under v2 it could not be emitted at all: every mention
+    required `source_field`, `start` and `end`, and the surface had to equal
+    the slice. Dictionary building does not need that guard — users validate,
+    and the weight decides what survives.
+    """
+    request = [RequestItem(0, {"title": "路飛の冒険"})]
+    validate_with_schema(
+        response([extracted(mentions=[inferred_mention()])]), request, schema)
+
+
+def test_an_inferred_mention_may_carry_its_relation(schema):
+    """Luffy is a character in One Piece — `part_of_franchise`, from the closed
+    predicate list the grammar has always carried and nothing has ever used."""
+    request = [RequestItem(0, {"title": "路飛の冒険"})]
+    resp = response([extracted(mentions=[inferred_mention(
+        relation_hypotheses=[{"predicate": "part_of_franchise",
+                              "object_label_hypothesis": "One Piece"}])])])
+    validate_with_schema(resp, request, schema)
+
+
+def test_an_inferred_mention_may_not_invent_a_predicate(schema):
+    """The grammar is closed even where the nouns are open."""
+    import jsonschema
+
+    resp = response([extracted(mentions=[inferred_mention(
+        relation_hypotheses=[{"predicate": "is_vibes_with",
+                              "object_label_hypothesis": "One Piece"}])])])
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.Draft202012Validator(schema).validate(resp)
+
+
+def test_an_extracted_mention_is_still_held_to_its_source(schema):
+    """**The half that must not move.** Inference is permitted; a *claim to
+    have read something* that was not there is still a refusal, because that is
+    a different lie and the dictionary cannot tell them apart afterwards.
+    """
+    request = [RequestItem(0, {"title": "Midnight"})]
+    with pytest.raises(ExtractionInvalid) as refusal:
+        validate_response(
+            response([extracted(mentions=[mention(surface="Daybreak")])]), request)
+    assert refusal.value.code == "surface_offset_mismatch"
+
+
+def test_the_same_inferred_claim_twice_is_refused(schema):
+    request = [RequestItem(0, {"title": "路飛の冒険"})]
+    with pytest.raises(ExtractionInvalid) as refusal:
+        validate_response(
+            response([extracted(mentions=[inferred_mention(), inferred_mention()])]),
+            request)
+    assert refusal.value.code == "duplicate_inferred_claim"
+
+
+def test_repair_leaves_an_inferred_mention_alone(schema):
+    """It has no span to repair, and inventing one would be a fabricated
+    provenance rather than a corrected arithmetic."""
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    request = [RequestItem(0, {"title": "路飛の冒険"})]
+    resp = response([extracted(mentions=[inferred_mention()])])
+    assert repair_offsets(resp, request) == 0
+    assert "start" not in resp["items"][0]["mentions"][0]

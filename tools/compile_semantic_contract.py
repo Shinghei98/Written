@@ -211,12 +211,27 @@ def _mention_properties(schema: dict[str, Any]) -> dict[str, Any]:
     defs = schema["$defs"]
     if "mention" in defs:
         return defs["mention"]["properties"]
-    text = defs["mention_text"]["properties"]
-    tag = defs["mention_tag"]["properties"]
-    for key in ("family_hypothesis", "mention_role"):
-        if text[key]["enum"] != tag[key]["enum"]:
-            raise ContractError(f"mention variants disagree on {key}")
-    return text
+
+    # **Every variant present, not the two this function was written for.**
+    # v3 adds `mention_inferred`, and a third door that nothing compared would
+    # be exactly the hole this check exists to close: a family legal when
+    # inferred and illegal when read, discovered by a refusal in production.
+    # Named from the schema rather than listed here, so a fourth variant is
+    # compared the day it appears.
+    variants = {name: body["properties"]
+                for name, body in defs.items()
+                if name.startswith("mention_")}
+    if not variants:
+        raise ContractError("the schema declares no mention variant")
+
+    first_name, first = next(iter(sorted(variants.items())))
+    for name, properties in sorted(variants.items()):
+        for key in ("family_hypothesis", "mention_role"):
+            if properties[key]["enum"] != first[key]["enum"]:
+                raise ContractError(
+                    f"mention variants disagree on {key}: "
+                    f"{name} against {first_name}")
+    return first
 
 
 def _abstain_reasons(schema: dict[str, Any]) -> list[str]:

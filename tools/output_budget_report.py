@@ -138,6 +138,13 @@ def schema_limits(schema: dict) -> dict:
         "schema_version": schema["properties"]["schema_version"]["const"],
         "surface_max": mention["surface"]["maxLength"],
         "canonical_max": mention["canonical_label_hypothesis"]["maxLength"],
+        # v3's two label fields, read from the schema like everything else
+        # here. They are required, so a response without them is invalid and a
+        # budget measured without them is short by two strings per mention.
+        **({"english_max": mention["english_label"]["maxLength"]}
+           if "english_label" in mention else {}),
+        **({"original_max": mention["original_label"]["maxLength"]}
+           if "original_label" in mention else {}),
         "source_field_enum": mention["source_field"]["enum"],
         "family_enum": mention["family_hypothesis"]["enum"],
         "role_enum": mention["mention_role"]["enum"],
@@ -191,6 +198,12 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
             (f"{unique_salt}-{i}-" + text)[: lim["lookup_max"]]
             for i in range(lim["lookup_items"])
         ]
+    # Worst case is the label present and full, never null: the point of this
+    # program is what the model *may* emit, not what it usually does.
+    if "english_max" in lim:
+        mention["english_label"] = text[: lim["english_max"]]
+    if "original_max" in lim:
+        mention["original_label"] = text[: lim["original_max"]]
     if "relations_max" in lim:
         mention["relation_hypotheses"] = [
             {"predicate": "performed_by",

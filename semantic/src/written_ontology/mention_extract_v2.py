@@ -38,11 +38,25 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v2"
+SCHEMA_VERSION = "mention_extract_v3"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
 SOURCE_FIELDS = ("title", "channel_label", "description_excerpt", "tags")
+
+#: The `source_field` an inferred mention carries. It is not a field at all —
+#: the value is how the variant is told apart, the same mechanism `mention_tag`
+#: uses. Named once so no caller compares the literal itself.
+INFERRED_FIELD = "inferred"
+
+
+def is_inferred(mention: dict) -> bool:
+    """**The variant is read from `source_field`, never from the absence of a
+    key.** A mention missing `start` because the model omitted it and one that
+    is inferred are different failures, and a test on absence would call them
+    the same thing.
+    """
+    return mention.get("source_field") == INFERRED_FIELD
 
 #: The characters the wire schema used to refuse by pattern: C0 controls other
 #: than tab/LF/CR, and DEL. Tab, LF and CR stay legal, as they were under the
@@ -91,6 +105,22 @@ class RequestItem:
         return value
 
 
+def _validate_text_fields(mention: dict, where: str) -> None:
+    """The checks a surface and a label must pass however they arrived.
+
+    Shared by the extracted and inferred paths deliberately: a control
+    character or a whitespace-only label is refused for the same reason in
+    both, and two copies would be two places to forget one.
+    """
+    for code, key in (("surface", "surface"),
+                      ("label", "canonical_label_hypothesis")):
+        value = mention[key]
+        if any(ch in _REFUSED_CONTROL for ch in value):
+            raise ExtractionInvalid(f"{code}_control_characters", where)
+        if not value.strip():
+            raise ExtractionInvalid(f"{code}_whitespace_only", where)
+
+
 def validate_response(response: dict, request: list[RequestItem]) -> None:
     """Raise `ExtractionInvalid` unless the response answers this request.
 
@@ -125,7 +155,19 @@ def validate_response(response: dict, request: list[RequestItem]) -> None:
 
 def _validate_item(item: dict, request_item: RequestItem) -> None:
     spans: set[tuple[str, int | None, int, int, str]] = set()
+    asserted: set[tuple[str, str]] = set()
     for mention in item.get("mentions", []):
+        if is_inferred(mention):
+            # **An inferred mention is checked for everything except its span.**
+            # It has none: it was asserted, not read. What still holds is that
+            # it says something sayable — no control characters, nothing
+            # whitespace-only, and not the same claim twice.
+            _validate_text_fields(mention, INFERRED_FIELD)
+            key = (mention["surface"], mention["mention_role"])
+            if key in asserted:
+                raise ExtractionInvalid("duplicate_inferred_claim")
+            asserted.add(key)
+            continue
         field = mention["source_field"]
         index = mention["source_field_index"]
         start, end = mention["start"], mention["end"]
@@ -152,14 +194,7 @@ def _validate_item(item: dict, request_item: RequestItem) -> None:
         # real tokenizer, 2026-08-19. This is the layer for what the schema
         # cannot safely express: no control characters (C0 or DEL), and not
         # all whitespace.
-        label = mention["canonical_label_hypothesis"]
-        for code, value in (("surface", surface), ("label", label)):
-            if any(ch in _REFUSED_CONTROL for ch in value):
-                raise ExtractionInvalid(f"{code}_control_characters",
-                                        f"{field}[{start}:{end}]")
-            if not value.strip():
-                raise ExtractionInvalid(f"{code}_whitespace_only",
-                                        f"{field}[{start}:{end}]")
+        _validate_text_fields(mention, f"{field}[{start}:{end}]")
 
         expected = source[start:end]
 
@@ -233,6 +268,8 @@ def repair_offsets(response: dict, request: list[RequestItem]) -> int:
                     mention.get("source_field"), mention.get("source_field_index"))
             except ExtractionInvalid:
                 continue  # validate_response will say why, with its own code
+            if is_inferred(mention):
+                continue  # no span to repair; it was never read from a field
             surface = mention.get("surface")
             if not isinstance(surface, str) or not surface:
                 continue
