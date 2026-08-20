@@ -1351,20 +1351,31 @@ struct DashboardView: View {
                                 .foregroundStyle(GardenPalette.ink.opacity(0.55))
                         }
                         Spacer(minLength: 8)
+                        // **44pt of tappable area around a 22pt glyph.** The
+                        // glyph alone was the whole target, inside a scroll
+                        // view, on rows that reflow as answers land — which is
+                        // three ways for a real tap to reach nothing. The
+                        // shape is stated rather than inherited: a plain
+                        // button's hit region is its label's opaque pixels,
+                        // and a circle's are mostly not.
                         Button {
-                            Task { await decide(suggestion, keep: true) }
+                            decide(suggestion, keep: true)
                         } label: {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 22))
                                 .foregroundStyle(GardenPalette.gold)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         Button {
-                            Task { await decide(suggestion, keep: false) }
+                            decide(suggestion, keep: false)
                         } label: {
                             Image(systemName: "xmark.circle")
                                 .font(.system(size: 22))
                                 .foregroundStyle(GardenPalette.ink.opacity(0.45))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1374,24 +1385,39 @@ struct DashboardView: View {
         }
     }
 
+    /// **Optimistic, with rollback — the same shape `suppress` uses two
+    /// hundred lines below, and for the same reason.** Awaiting the network
+    /// before the row moved meant every tap did nothing for the length of a
+    /// round trip, on a list whose rows shift as answers land; a second tap
+    /// in that window hit a row that was already answered and looked ignored.
+    /// A refusal now puts the row back and says so, rather than leaving a
+    /// button that appears dead.
     private func decide(
         _ suggestion: SemanticSurfaceService.Suggestion, keep: Bool
-    ) async {
-        let recorded = keep
-            ? await SemanticSurfaceService.shared.keep(suggestion)
-            : await SemanticSurfaceService.shared.strike(suggestion)
-        // An answer the server never recorded must not leave the screen —
-        // the same rule every assertion answer follows.
-        guard recorded else { return }
+    ) {
+        let restore = suggestions
         suggestions?.removeAll { $0.id == suggestion.id }
-        // The last visible row deciding is the batch finishing. Closing it is
-        // what lets the next `suggestions()` page forward — without the finish,
-        // the server re-serves this same batch forever. The next batch is
-        // fetched immediately, so judging flows without reopening the page.
-        if suggestions?.allSatisfy(\.struck) ?? true {
-            await SemanticSurfaceService.shared.finishCalibration()
-            suggestions = await SemanticSurfaceService.shared.suggestions()
-                ?? suggestions
+        Task {
+            let recorded = keep
+                ? await SemanticSurfaceService.shared.keep(suggestion)
+                : await SemanticSurfaceService.shared.strike(suggestion)
+            guard recorded else {
+                let reason = await SemanticSurfaceService.shared.lastError
+                await MainActor.run {
+                    suggestions = restore
+                    assertionFailure = reason ?? "That didn't save."
+                }
+                return
+            }
+            // The last row deciding is the batch finishing. Closing it is what
+            // lets the next `suggestions()` page forward — without the finish
+            // the server re-serves this same batch forever. Fetched right
+            // away, so judging flows without reopening the page.
+            if suggestions?.isEmpty ?? true {
+                await SemanticSurfaceService.shared.finishCalibration()
+                let next = await SemanticSurfaceService.shared.suggestions()
+                await MainActor.run { suggestions = next ?? suggestions }
+            }
         }
     }
 

@@ -59,8 +59,12 @@ REVIEW_PAGE = 24
 #: deep. Each batch commits as it lands, so a deferral mid-loop keeps every
 #: batch already written.
 EXTRACT_MAX_CALLS = 20
-EXTRACT_BUDGET_S = 200.0
-EXTRACT_CALL_RESERVE_S = 35.0
+EXTRACT_BUDGET_S = 210.0
+#: **The reserve must exceed the lane's own timeout**, or the loop starts a
+#: call it cannot wait out — the Lambda dies mid-inference, and a killed worker
+#: defers nothing. The lane states 75 s, so this is that plus a margin for the
+#: write that follows.
+EXTRACT_CALL_RESERVE_S = 85.0
 
 #: The route these jobs write. A route is *how* a resolution was reached, and it
 #: is recorded per row because feedback is attributed to it: `aggregate_feedback`

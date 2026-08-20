@@ -317,10 +317,22 @@ class ModelLane:
                                    # which is longer than the boto read timeout
                                    # above — every un-answered poll then became
                                    # a client-side timeout and a hidden retry.
-                                   # 25 s keeps the whole round trip near 30 s;
-                                   # anything unfinished comes back as a resume
-                                   # ticket, which is the designed path.
-                                   "timeout_s": 25,
+                                   # Anything unfinished still comes back as a
+                                   # resume ticket, which is the designed path.
+                                   #
+                                   # **Sized against measured generation, not
+                                   # against a round number.** 77 two-item
+                                   # calls: mean 8.6 s, worst 19 s — about
+                                   # 4.3 s an item mean and 9.5 s worst. At the
+                                   # eight-item batch that is ~34 s mean and
+                                   # ~76 s worst, so the old 25 s deferred
+                                   # nearly every call and the resume path
+                                   # became the normal path, which is slower
+                                   # than the batch was ever going to save.
+                                   # 75 s fits the worst observed batch and
+                                   # stays inside the 90 s boto read timeout
+                                   # above.
+                                   "timeout_s": 75,
                                    "items": items}
 
         answer = self.call_gateway(request)
