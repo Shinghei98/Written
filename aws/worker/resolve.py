@@ -1128,6 +1128,39 @@ select id, started_at, status
    and status in ('running', 'succeeded')
 """
 
+#: Mentions a keep licensed into evidence: the review item was kept or
+#: edited, the mint request completed with a concept (minted or linked), and
+#: the mention is the one whose resolution carries that identity. Provisional
+#: keeps join through the provisional; existing-concept keeps join through the
+#: concept. The resolver writes the mapping because only a running run may —
+#: `guard_semantic_output_writable` is the door, and the keep is the license.
+KEPT_CONFIRMED_MENTIONS = """
+select m.observation_id, m.id as mention_id,
+       (req.outcome ->> 'concept_id')::uuid as concept_id,
+       req.id as mint_request_id
+  from semantic_private.mint_requests req
+  join semantic_private.mention_resolutions mr
+    on mr.provisional_entity_id = req.provisional_entity_id
+   and mr.user_id = req.user_id
+  join semantic_private.observation_mentions m
+    on m.id = mr.mention_id and m.user_id = req.user_id
+ where req.user_id = %(user_id)s
+   and req.status = 'completed'
+   and req.provisional_entity_id is not null
+   and (req.outcome ->> 'concept_id') is not null
+union
+select m.observation_id, m.id, (req.outcome ->> 'concept_id')::uuid, req.id
+  from semantic_private.mint_requests req
+  join semantic_private.mention_resolutions mr
+    on mr.concept_id = req.concept_id and mr.user_id = req.user_id
+  join semantic_private.observation_mentions m
+    on m.id = mr.mention_id and m.user_id = req.user_id
+ where req.user_id = %(user_id)s
+   and req.status = 'completed'
+   and req.concept_id is not null
+   and (req.outcome ->> 'concept_id') is not null
+"""
+
 INSERT_MAPPING = """
 insert into semantic_private.observation_mappings (
   semantic_run_id, observation_id, user_id, ontology_version_id, concept_id,
@@ -1652,6 +1685,16 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             identity(row["observation_id"]) for row in cursor.fetchall()
         }
 
+    # **What a keep licensed, keyed by observation.** Loaded once: the set
+    # only changes when a mint request completes, which enqueues its own
+    # recompute, which is a fresh run — so within one run this is a constant.
+    kept_confirmed: dict[str, list[dict]] = {}
+    with connection.cursor() as cursor:
+        cursor.execute(KEPT_CONFIRMED_MENTIONS, {"user_id": user_id})
+        for kept in cursor.fetchall():
+            kept_confirmed.setdefault(
+                identity(kept["observation_id"]), []).append(dict(kept))
+
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
 
@@ -1850,6 +1893,59 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 "youtube_kind": None,
             })
             counts["isrc_mapped"] = counts.get("isrc_mapped", 0) + 1
+            counts["mappings"] += 1
+            counts["accepted"] += 1
+
+        # **What the owner kept becomes evidence, exactly once.** The keep is
+        # the license (memo §3.3: keep comes before evidence), the mint gave
+        # the term its global identity, and this is the room where a mapping
+        # may be written. Deduplicated against every mapping this run already
+        # built for the same (observation, concept) — a deterministic route
+        # reaching the same identity means the keep adds no second vote
+        # (memo §5.2.4) — and the skip is counted, never silent.
+        for kept in kept_confirmed.get(identity(observation.id), ()):
+            kept_concept = str(kept["concept_id"])
+            already = any(
+                str(existing["observation"]) == str(observation.id)
+                and str(existing["concept"]) == kept_concept
+                for existing in mapping_rows)
+            if already:
+                counts["kept_duplicate_of_deterministic"] = (
+                    counts.get("kept_duplicate_of_deterministic", 0) + 1)
+                continue
+            mapping_rows.append({
+                "run": run_id,
+                "observation": observation.id,
+                "user_id": user_id,
+                "version": version,
+                "concept": kept_concept,
+                "method": "user_confirmed_qwen_mint",
+                # **Accepted, not a candidate.** The person said so; there is
+                # nothing left to be uncertain about.
+                "state": "accepted",
+                "confidence": 1.0,
+                "rank": 1,
+                "margin": None,
+                "evidence_path": json.dumps(
+                    [{"step": "user_confirmed_qwen_mint",
+                      "mention_id": str(kept["mention_id"]),
+                      "mint_request_id": str(kept["mint_request_id"])},
+                     recency.evidence_step()]
+                ),
+                "evidence_weight": 1.0,
+                "recency_weight": recency.weight,
+                "recency_quality": recency.timestamp_quality_weight,
+                "recency_policy": recency.policy_version,
+                "recency_rule": recency.rule_id,
+                "recency_status": str(recency.temporal_status),
+                "recency_quality_label": str(recency.timestamp_quality),
+                "as_of": as_of,
+                # Never YouTube: the model lane's source wall already
+                # excludes it, and this route inherits that wall.
+                "youtube_kind": None,
+            })
+            counts["kept_confirmed_mapped"] = (
+                counts.get("kept_confirmed_mapped", 0) + 1)
             counts["mappings"] += 1
             counts["accepted"] += 1
 

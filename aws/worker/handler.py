@@ -460,6 +460,10 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         "apply_feedback": _reporting("apply_feedback", overlay.apply_feedback),
         "aggregate_feedback": _reporting("aggregate_feedback", overlay.aggregate_feedback),
         "evaluate_release": _reporting("evaluate_release", overlay.evaluate_release),
+        # Registered with its handler in the same deploy, per the rule above:
+        # a job type the database permits and this dict does not know is
+        # claimed once, marked dead, and never retried.
+        "process_mint_requests": _reporting("process_mint_requests", overlay.process_mint_requests),
     })
     # **The one path `_diagnostic` did not cover was the one around it.**
     # `SemanticWorker.run_once` wraps only the job handler; claiming, succeeding

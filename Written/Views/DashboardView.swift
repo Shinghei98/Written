@@ -75,6 +75,11 @@ struct DashboardView: View {
     /// `-probe-surface` exists to keep distinguishable.
     @State private var assertions: [SemanticSurfaceService.Assertion]?
 
+    /// Terms the model proposed and the owner has not yet judged. A question,
+    /// not an answer: drawn in its own card, visually apart from Memories, so
+    /// the page never implies a suggestion is already true.
+    @State private var suggestions: [SemanticSurfaceService.Suggestion]?
+
     /// Whether the scores behind this page are catching up with the data.
     ///
     /// **Empty and recalculating look identical, and that has been mistaken for
@@ -1261,6 +1266,7 @@ struct DashboardView: View {
     /// card while the work carries on.
     private func refreshMemories() async {
         assertions = await SemanticSurfaceService.shared.assertions()
+        suggestions = await SemanticSurfaceService.shared.suggestions()
         isRecomputing = await SemanticSurfaceService.shared.isRecomputing() ?? false
 
         var checks = 0
@@ -1323,8 +1329,66 @@ struct DashboardView: View {
         }
     }
 
+    /// One row per pending suggestion: the label, what kind of thing it is,
+    /// and the two one-tap decisions. Keep authorizes the governed mint;
+    /// strike suppresses and feeds recalibration. A decided row leaves the
+    /// list on the spot — the decision is the server's to keep, and a row
+    /// that lingers after its answer invites a second tap that means nothing.
+    @ViewBuilder
+    private var suggestionSection: some View {
+        if let suggestions, !suggestions.isEmpty {
+            card {
+                cardLabel("SUGGESTED — AWAITING YOUR CALL", icon: "sparkles")
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                ForEach(suggestions.filter { !$0.struck }) { suggestion in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(suggestion.label)
+                                .font(BrandFont.body(15))
+                                .foregroundStyle(GardenPalette.ink)
+                            Text("Found in your listening — not yet a Memory")
+                                .font(BrandFont.body(11))
+                                .foregroundStyle(GardenPalette.ink.opacity(0.55))
+                        }
+                        Spacer(minLength: 8)
+                        Button {
+                            Task { await decide(suggestion, keep: true) }
+                        } label: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundStyle(GardenPalette.gold)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            Task { await decide(suggestion, keep: false) }
+                        } label: {
+                            Image(systemName: "xmark.circle")
+                                .font(.system(size: 22))
+                                .foregroundStyle(GardenPalette.ink.opacity(0.45))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func decide(
+        _ suggestion: SemanticSurfaceService.Suggestion, keep: Bool
+    ) async {
+        let recorded = keep
+            ? await SemanticSurfaceService.shared.keep(suggestion)
+            : await SemanticSurfaceService.shared.strike(suggestion)
+        // An answer the server never recorded must not leave the screen —
+        // the same rule every assertion answer follows.
+        guard recorded else { return }
+        suggestions?.removeAll { $0.id == suggestion.id }
+    }
+
     @ViewBuilder
     private var assertionSection: some View {
+        suggestionSection
         recomputingCard
         if let assertions, !assertions.isEmpty {
             let blocks = assertionBlocks(assertions)

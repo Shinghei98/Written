@@ -391,6 +391,108 @@ actor SemanticSurfaceService {
         }
     }
 
+    // MARK: - Suggested Memories (the calibration review surface)
+
+    /// A term the model proposed and the owner has not yet judged. Distinct
+    /// from an `Assertion` on purpose: a suggestion is a question, an
+    /// assertion is an answer, and drawing them from one type is how a page
+    /// starts implying a suggestion is already true.
+    struct Suggestion: Identifiable, Sendable {
+        let id: UUID          // review_item_id — the immutable proposal revision
+        let label: String
+        let kind: String      // the proposal's family/kind, as the server names it
+        let tier: String
+        let rank: Int
+        let struck: Bool
+        let conceptID: UUID?
+        let provisionalID: UUID?
+    }
+
+    /// The owner's pending suggestions, `nil` for *could not ask*. An empty
+    /// array is a real answer (nothing to review, or the surface's flag is
+    /// down for this account); nil is a network or server failure and the
+    /// caller must not redraw an empty state over a cached one.
+    func suggestions() async -> [Suggestion]? {
+        guard AppConfig.semanticSurfacesEnabled else { return [] }
+        do {
+            let rows = try await PostgREST.callFunction(
+                "begin_calibration", arguments: ["batch_size": 8])
+            lastError = nil
+            guard let envelope = rows.first?["value"] as? [String: Any],
+                  let items = envelope["items"] as? [[String: Any]] else {
+                // A bare `{epoch, items: []}` with no items parses here too.
+                return []
+            }
+            return items.compactMap { item in
+                guard let idString = item["review_item_id"] as? String,
+                      let id = UUID(uuidString: idString),
+                      let label = item["label"] as? String else { return nil }
+                return Suggestion(
+                    id: id,
+                    label: label,
+                    kind: item["predicate"] as? String ?? "",
+                    tier: item["confidence_tier"] as? String ?? "",
+                    rank: item["rank"] as? Int ?? 0,
+                    struck: item["struck"] as? Bool ?? false,
+                    conceptID: (item["concept_id"] as? String).flatMap(UUID.init),
+                    provisionalID: (item["provisional_entity_id"] as? String).flatMap(UUID.init)
+                )
+            }
+        } catch let error as PostgREST.Failure {
+            // Same reading as `assertions()`: a downed flag answers 42501
+            // with "is disabled", and only that pair means "switched off".
+            if case .server(_, let code, let message) = error,
+               code == "42501", message.contains("is disabled") {
+                lastError = nil
+                return []
+            }
+            lastError = error.localizedDescription
+            return nil
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Keep: the decision that authorizes catalogue minting. The server
+    /// records the immutable positive event and creates exactly one mint
+    /// request; everything after that (mint, scoring, the Memory appearing)
+    /// is the pipeline's job, never this button's.
+    @discardableResult
+    func keep(_ suggestion: Suggestion) async -> Bool {
+        await call("keep_calibration_item", [
+            "p_review_item_id": suggestion.id.uuidString.lowercased(),
+        ])
+    }
+
+    @discardableResult
+    func strike(_ suggestion: Suggestion) async -> Bool {
+        // The older verbs take `item`, the newer take `p_review_item_id`;
+        // each call names what its function's signature actually says.
+        await call("strike_calibration_item", [
+            "item": suggestion.id.uuidString.lowercased(),
+        ])
+    }
+
+    @discardableResult
+    func restoreSuggestion(_ suggestion: Suggestion) async -> Bool {
+        await call("restore_calibration_item", [
+            "item": suggestion.id.uuidString.lowercased(),
+        ])
+    }
+
+    /// Edit: the original proposal is recorded as negative model feedback and
+    /// the correction proceeds under the owner's own words.
+    @discardableResult
+    func editSuggestion(_ suggestion: Suggestion,
+                        label: String, family: String) async -> Bool {
+        await call("edit_calibration_item", [
+            "p_review_item_id": suggestion.id.uuidString.lowercased(),
+            "p_label": label,
+            "p_family": family,
+        ])
+    }
+
     @discardableResult
     func restore(_ assertion: Assertion, surface: String = "memories") async -> Bool {
         await call("restore_assertion", [

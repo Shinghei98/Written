@@ -1599,6 +1599,36 @@ select {', '.join(ATTESTED_COLUMNS)}, environment, promotion_decision
 """
 
 
+def process_mint_requests(job) -> dict[str, Any]:
+    """Run the catalogue processor over pending kept requests.
+
+    The worker never writes vocabulary: `semantic_worker` holds no insert on
+    any `ontology` table, and the whole transaction — disposition, collision
+    checks, version publish, provisional linking, request completion,
+    per-user recompute bump — lives in
+    `semantic_private.mint_from_kept_requests`, which is `security definer`
+    for exactly the reason `mint_vocabulary_from_catalogue` is: the thing
+    reachable from a queue must not be able to rewrite shared vocabulary at
+    will. The job payload names one request for provenance, but the function
+    drains every pending request it can lock — a second job for a request the
+    first pass already completed conflicts on the idempotency key or finds
+    nothing pending, which is the exactly-once the memo demands.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from handler import database_url  # noqa: PLC0415
+
+    with psycopg.connect(database_url(), row_factory=dict_row,
+                         prepare_threshold=None) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select semantic_private.mint_from_kept_requests() as receipt")
+            receipt = cursor.fetchone()["receipt"]
+        connection.commit()
+    return {"processed": True, **(receipt or {})}
+
+
 def evaluate_release(job) -> dict[str, Any]:
     """Check a release manifest against the contract the worker is running.
 
