@@ -573,6 +573,72 @@ else
 fi
 
 echo
+echo "########## the job-type registries, from both ends ##########"
+#
+# **Four places must name a job type and three of them disagreed.** The
+# database's check constraint decides what may be enqueued, its payload
+# validator decides what shape that row carries, `job_contracts.py` decides
+# what the worker accepts when it claims one, and `handler.py` decides what
+# runs. `process_mint_requests` — the step that turns a person's keep into
+# vocabulary — was in the validator and the handler and in neither of the
+# other two, so a keep enqueued a job the constraint refused and, once it no
+# longer did, one the worker killed on claim as `unknown_job_type`. Every
+# layer behaved exactly as written; nothing compared them.
+#
+# All three lists are read from what shipped — the built schema, the imported
+# package, the handler's own source — never retyped here.
+db_types=$(docker exec -i "$CONTAINER" psql -U postgres -tA \
+  < "$ROOT/tools/ci/job_type_list.sql" | tr -d '[:space:]')
+
+pkg_types=$(cd "$ROOT/semantic" && PYTHONPATH=src python3 -c \
+  "from written_ontology.job_contracts import DEFAULT_JOB_CONTRACT_REGISTRY as R
+print(','.join(sorted(R.contracts)))" 2>/dev/null \
+  || echo "the package registry could not be imported")
+
+handler_types=$(cd "$ROOT" && python3 -c \
+  "import re, pathlib
+body = pathlib.Path('aws/worker/handler.py').read_text()
+print(','.join(sorted(set(re.findall(r'\"([a-z_]+)\": _reporting', body)))))" 2>/dev/null)
+
+# **The pair that must agree is the handler map and the contract registry**,
+# and it is the pair that failed. The worker validates a claimed job against
+# `job_contracts.py` and then dispatches it through `handler.py`; a type in
+# the handler that the registry does not know is killed on claim as
+# `unknown_job_type` before it can run — which is exactly what happened to
+# every mint request a keep produced. Both are read from this tree, so this
+# is a true invariant rather than a wish.
+#
+# Not asserted: that the database's list matches either. Thirteen migrations
+# cannot replay, so this schema is a knowing subset of production's — and the
+# gap in the other direction is recorded debt rather than drift, since a job
+# type registered before its handler ships is claimed, found handler-less and
+# marked dead with no retry. That is why the count below is printed and not
+# failed on.
+unregistered=""
+for t in $(echo "$handler_types" | tr ',' ' '); do
+  case ",$pkg_types," in
+    *",$t,"*) ;;
+    *) unregistered="$unregistered $t";;
+  esac
+done
+
+no_handler=0
+for t in $(echo "$db_types" | tr ',' ' '); do
+  case ",$handler_types," in *",$t,"*) ;; *) no_handler=$((no_handler + 1));; esac
+done
+
+if [ -n "$unregistered" ]; then
+  echo "  FAIL  the handler runs job types the contract registry refuses:$unregistered"
+  echo "          such a job is killed on claim as unknown_job_type"
+  fail=1; fail_count=$((fail_count + 1))
+else
+  echo "  PASS  every handled job type has a contract"
+  echo "        (note: $no_handler permitted types have no handler yet — the"
+  echo "         recorded pipeline debt, not drift)"
+  pass_count=$((pass_count + 1))
+fi
+
+echo
 echo "########## every api function is called by a contract ##########"
 #
 # **The other half of the same lesson.** A static check cannot see that

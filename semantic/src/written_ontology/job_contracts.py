@@ -153,6 +153,11 @@ class JobType(StrEnum):
     APPLY_FEEDBACK = "apply_feedback"
     AGGREGATE_FEEDBACK = "aggregate_feedback"
     EVALUATE_RELEASE = "evaluate_release"
+    # The keep's consequence: a user-authorised mint request becomes global
+    # vocabulary. Registered here as well as in the database's job-type check
+    # and payload validator and the worker's handler map — four places, and
+    # the first three disagreed for a fortnight because nothing compared them.
+    PROCESS_MINT_REQUESTS = "process_mint_requests"
 
 
 class DyadPurpose(StrEnum):
@@ -374,6 +379,18 @@ class AggregateFeedbackPayload(_PayloadMixin):
 @dataclass(frozen=True, slots=True)
 class EvaluateReleasePayload(_PayloadMixin):
     release_manifest_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessMintRequestsPayload(_PayloadMixin):
+    """One request named for provenance; the handler drains every pending one.
+
+    No `user_id`: minting writes shared vocabulary, and a queue row that named
+    an account would suggest the catalogue is per-person. The database's
+    validator refuses this type with a queue user for the same reason.
+    """
+
+    mint_request_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,6 +825,13 @@ _CONTRACT_SEQUENCE: tuple[JobContract[Any], ...] = (
         _fields(release_manifest_id=_uuid),
         _fields(),
         "Check a release manifest against the contract this bundle loaded.",
+    ),
+    JobContract(
+        JobType.PROCESS_MINT_REQUESTS,
+        ProcessMintRequestsPayload,
+        _fields(mint_request_id=_uuid),
+        _fields(),
+        "Mint the vocabulary a keep authorised, through the catalogue.",
     ),
     JobContract(
         JobType.REFRESH_EXTERNAL_ENTITY,

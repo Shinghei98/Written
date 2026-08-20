@@ -260,6 +260,36 @@ begin
     raise exception '0230 contract: the mint request names no label';
   end if;
 
+  -- **The keep enqueues its own processor**, on insert, through 0258's
+  -- trigger.
+  set constraints all immediate;
+  select count(*) into n from semantic_private.worker_jobs
+   where job_type = 'process_mint_requests' and status = 'queued';
+  if n <> 1 then
+    raise exception '0230 contract: a keep queued % mint processors', n;
+  end if;
+
+  -- **And a keep whose job died is still a keep.** A dead job neither retries
+  -- nor releases its idempotency key, so before 0270 a request whose only job
+  -- died was pending for ever with nothing left that would look at it — which
+  -- is what happened to five real keeps. The armer's stage is the recovery,
+  -- so the death has to be staged to test it: it arms only when nothing is
+  -- live, which is exactly why the call above this one answers zero.
+  if semantic_private.arm_pending_mint_requests() <> 0 then
+    raise exception '0230 contract: the processor was armed while one was live';
+  end if;
+
+  update semantic_private.worker_jobs
+     set status = 'dead', last_error = 'handler_error'
+   where job_type = 'process_mint_requests' and status = 'queued';
+
+  if semantic_private.arm_pending_mint_requests() <> 1 then
+    raise exception '0230 contract: a stranded mint request was not re-armed';
+  end if;
+  if semantic_private.arm_pending_mint_requests() <> 0 then
+    raise exception '0230 contract: the processor was armed twice for one backlog';
+  end if;
+
   -- The edit supersedes with the owner's own words and counts the original
   -- proposal as negative — never as a model success.
   perform api.edit_calibration_item(item, 'a corrected label', 'work');
