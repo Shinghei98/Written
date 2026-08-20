@@ -111,7 +111,11 @@ begin
   -- A provisional, for the merge property.
   insert into semantic_private.provisional_entities
     (scope, user_id, canonical_label, normalized_label, family)
-  values ('user', alice, 'Contract Probe Provisional', 'contract probe provisional', 'work')
+  -- **`person`, not `work`.** 0283 stopped offering song- and album-level
+  -- terms for review, so a `work` fixture is no longer exposed and every
+  -- assertion below it silently measures an empty page. The family a fixture
+  -- carries is now load-bearing.
+  values ('user', alice, 'Contract Probe Provisional', 'contract probe provisional', 'person')
   returning id into prov;
 
   insert into semantic_private.user_term_candidates
