@@ -125,8 +125,15 @@ def schema_limits(schema: dict) -> dict:
     program could not be pointed at it. What a schema does not carry is not a
     limit with a default; it is a field the response must not contain.
     """
-    item = schema["$defs"]["item"]["properties"]
-    mention = schema["$defs"]["mention"]["properties"]
+    defs = schema["$defs"]
+    # The schema's conditionals became anyOf variants (xgrammar cannot compile
+    # if/then, and its matcher leaks on patterned strings — 2026-08-19). The
+    # extracted item and the text mention carry every limit this program
+    # measures; the tag variant differs only in source_field/index, which are
+    # not limits. The old single-def names stay readable so the program can
+    # still be pointed at a v1-era schema.
+    item = (defs.get("item_extracted") or defs["item"])["properties"]
+    mention = (defs.get("mention_text") or defs["mention"])["properties"]
     limits = {
         "schema_version": schema["properties"]["schema_version"]["const"],
         "surface_max": mention["surface"]["maxLength"],

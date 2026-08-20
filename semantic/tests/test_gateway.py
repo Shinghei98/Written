@@ -265,14 +265,33 @@ def test_an_item_the_model_did_not_answer_is_missing_item(shadow):
 
 def test_a_bad_offset_is_offset_invalid_rather_than_schema_invalid(shadow):
     """The mapping exists so a structural code is placed deliberately instead of
-    falling into `schema_invalid` and reading like malformed JSON."""
+    falling into `schema_invalid` and reading like malformed JSON.
+
+    The surface here is absent from the source, so the offset repair cannot
+    touch it — a surface the source does not contain has no honest span."""
     wrong = valid_response()
-    wrong["body"]["items"][0]["mentions"][0]["surface"] = "Midnigh"
+    wrong["body"]["items"][0]["mentions"][0]["surface"] = "Xidnight"
     transport = CountingTransport(response=wrong)
     with pytest.raises(gateway.GatewayRefusal) as refusal:
         gateway.extract(REQUEST, transport=transport,
                         deployment=matching_deployment(shadow))
     assert refusal.value.code == "offset_invalid"
+
+
+def test_wrong_arithmetic_on_a_unique_surface_is_repaired_not_refused(shadow):
+    """The model named the right entity and miscounted its code points. Where
+    the surface occurs exactly once in the cited field, the span is not in
+    doubt: the offsets are recomputed and the repair is counted rather than
+    swallowed."""
+    wrong = valid_response()
+    mention = wrong["body"]["items"][0]["mentions"][0]
+    mention["start"], mention["end"] = 1, 6  # arithmetic off; surface unique
+    transport = CountingTransport(response=wrong)
+    answer = gateway.extract(REQUEST, transport=transport,
+                             deployment=matching_deployment(shadow))
+    assert answer["offsets_repaired"] == 1
+    repaired = answer["items"][0]["mentions"][0]
+    assert (repaired["start"], repaired["end"]) == (0, 8)
 
 
 def test_no_refusal_is_ever_a_semantic_abstention(shadow):

@@ -64,10 +64,15 @@ def test_a_response_carries_no_field_the_schema_dropped(budget, schema, limits):
     """v2 removed three arrays and renamed the abstain flag."""
     response = budget.make_response(["a"], limits, 1)
     mention = response["items"][0]["mentions"][0]
-    declared = set(schema["$defs"]["mention"]["properties"])
+    # The schema now carries anyOf variants; the text variant declares every
+    # field the tag variant does (they differ only in the source_field/index
+    # values), so the union of both is the declared set.
+    declared = (set(schema["$defs"]["mention_text"]["properties"])
+                | set(schema["$defs"]["mention_tag"]["properties"]))
     assert set(mention) <= declared
     item = response["items"][0]
-    assert set(item) <= set(schema["$defs"]["item"]["properties"])
+    assert set(item) <= (set(schema["$defs"]["item_extracted"]["properties"])
+                         | set(schema["$defs"]["item_abstained"]["properties"]))
     assert response["schema_version"] == schema["properties"]["schema_version"]["const"]
 
 

@@ -41,6 +41,10 @@ GATEWAY_SOURCES = (
     "aws/gateway/server.py",
     "semantic/src/written_ontology/gateway.py",
     "semantic/src/written_ontology/gateway_http.py",
+    # The validator and repair: they decide which answers survive, which this
+    # session proved is release-significant — the offset repair changed the
+    # accepted set without a single gateway.py line needing to.
+    "semantic/src/written_ontology/mention_extract_v2.py",
 )
 
 

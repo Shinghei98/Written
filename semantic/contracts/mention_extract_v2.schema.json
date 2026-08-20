@@ -2,10 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://written.app/schemas/mention_extract_v2.schema.json",
   "title": "Written semantic mention extraction output, v2",
-  "description": "v2 carries only what the candidate pipeline consumes. evidence_fields, lookup_queries and relation_hypotheses are removed: nothing reads relation_hypotheses, evidence_fields is reconstructible from validated source references, and lookup_queries are generated deterministically after extraction. Token measurements for that removal are not stated here: they are properties of a particular model and tokenizer revision, and a schema describes what is legal rather than what one deployment cost. semantic/docs/OUTPUT_BUDGET_REPORT.md records what was measured and against which revision. Some scripts still overflow at maxLength 256 and need the tested overflow route rather than a schema change.",
+  "description": "v2 carries only what the candidate pipeline consumes. evidence_fields, lookup_queries and relation_hypotheses are removed: nothing reads relation_hypotheses, evidence_fields is reconstructible from validated source references, and lookup_queries are generated deterministically after extraction. Token measurements for that removal are not stated here: they are properties of a particular model and tokenizer revision, and a schema describes what is legal rather than what one deployment cost. semantic/docs/OUTPUT_BUDGET_REPORT.md records what was measured and against which revision. Some scripts still overflow at maxLength 256 and need the tested overflow route rather than a schema change. Encoding note, 2026-08-19: the item and mention conditionals were re-expressed as anyOf variant objects and the string patterns were removed outright (xgrammar's matcher leaks on them; their guards moved to the Python layer), because xgrammar (vLLM 0.27.1's structured-output backend) cannot compile if/then inside allOf or lookaheads — measured on the RIS evaluation rig, where the model escaped the item envelope on every probe while the schema said additionalProperties: false. xgrammar also crashes on negated character classes containing non-ASCII members (bitset position 128), so the not-all-whitespace guard here covers ASCII whitespace only; strings that are entirely non-ASCII whitespace pass the schema and are refused by written_ontology.mention_extract_v2, the layer that exists for what JSON Schema cannot express. With that one named exception the accepted language is unchanged and tools/test evidence for that equivalence rides with the change.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "items"],
+  "required": [
+    "schema_version",
+    "items"
+  ],
   "properties": {
     "schema_version": {
       "const": "mention_extract_v2"
@@ -16,15 +19,27 @@
       "minItems": 1,
       "maxItems": 2,
       "items": {
-        "$ref": "#/$defs/item"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/item_extracted"
+          },
+          {
+            "$ref": "#/$defs/item_abstained"
+          }
+        ]
       }
     }
   },
   "$defs": {
-    "item": {
+    "item_extracted": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["item_index", "status", "mentions", "abstain_reason"],
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
       "properties": {
         "item_index": {
           "type": "integer",
@@ -32,21 +47,69 @@
           "maximum": 1
         },
         "status": {
-          "description": "extracted or abstained. An explicit status rather than a bare boolean, so an infrastructure failure can never be recorded as a semantic abstention: a timeout has no status here at all and is recorded by the caller.",
           "type": "string",
-          "enum": ["extracted", "abstained"]
+          "enum": [
+            "extracted"
+          ]
         },
         "mentions": {
           "type": "array",
+          "minItems": 1,
           "maxItems": 5,
           "items": {
-            "$ref": "#/$defs/mention"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              }
+            ]
           }
         },
         "abstain_reason": {
-          "type": ["string", "null"],
+          "type": "null"
+        }
+      }
+    },
+    "item_abstained": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "status": {
+          "type": "string",
           "enum": [
-            null,
+            "abstained"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              }
+            ]
+          }
+        },
+        "abstain_reason": {
+          "type": "string",
+          "enum": [
             "no_durable_subject",
             "hard_suppressed",
             "ambiguous",
@@ -54,37 +117,9 @@
             "invalid_input"
           ]
         }
-      },
-      "allOf": [
-        {
-          "description": "An extracted item has at least one mention and no reason. Executable rather than documented: the pair (status, mentions, abstain_reason) can otherwise disagree three ways.",
-          "if": {
-            "properties": {"status": {"const": "extracted"}},
-            "required": ["status"]
-          },
-          "then": {
-            "properties": {
-              "mentions": {"minItems": 1},
-              "abstain_reason": {"type": "null"}
-            }
-          }
-        },
-        {
-          "description": "A semantic abstention has no mentions and states why.",
-          "if": {
-            "properties": {"status": {"const": "abstained"}},
-            "required": ["status"]
-          },
-          "then": {
-            "properties": {
-              "mentions": {"maxItems": 0},
-              "abstain_reason": {"type": "string"}
-            }
-          }
-        }
-      ]
+      }
     },
-    "mention": {
+    "mention_text": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -100,21 +135,22 @@
       ],
       "properties": {
         "surface": {
-          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason.",
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
           "type": "string",
           "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^(?!\\s*$)[^\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]+$"
+          "maxLength": 256
         },
         "source_field": {
           "type": "string",
-          "enum": ["title", "channel_label", "description_excerpt", "tags"]
+          "enum": [
+            "title",
+            "channel_label",
+            "description_excerpt"
+          ]
         },
         "source_field_index": {
-          "description": "Required for tags, null otherwise. Enforced by the allOf below rather than left to a caller.",
-          "type": ["integer", "null"],
-          "minimum": 0,
-          "maximum": 19
+          "description": "Null outside tags.",
+          "type": "null"
         },
         "start": {
           "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
@@ -131,7 +167,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "^(?!\\s*$)[^\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]+$"
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
         },
         "family_hypothesis": {
           "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
@@ -179,21 +215,105 @@
         "conversation_worthy": {
           "type": "boolean"
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {"source_field": {"const": "tags"}},
-            "required": ["source_field"]
-          },
-          "then": {
-            "properties": {"source_field_index": {"type": "integer"}}
-          },
-          "else": {
-            "properties": {"source_field_index": {"type": "null"}}
-          }
+      }
+    },
+    "mention_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "conversation_worthy"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": [
+            "tags"
+          ]
+        },
+        "source_field_index": {
+          "description": "Required for tags: the index of the tag the span is in.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
+        },
+        "start": {
+          "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "idea",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "conversation_worthy": {
+          "type": "boolean"
         }
-      ]
+      }
     }
   }
 }

@@ -68,6 +68,7 @@ import jsonschema
 from .mention_extract_v2 import (
     ExtractionInvalid,
     RequestItem,
+    repair_offsets,
     validate_with_schema,
 )
 from .semantic_contract import load as load_contract
@@ -621,6 +622,17 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     if not isinstance(body, dict):
         raise GatewayRefusal("schema_invalid", "the response carried no object")
 
+    # **The offset repair runs between the two layers' natural order and only
+    # fixes arithmetic.** The model names the right entity and miscounts its
+    # code points; where the emitted surface occurs exactly once in the cited
+    # source field, the span is not in doubt and the offsets are recomputed
+    # from it. Absent or ambiguous surfaces are left for the validator to
+    # refuse — the unique-occurrence condition is what keeps this from ever
+    # inventing a span. The count travels into the diagnostics rather than
+    # being swallowed: a model that needs many repairs is a fact about the
+    # model.
+    repaired = repair_offsets(body, list(items))
+
     try:
         validate_with_schema(body, list(items), contract.output_schema)
     except ExtractionInvalid as refusal:
@@ -656,6 +668,10 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     return {
         "items": body["items"],
         "mention_count": sum(len(i.get("mentions", [])) for i in body["items"]),
+        # How many spans were recomputed from a uniquely-occurring surface.
+        # Counted, never swallowed: a model that needs many repairs is a fact
+        # about the model, and this is where an operator would notice it.
+        "offsets_repaired": repaired,
         "output_tokens": response.get("output_tokens"),
         "outcome": "succeeded",
         # **The provenance the database column exists to hold.** Without these

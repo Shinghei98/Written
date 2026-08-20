@@ -98,12 +98,11 @@ def test_every_enum_is_sorted_equal_in_both_directions(compiler, config, schema)
     the grammar, were legal in the schema, and could never be produced — which
     silently disabled every sports roster relation.
     """
-    mention = schema["$defs"]["mention"]["properties"]
+    mention = compiler._mention_properties(schema)
     expected = {
         "llm.family.enum": mention["family_hypothesis"]["enum"],
         "llm.mention_role.enum": mention["mention_role"]["enum"],
-        "llm.schema.abstain_reasons":
-            [v for v in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"] if v],
+        "llm.schema.abstain_reasons": compiler._abstain_reasons(schema),
     }
     # Only if the schema declares relations. `mention_extract_v2` does not, and
     # the predicate vocabulary is checked against the grammar instead — see
@@ -167,7 +166,7 @@ def test_the_model_may_not_emit_the_five_structural_families(compiler, config, s
     a conversation topic.
     """
     declared = set(compiler._split(config["ontology.family.enum"]))
-    emittable = set(schema["$defs"]["mention"]["properties"]["family_hypothesis"]["enum"])
+    emittable = set(compiler._mention_properties(schema)["family_hypothesis"]["enum"])
     assert emittable < declared
     assert declared - emittable == set(compiler.MODEL_FORBIDDEN_FAMILIES)
 

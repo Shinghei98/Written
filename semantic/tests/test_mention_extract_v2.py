@@ -70,9 +70,13 @@ def test_music_recording_is_not_a_family(schema):
     that family would reopen the minting route it closed."""
     import jsonschema
 
-    families = schema["$defs"]["mention"]["properties"]["family_hypothesis"]["enum"]
-    assert "music_recording" not in families
-    assert "music_work" in families, "music_work is a composition and stays"
+    # The schema now carries two mention variants (the tags/index conditional
+    # became anyOf variants because xgrammar cannot compile if/then); the rule
+    # must hold in both, or one door refuses what the other admits.
+    for variant in ("mention_text", "mention_tag"):
+        families = schema["$defs"][variant]["properties"]["family_hypothesis"]["enum"]
+        assert "music_recording" not in families
+        assert "music_work" in families, "music_work is a composition and stays"
 
     bad = response([extracted(mentions=[mention(family_hypothesis="music_recording")])])
     with pytest.raises(jsonschema.ValidationError):
@@ -136,13 +140,32 @@ def test_tag_index_required_for_tags_and_null_otherwise(schema):
             mention(source_field="title", source_field_index=2)])]))
 
 
-@pytest.mark.parametrize("bad", ["   ", "\t", "a\x00b", "a\x1fb", "a\x7fb"])
+@pytest.mark.parametrize("bad", ["   ", "\t", "a\x00b", "a\x1fb", "a\x7fb",
+                                 "\u00a0", "\u3000", " \u2003 "])
 def test_whitespace_only_and_control_characters_are_refused(schema, bad):
-    import jsonschema
+    """These moved from the schema's `pattern` to the second layer.
 
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.Draft202012Validator(schema).validate(
-            response([extracted(mentions=[mention(surface=bad)])]))
+    xgrammar 0.2.3's token matcher leaks on patterned strings — it accepts
+    token paths outside the string language and then admits schema-illegal
+    continuations downstream — so the schema carries no pattern and the
+    refusal lives in `validate_response`, which also covers the non-ASCII
+    whitespace the old pattern's ASCII classes never could. The refusal fires
+    before the surface/offset equality, so it needs no matching source.
+    """
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(response([extracted(mentions=[mention(surface=bad)])]),
+                          REQUEST)
+    assert caught.value.code in ("surface_whitespace_only",
+                                 "surface_control_characters")
+
+
+@pytest.mark.parametrize("bad", ["   ", "a\x00b"])
+def test_label_gets_the_same_guards(schema, bad):
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(response([extracted(mentions=[
+            mention(canonical_label_hypothesis=bad)])]), REQUEST)
+    assert caught.value.code in ("label_whitespace_only",
+                                 "label_control_characters")
 
 
 # ---------------------------------------------------------------------------
@@ -316,3 +339,73 @@ def test_no_refusal_is_an_abstention():
     # And the normalisation refusal was actually among them, rather than a case
     # that quietly fell through to a different diagnosis.
     assert "surface_normalization_mismatch" in seen
+
+
+# ---------------------------------------------------------------------------
+# The offset repair: arithmetic fixed, spans never invented
+# ---------------------------------------------------------------------------
+
+def test_repair_fixes_a_unique_surface_with_wrong_offsets():
+    """The entity was correctly identified; only the arithmetic was off."""
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    resp = response([extracted(mentions=[mention(start=1, end=6)])])
+    repaired = repair_offsets(resp, REQUEST)
+    assert repaired == 1
+    m = resp["items"][0]["mentions"][0]
+    assert (m["start"], m["end"]) == (0, 8)
+    validate_response(resp, REQUEST)  # and the repaired span now validates
+
+
+def test_repair_leaves_correct_offsets_alone():
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    resp = response([extracted()])
+    assert repair_offsets(resp, REQUEST) == 0
+
+
+def test_repair_never_guesses_between_two_occurrences():
+    """Ambiguity is a refusal, not a coin flip — the condition that keeps the
+    repair from ever inventing a span."""
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    request = [RequestItem(0, {"title": "Midnight to Midnight"})]
+    resp = response([extracted(mentions=[mention(start=3, end=11)])])
+    assert repair_offsets(resp, request) == 0
+    with pytest.raises(ExtractionInvalid):
+        validate_response(resp, request)
+
+
+def test_repair_leaves_an_absent_surface_for_the_validator():
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    resp = response([extracted(mentions=[mention(surface="Noon")])])
+    assert repair_offsets(resp, REQUEST) == 0
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(resp, REQUEST)
+    assert caught.value.code == "surface_offset_mismatch"
+
+
+def test_repair_works_inside_tags():
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    resp = response([extracted(mentions=[mention(
+        surface="kpop", source_field="tags", source_field_index=0,
+        start=1, end=3, canonical_label_hypothesis="kpop")])])
+    assert repair_offsets(resp, REQUEST) == 1
+    m = resp["items"][0]["mentions"][0]
+    assert (m["start"], m["end"]) == (0, 4)
+
+
+def test_repair_catches_a_clamped_slice_whose_end_is_out_of_bounds():
+    """`source[start:end]` clamps when `end` overruns, so the slice can equal
+    the surface while the offsets are still wrong — measured on fx_001/fx_002,
+    where the model cited an end one past the title. Bounds are checked before
+    the equality, so this repairs instead of skipping."""
+    from written_ontology.mention_extract_v2 import repair_offsets
+
+    resp = response([extracted(mentions=[mention(start=0, end=9)])])  # len is 8
+    assert repair_offsets(resp, REQUEST) == 1
+    m = resp["items"][0]["mentions"][0]
+    assert (m["start"], m["end"]) == (0, 8)
+    validate_response(resp, REQUEST)

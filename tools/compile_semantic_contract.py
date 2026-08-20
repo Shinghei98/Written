@@ -198,6 +198,34 @@ def model_predicates(sheets: dict[str, Any]) -> list[str]:
     return seen
 
 
+def _mention_properties(schema: dict[str, Any]) -> dict[str, Any]:
+    """The mention property set, under either schema encoding.
+
+    The tags/index conditional became two anyOf variants (`mention_text`,
+    `mention_tag`) because xgrammar cannot compile `if/then` and its matcher
+    leaks on patterned strings (2026-08-19). The variants must agree on every
+    enum this compiler checks — a value present in one door and not the other
+    would let the same response be legal or illegal depending on which field it
+    cites — so disagreement is refused here rather than discovered at parity.
+    """
+    defs = schema["$defs"]
+    if "mention" in defs:
+        return defs["mention"]["properties"]
+    text = defs["mention_text"]["properties"]
+    tag = defs["mention_tag"]["properties"]
+    for key in ("family_hypothesis", "mention_role"):
+        if text[key]["enum"] != tag[key]["enum"]:
+            raise ContractError(f"mention variants disagree on {key}")
+    return text
+
+
+def _abstain_reasons(schema: dict[str, Any]) -> list[str]:
+    """The non-null abstain vocabulary, under either schema encoding."""
+    defs = schema["$defs"]
+    item = defs.get("item_abstained") or defs["item"]
+    return [v for v in item["properties"]["abstain_reason"]["enum"] if v]
+
+
 def validate(sheets: dict[str, Any], schema: dict[str, Any],
              request_schema: dict[str, Any] | None = None) -> None:
     """Every check that must hold before a contract may be written.
@@ -206,12 +234,11 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
     reporting a problem is a compiler whose output nobody reads.
     """
     config = config_of(sheets)
-    mention = schema["$defs"]["mention"]["properties"]
+    mention = _mention_properties(schema)
     schema_enums = {
         "llm.family.enum": mention["family_hypothesis"]["enum"],
         "llm.mention_role.enum": mention["mention_role"]["enum"],
-        "llm.schema.abstain_reasons":
-            [v for v in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"] if v],
+        "llm.schema.abstain_reasons": _abstain_reasons(schema),
     }
 
     # 1. Enum parity, both directions. Sorted equality rather than a subset test:
@@ -383,7 +410,7 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
 def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
                      schema_path: pathlib.Path, generated_at: str) -> dict[str, Any]:
     config = config_of(sheets)
-    mention = schema["$defs"]["mention"]["properties"]
+    mention = _mention_properties(schema)
 
     return {
         "contract_version": CONTRACT_VERSION,
@@ -454,11 +481,7 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             "predicates": list(
                 schema["$defs"]["relation_hypothesis"]["properties"]["predicate"]["enum"]
             ) if "relation_hypothesis" in schema["$defs"] else [],
-            "abstain_reasons": [
-                value
-                for value in schema["$defs"]["item"]["properties"]["abstain_reason"]["enum"]
-                if value
-            ],
+            "abstain_reasons": _abstain_reasons(schema),
             "max_items_wire": int(require(config, "llm.batch.max_items")),
             "default_batch_items": int(require(config, "llm.batch.default_items")),
             "calibrated_max_items": int(require(config, "llm.batch.calibrated_max_items")),

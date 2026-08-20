@@ -151,7 +151,7 @@ def test_the_attestation_names_what_a_run_obeyed(contract):
     assert attestation["compiled_contract_sha256"] == contract.contract_sha256
     assert len(attestation["workbook_sha256"]) == 64
     assert len(attestation["schema_sha256"]) == 64
-    assert attestation["grammar_version"] == "semantic_grammar_v3"
+    assert attestation["grammar_version"] == "semantic_grammar_v4"
     # Every field a release manifest records about the model side is present,
     # including the two still carrying placeholders — an absent field and a
     # visibly unpinned one are different problems.

@@ -695,3 +695,48 @@ reverse 0050 in place"* — the first still means our `0048`, the second now mea
 our `0055`. Read a number in `WRITTEN_REPOSITORY_INTEGRATION.md` as a **role**,
 not as a filename; `application_migrations` in the baseline manifest carries the
 mapping.
+
+## 2026-08-19 — The grammar that compiled and did not bind
+
+**The lane's first invocation was blocked by three stacked defects, and every
+one was found by measuring the live endpoint rather than reading code.** The
+full record is this entry; the rules it bought are in the schema's own
+descriptions and `mention_extract_v2.py`'s comments.
+
+- **xgrammar 0.2.3's token matcher leaks on `pattern`-constrained strings.**
+  The grammar is correct at the string level — `_is_grammar_accept_string`
+  rejects every violation — but the per-token mask admits token paths outside
+  the string language and then admits schema-illegal continuations downstream.
+  On the endpoint this read as the model emitting enum-illegal families and
+  running to the 4096-token cap; locally it reproduced token-by-token with the
+  real tokenizer. Removing the two `pattern`s closed the leak entirely and,
+  unexpectedly, also restored `maxItems` enforcement. The not-all-whitespace
+  and no-control-character guards moved to `mention_extract_v2`, the layer for
+  what the schema cannot safely express. **A grammar backend is believed when
+  a matcher has been fed a violating document and refused it — compilation
+  succeeding proves nothing, and neither does an abstention-shaped answer,
+  which never exercises the mention definitions.**
+- **xgrammar cannot compile `if/then` inside `allOf` (silent loosening) and
+  crashes on negated character classes with non-ASCII members** (`bitset` at
+  position 128). The schema's conditionals became `anyOf` variant objects —
+  `item_extracted`/`item_abstained`, `mention_text`/`mention_tag` — proven
+  language-identical over 530 adversarial documents, with every deliberate
+  loosening covered by the second layer (the equivalence run asserts zero
+  uncovered).
+- **The prompt taught the v1 shape.** `prompt.output.aboutness_example` still
+  showed `evidence_fields`/`lookup_queries`/`relation_hypotheses` — fields v2
+  removed — so under a *binding* grammar the model either collapsed to
+  abstention or fought the mask to the token cap. The example is now a full
+  v2 envelope; prompt `qwen_extractor_v6`, grammar `semantic_grammar_v4`.
+- **The offset repair (owner decision):** the model names the right entity
+  and miscounts code points. Where the emitted surface occurs exactly once in
+  the cited field, `repair_offsets` recomputes the span — deterministic and
+  honest; absent or ambiguous surfaces stay refusals, so it can never invent
+  a span. Bounds are checked before the slice equality, because Python
+  slicing clamps and a clamped slice can equal the surface while `end` is out
+  of bounds. Repairs are counted in the gateway's answer, never swallowed.
+  Acceptance: 21/21 live-endpoint cases green, including a deliberately
+  repetitive title whose correct outcome is abstention.
+- `mention_extract_v2.py` joined `GATEWAY_SOURCES`: the repair changed which
+  answers survive without touching a line of `gateway.py`, which is the
+  definition of release-significant.

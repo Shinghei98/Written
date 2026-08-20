@@ -44,6 +44,12 @@ SCHEMA_VERSION = "mention_extract_v2"
 #: A response naming anything else is refused before its offsets are read.
 SOURCE_FIELDS = ("title", "channel_label", "description_excerpt", "tags")
 
+#: The characters the wire schema used to refuse by pattern: C0 controls other
+#: than tab/LF/CR, and DEL. Tab, LF and CR stay legal, as they were under the
+#: pattern's character class.
+_REFUSED_CONTROL = frozenset(
+    chr(c) for c in (*range(0x00, 0x09), 0x0B, 0x0C, *range(0x0E, 0x20), 0x7F))
+
 
 class ExtractionInvalid(Exception):
     """A structurally invalid response. Never an abstention."""
@@ -128,6 +134,27 @@ def _validate_item(item: dict, request_item: RequestItem) -> None:
                                     f"{end} > {len(source)}")
 
         surface = mention["surface"]
+
+        # **The schema carries no `pattern` for these strings on purpose, so
+        # both of the pattern's guarantees live here.** xgrammar 0.2.3 — the
+        # structured-output backend the serving image compiles the schema with
+        # — leaks at the token level on patterned strings: its matcher accepts
+        # token paths outside the string language and then admits
+        # schema-illegal continuations downstream, which surfaced as the model
+        # emitting families outside the enum and running to the token cap.
+        # Measured against the live endpoint and reproduced locally with the
+        # real tokenizer, 2026-08-19. This is the layer for what the schema
+        # cannot safely express: no control characters (C0 or DEL), and not
+        # all whitespace.
+        label = mention["canonical_label_hypothesis"]
+        for code, value in (("surface", surface), ("label", label)):
+            if any(ch in _REFUSED_CONTROL for ch in value):
+                raise ExtractionInvalid(f"{code}_control_characters",
+                                        f"{field}[{start}:{end}]")
+            if not value.strip():
+                raise ExtractionInvalid(f"{code}_whitespace_only",
+                                        f"{field}[{start}:{end}]")
+
         expected = source[start:end]
 
         # **The normalisation case is diagnosed first, because after the
@@ -161,6 +188,66 @@ def _validate_item(item: dict, request_item: RequestItem) -> None:
         if key in spans:
             raise ExtractionInvalid("duplicate_span_and_role")
         spans.add(key)
+
+
+def repair_offsets(response: dict, request: list[RequestItem]) -> int:
+    """Recompute start/end from the surface where that is the only honest read.
+
+    The model names the right entity and miscounts its code points — measured
+    2026-08-19 on the live endpoint, where offset arithmetic was the whole of
+    the remaining failure class after the grammar bound. When the emitted
+    `surface` occurs **exactly once** in the source field the model cited, the
+    span is not in doubt: the entity was correctly identified and only the
+    arithmetic was off, so the offsets are recomputed from the one place the
+    surface exists. Zero occurrences and two-or-more are left alone for
+    `validate_response` to refuse — a repair that guessed between two
+    occurrences would be inventing a span, which is the thing this condition
+    exists to make impossible.
+
+    Mutates the response in place and returns how many mentions were repaired,
+    because a repair is a fact about the model worth counting, never
+    swallowing. Runs before validation and repairs only the arithmetic —
+    every other refusal (enums, guards, span equality where the surface is
+    absent or ambiguous) still fires exactly as before.
+
+    The search is over raw code points, deliberately: normalisation is
+    compared by the validator, never applied, and a repair that matched an
+    NFC-folded surface to a decomposed source would hide the disagreement the
+    `surface_normalization_mismatch` refusal exists to surface.
+    """
+    by_index = {entry.item_index: entry for entry in request}
+    repaired = 0
+    for item in response.get("items", []):
+        request_item = by_index.get(item.get("item_index"))
+        if request_item is None:
+            continue
+        for mention in item.get("mentions", []):
+            try:
+                source = request_item.source_string(
+                    mention.get("source_field"), mention.get("source_field_index"))
+            except ExtractionInvalid:
+                continue  # validate_response will say why, with its own code
+            surface = mention.get("surface")
+            if not isinstance(surface, str) or not surface:
+                continue
+            start, end = mention.get("start"), mention.get("end")
+            # **Bounds before equality, because slicing clamps.** With `end`
+            # one past the source, `source[start:end]` silently truncates and
+            # can still equal the surface — which read as "arithmetic already
+            # right" and left the out-of-bounds end for the validator to
+            # refuse. An in-bounds equal slice is the only thing that means
+            # nothing needs repairing.
+            in_bounds = (isinstance(start, int) and isinstance(end, int)
+                         and 0 <= start and end <= len(source))
+            if in_bounds and source[start:end] == surface:
+                continue  # arithmetic already right; nothing to repair
+            if source.count(surface) != 1:
+                continue  # absent or ambiguous: refusal, not repair
+            found = source.index(surface)
+            mention["start"] = found
+            mention["end"] = found + len(surface)
+            repaired += 1
+    return repaired
 
 
 def validate_with_schema(response: dict, request: list[RequestItem],
