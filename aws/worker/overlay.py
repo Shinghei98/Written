@@ -963,6 +963,25 @@ on conflict do nothing
 """
 
 
+#: What the right-hand side of each predicate is. Read from the grammar sheet's
+#: `object_families` rather than guessed: a predicate whose object family this
+#: does not know contributes no dictionary entry, which is a gap to notice
+#: rather than a term to invent.
+_OBJECT_FAMILY = {
+    "part_of_franchise": "franchise",
+    "member_of_group": "group",
+    "performed_by": "person",
+    "composed_by": "person",
+    "created_by": "person",
+    "soundtrack_of": "work",
+    "recording_of": "music_work",
+    "played_for": "organization",
+    "official_channel_of": "organization",
+    "represented_team_in": "event",
+    "located_in": "place",
+}
+
+
 def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
                       relations: list[tuple[dict, dict]]) -> None:
     """Put every proposed term in the dictionary, and record its relations.
@@ -985,6 +1004,27 @@ def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
             "english_label": mention.get("english_label"),
             "original_label": mention.get("original_label"),
             "origin": "inferred" if inferred else "extracted",
+            "source_lanes": [],
+        })
+
+    # **The object of a relation is a term too.** The owner's rule is
+    # unqualified, and this is the case it exists for: a franchise should be
+    # known the first time any character of it is seen, whether or not the
+    # model also proposed it in its own right. Its family is the one the
+    # predicate implies rather than a guess — `part_of_franchise` names a
+    # franchise on its right-hand side.
+    for _mention, relation in relations:
+        family = _OBJECT_FAMILY.get(relation["predicate"])
+        if family is None:
+            continue
+        label = relation["object_label_hypothesis"]
+        entries.append({
+            "normalized_label": _normalize(label),
+            "family": family,
+            "canonical_label": label,
+            "english_label": None,
+            "original_label": None,
+            "origin": "inferred",
             "source_lanes": [],
         })
 
