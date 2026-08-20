@@ -125,7 +125,7 @@ begin
   -- the column is for.
   select count(*) into n
     from semantic_private.user_suppressions s
-    join semantic_private.review_events e on e.id = s.source_feedback_event_id
+    join semantic_private.review_events e on e.id = s.source_review_event_id
    where s.user_id = alice and s.concept_id = concept and s.surface = 'memories'
      and e.action = 'strike_off';
   if n <> 1 then

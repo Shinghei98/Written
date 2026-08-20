@@ -176,6 +176,14 @@ begin
   -- ---------------------------------------------------------------------
   perform api.strike_calibration_item(item);
   perform api.strike_calibration_item(item);
+  -- **Force the deferred checks to fire while the transaction is still
+  -- alive.** `user_suppressions`' lineage foreign keys are `deferrable
+  -- initially deferred`, so they are checked at COMMIT — and this file ends
+  -- in `rollback`, which is the right shape for a test and meant the strike's
+  -- foreign key was never checked here at all. It shipped broken twice
+  -- underneath a passing test (0231, then 0267). Anything that writes a
+  -- deferred reference must be followed by this line.
+  set constraints all immediate;
 
   select count(*) into n from semantic_private.review_events
    where review_item_id = item and action = 'strike_off';
