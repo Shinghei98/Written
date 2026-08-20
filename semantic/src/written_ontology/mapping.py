@@ -78,7 +78,15 @@ class ObservationMapper:
         # Calendar semantics use typed travel/booking candidate tables. They
         # never enter the generic alias mapper, even when the adapter has
         # produced a sanitized observation for private persistence.
-        if observation.source in {"apple_calendar", "google_calendar"}:
+        #
+        # All three calendars, matching `is_private_calendar_source` in the
+        # database. This set carried only two for months — the exact drift
+        # `0133` centralised the SQL literals to end, surviving here in
+        # Python. Outlook rows were still stopped by the database trigger, so
+        # nothing leaked; but a list that must mirror another list is a list
+        # to keep mirrored.
+        if observation.source in {"apple_calendar", "google_calendar",
+                                  "outlook_calendar"}:
             return False
         if observation.source != "healthkit":
             return True
