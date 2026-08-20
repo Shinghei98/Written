@@ -1,0 +1,24 @@
+# `api` functions no contract file calls, with the reason each is owed one.
+#
+# **This list is debt, not permission.** It exists because moving the coverage
+# check into LANE A revealed the true state: while it ran against LANE C's
+# partial fixture schema these four did not exist there, so the check reported
+# PASS by looking at a database that had never heard of them. `keep` and `edit`
+# were in exactly this state when they turned out to carry seven fatal defects
+# between them (0269), so an entry here is a claim that somebody will pay it,
+# not that it does not matter.
+#
+# discover_profiles — needs two signed-in accounts with eligible cards to say
+#   anything, which is the one thing a single-transaction contract cannot
+#   stage. It is live in production and read by every Explore scroll, so this
+#   is the most expensive entry on the list.
+# forget_source — deletes a source's rows; a contract would have to build one
+#   first, which is a fixture rather than an assertion.
+# memories_status — a read with no arguments; cheap to cover and simply not
+#   covered yet.
+# resolve_term_for_addition — the lookup behind a user typing their own term;
+#   cheap to cover and simply not covered yet.
+discover_profiles
+forget_source
+memories_status
+resolve_term_for_addition

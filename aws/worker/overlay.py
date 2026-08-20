@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from resolve import SELECT_GENRE_CONCEPTS
 from written_ontology.semantic_contract import load as load_contract
 
 #: One invocation's ceiling. Chosen so the slowest of these — resolution, which
@@ -1719,12 +1720,222 @@ def process_mint_requests(job) -> dict[str, Any]:
 
     with psycopg.connect(database_url(), row_factory=dict_row,
                          prepare_threshold=None) as connection:
+        parents = _kept_parents(connection)
         with connection.cursor() as cursor:
             cursor.execute(
-                "select semantic_private.mint_from_kept_requests() as receipt")
+                "select semantic_private.mint_from_kept_requests(%(parents)s) as receipt",
+                {"parents": json.dumps(parents)})
             receipt = cursor.fetchone()["receipt"]
+
+        # **The ones minted before the parent was derived.** Same resolution,
+        # same writer, run after the mint so a concept created moments ago is
+        # included if its own parent could not be resolved then. A no-op once
+        # nothing floats, which is the steady state.
+        orphans = _orphan_kept_parents(connection)
+        if orphans:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select semantic_private.attach_kept_concept_parents(%(parents)s) as receipt",
+                    {"parents": json.dumps(orphans)})
+                cursor.fetchone()
         connection.commit()
     return {"processed": True, **(receipt or {})}
+
+
+#: Kept concepts that reach no block, with the genre strings stated on the
+#: evidence behind the request that minted them. Keyed by concept because the
+#: request itself is finished and immutable — its record is history, and this
+#: repairs the vocabulary rather than rewriting the decision.
+SELECT_ORPHAN_KEPT_CONCEPTS = """
+select (mr.outcome ->> 'concept_id')::uuid as concept_id,
+       coalesce(
+         jsonb_agg(distinct g) filter (where g is not null), '[]'::jsonb
+       ) as stated_genres,
+       min(o.source_code) as source_code
+  from semantic_private.mint_requests mr
+  left join semantic_private.candidate_support_links l
+    on l.candidate_id = mr.candidate_id and l.user_id = mr.user_id
+  left join semantic_private.observations o
+    on o.id = l.observation_id
+  left join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(o.normalized_payload -> 'genres') = 'array'
+              then o.normalized_payload -> 'genres' else '[]'::jsonb end) g on true
+ where mr.status = 'completed'
+   and mr.outcome ->> 'concept_id' is not null
+   and semantic_private.concept_block(
+         (mr.outcome ->> 'concept_id')::uuid,
+         (select id from ontology.versions where status = 'published')) is null
+ group by 1
+"""
+
+
+def _orphan_kept_parents(connection) -> dict[str, str]:
+    """`{concept_id: parent_concept_id}` for kept concepts that reach no block."""
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_ORPHAN_KEPT_CONCEPTS)
+        rows = [dict(row) for row in cursor.fetchall()]
+    if not rows:
+        return {}
+    return _resolve_parents(connection, rows, key="concept_id")
+
+
+#: The genre strings the source states about a pending request's own evidence.
+#:
+#: **Read, never inferred.** Apple states `genres` on the observation itself,
+#: which is the same fact the genre rollup already treats as `provider_metadata`
+#: — so a kept term's parent is something the source said, not something this
+#: code decided. The alternative was `0258`'s: no parent at all, on the reasoning
+#: that "one parented to a guess is a false claim". True, and the premise was
+#: wrong — there is no guess to make when the row carries the answer.
+SELECT_KEPT_EVIDENCE_GENRES = """
+select mr.id as mint_request_id,
+       coalesce(
+         jsonb_agg(distinct g) filter (where g is not null), '[]'::jsonb
+       ) as stated_genres,
+       min(o.source_code) as source_code
+  from semantic_private.mint_requests mr
+  left join semantic_private.candidate_support_links l
+    on l.candidate_id = mr.candidate_id and l.user_id = mr.user_id
+  left join semantic_private.observations o
+    on o.id = l.observation_id
+  left join lateral jsonb_array_elements_text(
+         case when jsonb_typeof(o.normalized_payload -> 'genres') = 'array'
+              then o.normalized_payload -> 'genres' else '[]'::jsonb end) g on true
+ where mr.status = 'pending'
+ group by mr.id
+"""
+
+#: How deep a genre sits under its own root, so the most specific of several
+#: stated genres can be chosen **from the graph** rather than from a list of
+#: names somebody ranked. `K-Pop` is deeper than `Pop`, and nothing here had to
+#: know that.
+SELECT_GENRE_DEPTHS = """
+with recursive climb(concept_id, depth) as (
+  select cr.concept_id, 0
+    from ontology.concept_revisions cr
+    join ontology.versions v on v.id = cr.ontology_version_id
+   where v.status = 'published' and cr.status = 'active'
+     and cr.concept_kind = 'genre'
+  union all
+  select climb.concept_id, climb.depth + 1
+    from climb
+    join ontology.concept_edges e
+      on e.subject_concept_id = climb.concept_id
+     and e.predicate_key = 'broader'
+     and e.status = 'active'
+     and e.ontology_version_id = (select id from ontology.versions where status = 'published')
+   where climb.depth < 8
+)
+select concept_id, max(depth) as depth from climb group by concept_id
+"""
+
+#: The hub a source's own material belongs to. Reading it is not a claim about
+#: the term — it is a claim about where the material came from, which the source
+#: code already states.
+SELECT_SOURCE_HUB = """
+select c.id as concept_id
+  from ontology.concepts c
+ where c.concept_key = %(hub_key)s
+"""
+
+#: Music sources land under the music hub. Not a genre and not a guess: the
+#: floor beneath a term whose stated genre this vocabulary cannot yet name.
+_SOURCE_HUBS = {
+    "apple_music": "hub:music",
+    "music_library": "hub:music",
+    "spotify": "hub:music",
+}
+
+
+def _kept_parents(connection) -> dict[str, str]:
+    """Resolve each pending mint request to the concept its evidence names.
+
+    Returns `{mint_request_id: concept_id}` for the trusted catalogue layer to
+    write; nothing here inserts anything. The fold happens in Python because
+    `normalize_text` is a Unicode-category operation Postgres cannot reproduce
+    — the same reason `catalogue.py` normalises there and joins on the stored
+    value.
+    """
+    from written_ontology.normalize import normalize_text  # noqa: PLC0415
+
+    try:
+        from music_works import english_genre  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the bundle always carries it
+        def english_genre(text: str) -> str:
+            return text
+
+    with connection.cursor() as cursor:
+        cursor.execute(SELECT_KEPT_EVIDENCE_GENRES)
+        pending = [dict(row) for row in cursor.fetchall()]
+        if not pending:
+            return {}
+
+        # **Mint what the vocabulary cannot yet name, before resolving.** `0191`'s
+        # suffix rule is the one that decides — it mints `Vocal Jazz` under
+        # `Jazz` and declines to guess synonymy for a string with no held
+        # suffix. Called first so the resolution below sees anything it added.
+        cursor.execute("select semantic_private.mint_genres_from_stated_strings()")
+
+        cursor.execute(SELECT_GENRE_CONCEPTS)
+        by_label = {row["normalized_label"]: str(row["concept_id"])
+                    for row in cursor.fetchall()}
+        cursor.execute(SELECT_GENRE_DEPTHS)
+        depth = {str(row["concept_id"]): row["depth"] for row in cursor.fetchall()}
+
+    return _resolve_parents(connection, pending, key="mint_request_id",
+                            by_label=by_label, depth=depth)
+
+
+def _resolve_parents(connection, rows: list[dict], *, key: str,
+                     by_label: dict | None = None,
+                     depth: dict | None = None) -> dict[str, str]:
+    """The ladder, in one place because two copies would drift apart.
+
+    Stated genre -> the resolver's own label join -> the deepest of several,
+    read off the graph -> the source's own hub. Nothing here maps a name to a
+    genre; the join is what the resolver already uses.
+    """
+    from written_ontology.normalize import normalize_text  # noqa: PLC0415
+
+    try:
+        from music_works import english_genre  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the bundle always carries it
+        def english_genre(text: str) -> str:
+            return text
+
+    if by_label is None or depth is None:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_GENRE_CONCEPTS)
+            by_label = {row["normalized_label"]: str(row["concept_id"])
+                        for row in cursor.fetchall()}
+            cursor.execute(SELECT_GENRE_DEPTHS)
+            depth = {str(row["concept_id"]): row["depth"]
+                     for row in cursor.fetchall()}
+
+    parents: dict[str, str] = {}
+    for row in rows:
+        stated = row["stated_genres"] or []
+        candidates = []
+        for name in stated:
+            concept = by_label.get(normalize_text(english_genre(name) or ""))
+            if concept is not None:
+                candidates.append(concept)
+        if candidates:
+            # The deepest stated genre — most specific wins, read off the graph.
+            parents[str(row[key])] = max(
+                candidates, key=lambda c: (depth.get(c, 0), c))
+            continue
+
+        hub_key = _SOURCE_HUBS.get(row.get("source_code") or "")
+        if hub_key is None:
+            continue
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_SOURCE_HUB, {"hub_key": hub_key})
+            hub = cursor.fetchone()
+        if hub is not None:
+            parents[str(row[key])] = str(hub["concept_id"])
+
+    return parents
 
 
 def evaluate_release(job) -> dict[str, Any]:

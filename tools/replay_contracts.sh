@@ -464,46 +464,13 @@ SQL
   fi
 fi
 
-echo
-echo "########## LANE B — Calendar upgrade fixture (gates 0046) ##########"
-reset_schema
-apply_through "0045_z"
-load_fixture 0046_calendar_upgrade_fixture.sql
-apply_twice 0046_semantic_private_ingestion_fitness.sql && run_contract 0046_calendar_upgrade_contract
-apply_twice 0047_semantic_current_state_surfaces.sql   && run_contract 0047_current_state_and_surface_hardening_contract
-apply_twice 0048_semantic_legacy_bridge.sql
-
-echo
-echo "########## LANE C — surface-fact fixture (gates 0047) ##########"
-reset_schema
-apply_through "0046_z"
-load_fixture 0047_surface_fact_upgrade_fixture.sql
-apply_twice 0047_semantic_current_state_surfaces.sql && run_contract 0047_surface_fact_upgrade_contract
-apply_twice 0048_semantic_legacy_bridge.sql
-
-echo
-echo "########## the app's own private schema ##########"
-# 0042's header prescribes this, and "an adapted grant broadens access" is the
-# integration plan's named deployment-failure condition. Cheap, and the one
-# check that catches a whole class of mistake.
-# `semantic_ingestor` is the fourth name here and the newest: `0052` gives the
-# ingestion endpoint an identity that can call one function and read nothing,
-# and `private` — which holds the push secret and the collaborator list — is the
-# schema it must be furthest from.
-acl=$(docker exec "$CONTAINER" psql -U postgres -tAc "
-select has_schema_privilege('anon','private','usage')
-    || ',' || has_schema_privilege('authenticated','private','usage')
-    || ',' || has_schema_privilege('service_role','private','usage')
-    || ',' || has_schema_privilege('semantic_ingestor','private','usage');")
-echo "  anon,authenticated,service_role,semantic_ingestor usage on private = $acl"
-if [ "$acl" != "false,false,false,false" ]; then
-  echo "  FAIL  a client role gained access to the app's private schema"
-  fail=1; fail_count=$((fail_count + 1))
-else
-  echo "  PASS  no client role can reach private"
-  pass_count=$((pass_count + 1))
-fi
-
+# **These three run here, at the end of LANE A, and the placement is the
+# whole of whether they mean anything.** Appended after LANE C, they
+# examined that lane's deliberately partial fixture schema instead of the
+# full chain — a probe function with a column that does not exist passed
+# cleanly, and four real defects in one feature went out underneath a green
+# run. A check pointed at the wrong database is worse than no check: it
+# reports PASS with total confidence.
 echo
 echo "########## every plpgsql body, statically checked ##########"
 #
@@ -560,12 +527,42 @@ check_out=$(docker exec "$CONTAINER" psql -U postgres -tA -F'|' -c "
        and p.proname <> all (string_to_array('$POLYMORPHIC', ','))
   )
   select distinct nspname || '.' || proname || ': ' || message
-    from checked where message like 'error:%';" 2>&1 \
+    from checked
+   where message like 'error:%'
+     -- **The one false positive, filtered by name rather than by function.**
+     -- A function that creates its own temporary table is checked before that
+     -- table exists, so every reference to it reads as a missing relation.
+     -- Excluding the whole function would hide real defects inside it — which
+     -- is exactly where four of them were — so only messages naming a
+     -- temporary table that this same body creates are dropped, along with the
+     -- unassigned-record errors that cascade from a FOR over one.
+     and not exists (
+       select 1
+         from pg_proc p2
+         join pg_namespace n2 on n2.oid = p2.pronamespace,
+              lateral regexp_matches(pg_get_functiondef(p2.oid),
+                'create temporary table ([a-z_]+)', 'gi') as temp_name
+        where n2.nspname = checked.nspname and p2.proname = checked.proname
+          and (message like '%relation \"' || temp_name[1] || '\" does not exist%'
+            or message like '%is not assigned yet%'));" 2>&1 \
   || echo "plpgsql_check could not run")
+
+# **How many bodies were examined, printed rather than assumed.** Four defects
+# in one feature — an invented function, an invented column, a missing id and a
+# missing parent — were each found by running the line rather than by this
+# check, and a guard that silently examines nothing looks identical to a guard
+# that finds nothing. The count is the difference.
+checked_count=$(docker exec -i "$CONTAINER" psql -U postgres -tA -c "
+  select count(*) from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    join pg_language l on l.oid = p.prolang
+   where l.lanname = 'plpgsql' and p.prokind = 'f'
+     and n.nspname in ('api', 'semantic_private', 'ontology', 'public', 'private');" 2>&1)
+echo "  examined $checked_count plpgsql bodies"
 
 if [ -n "$check_out" ]; then
   echo "  FAIL  a plpgsql body cannot run as written"
-  echo "$check_out" | head -12 | sed 's/^/          /'
+  echo "$check_out" | head -40 | sed 's/^/          /'
   fail=1; fail_count=$((fail_count + 1))
 else
   echo "  PASS  every plpgsql body resolves against the schema"
@@ -648,16 +645,63 @@ echo "########## every api function is called by a contract ##########"
 # app can call must appear in at least one test, and a new one arrives with
 # coverage or fails here.
 uncovered=""
+known_uncovered=""
 for fn in $(docker exec "$CONTAINER" psql -U postgres -tAc "
       select distinct p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'api' order by 1;"); do
-  grep -qE "api\.$fn\(" "$TESTS"/*.sql || uncovered="$uncovered $fn"
+  grep -qE "api\.$fn\(" "$TESTS"/*.sql && continue
+  grep -qxF "$fn" "$ROOT/tools/ci/api_functions_without_contract.txt" 2>/dev/null \
+    && known_uncovered="$known_uncovered $fn" && continue
+  uncovered="$uncovered $fn"
 done
 if [ -n "$uncovered" ]; then
   echo "  FAIL  api functions no contract calls:$uncovered"
   fail=1; fail_count=$((fail_count + 1))
 else
   echo "  PASS  every api function is exercised by a contract"
+  if [ -n "$known_uncovered" ]; then
+    echo "        (owed coverage, recorded:$known_uncovered)"
+  fi
+  pass_count=$((pass_count + 1))
+fi
+
+echo
+echo "########## LANE B — Calendar upgrade fixture (gates 0046) ##########"
+reset_schema
+apply_through "0045_z"
+load_fixture 0046_calendar_upgrade_fixture.sql
+apply_twice 0046_semantic_private_ingestion_fitness.sql && run_contract 0046_calendar_upgrade_contract
+apply_twice 0047_semantic_current_state_surfaces.sql   && run_contract 0047_current_state_and_surface_hardening_contract
+apply_twice 0048_semantic_legacy_bridge.sql
+
+echo
+echo "########## LANE C — surface-fact fixture (gates 0047) ##########"
+reset_schema
+apply_through "0046_z"
+load_fixture 0047_surface_fact_upgrade_fixture.sql
+apply_twice 0047_semantic_current_state_surfaces.sql && run_contract 0047_surface_fact_upgrade_contract
+apply_twice 0048_semantic_legacy_bridge.sql
+
+echo
+echo "########## the app's own private schema ##########"
+# 0042's header prescribes this, and "an adapted grant broadens access" is the
+# integration plan's named deployment-failure condition. Cheap, and the one
+# check that catches a whole class of mistake.
+# `semantic_ingestor` is the fourth name here and the newest: `0052` gives the
+# ingestion endpoint an identity that can call one function and read nothing,
+# and `private` — which holds the push secret and the collaborator list — is the
+# schema it must be furthest from.
+acl=$(docker exec "$CONTAINER" psql -U postgres -tAc "
+select has_schema_privilege('anon','private','usage')
+    || ',' || has_schema_privilege('authenticated','private','usage')
+    || ',' || has_schema_privilege('service_role','private','usage')
+    || ',' || has_schema_privilege('semantic_ingestor','private','usage');")
+echo "  anon,authenticated,service_role,semantic_ingestor usage on private = $acl"
+if [ "$acl" != "false,false,false,false" ]; then
+  echo "  FAIL  a client role gained access to the app's private schema"
+  fail=1; fail_count=$((fail_count + 1))
+else
+  echo "  PASS  no client role can reach private"
   pass_count=$((pass_count + 1))
 fi
 

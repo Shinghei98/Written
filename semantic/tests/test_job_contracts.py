@@ -32,6 +32,7 @@ from written_ontology.job_contracts import (
     ApplyFeedbackPayload,
     AggregateFeedbackPayload,
     EvaluateReleasePayload,
+    ProcessMintRequestsPayload,
 )
 
 
@@ -163,6 +164,10 @@ PAYLOAD_TYPES = {
     # The one fleet-wide job: no user, by design and by payload validator.
     "aggregate_feedback": AggregateFeedbackPayload,
     "evaluate_release": EvaluateReleasePayload,
+    # The other fleet-wide job, and no user for the same reason: minting writes
+    # shared vocabulary, so a queue row naming an account would suggest the
+    # catalogue is per-person.
+    "process_mint_requests": ProcessMintRequestsPayload,
 }
 
 
