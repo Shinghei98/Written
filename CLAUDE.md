@@ -60,6 +60,25 @@ alias-checked transaction. The scope of record is the owner's revised memo
 (`Written_Qwen_to_Memories_Corrective_Implementation_Plan_2026-08-20 (1).md`),
 binding at 100%: never shrink it by discretion.
 
+## YouTube in the model lane: the owner's interpretation of record (2026-08-20)
+
+**YouTube is a first-class term-discovery lane.** The owner's standing
+interpretation — stated 2026-08-20 and binding — is that YouTube's additional
+terms permit use of their material for integrative app function, and the
+`Written_Ontology_Grammar_and_Three_Lane_Integration_Contract.docx` (Downloads,
+2026-08-20) is the normative restatement: three source lanes (YouTube, Music,
+Events), one ontology, five semantic layers, closed grammar with open nouns.
+Where this file's older lines say YouTube may not feed a model (the
+`model_input_source_codes` rationale, the dual-write exclusion notes), the
+owner's interpretation supersedes them for the mention-discovery lane. What
+does NOT move: the 30-day retention discipline (filed evidence expires at 30
+days for every source), III.E.3.b's display rule (one user's YouTube-derived
+material is never shown to another — Memories is the owner's own surface),
+the icebreaker exclusion, and the hard invariants the contract itself states
+(a like is never a watch; a subscription is not interest in every member;
+Qwen never emits IDs; `known_vocabulary_only` is not a valid eligibility
+condition for any lane).
+
 ## The prime design constraint: minimum friction
 
 Data extraction must feel like a **one-button experience** per app. OAuth is the

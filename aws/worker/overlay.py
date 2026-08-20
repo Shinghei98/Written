@@ -555,18 +555,22 @@ def _file_evidence(connection, user_id: str, kms, vault_key_arn,
 #: request schema knows; passing a raw source code through would have been
 #: refused at the wire, or worse, accepted as a profile that means something else.
 #:
-#: **Four sources may feed a model and two may not.** Apple Music, Apple
-#: Podcasts, Apple Calendar and HealthKit carry no term restricting downstream
-#: use; YouTube (III.E.4.h) and Spotify (IV.2.1.a, and IV.2.5 closes the consent
-#: route) both forbid it. Calendar is licensed and still absent here: its titles
-#: reach the scorer through the classifier Lambda and never through this lane,
-#: and HealthKit has no text at all. Adding either is a decision to make in this
-#: table.
+#: **Five sources may feed a model; Spotify may not.** Apple Music, Apple
+#: Podcasts and the device library carry no term restricting downstream use.
+#: YouTube joined 2026-08-20 under the owner's interpretation of record — the
+#: additional terms permit integrative app function, and the three-lane
+#: contract makes it a first-class term-discovery lane (its request profile
+#: existed in `mention_extract_request_v1` from the start). Spotify stays out:
+#: IV.2.1.a, and IV.2.5 closes the consent route. Calendar is licensed and
+#: still absent HERE — its titles reach the scorer through the classifier
+#: Lambda — pending the Events-lane work the same contract defines. HealthKit
+#: has no text at all. Adding a source is a decision to make in this table.
 MODEL_INPUT_PROFILES = {
     "apple_music": "apple_music",
     "music_library": "music_catalog",
     "apple_podcasts": "podcast",
     "podcast": "podcast",
+    "youtube": "youtube",
 }
 
 
