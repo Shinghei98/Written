@@ -183,6 +183,25 @@ begin
     raise exception 'restore did not durably lift the suppression';
   end if;
 
+  -- **The two verbs nothing had ever called**, placed after the sequence
+  -- above rather than inside it: that sequence asserts exact revision
+  -- numbers, and an extra decision in the middle of it changes the thing it
+  -- is counting. `keep` and `edit` were in this same uncovered state when
+  -- they turned out to carry seven fatal defects between them (0269).
+  if api.confirm_assertion(
+       test_assertion_id, gen_random_uuid(), test_exposure_id, 'memories'
+     ) is null then
+    raise exception 'confirm_assertion recorded nothing';
+  end if;
+
+  -- A term of the owner's own: no concept, no observations, and therefore
+  -- never subject to the currency check an inferred claim answers to.
+  if api.add_assertion(
+       gen_random_uuid(), null, 'a term of my own', '{}'::uuid[], 'memories'
+     ) is null then
+    raise exception 'add_assertion returned no assertion';
+  end if;
+
   insert into semantic_private.semantic_runs (
     id, user_id, ontology_version_id, resolver_model_id, scorer_model_id,
     input_revision, input_hash, status

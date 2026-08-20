@@ -216,6 +216,12 @@ begin
     raise exception '0230 contract: striking as alice wrote an event for bob';
   end if;
 
+  -- **The flag read the app routes on**, called nowhere else in any
+  -- contract. It arrives in 0048, so it cannot be covered by the staged 0044
+  -- file where the other assertion verbs are; here the whole chain is
+  -- applied. It must answer, not raise, for an account with no flags.
+  perform count(*) from api.feature_flags();
+
   -- ---------------------------------------------------------------------
   -- 4b. Keep and edit, the two verbs the lane exists for
   -- ---------------------------------------------------------------------

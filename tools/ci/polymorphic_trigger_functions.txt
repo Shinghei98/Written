@@ -1,0 +1,18 @@
+# Trigger functions attached to more than one table, whose bodies branch on
+# `tg_table_name`. `plpgsql_check` is given one relation at a time, so it
+# reports every branch that does not apply to that one — a false positive by
+# construction, not a defect.
+#
+# **This list is judgement, and it is meant to stay short.** A name here is a
+# claim that the function guards each field access behind a table test *and*
+# raises on an unrecognised table; check that before adding one, because an
+# entry silences the check that exists to catch exactly this class.
+#
+# semantic_private.inherit_mapping_recency — `motif_support` carries
+#   `semantic_run_id` and `assertion_evidence` does not; the read sits inside
+#   `if tg_table_name = 'motif_support'`, and the else-branch raises.
+# semantic_private.validate_fitness_candidate_support — attached to the
+#   candidate table and its support table, which have different keys; each
+#   access is inside its own branch.
+inherit_mapping_recency
+validate_fitness_candidate_support

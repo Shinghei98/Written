@@ -505,5 +505,96 @@ else
 fi
 
 echo
+echo "########## every plpgsql body, statically checked ##########"
+#
+# **The root of the defect class 0269 spent seven repairs on.** Postgres parses
+# a plpgsql body when it is created and resolves the SQL inside it only when
+# that line first runs — so a function can name a column that has never
+# existed, and nothing says so until somebody taps the button. Four of 0269's
+# seven were exactly that, in a function no test called; `0254`'s `fetched_at`
+# was another, shipped dark through a whole evaluation phase.
+#
+# `plpgsql_check` resolves every statement against the live catalog without
+# executing it, so it finds them whether or not a test reaches the line. It
+# runs here rather than in production because this is where the whole chain
+# has just been applied to a database nobody is using.
+#
+# **Errors only.** Warnings include unused variables and shadowed names, which
+# are style; an error is a statement that cannot run.
+# Created as the app's own role in the app's own database — the chain was
+# applied there, and an extension installed anywhere else checks nothing. The
+# `|| true` keeps `set -e` from ending the run before the failure can be
+# reported as a failure.
+docker exec "$CONTAINER" psql -U postgres -q \
+  -c "create extension if not exists plpgsql_check;" >/dev/null 2>&1 || true
+
+# Functions one relation at a time cannot judge — see the file's own header.
+POLYMORPHIC="$(grep -v '^#' "$ROOT/tools/ci/polymorphic_trigger_functions.txt" \
+  | grep -v '^$' | paste -sd, -)"
+
+# **A trigger function has to be checked against a table.** Its body reads
+# `new` and `old`, whose types come from the relation it is attached to, so
+# checking one without a `relid` answers "missing trigger relation" for every
+# guard in the schema — which is most of them. So: ordinary functions plainly,
+# trigger functions once per table they are attached to.
+check_out=$(docker exec "$CONTAINER" psql -U postgres -tA -F'|' -c "
+  with checked as (
+    select n.nspname, p.proname, c.message
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      join pg_language l on l.oid = p.prolang
+      cross join lateral plpgsql_check_function(p.oid, fatal_errors => false) as c(message)
+     where l.lanname = 'plpgsql' and p.prokind = 'f'
+       and p.prorettype <> 'trigger'::regtype
+       and n.nspname in ('api', 'semantic_private', 'ontology', 'public', 'private')
+    union all
+    select n.nspname, p.proname, c.message
+      from pg_trigger tg
+      join pg_proc p on p.oid = tg.tgfoid
+      join pg_namespace n on n.oid = p.pronamespace
+      join pg_language l on l.oid = p.prolang
+      cross join lateral plpgsql_check_function(p.oid, relid => tg.tgrelid,
+                                                fatal_errors => false) as c(message)
+     where l.lanname = 'plpgsql' and not tg.tgisinternal
+       and n.nspname in ('api', 'semantic_private', 'ontology', 'public', 'private')
+       and p.proname <> all (string_to_array('$POLYMORPHIC', ','))
+  )
+  select distinct nspname || '.' || proname || ': ' || message
+    from checked where message like 'error:%';" 2>&1 \
+  || echo "plpgsql_check could not run")
+
+if [ -n "$check_out" ]; then
+  echo "  FAIL  a plpgsql body cannot run as written"
+  echo "$check_out" | head -12 | sed 's/^/          /'
+  fail=1; fail_count=$((fail_count + 1))
+else
+  echo "  PASS  every plpgsql body resolves against the schema"
+  pass_count=$((pass_count + 1))
+fi
+
+echo
+echo "########## every api function is called by a contract ##########"
+#
+# **The other half of the same lesson.** A static check cannot see that
+# `review_events.reason` refuses `'user_keep'` — that is a value, not a name —
+# and only a caller finds it. `keep` and `edit` carried three such defects
+# apiece because no contract file had ever named them. So: every function the
+# app can call must appear in at least one test, and a new one arrives with
+# coverage or fails here.
+uncovered=""
+for fn in $(docker exec "$CONTAINER" psql -U postgres -tAc "
+      select distinct p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'api' order by 1;"); do
+  grep -qE "api\.$fn\(" "$TESTS"/*.sql || uncovered="$uncovered $fn"
+done
+if [ -n "$uncovered" ]; then
+  echo "  FAIL  api functions no contract calls:$uncovered"
+  fail=1; fail_count=$((fail_count + 1))
+else
+  echo "  PASS  every api function is exercised by a contract"
+  pass_count=$((pass_count + 1))
+fi
+
+echo
 echo "==> $pass_count passed, $fail_count failed"
 exit $fail
