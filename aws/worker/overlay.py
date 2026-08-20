@@ -50,6 +50,18 @@ RESOLVE_BATCH = 2000
 CANDIDATE_BATCH = 5000
 REVIEW_PAGE = 24
 
+#: How much extraction one job may do. The wire maximum stays two items per
+#: model call — raising it is a contract change — so throughput comes from
+#: looping calls inside the job instead: up to this many calls, stopping early
+#: when the time remaining could not fit another round trip (the lane's own
+#: timeout is 25 s; the Lambda's is 300). Measured before the loop existed:
+#: one 2-item call per job, ~15 items/hour, a 1,846-row backlog five days
+#: deep. Each batch commits as it lands, so a deferral mid-loop keeps every
+#: batch already written.
+EXTRACT_MAX_CALLS = 20
+EXTRACT_BUDGET_S = 200.0
+EXTRACT_CALL_RESERVE_S = 35.0
+
 #: The route these jobs write. A route is *how* a resolution was reached, and it
 #: is recorded per row because feedback is attributed to it: `aggregate_feedback`
 #: cannot say which route is producing bad terms if every row claims the same
@@ -232,80 +244,112 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
     # hang a mention on and `forget_distillation` something to redact.
     _file_evidence(connection, user_id, kms, vault_key_arn)
 
-    items = _items_for(connection, user_id, job.payload, kms, vault_key_arn)
-    if not items:
+    # **The loop, not the batch, is the unit of work now.** One 2-item call per
+    # job was the shakedown gait; the wire maximum has not moved, the job just
+    # makes several calls. Each batch's request id is derived from the evidence
+    # ids themselves, so retry stability no longer leans on the job identity:
+    # whichever job next selects the same still-pending rows — this one on a
+    # deferral retry, or a freshly armed one — computes the same id and
+    # collects the same inference instead of paying for a second.
+    import hashlib  # noqa: PLC0415
+    import time  # noqa: PLC0415
+
+    # Constructed on first use: a queue with nothing to ask must not touch the
+    # lane at all — an empty call would record an invocation that asked nothing.
+    lane = None
+    deadline = time.monotonic() + EXTRACT_BUDGET_S
+    calls = 0
+    total_items = 0
+    total_written = 0
+
+    while calls < EXTRACT_MAX_CALLS \
+            and time.monotonic() + EXTRACT_CALL_RESERVE_S < deadline:
+        items = _items_for(connection, user_id, job.payload, kms, vault_key_arn)
+        if not items:
+            break
+        if lane is None:
+            lane = ModelLane()
+
+        batch_request_id = "req_" + hashlib.sha256(
+            (user_id + ":" + ",".join(sorted(
+                str(item["source_text_evidence_id"]) for item in items))
+             ).encode()).hexdigest()[:40]
+
+        try:
+            proposed = lane.propose(
+                user_id=user_id,
+                items=[_wire_item(item) for item in items],
+                request_id=batch_request_id,
+                # **From the evidence, not from the payload.** The source
+                # profile is a property of the rows being asked about; a job
+                # key would let the enqueuer describe somebody else's data.
+                # **Refused rather than defaulted.** `"youtube"` as a fallback
+                # was the worst possible default: the one profile whose data
+                # may not be here at all.
+                source_profile=_one_profile(items))
+        except InFlight:
+            # The endpoint accepted this batch and has not answered. With
+            # nothing yet banked the whole job defers, exactly as before; with
+            # earlier batches committed it stops here instead — those batches
+            # are durable, and the in-flight one is collected by whichever job
+            # next selects the same rows, because the id is derived from them.
+            # **A queue state, not a receipt.** `in_flight` is not one of the
+            # nine permitted status words, so it can never be persisted as a
+            # result; the dedicated exception defers without spending a
+            # failure attempt and without writing `last_error`.
+            print(json.dumps({"extract_mentions": "in_flight",
+                              "items": len(items), "calls": calls}))
+            if calls == 0:
+                raise InferenceDeferred(len(items)) from None
+            break
+        except LaneUnavailable as unavailable:
+            # **Deferred, never failed** — an open breaker cooling off and a
+            # capacity drought are both transient, and a RuntimeError here once
+            # cost five attempts and a permanently wedged user (`0210`). Same
+            # partial-progress rule as above: an empty job defers, a job with
+            # banked batches keeps them.
+            print(json.dumps({"extract_mentions": "lane_unavailable_deferred",
+                              "items": len(items), "calls": calls}))
+            if calls == 0:
+                raise InferenceDeferred(len(items)) from unavailable
+            break
+
+        # Evaluation returned above without reading anything, so anything
+        # reaching here is `shadow` or `active` — the two lanes `0237` permits
+        # a user mention from. One rule, in one place.
+        written = _write_model_mentions(connection, user_id, items, proposed)
+        # **Committed per batch, deliberately.** The lane records invocation
+        # items on its own credential's connection the moment a call succeeds;
+        # if this connection rolled a later deferral back over an earlier
+        # batch's mentions, those rows would be unreachable forever — the
+        # evidence is marked asked-about and never re-selected, and the
+        # mentions it paid for would not exist.
+        connection.commit()
+
+        # **Bounded and in the permitted vocabulary.** `ok` is not a status
+        # word; `invocation_id` is not a permitted id key — the invocation
+        # ledger already holds those facts, and a receipt duplicating them is
+        # a second copy that can disagree with the first.
+        print(json.dumps({"extract_mentions": {
+            "invocation_id": proposed["invocation_id"],
+            "outcomes": [row["outcome"] for row in proposed["lineage"]]}}))
+        calls += 1
+        total_items += len(items)
+        total_written += written
+
+    if total_items == 0:
         # **Nothing to ask about is not a failure.** An account whose evidence
         # has not been captured yet, or whose text has been erased, produces no
         # request — and an empty call would record an invocation that asked
         # nothing.
-        # Same closed vocabulary: nothing to ask about is `no_op`, and why is a
-        # log line rather than a rejected column.
         print(json.dumps({"extract_mentions": "no_evidence"}))
         return {"status": "no_op", "abstained": True, "item_count": 0}
 
-    lane = ModelLane()
-    try:
-        proposed = lane.propose(
-            user_id=user_id,
-            items=[_wire_item(item) for item in items],
-            request_id=request_id,
-            # **From the evidence, not from the payload.** The source profile is
-            # a property of the rows being asked about; a job key would let the
-            # enqueuer describe somebody else's data.
-            # **Refused rather than defaulted.** `"youtube"` as a fallback was
-            # the worst possible default: the one profile whose data may not be
-            # here at all.
-            source_profile=_one_profile(items))
-    except InFlight as flight:
-        # The endpoint accepted the work and is still starting. Returning this
-        # rather than raising is what stops a scaled-to-zero GPU being asked to
-        # do the same work twice; the job is re-enqueued with the same request
-        # id and collects.
-        # **A queue state, not a receipt.** `in_flight` is not one of the nine
-        # permitted status words, and `resume_request_id` is not a permitted key
-        # — so this cannot be persisted as a result at all. It is raised as a
-        # dedicated exception the runner understands, which defers the job
-        # without spending an ordinary failure attempt and without writing
-        # `last_error`.
-        #
-        # The request id does not need to travel: it is derived from the job, so
-        # the next attempt computes the same one and collects the same
-        # inference rather than starting a second.
-        print(json.dumps({"extract_mentions": "in_flight",
-                          "items": len(items)}))
-        raise InferenceDeferred(len(items))
-    except LaneUnavailable as unavailable:
-        # **Deferred, exactly as the evaluation path does — never failed.**
-        # Unavailability here includes an open breaker cooling off and a
-        # capacity drought on a scaled-to-zero endpoint, both transient by
-        # definition. The previous RuntimeError spent a real attempt per tick;
-        # five ticks of drought would mark the job dead, and a dead row blocks
-        # its own re-arm by identical idempotency key (`0210`) with the sweeper
-        # deliberately unscheduled — a multi-hour drought during shadow would
-        # have wedged that user's work permanently. Deferral costs the queue
-        # nothing: `defer` refunds the attempt, and the work is unchanged.
-        print(json.dumps({"extract_mentions": "lane_unavailable_deferred",
-                          "items": len(items)}))
-        raise InferenceDeferred(len(items)) from unavailable
-
-    # Evaluation returned above without reading anything, so anything reaching
-    # here is `shadow` or `active` — the two lanes `0237` permits a user mention
-    # from. One rule, in one place.
-    written = _write_model_mentions(connection, user_id, items, proposed)
-
-    # **Bounded and in the permitted vocabulary.** `ok` is not a status word;
-    # `invocation_id` is not a permitted id key; `lineage` is not a permitted key
-    # at all — and it should not be, because the invocation ledger already holds
-    # every one of those facts. A receipt duplicating them is a second copy that
-    # can disagree with the first.
-    print(json.dumps({"extract_mentions": {
-        "invocation_id": proposed["invocation_id"],
-        "outcomes": [row["outcome"] for row in proposed["lineage"]]}}))
     return {
         "status": "succeeded",
         "abstained": False,
-        "item_count": len(items),
-        "created_count": written,
+        "item_count": total_items,
+        "created_count": total_written,
     }
 
 
@@ -680,7 +724,14 @@ select e.id as source_text_evidence_id,
  -- first shadow run's UndefinedColumn, 2026-08-20: the fixture path never
  -- executes this query, so the wrong name shipped dark through the whole
  -- evaluation phase — the ships-dark defect this repo keeps paying for.)
- order by e.fetched_at, e.id
+ --
+ -- **The discovery lane goes first.** The Qwen lane exists for global term
+ -- discovery, and YouTube is where the unknown nouns live — a strict FIFO put
+ -- one account's 524 YouTube rows behind ~1,300 music rows, days away at the
+ -- measured rate. Order is not part of any receipt, so this is a product
+ -- decision, not a contract change; music evidence resumes when YouTube is
+ -- drained.
+ order by (o.source_code = 'youtube') desc, e.fetched_at, e.id
  limit %(limit)s
 """
 
@@ -1302,7 +1353,20 @@ def aggregate_term_candidates(job) -> dict[str, Any]:
 BUILD_REVIEW = """
 with ranked as (
   select c.id, c.user_id, c.confidence_tier, c.aggregate_score, c.primary_route_id,
-         row_number() over (order by c.aggregate_score desc, c.id) - 1 as rank
+         -- **Ranks continue the epoch, and discovery goes first.** The old
+         -- row_number() numbered within each builder pass, and passes run
+         -- every few minutes adding one or two candidates — so an 847-item
+         -- epoch collapsed to rank 0 and the review surface handed out an
+         -- arbitrary, permanently identical eight. The offset makes rank an
+         -- epoch-wide position; the discovery-first key puts model-proposed
+         -- provisionals — the reason this lane exists — above known-concept
+         -- candidates whatever their aggregate score.
+         row_number() over (order by (c.provisional_entity_id is not null) desc,
+                            c.aggregate_score desc, c.id) - 1
+           + coalesce((select max(i0.rank) + 1
+                         from semantic_private.review_items i0
+                        where i0.user_id = %(user_id)s
+                          and i0.review_epoch = %(epoch)s), 0) as rank
     from semantic_private.user_term_candidates c
    where c.user_id = %(user_id)s
      and c.lifecycle_state = 'active'
@@ -1320,7 +1384,8 @@ with ranked as (
           and s.user_facing_predicate = c.user_facing_predicate
           and (s.concept_id = c.concept_id
                or s.provisional_entity_id = c.provisional_entity_id))
-   order by c.aggregate_score desc, c.id
+   order by (c.provisional_entity_id is not null) desc,
+            c.aggregate_score desc, c.id
    limit %(page)s
 )
 insert into semantic_private.review_items

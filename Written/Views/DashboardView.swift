@@ -1384,6 +1384,15 @@ struct DashboardView: View {
         // the same rule every assertion answer follows.
         guard recorded else { return }
         suggestions?.removeAll { $0.id == suggestion.id }
+        // The last visible row deciding is the batch finishing. Closing it is
+        // what lets the next `suggestions()` page forward — without the finish,
+        // the server re-serves this same batch forever. The next batch is
+        // fetched immediately, so judging flows without reopening the page.
+        if suggestions?.allSatisfy(\.struck) ?? true {
+            await SemanticSurfaceService.shared.finishCalibration()
+            suggestions = await SemanticSurfaceService.shared.suggestions()
+                ?? suggestions
+        }
     }
 
     @ViewBuilder

@@ -408,6 +408,10 @@ actor SemanticSurfaceService {
         let provisionalID: UUID?
     }
 
+    /// The epoch the last suggestions() answer belonged to. `finishCalibration`
+    /// needs it, and the server is the only party who may choose it.
+    private(set) var suggestionEpoch: Int?
+
     /// The owner's pending suggestions, `nil` for *could not ask*. An empty
     /// array is a real answer (nothing to review, or the surface's flag is
     /// down for this account); nil is a network or server failure and the
@@ -418,6 +422,7 @@ actor SemanticSurfaceService {
             let rows = try await PostgREST.callFunction(
                 "begin_calibration", arguments: ["batch_size": 8])
             lastError = nil
+            suggestionEpoch = (rows.first?["value"] as? [String: Any])?["epoch"] as? Int
             guard let envelope = rows.first?["value"] as? [String: Any],
                   let items = envelope["items"] as? [[String: Any]] else {
                 // A bare `{epoch, items: []}` with no items parses here too.
@@ -479,6 +484,17 @@ actor SemanticSurfaceService {
         await call("restore_calibration_item", [
             "item": suggestion.id.uuidString.lowercased(),
         ])
+    }
+
+    /// Close the batch the owner has finished judging. The server records
+    /// keep-by-silence for exposed, unstruck rows and finish events for the
+    /// rest — the semantics live in `api.finish_calibration`, never here. The
+    /// next `suggestions()` then pages forward instead of re-serving the same
+    /// batch forever.
+    @discardableResult
+    func finishCalibration() async -> Bool {
+        guard let epoch = suggestionEpoch else { return false }
+        return await call("finish_calibration", ["epoch": epoch])
     }
 
     /// Edit: the original proposal is recorded as negative model feedback and

@@ -39,8 +39,14 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self): self.written: list[dict] = []
+    def __init__(self):
+        self.written: list[dict] = []
+        self.commits = 0
     def cursor(self): return FakeCursor(self.written)
+    # The loop commits per batch, deliberately — a deferral mid-loop must not
+    # roll earlier batches' mentions back over invocation items the lane's own
+    # connection already committed.
+    def commit(self): self.commits += 1
 
 
 def proposal(outcome="succeeded", mentions=(("Hearthstone", "title"),)):
@@ -178,8 +184,12 @@ def test_shadow_writes_the_mention(overlay, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "model_lane", _module_with(Lane))
     monkeypatch.setattr(overlay, "_file_evidence", lambda *a, **k: 0)
+    # One-shot, the way a real queue behaves: once a batch's invocation items
+    # are recorded the selection stops returning it. A stub that always
+    # answered would make the extraction loop look like runaway extraction.
+    pending = [[_stub_item()]]
     monkeypatch.setattr(overlay, "_items_for",
-                        lambda *a, **k: [_stub_item()])
+                        lambda *a, **k: pending.pop() if pending else [])
     result = overlay._propose_and_write(
         connection, _job(), "shadow", "u-1", "req_x", None, None)
     # `created_count`, not `mentions_written`: the receipt vocabulary is closed.
