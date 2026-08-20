@@ -670,9 +670,12 @@ select e.id as source_text_evidence_id,
       where i.source_text_evidence_id = e.id
    )
  -- Deterministic, so the armer and the handler see the same ordered set. Ties
- -- on `created_at` are real — a batch inserted in one statement shares the
- -- transaction timestamp — so `id` breaks them.
- order by e.created_at, e.id
+ -- on `fetched_at` are real — a batch inserted in one statement shares the
+ -- transaction timestamp — so `id` breaks them. (`created_at` here was the
+ -- first shadow run's UndefinedColumn, 2026-08-20: the fixture path never
+ -- executes this query, so the wrong name shipped dark through the whole
+ -- evaluation phase — the ships-dark defect this repo keeps paying for.)
+ order by e.fetched_at, e.id
  limit %(limit)s
 """
 
