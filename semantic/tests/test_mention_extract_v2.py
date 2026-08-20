@@ -95,15 +95,22 @@ def test_removed_fields_are_refused(schema):
             jsonschema.Draft202012Validator(schema).validate(bad)
 
 
-def test_batch_stays_two(schema):
+def test_the_batch_is_bounded_by_the_wire_maximum(schema):
+    """The bound is the workbook's, and one past it is refused.
+
+    It was pinned at two through the grammar shakedown, then raised to eight
+    against measured output: 114 real two-item calls averaged 307 output
+    tokens and peaked at 787, against a per-item reserve of 1280. The number
+    is read from the schema rather than written here twice — a test asserting
+    its own copy of the bound can only ever agree with itself.
+    """
     import jsonschema
 
-    assert schema["properties"]["items"]["maxItems"] == 2
-    three = response([extracted(0), extracted(1),
-                      {"item_index": 1, "status": "abstained", "mentions": [],
-                       "abstain_reason": "ambiguous"}])
+    wire = schema["properties"]["items"]["maxItems"]
+    assert wire >= 2
+    over = response([extracted(index % wire) for index in range(wire + 1)])
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.Draft202012Validator(schema).validate(three)
+        jsonschema.Draft202012Validator(schema).validate(over)
 
 
 @pytest.mark.parametrize("item,ok", [

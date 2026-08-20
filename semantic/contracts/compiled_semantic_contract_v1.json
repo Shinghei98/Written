@@ -1,10 +1,10 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-20T07:04:57.708Z",
+  "generated_at": "2026-08-20T12:05:21.484Z",
   "source_hashes": {
-    "workbook_sha256": "f57f17f19967933434acb212f62a72f4a785e24804e43a7d1cdc37276deb441b",
-    "mention_schema_sha256": "aa30477736d23018421e29b07864710ef00b9d64e2fb07c5b9b0fe1af5f346f4",
-    "request_schema_sha256": "8874529e8aabe48583e5dd91a03b45611c225d557c6b460b840e1b66e5b00f5f"
+    "workbook_sha256": "ed608d527e68f2b7a3e34c3c5de1e8830cabff9dea1d2bf7b6f272e675ff68b8",
+    "mention_schema_sha256": "8a53529b30c9ae0b7689dc34a1e6cd5379df833b0e492e473db7df78eb42bc40",
+    "request_schema_sha256": "b48ac69a5f4831db5a92bd4e809e2a8225f2500040d7a18c14063a1e8508f7c9"
   },
   "versions": {
     "term_family_map": "term_family_map_v1",
@@ -79,12 +79,12 @@
       "insufficient_context",
       "invalid_input"
     ],
-    "max_items_wire": 2,
-    "default_batch_items": 1,
-    "calibrated_max_items": 1,
+    "max_items_wire": 8,
+    "default_batch_items": 8,
+    "calibrated_max_items": 8,
     "max_mentions_per_item": 5,
-    "max_output_tokens": 4096,
-    "uncalibrated_item_reserve_tokens": 1280,
+    "max_output_tokens": 8192,
+    "uncalibrated_item_reserve_tokens": 600,
     "envelope_token_reserve": 512,
     "predictor_quantile": 0.99,
     "packing_headroom": 0.2,
