@@ -89,19 +89,26 @@ def test_storage_names_resolve_to_this_databases_schema(contract):
     assert not any(name.startswith("private.") for name in contract.required_tables)
 
 
-def test_the_overlay_is_in_evaluation_and_that_is_read_from_the_artifact(contract):
+def test_the_overlay_is_in_shadow_and_that_is_read_from_the_artifact(contract):
     """Not a build flag — turning it on was a contract change a deploy compares.
 
-    Flipped from `off` on 2026-08-19, after the serving image was attested from
-    a GPU and both hashes were pinned. `evaluation` may call the model — against
-    the synthetic corpus only — and **may still write nothing attributable to a
-    person**; that second assertion is the one that must survive every mode
-    short of `shadow`, and moving it is a decision this test exists to force.
+    Flipped from `off` to `evaluation` on 2026-08-19 after the serving image
+    was attested, and from `evaluation` to `shadow` on 2026-08-20 by owner
+    decision — the evaluation lane grants one turn per (user, release) and had
+    already produced its receipt, so there was nothing more it could say.
+    `shadow` may attach mentions, resolutions and candidates to a person and
+    **may still assert nothing**: everything it writes stays in
+    `semantic_private`, terminates at review, and is invisible to
+    `api.list_assertions`. Moving past THAT line is the next decision this
+    test exists to force.
     """
     assert contract.initial_mode == "exact_only"
-    assert contract.model_lane_mode == "evaluation"
+    assert contract.model_lane_mode == "shadow"
     assert contract.model_may_be_called is True
-    assert contract.may_write_user_candidates is False
+    # True is what shadow MEANS: candidates may carry a user_id. What still
+    # stands between a candidate and an assertion is the review gate, and
+    # that is the assertion-only surface test's job, not this one's.
+    assert contract.may_write_user_candidates is True
     assert len(contract.jobs) == 9
     assert "extract_mentions" in contract.jobs
 

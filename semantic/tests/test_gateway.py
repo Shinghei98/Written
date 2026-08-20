@@ -407,11 +407,14 @@ def call(path, method="GET", body=None, secret=None, **kwargs):
 
 
 def test_health_and_attestation_report_the_artifact_mode():
-    """The mode moved to `evaluation` on 2026-08-19; these follow the artifact."""
+    """`evaluation` on 2026-08-19, `shadow` on 2026-08-20 (owner decision:
+    the evaluation lane had said all it could — one turn per user per release —
+    and shadow is the first mode where output may attach to a person, still
+    unpublished). These follow the artifact."""
     status, body = call("/health")
     assert status.startswith("200") and body["extraction_enabled"] is True
     status, body = call("/v1/semantic/attestation")
-    assert status.startswith("200") and body["model_lane_mode"] == "evaluation"
+    assert status.startswith("200") and body["model_lane_mode"] == "shadow"
 
 
 def test_extract_with_the_lane_on_but_nothing_attested_reaches_no_transport(monkeypatch):
