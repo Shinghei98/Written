@@ -1196,13 +1196,31 @@ def build_candidate_overlay(job) -> dict[str, Any]:
 #: `direct` is reserved for something the person said, and nothing in the exact
 #: lane can produce that.
 AGGREGATE = """
-with weighed as (
+with clustered as (
+  -- **One opinion per correlated cluster (three-lane contract §5.2).** Forty
+  -- videos from one channel are one channel's enthusiasm, not forty
+  -- independent witnesses — the same damping the genre rollup applies with
+  -- "one mapping per (genre, artist)". The cluster is the channel where the
+  -- observation names one, and the observation itself everywhere else, so
+  -- reposts and same-channel floods collapse to their strongest single row
+  -- while genuinely distinct provider items still add.
   select l.candidate_id,
-         sum(l.contribution) as total,
-         count(*) as evidence_rows
+         coalesce(o.normalized_payload ->> 'channel_id',
+                  l.observation_id::text) as cluster_key,
+         max(l.contribution) as cluster_contribution,
+         count(*) as rows_in_cluster
     from semantic_private.candidate_support_links l
+    join semantic_private.observations o
+      on o.id = l.observation_id
    where l.user_id = %(user_id)s
-   group by l.candidate_id
+   group by l.candidate_id, 2
+),
+weighed as (
+  select candidate_id,
+         sum(cluster_contribution) as total,
+         sum(rows_in_cluster) as evidence_rows
+    from clustered
+   group by candidate_id
 )
 update semantic_private.user_term_candidates c
    set aggregate_score = w.total / (w.total + %(saturation)s),
