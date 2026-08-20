@@ -1726,6 +1726,14 @@ def process_mint_requests(job) -> dict[str, Any]:
                 "select semantic_private.mint_from_kept_requests(%(parents)s) as receipt",
                 {"parents": json.dumps(parents)})
             receipt = cursor.fetchone()["receipt"]
+        # **The ontology version leaves the receipt.** `mint_requests.outcome`
+        # already records which version each decision landed in, and the job
+        # result's closed vocabulary has no place for a free string — `0262`
+        # admitted `version` among the *uuid* keys, which no version string can
+        # ever satisfy, so every mint committed its work and then died writing
+        # its own bookkeeping. A receipt duplicating a fact the ledger holds is
+        # a second copy that can disagree with the first.
+        receipt = {k: v for k, v in (receipt or {}).items() if k != "version"}
 
         # **The ones minted before the parent was derived.** Same resolution,
         # same writer, run after the mint so a concept created moments ago is
@@ -1739,7 +1747,7 @@ def process_mint_requests(job) -> dict[str, Any]:
                     {"parents": json.dumps(orphans)})
                 cursor.fetchone()
         connection.commit()
-    return {"processed": True, **(receipt or {})}
+    return {"processed": True, **receipt}
 
 
 #: Kept concepts that reach no block, with the genre strings stated on the
