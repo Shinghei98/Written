@@ -162,6 +162,23 @@ def schema_limits(schema: dict) -> dict:
         limits["object_label_max"] = (
             schema["$defs"]["relation_hypothesis"]["properties"]
             ["object_label_hypothesis"]["maxLength"])
+    # v4's cardinal answers. The worst legal case for the budget is every
+    # optional structure present and full — a selected root with a stated
+    # distribution, a whole §5.3 proposal, the alternatives at their cap.
+    if "selected_cardinal" in mention:
+        limits["cardinal_enum"] = [
+            v for v in mention["selected_cardinal"]["enum"] if v is not None]
+        limits["user_predicate_enum"] = [
+            v for v in mention["candidate_user_predicate"]["enum"]
+            if v is not None]
+        limits["alternatives_max"] = mention["alternatives"]["maxItems"]
+        proposal = schema["$defs"]["missing_parent_proposal"]["properties"]
+        limits["parent_label_max"] = proposal["label"]["maxLength"]
+        limits["parent_definition_max"] = proposal["definition"]["maxLength"]
+        limits["parent_children_max"] = proposal["example_children"]["maxItems"]
+        limits["parent_child_max"] = (
+            proposal["example_children"]["items"]["maxLength"])
+        limits["parent_rationale_max"] = proposal["rationale"]["maxLength"]
     return limits
 
 
@@ -211,6 +228,29 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
             {"predicate": "soundtrack_of",
              "object_label_hypothesis": text[: lim["object_label_max"]]},
         ][: lim["relations_max"]]
+    if "cardinal_enum" in lim:
+        root = lim["cardinal_enum"][0]
+        mention["cardinal_scores"] = {c: 0.5 for c in lim["cardinal_enum"]}
+        mention["selected_cardinal"] = root
+        mention["parent_candidate_id"] = None
+        # The worst case is the proposal, which dwarfs an echoed id.
+        mention["missing_parent"] = {
+            "label": text[: lim["parent_label_max"]],
+            "definition": text[: lim["parent_definition_max"]],
+            "cardinal_root": root,
+            "broader_parent_id": None,
+            "example_children": [
+                (f"{unique_salt}-{i}-" + text)[: lim["parent_child_max"]]
+                for i in range(lim["parent_children_max"])],
+            "non_examples": [],
+            "rationale": text[: lim["parent_rationale_max"]],
+        }
+        mention["candidate_user_predicate"] = lim["user_predicate_enum"][0]
+        mention["alternatives"] = [
+            {"canonical_label_hypothesis":
+                 (f"{unique_salt}-{i}-" + text)[: lim["canonical_max"]],
+             "family_hypothesis": lim["family_enum"][0]}
+            for i in range(lim["alternatives_max"])]
     return mention
 
 

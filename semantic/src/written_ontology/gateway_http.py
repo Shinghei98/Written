@@ -162,7 +162,8 @@ def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
                 breaker=breaker,
                 source_profile=request.get("source_profile", "youtube"),
                 request_id=request.get("request_id"),
-                timeout_s=float(request.get("timeout_s", DEFAULT_TIMEOUT_S)))
+                timeout_s=float(request.get("timeout_s", DEFAULT_TIMEOUT_S)),
+                parent_candidates=request.get("parent_candidates"))
         except gateway.GatewayRefusal as refusal:
             # **A projection refusal is a 4xx.** Sent as 500 it is retried
             # forever at the head of a FIFO queue, which the device half already
@@ -216,7 +217,9 @@ def dispatch(request: dict[str, Any], *, deployment=None, transport=None,
         # trusted one, and routing it round `_accept` would be a second door
         # into user semantics with no schema check behind it.
         try:
-            return 200, gateway.accept_response(answer, request.get("items", []))
+            return 200, gateway.accept_response(
+                answer, request.get("items", []),
+                request.get("parent_candidates"))
         except gateway.GatewayRefusal as refusal:
             return 422, {"outcome": refusal.code, "detail": refusal.detail}
 

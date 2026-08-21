@@ -294,7 +294,9 @@ class ModelLane:
     # -- the whole act ----------------------------------------------------
 
     def propose(self, *, user_id: str, items: list[dict[str, Any]],
-                request_id: str, source_profile: str) -> dict[str, Any]:
+                request_id: str, source_profile: str,
+                parent_candidates: list[dict[str, str]] | None = None
+                ) -> dict[str, Any]:
         """Ask the model, record what happened, hand back the lineage.
 
         Returns `{"invocation_id", "lineage", "items"}` where `lineage` is one
@@ -333,6 +335,11 @@ class ModelLane:
                                    # stays inside the 90 s boto read timeout
                                    # above.
                                    "timeout_s": 75,
+                                   # §5.2: the parent inventory the model may
+                                   # echo. Travels beside the items because the
+                                   # echo check runs where the answer lands.
+                                   **({"parent_candidates": parent_candidates}
+                                      if parent_candidates else {}),
                                    "items": items}
 
         answer = self.call_gateway(request)

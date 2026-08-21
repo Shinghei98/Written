@@ -158,15 +158,55 @@ insert into semantic_private.observation_mentions (
   observation_id, user_id, mention_text, normalized_text, mention_role,
   locale, type_hint, source_field, extraction_method, confidence,
   safe_for_global_mining, safe_for_external_resolution, evidence_weight,
-  model_invocation_item_id)
+  model_invocation_item_id, model_cardinal, model_user_predicate,
+  model_cardinal_scores)
 values (
   %(observation_id)s, %(user_id)s, %(mention_text)s, %(normalized_text)s,
   %(mention_role)s, 'und', %(type_hint)s, %(source_field)s, %(extraction_method)s,
   %(confidence)s, false, false, %(evidence_weight)s,
-  %(model_invocation_item_id)s)
+  %(model_invocation_item_id)s, %(model_cardinal)s, %(model_user_predicate)s,
+  %(model_cardinal_scores)s)
 on conflict (observation_id, normalized_text, mention_role,
              coalesce(source_field, ''), extraction_method) do nothing
 """
+
+
+#: §5.2: the bounded parent inventory the model may echo. The forty most
+#: load-bearing published parents by distinct-child count — a parent that
+#: already organizes many concepts is the one a new term most plausibly fits
+#: under. Id and label only; no definition text and nothing about any person.
+#: Cached per process because the published version moves by migration, and a
+#: worker container never outlives one.
+_SELECT_PARENT_CANDIDATES = """
+select c.concept_key as term_id, cr.preferred_label as label
+  from ontology.concept_edges e
+  join ontology.concepts c on c.id = e.object_concept_id
+  join ontology.concept_revisions cr
+    on cr.concept_id = e.object_concept_id
+   and cr.ontology_version_id = e.ontology_version_id
+ where e.predicate_key = 'broader' and e.status = 'active'
+   and e.ontology_version_id =
+       (select id from ontology.versions where status = 'published')
+   -- An era is an axis and a sphere is a scope; neither is a parent a new
+   -- term may be filed under. Same exclusion the assertion allowlist makes.
+   and c.concept_key !~ '^(era|sphere|scene):'
+ group by c.concept_key, cr.preferred_label
+ order by count(distinct e.subject_concept_id) desc, c.concept_key
+ limit 40
+"""
+
+_parent_candidate_cache: list[dict[str, str]] | None = None
+
+
+def _parent_candidates(connection) -> list[dict[str, str]]:
+    global _parent_candidate_cache  # noqa: PLW0603
+    if _parent_candidate_cache is None:
+        with connection.cursor() as cursor:
+            cursor.execute(_SELECT_PARENT_CANDIDATES)
+            _parent_candidate_cache = [
+                {"term_id": row["term_id"][:128], "label": row["label"][:128]}
+                for row in cursor.fetchall()]
+    return _parent_candidate_cache
 
 
 class InferenceDeferred(Exception):
@@ -298,7 +338,8 @@ def _propose_and_write(connection, job, mode, user_id, request_id,
                 # **Refused rather than defaulted.** `"youtube"` as a fallback
                 # was the worst possible default: the one profile whose data
                 # may not be here at all.
-                source_profile=_one_profile(items))
+                source_profile=_one_profile(items),
+                parent_candidates=_parent_candidates(connection))
         except InFlight:
             # The endpoint accepted this batch and has not answered. With
             # nothing yet banked the whole job defers, exactly as before; with
@@ -434,7 +475,12 @@ def _evaluate_against_fixtures(job, request_id: str) -> dict[str, Any]:
             user_id=None,
             items=items,
             request_id=request_id,
-            source_profile=_one_profile(items))
+            source_profile=_one_profile(items),
+            # A fixed pair, so the gate exercises the echo path with no
+            # database read — the evaluation asks the wire, not the catalog.
+            parent_candidates=[
+                {"term_id": "hub:games_play", "label": "Games & play"},
+                {"term_id": "genre:k_pop", "label": "K-Pop"}])
     except InFlight:
         print(json.dumps({"extract_mentions": "evaluation_in_flight"}))
         raise InferenceDeferred(len(items)) from None
@@ -933,6 +979,7 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
     rows: list[dict] = []
     dictionary: list[tuple[dict, bool]] = []
     relations: list[tuple[dict, dict]] = []
+    parent_proposals: list[tuple[dict, dict]] = []
     for answered in proposed["items"]:
         lineage = by_index.get(answered.get("item_index"))
         if lineage is None or lineage["outcome"] != "succeeded":
@@ -954,15 +1001,46 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
                 "confidence": mention.get("confidence", 1.0),
                 "evidence_weight": 1.0,
                 "model_invocation_item_id": lineage["item_id"],
+                # §5.2's answers, stored where resolution reads. The cardinal
+                # is the selected root; the scores are the stated distribution;
+                # the user predicate is a candidate the review unit aggregates
+                # by, never a claim by itself.
+                "model_cardinal": mention.get("selected_cardinal"),
+                "model_user_predicate": mention.get("candidate_user_predicate"),
+                "model_cardinal_scores": (
+                    json.dumps(mention["cardinal_scores"])
+                    if mention.get("cardinal_scores") else None),
             })
             dictionary.append((mention, inferred))
             for relation in mention.get("relation_hypotheses") or []:
                 relations.append((mention, relation))
+            # A chosen parent is a broader-edge proposal about the term, and
+            # it enters the same non-traversable proposals table a relation
+            # does — an echoed id, marked so mint-time resolution knows it is
+            # a concept key rather than a label the model invented.
+            chosen = mention.get("parent_candidate_id")
+            if chosen:
+                relations.append((mention, {
+                    "predicate": "broader",
+                    "object_label_hypothesis": chosen,
+                    "_selected_parent": True}))
+            proposal = mention.get("missing_parent")
+            if proposal:
+                parent_proposals.append((mention, proposal))
+            for alternative in mention.get("alternatives") or []:
+                dictionary.append((
+                    {"surface": alternative["canonical_label_hypothesis"],
+                     "canonical_label_hypothesis":
+                         alternative["canonical_label_hypothesis"],
+                     "family_hypothesis": alternative["family_hypothesis"],
+                     "english_label": None, "original_label": None},
+                    True))
     if not rows:
         return 0
     with connection.cursor() as cursor:
         cursor.executemany(_INSERT_MODEL_MENTION, rows)
     _write_dictionary(connection, dictionary, relations)
+    _write_parent_proposals(connection, user_id, parent_proposals)
     return len(rows)
 
 
@@ -995,6 +1073,9 @@ insert into semantic_private.candidate_relation_proposals
 select null, p.id, %(predicate)s, %(object_label)s,
        'model_proposed', false,
        jsonb_build_object('source', 'model_lane', 'subject_surface', %(subject)s)
+       || case when %(selected_parent)s
+               then jsonb_build_object('selected_parent', true)
+               else '{}'::jsonb end
   from semantic_private.provisional_entities p
  where p.normalized_label = %(subject_normalized)s
  limit 1
@@ -1077,9 +1158,50 @@ def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
                     "object_label": relation["object_label_hypothesis"],
                     "subject": mention["surface"],
                     "subject_normalized": _normalize(mention["surface"]),
+                    "selected_parent":
+                        bool(relation.get("_selected_parent")),
                 })
     except Exception as error:  # noqa: BLE001 - reported, never fatal
         print(json.dumps({"dictionary_write_failed": type(error).__name__}))
+
+
+#: §5.3: a missing middle parent the model proposed. Governance material, not
+#: vocabulary — nothing reads it into any ontology until a human mints it.
+#: Append-only by trigger; the same proposal from many users is many rows,
+#: which is the evidence a governance pass aggregates.
+_INSERT_PARENT_PROPOSAL = """
+insert into semantic_private.missing_parent_proposals
+  (user_id, subject_normalized_label, label, definition, cardinal_root_id,
+   broader_parent_key, example_children, non_examples, rationale)
+values (%(user_id)s, %(subject_normalized)s, %(label)s, %(definition)s,
+        %(cardinal_root_id)s, %(broader_parent_key)s,
+        %(example_children)s::jsonb, %(non_examples)s::jsonb, %(rationale)s)
+"""
+
+
+def _write_parent_proposals(connection, user_id: str,
+                            proposals: list[tuple[dict, dict]]) -> None:
+    """Record §5.3 proposals. Never fatal, same rule as the dictionary."""
+    if not proposals:
+        return
+    try:
+        with connection.cursor() as cursor:
+            for mention, proposal in proposals:
+                cursor.execute(_INSERT_PARENT_PROPOSAL, {
+                    "user_id": user_id,
+                    "subject_normalized": _normalize(mention["surface"]),
+                    "label": proposal["label"],
+                    "definition": proposal["definition"],
+                    "cardinal_root_id": "cardinal:" + proposal["cardinal_root"],
+                    "broader_parent_key": proposal.get("broader_parent_id"),
+                    "example_children": json.dumps(
+                        proposal.get("example_children") or []),
+                    "non_examples": json.dumps(
+                        proposal.get("non_examples") or []),
+                    "rationale": proposal["rationale"],
+                })
+    except Exception as error:  # noqa: BLE001 - reported, never fatal
+        print(json.dumps({"parent_proposal_write_failed": type(error).__name__}))
 
 
 def _normalize(surface: str) -> str:

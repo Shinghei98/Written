@@ -226,11 +226,32 @@ def _mention_properties(schema: dict[str, Any]) -> dict[str, Any]:
 
     first_name, first = next(iter(sorted(variants.items())))
     for name, properties in sorted(variants.items()):
-        for key in ("family_hypothesis", "mention_role"):
-            if properties[key]["enum"] != first[key]["enum"]:
+        # `selected_cardinal` and `candidate_user_predicate` exist from v4;
+        # conditional so this compiler can still evaluate the older contracts
+        # it is pointed at during a rollback.
+        for key in ("family_hypothesis", "mention_role",
+                    "selected_cardinal", "candidate_user_predicate"):
+            if key not in first:
+                continue
+            if properties.get(key, {}).get("enum") != first[key]["enum"]:
                 raise ContractError(
                     f"mention variants disagree on {key}: "
                     f"{name} against {first_name}")
+    # The two §5.2 satellites carry copies of mention enums, and a copy that
+    # can drift is a second vocabulary. Checked here because this is the one
+    # place that already holds both sides.
+    alternative = defs.get("alternative_reading")
+    if alternative is not None:
+        if (alternative["properties"]["family_hypothesis"]["enum"]
+                != first["family_hypothesis"]["enum"]):
+            raise ContractError(
+                "alternative_reading's family enum drifted from the mentions'")
+    proposal = defs.get("missing_parent_proposal")
+    if proposal is not None and "selected_cardinal" in first:
+        roots = [v for v in first["selected_cardinal"]["enum"] if v is not None]
+        if proposal["properties"]["cardinal_root"]["enum"] != roots:
+            raise ContractError(
+                "missing_parent_proposal's roots drifted from selected_cardinal")
     return first
 
 
@@ -255,6 +276,16 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
         "llm.mention_role.enum": mention["mention_role"]["enum"],
         "llm.schema.abstain_reasons": _abstain_reasons(schema),
     }
+    # v4's cardinal vocabulary: the eight immutable roots and the closed user
+    # predicate registry, checked against the workbook exactly as the families
+    # are. Null is a legality of the wire, not a vocabulary member.
+    if "selected_cardinal" in mention:
+        schema_enums["llm.cardinal.enum"] = [
+            v for v in mention["selected_cardinal"]["enum"] if v is not None]
+    if "candidate_user_predicate" in mention:
+        schema_enums["llm.user_predicate.enum"] = [
+            v for v in mention["candidate_user_predicate"]["enum"]
+            if v is not None]
 
     # 1. Enum parity, both directions. Sorted equality rather than a subset test:
     #    a value in the workbook and not the schema is as wrong as the reverse,
@@ -307,6 +338,21 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
         if fields["tags"]["items"]["maxLength"] != int(
                 require(config, "llm.input.max_tag_chars")):
             raise ContractError("request schema and workbook disagree on max_tag_chars")
+        parents = request_schema["properties"].get("parent_candidates")
+        if parents is not None:
+            if parents["maxItems"] != int(
+                    require(config, "llm.input.max_parent_candidates")):
+                raise ContractError(
+                    "request schema and workbook disagree on max_parent_candidates")
+            bounds = parents["items"]["properties"]
+            if bounds["term_id"]["maxLength"] != int(
+                    require(config, "llm.input.max_parent_id_chars")):
+                raise ContractError(
+                    "request schema and workbook disagree on max_parent_id_chars")
+            if bounds["label"]["maxLength"] != int(
+                    require(config, "llm.input.max_parent_label_chars")):
+                raise ContractError(
+                    "request schema and workbook disagree on max_parent_label_chars")
         wire = int(require(config, "llm.batch.max_items"))
         if request_schema["properties"]["items"]["maxItems"] != wire:
             raise ContractError(

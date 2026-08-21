@@ -320,6 +320,7 @@ def extract(
     source_profile: str = "youtube",
     request_id: str | None = None,
     item_ids: dict[int, str] | None = None,
+    parent_candidates: Sequence[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """One extraction call, or a named refusal.
 
@@ -346,7 +347,8 @@ def extract(
 
     # --- steps 2 and 4: the exact document, then its schema ---------------
     request = build_request(items, contract, source_profile=source_profile,
-                            request_id=request_id, item_ids=item_ids)
+                            request_id=request_id, item_ids=item_ids,
+                            parent_candidates=parent_candidates)
     _validate_request(request, items, contract)
 
     # --- step 3: identities ----------------------------------------------
@@ -438,7 +440,8 @@ def extract(
                 else type(failure).__name__)
         else:
             try:
-                result = _accept(response, items, contract)
+                result = _accept(response, items, contract,
+                                 parent_candidates=parent_candidates)
             except GatewayRefusal as refusal:
                 # **A structural refusal is not retried under the same prompt.**
                 # The memo is explicit: a compact fallback is a distinct schema
@@ -480,7 +483,9 @@ def _contract():
 def build_request(items: Sequence[RequestItem], contract, *,
                   source_profile: str = "youtube",
                   request_id: str | None = None,
-                  item_ids: dict[int, str] | None = None) -> dict[str, Any]:
+                  item_ids: dict[int, str] | None = None,
+                  parent_candidates: Sequence[dict[str, str]] | None = None
+                  ) -> dict[str, Any]:
     """The extraction request document, as `mention_extract_request_v1` defines it.
 
     Separate from the provider envelope: one is what the model is asked, the
@@ -493,6 +498,13 @@ def build_request(items: Sequence[RequestItem], contract, *,
         "grammar_version": contract.attestation()["grammar_version"],
         "source_profile": source_profile,
         "request_id": request_id or secrets.token_urlsafe(12).replace("=", ""),
+        # §5.2: the candidate set the model may echo. Absent rather than empty
+        # when the caller supplied none — the request schema marks it optional
+        # and the echo check then refuses every selection.
+        **({"parent_candidates": [
+                {"term_id": str(c["term_id"]), "label": str(c["label"])}
+                for c in parent_candidates]}
+           if parent_candidates else {}),
         "items": [
             {
                 "item_index": item.item_index,
@@ -581,7 +593,9 @@ def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
 
 
 def accept_response(response: dict[str, Any],
-                    items: Sequence[Any]) -> dict[str, Any]:
+                    items: Sequence[Any],
+                    parent_candidates: Sequence[dict[str, str]] | None = None
+                    ) -> dict[str, Any]:
     """Validate an answer that arrived on a later call.
 
     A resumed answer goes through exactly the checks a fresh one does — runtime
@@ -594,11 +608,14 @@ def accept_response(response: dict[str, Any],
         else RequestItem(item["item_index"], item["fields"])
         for item in items
     ]
-    return _accept(response, rebuilt, _contract())
+    return _accept(response, rebuilt, _contract(),
+                   parent_candidates=parent_candidates)
 
 
 def _accept(response: dict[str, Any], items: Sequence[RequestItem],
-            contract) -> dict[str, Any]:
+            contract,
+            parent_candidates: Sequence[dict[str, str]] | None = None
+            ) -> dict[str, Any]:
     """Steps 7 through 10."""
     finish = response.get("finish_reason")
     if finish == "length":
@@ -639,7 +656,10 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     repaired = repair_offsets(body, list(items))
 
     try:
-        validate_with_schema(body, list(items), contract.output_schema)
+        validate_with_schema(
+            body, list(items), contract.output_schema,
+            frozenset(str(c["term_id"]) for c in parent_candidates)
+            if parent_candidates else None)
     except ExtractionInvalid as refusal:
         raise GatewayRefusal(_OUTCOME_FOR.get(refusal.code, "schema_invalid"),
                              refusal.code) from None

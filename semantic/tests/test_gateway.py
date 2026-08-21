@@ -99,7 +99,7 @@ def valid_response(items=REQUEST, contract=None):
         "output_tokens": 120,
         "runtime": matching_runtime(contract),
         "body": {
-            "schema_version": "mention_extract_v3",
+            "schema_version": "mention_extract_v4",
             "items": [{
                 "item_index": item.item_index,
                 "status": "extracted",
@@ -117,6 +117,12 @@ def valid_response(items=REQUEST, contract=None):
             "english_label": None,
             "original_label": None,
             "relation_hypotheses": [],
+            "cardinal_scores": {},
+            "selected_cardinal": None,
+            "parent_candidate_id": None,
+            "missing_parent": None,
+            "candidate_user_predicate": None,
+            "alternatives": [],
                 }],
             } for item in items],
         },

@@ -20,7 +20,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v3.schema.json")
+               / "contracts" / "mention_extract_v4.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -45,6 +45,14 @@ def mention(**overrides) -> dict:
         "english_label": None,
         "original_label": None,
         "relation_hypotheses": [],
+        # v4: the §5.2 cardinal answers, present on every variant and nullable
+        # for the same reason the labels are.
+        "cardinal_scores": {},
+        "selected_cardinal": None,
+        "parent_candidate_id": None,
+        "missing_parent": None,
+        "candidate_user_predicate": None,
+        "alternatives": [],
     }
     base.update(overrides)
     return base
@@ -62,13 +70,21 @@ def inferred_mention(**overrides) -> dict:
         "english_label": "One Piece",
         "original_label": "ワンピース",
         "relation_hypotheses": [],
+        # v4: the §5.2 cardinal answers, present on every variant and nullable
+        # for the same reason the labels are.
+        "cardinal_scores": {},
+        "selected_cardinal": None,
+        "parent_candidate_id": None,
+        "missing_parent": None,
+        "candidate_user_predicate": None,
+        "alternatives": [],
     }
     base.update(overrides)
     return base
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v3", "items": items}
+    return {"schema_version": "mention_extract_v4", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:

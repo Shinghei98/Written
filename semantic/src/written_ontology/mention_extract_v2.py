@@ -38,7 +38,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v3"
+SCHEMA_VERSION = "mention_extract_v4"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
@@ -121,11 +121,15 @@ def _validate_text_fields(mention: dict, where: str) -> None:
             raise ExtractionInvalid(f"{code}_whitespace_only", where)
 
 
-def validate_response(response: dict, request: list[RequestItem]) -> None:
+def validate_response(response: dict, request: list[RequestItem],
+                      parent_candidate_ids: frozenset[str] | None = None) -> None:
     """Raise `ExtractionInvalid` unless the response answers this request.
 
     Assumes the schema has already passed; this checks only what the schema
-    cannot see.
+    cannot see. `parent_candidate_ids` is the echo set: the ids the request
+    supplied, and therefore the only ids a mention may select (§5.2, No model
+    IDs). None means the request supplied none — under which every selection
+    is an invention and is refused, which is the fail-closed reading.
     """
     if response.get("schema_version") != SCHEMA_VERSION:
         raise ExtractionInvalid("schema_version_mismatch",
@@ -149,14 +153,50 @@ def validate_response(response: dict, request: list[RequestItem]) -> None:
         raise ExtractionInvalid("request_indices_not_contiguous", str(expected))
 
     by_index = {entry.item_index: entry for entry in request}
+    supplied = parent_candidate_ids or frozenset()
     for item in items:
-        _validate_item(item, by_index[item["item_index"]])
+        _validate_item(item, by_index[item["item_index"]], supplied)
 
 
-def _validate_item(item: dict, request_item: RequestItem) -> None:
+def _validate_cardinal_fields(mention: dict,
+                              supplied: frozenset[str]) -> None:
+    """The §5.2 checks the schema cannot make, on every mention variant.
+
+    The schema already closes the enums; what it cannot see is the request —
+    so the echo rule lives here. An id the request did not supply is an
+    invented id whichever field carries it.
+    """
+    chosen = mention.get("parent_candidate_id")
+    proposal = mention.get("missing_parent")
+    if chosen is not None and proposal is not None:
+        raise ExtractionInvalid("parent_both_chosen_and_proposed")
+    if chosen is not None and chosen not in supplied:
+        raise ExtractionInvalid("parent_not_in_candidates")
+    if proposal is not None:
+        label = proposal["label"].strip().lower()
+        if not label:
+            raise ExtractionInvalid("parent_label_whitespace_only")
+        # §5.3: a definition that merely restates the label defines nothing.
+        if proposal["definition"].strip().lower() == label:
+            raise ExtractionInvalid("parent_definition_circular")
+        children = [c.strip().lower() for c in proposal["example_children"]]
+        # §5.3: refused when its only example child is the proposed leaf —
+        # here the leaf is the mention itself, under either of its names.
+        leaf_names = {mention["surface"].strip().lower(),
+                      mention["canonical_label_hypothesis"].strip().lower()}
+        if len(children) == 1 and children[0] in leaf_names:
+            raise ExtractionInvalid("parent_only_example_is_the_leaf")
+        broader = proposal["broader_parent_id"]
+        if broader is not None and broader not in supplied:
+            raise ExtractionInvalid("parent_broader_not_in_candidates")
+
+
+def _validate_item(item: dict, request_item: RequestItem,
+                   supplied: frozenset[str] = frozenset()) -> None:
     spans: set[tuple[str, int | None, int, int, str]] = set()
     asserted: set[tuple[str, str]] = set()
     for mention in item.get("mentions", []):
+        _validate_cardinal_fields(mention, supplied)
         if is_inferred(mention):
             # **An inferred mention is checked for everything except its span.**
             # It has none: it was asserted, not read. What still holds is that
@@ -318,9 +358,11 @@ def repair_offsets(response: dict, request: list[RequestItem]) -> int:
 
 
 def validate_with_schema(response: dict, request: list[RequestItem],
-                         schema: dict) -> None:
+                         schema: dict,
+                         parent_candidate_ids: frozenset[str] | None = None
+                         ) -> None:
     """Both layers, in the order a gateway must run them."""
     import jsonschema
 
     jsonschema.Draft202012Validator(schema).validate(response)
-    validate_response(response, request)
+    validate_response(response, request, parent_candidate_ids)
