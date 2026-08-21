@@ -1516,6 +1516,21 @@ re-score at the revision that now stands.
   than to generation alone. **The client's own patience is a separate number**
   — it collects by ticket afterwards, so raising the client timeout fixes
   nothing if the lease is short.
+- **An answer is read once and deleted, so a caller that gives up early
+  destroys the work it just paid for.** The sharper half of the same night:
+  an eight-item batch measured **162 s** of `ModelLatency` while the sweep
+  client waited 180 s, so roughly every other call the client abandoned the
+  request seconds before the gateway collected it — and the gateway, still
+  running, then read the S3 object and deleted it as retention requires. The
+  retry found a ticket pointing at an object that no longer existed and
+  resubmitted the whole inference. Every call succeeded; every answer was
+  thrown away; the endpoint looked slow while doing the same work for ever.
+  **The rule is that a caller's patience must exceed the gateway's own
+  ceiling (300 s), never merely the expected latency** — the margin between
+  162 and 180 was the defect. Diagnose this by reading `ModelLatency` in the
+  endpoint's `data-log` and watching for one request id succeeding
+  repeatedly; a queue depth of one and a busy GPU is what it looks like from
+  every other angle.
 - **`MaxConcurrentInvocationsPerInstance` above 1 does not make this endpoint
   faster.** The serving container drives one offline vLLM engine, so eight
   concurrent invocations are eight requests sharing one worker with eight
