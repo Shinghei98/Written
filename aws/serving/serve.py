@@ -52,6 +52,13 @@ def engine():
             # Python keyword, so a wrong guess would be a `TypeError` here, on a
             # GPU that is already charging.
             language_model_only=True,
+            # **What makes the fan-out below affordable.** Every item in a
+            # batch carries the identical system prompt, rules and few-shots —
+            # thousands of tokens — and without caching that prefix is
+            # prefilled once per item. Measured need, not a default worth
+            # relying on: the engine's own default has changed across versions
+            # and this is the one property the batching strategy depends on.
+            enable_prefix_caching=True,
         )
     return _engine
 
@@ -220,6 +227,35 @@ def read_body(headers, rfile) -> bytes:
     return rfile.read(length)
 
 
+def _prompts(payload: dict) -> list[str]:
+    """One prompt per item, which is what lets the GPU batch the work.
+
+    **A batch was one prompt until 2026-08-21, and that was the whole of the
+    throughput problem.** `generate([prompt])` on an eight-item document is a
+    single sequence: one enormous structured JSON decoded token by token, with
+    the GPU running one stream and the other slots idle. Measured 4.3 s an
+    item mean, 9.5 s worst — and a sweep of a thousand terms took hours.
+
+    Split per item, the engine does what it is built for: N sequences,
+    continuously batched, each emitting one small envelope, sharing a
+    prefix-cached system prompt. The document each prompt carries is the
+    original with `items` narrowed to one, **keeping the item's true
+    `item_index`** — so the answers merge without renumbering and the
+    gateway's coverage check (every requested index answered exactly once)
+    still means what it meant.
+
+    A one-item document is passed through unchanged rather than rebuilt, so
+    the single-item path — every probe, the release gate — is byte-identical
+    to what it was.
+    """
+    document = payload.get("input") or {}
+    items = document.get("items")
+    if not isinstance(items, list) or len(items) < 2:
+        return [_prompt(payload)]
+    return [_prompt({**payload, "input": {**document, "items": [item]}})
+            for item in items]
+
+
 def _prompt(payload: dict) -> str:
     """The chat template, applied, with the instructions the contract carries.
 
@@ -261,6 +297,37 @@ def _prompt(payload: dict) -> str:
             # pretending it was applied is not.
             pass
     return tokenizer.apply_chat_template(messages, **kwargs)
+
+
+def _merge(outputs) -> tuple[str, str]:
+    """N single-item envelopes into the one envelope the contract defines.
+
+    **Truncation is reported, never hidden.** If any sequence stopped on
+    `length` the merged answer says so, because the gateway refuses a
+    truncated answer outright and a batch where one item ran to the cap is a
+    truncated answer. An unparseable sequence contributes no item: the
+    gateway's coverage check then refuses the batch by name (`missing_item`)
+    rather than accepting a silently shorter one — the same refusal a model
+    that skipped an item has always produced.
+    """
+    merged: list = []
+    version = None
+    finish = "stop"
+    for output in outputs:
+        if output.finish_reason == "length":
+            finish = "length"
+        try:
+            envelope = json.loads(output.text)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(envelope, dict):
+            continue
+        version = version or envelope.get("schema_version")
+        answered = envelope.get("items")
+        if isinstance(answered, list):
+            merged.extend(answered)
+    body = {"schema_version": version, "items": merged}
+    return json.dumps(body, ensure_ascii=False), finish
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -306,15 +373,23 @@ class Handler(BaseHTTPRequestHandler):
 
         params = _structured_params(
             schema, int(payload.get("max_output_tokens", 4096)))
-        prompt = _prompt(payload)
-        completions = engine().generate([prompt], params)
-        output = completions[0].outputs[0]
+        prompts = _prompts(payload)
+        completions = engine().generate(prompts, params)
+        outputs = [completion.outputs[0] for completion in completions]
+
+        if len(outputs) == 1:
+            content = outputs[0].text
+            finish = outputs[0].finish_reason
+        else:
+            content, finish = _merge(outputs)
+
         self._reply(200, {
             "choices": [{
-                "finish_reason": output.finish_reason,
-                "message": {"content": output.text},
+                "finish_reason": finish,
+                "message": {"content": content},
             }],
-            "usage": {"completion_tokens": len(output.token_ids)},
+            "usage": {"completion_tokens":
+                      sum(len(output.token_ids) for output in outputs)},
             # **Travels with the answer, not only with the health check.** An
             # attestation taken at some earlier moment describes the container
             # that was running then; this one describes the container that

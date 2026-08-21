@@ -1502,6 +1502,26 @@ re-score at the revision that now stands.
 - **Invoke the worker serially**, and run psycopg with
   **`prepare_threshold=None`** — the transaction pooler makes an auto-prepared
   statement fail `42P05` on the second of two back-to-back invocations.
+- **`timeout_s` on an async invocation is the *upload lease*, not a poll
+  budget, and an answer that misses it is redelivered for ever.** SageMaker
+  hands the container that number as the deadline for writing its result to
+  S3; a request whose queue wait plus generation outlives it fails the upload,
+  goes back on the queue, runs again, and starves a one-at-a-time engine
+  behind it. That is what a "poison queue" is here, and **it survives every
+  instance bounce** — the queue belongs to the endpoint, so the only purge is
+  deleting and recreating it (which risks `InsufficientInstanceCapacity`, and
+  the account holds one `ml.g6e.2xlarge`). Cost of learning it: a night of
+  stalled sweeps reading as slow inference. The lane states **240 s**
+  (`model_lane.propose`), sized to worst generation *plus* contention rather
+  than to generation alone. **The client's own patience is a separate number**
+  — it collects by ticket afterwards, so raising the client timeout fixes
+  nothing if the lease is short.
+- **`MaxConcurrentInvocationsPerInstance` above 1 does not make this endpoint
+  faster.** The serving container drives one offline vLLM engine, so eight
+  concurrent invocations are eight requests sharing one worker with eight
+  clocks running — every one of them burning its upload lease while it waits.
+  Measured 2026-08-21: concurrency 8 delivered **zero** answers where
+  concurrency 1 delivered steadily. Batch *inside* one request instead.
 - **`exact_terms_only`: no fuzzy matching.** The `SequenceMatcher` fallback
   consumed a whole 300-second Lambda timeout and every result was discarded
   anyway, the fuzzy path returning only `CANDIDATE` or `REJECTED`.

@@ -61,11 +61,21 @@ REVIEW_PAGE = 24
 #: batch already written.
 EXTRACT_MAX_CALLS = 20
 EXTRACT_BUDGET_S = 210.0
-#: **The reserve must exceed the lane's own timeout**, or the loop starts a
-#: call it cannot wait out — the Lambda dies mid-inference, and a killed worker
-#: defers nothing. The lane states 75 s, so this is that plus a margin for the
-#: write that follows.
-EXTRACT_CALL_RESERVE_S = 85.0
+#: **Sized against what a call takes, not against the lease it may not
+#: exceed.** These were the same number while the two were the same thing: the
+#: lane's `timeout_s` was 75 s and a call really did take most of it, so a
+#: reserve below it started calls the Lambda could not wait out. Two things
+#: changed on 2026-08-21. The lease became 240 s — the deadline the container
+#: has to deliver, deliberately far above expected duration so an answer can
+#: never miss it and be redelivered for ever — and the serving container began
+#: fanning a batch into one sequence per item, which put measured call time at
+#: 15-25 s. A reserve of 240 would now start no second call at all.
+#:
+#: 60 s is expected duration with room to spare, and the tail is covered
+#: rather than avoided: a call that outruns the reserve leaves a ticket, and
+#: the next job for the same rows derives the same request id and collects it.
+#: Every batch already written stays written.
+EXTRACT_CALL_RESERVE_S = 60.0
 
 #: The route these jobs write. A route is *how* a resolution was reached, and it
 #: is recorded per row because feedback is attributed to it: `aggregate_feedback`

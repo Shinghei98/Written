@@ -331,10 +331,16 @@ class ModelLane:
                                    # nearly every call and the resume path
                                    # became the normal path, which is slower
                                    # than the batch was ever going to save.
-                                   # 75 s fits the worst observed batch and
-                                   # stays inside the 90 s boto read timeout
-                                   # above.
-                                   "timeout_s": 75,
+                                   # 75 s fit the worst observed batch —
+                                   # and 2026-08-21 proved it is also the
+                                   # upload lease: a request whose queue wait
+                                   # plus generation exceeds it can never
+                                   # deliver, is redelivered forever, and eats
+                                   # the serial engine. 240 s covers worst
+                                   # generation plus transient contention; the
+                                   # client still collects by ticket beyond
+                                   # its own read timeout.
+                                   "timeout_s": 240,
                                    # §5.2: the parent inventory the model may
                                    # echo. Travels beside the items because the
                                    # echo check runs where the answer lands.
