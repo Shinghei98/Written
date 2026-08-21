@@ -24,12 +24,41 @@ _load_error: BaseException | None = None
 _loaded = threading.Event()
 
 
+#: Engine arguments this container asked for and the engine did not have.
+#: Reported in `runtime`, never swallowed: a performance property that
+#: silently stopped applying is the defect this project keeps paying for, and
+#: the attestation is where a claim about the running container belongs.
+_dropped_engine_args: list[str] = []
+
+
+def _supported(kwargs: dict) -> dict:
+    """The arguments this build of vLLM actually accepts.
+
+    **A wrong keyword is a `TypeError` on a GPU that is already charging**, and
+    reacquiring a g6e has measured at six-plus hours. The image build gates
+    `language_model_only` for exactly that reason; this is the same check made
+    general, so the next argument added is guarded by construction rather than
+    by somebody remembering to extend a buildspec. An argument the engine does
+    not know is dropped and named — the container still serves, and `runtime`
+    says what it is serving without.
+    """
+    try:
+        import dataclasses  # noqa: PLC0415
+        from vllm.engine.arg_utils import EngineArgs  # noqa: PLC0415
+        fields = {field.name for field in dataclasses.fields(EngineArgs)}
+    except Exception:  # noqa: BLE001 - an engine that cannot be inspected
+        return kwargs      # is one whose arguments are its own business
+    kept = {name: value for name, value in kwargs.items() if name in fields}
+    _dropped_engine_args.extend(sorted(set(kwargs) - set(kept)))
+    return kept
+
+
 def engine():
     """Loaded once, from the staged weights, never from a hub."""
     global _engine
     if _engine is None:
         from vllm import LLM  # noqa: PLC0415 - import cost belongs at first use
-        _engine = LLM(
+        _engine = LLM(**_supported(dict(
             model=MODEL_PATH,
             dtype="bfloat16",
             trust_remote_code=False,
@@ -59,7 +88,7 @@ def engine():
             # relying on: the engine's own default has changed across versions
             # and this is the one property the batching strategy depends on.
             enable_prefix_caching=True,
-        )
+        )))
     return _engine
 
 
@@ -106,6 +135,13 @@ def _runtime() -> dict:
         facts["vllm"] = vllm.__version__
     except Exception:  # noqa: BLE001
         facts["vllm"] = None
+
+    # **What this container asked the engine for and did not get.** Empty is
+    # the ordinary answer and precisely the one worth being able to read:
+    # prefix caching quietly absent is a throughput regression that nothing
+    # else would ever report, and this lane's recurring defect is the call
+    # that fails while nobody reads the result.
+    facts["dropped_engine_args"] = list(_dropped_engine_args)
 
     manifest = pathlib.Path(MODEL_PATH) / "manifest.json"
     if manifest.is_file():
