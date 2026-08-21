@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-21T21:55:08.041Z",
+  "generated_at": "2026-08-21T22:43:51.914Z",
   "source_hashes": {
-    "workbook_sha256": "2885c1e3dffacb14ad4d3304f72b7d2c47666ef27127e8873db6ebb1225e06da",
+    "workbook_sha256": "e9322fcc1ae2dbc796856e8a93492e40359d36ad52f8c0f29399c43b23d3ce77",
     "mention_schema_sha256": "f4a4bc611545149954c861348ea355e93fd5fa76f02e72e0302e1783bb0d465c",
     "request_schema_sha256": "f774eb0e4d32b547d27d60748bc97f3949a5c5e1b8356b7535ef85e5717d9f0e"
   },
@@ -100,9 +100,9 @@
     "default_batch_items": 8,
     "calibrated_max_items": 8,
     "max_mentions_per_item": 5,
-    "max_output_tokens": 3072,
-    "uncalibrated_item_reserve_tokens": 1800,
-    "envelope_token_reserve": 512,
+    "max_output_tokens": 800,
+    "uncalibrated_item_reserve_tokens": 600,
+    "envelope_token_reserve": 64,
     "predictor_quantile": 0.99,
     "packing_headroom": 0.2,
     "packing_formula": "per_item_fanout: envelope_reserve+ceil((1+headroom)*item_reserve)<=max_output_tokens",
