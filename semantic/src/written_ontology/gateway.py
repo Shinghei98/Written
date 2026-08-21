@@ -553,6 +553,35 @@ def _validate_request(request: dict[str, Any], items: Sequence[RequestItem],
         raise GatewayRefusal("missing_item", "item indices are not contiguous from zero")
 
 
+def _sequence_schema(contract) -> dict[str, Any]:
+    """What ONE generated sequence may emit.
+
+    **A container that fans out still received the batch-sized schema**, so a
+    prompt carrying a single item was told it could answer with eight — and
+    the model obliged, padding until it hit the token cap. Measured
+    2026-08-21: every batch refused `output_overflow`, and raising the ceiling
+    only bought longer rambling.
+
+    Narrowing is safe in both directions. Each sequence answers about one
+    item, so one item is all it may emit; and the merged envelope the gateway
+    validates is still checked against the contract's own schema, which admits
+    the whole batch. When the container does not fan out the schema is passed
+    through untouched, because then one sequence really does carry the batch.
+    """
+    schema = contract.output_schema
+    if not contract.fans_out_per_item:
+        return schema
+    narrowed = dict(schema)
+    properties = dict(narrowed.get("properties", {}))
+    items = dict(properties.get("items", {}))
+    if not items:
+        return schema
+    items["maxItems"] = 1
+    properties["items"] = items
+    narrowed["properties"] = properties
+    return narrowed
+
+
 def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
     """The exact payload, built once and hashed by the caller if it wants.
 
@@ -577,7 +606,7 @@ def _serialise(request: dict[str, Any], contract) -> dict[str, Any]:
             "type": "json_schema",
             "name": contract.output_schema_name,
             "strict": True,
-            "schema": contract.output_schema,
+            "schema": _sequence_schema(contract),
         },
         # What the model is told. Sent beside the request rather than mixed into
         # it: `input` is the document the request schema validates, and folding
@@ -638,7 +667,17 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
         raise GatewayRefusal("contract_mismatch", "the answer reported no runtime")
     drift = _runtime_drift(runtime, contract)
     if drift:
-        raise GatewayRefusal("contract_mismatch", ",".join(sorted(drift)))
+        # **A mismatch that cannot say what it saw costs an hour every time.**
+        # Naming the field told an operator which identity disagreed and left
+        # the measured value unobtainable: the answer carrying it is read once
+        # and deleted, and no other route reports it. These are artifact
+        # digests and version strings — never user text — so quoting them is
+        # the operational fact §20.1 permits, and it turns a dead end into one
+        # glance. Measured 2026-08-21, after the serving image moved and its
+        # newer torch changed the tokenizer runtime identity.
+        raise GatewayRefusal(
+            "contract_mismatch",
+            ",".join(f"{name}={runtime.get(name)!r}" for name in sorted(drift)))
 
     body = response.get("body")
     if not isinstance(body, dict):

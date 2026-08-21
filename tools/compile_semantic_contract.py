@@ -487,7 +487,22 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
     headroom = float(require(config, "llm.output.packing_headroom"))
     calibrated = int(require(config, "llm.batch.calibrated_max_items"))
     derived = int((ceiling - envelope) // (reserve * (1 + headroom)))
-    if calibrated > derived:
+    # **What the ceiling bounds changed when the batch stopped being one
+    # prompt.** Until 2026-08-21 a batch was a single sequence emitting one
+    # envelope holding every item, so `max_output_tokens` had to cover all of
+    # them and this check asked how many fitted. The serving container now
+    # fans a batch into one sequence per item, so the ceiling bounds ONE
+    # item's envelope — and left at the old batch-sized number it stopped
+    # bounding anything: a rambling sequence burned 8,192 tokens and 136
+    # seconds before truncating. Under `per_item` the question is whether a
+    # single item fits, and how many items a call carries is a concurrency
+    # decision the GPU makes, not a token-budget one.
+    if config.get("llm.batch.fanout") == "per_item":
+        if derived < 1:
+            raise ContractError(
+                f"max_output_tokens={ceiling} cannot hold one item's envelope "
+                f"({envelope}+{reserve}*{1 + headroom})")
+    elif calibrated > derived:
         raise ContractError(
             f"calibrated_max_items={calibrated} exceeds the {derived} items the "
             f"budget permits ({ceiling}-{envelope})/({reserve}*{1 + headroom})"
@@ -572,6 +587,12 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
             ) if "relation_hypothesis" in schema["$defs"] else [],
             "abstain_reasons": _abstain_reasons(schema),
             "max_items_wire": int(require(config, "llm.batch.max_items")),
+            # **How the serving container spends a batch.** `per_item` means
+            # it fans the batch into one sequence per item, which is what lets
+            # the gateway narrow each sequence's schema to a single item —
+            # without it the model may answer a one-item prompt with an
+            # eight-item envelope and run to the token cap.
+            "fanout": config.get("llm.batch.fanout", "single_prompt"),
             "default_batch_items": int(require(config, "llm.batch.default_items")),
             "calibrated_max_items": int(require(config, "llm.batch.calibrated_max_items")),
             "max_mentions_per_item": int(require(config, "llm.max_mentions_per_item")),

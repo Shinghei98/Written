@@ -324,6 +324,11 @@ class SemanticContract:
         return int(self.data["output_contract"]["calibrated_max_items"])
 
     @property
+    def fans_out_per_item(self) -> bool:
+        """Whether the serving container answers one item per sequence."""
+        return self.data["output_contract"].get("fanout") == "per_item"
+
+    @property
     def max_output_tokens(self) -> int:
         return int(self.data["output_contract"]["max_output_tokens"])
 

@@ -1,8 +1,8 @@
 {
   "contract_version": "compiled_semantic_contract_v1",
-  "generated_at": "2026-08-21T15:44:11.310Z",
+  "generated_at": "2026-08-21T21:55:08.041Z",
   "source_hashes": {
-    "workbook_sha256": "ed9f2757d95e87632a7467f2d3390b747ca8b984ebe1fe5192b46f14589dcfcf",
+    "workbook_sha256": "2885c1e3dffacb14ad4d3304f72b7d2c47666ef27127e8873db6ebb1225e06da",
     "mention_schema_sha256": "f4a4bc611545149954c861348ea355e93fd5fa76f02e72e0302e1783bb0d465c",
     "request_schema_sha256": "f774eb0e4d32b547d27d60748bc97f3949a5c5e1b8356b7535ef85e5717d9f0e"
   },
@@ -12,8 +12,8 @@
     "prompt": "qwen_extractor_v13",
     "model_id": "Qwen/Qwen3.5-9B",
     "model_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
-    "gateway_revision": "b881c3af05da5e56b4102396bf8c8a47e8b8a390d747e3b37fedc57b30e9fa62",
-    "serving_image_digest": "sha256:57b87e2ea3434d788517bf674bc6e17787a54dca6631e9c940c9ee3fb3e6575a",
+    "gateway_revision": "88f9ddb58df9457bed5a1bb7ff54d994a4ff8b2bff9660d8a65d7a2309d75be6",
+    "serving_image_digest": "sha256:8c44509162f08aeed07c780acd42ec3bc01056eec49bff1576fbd6f9ab832225",
     "output_schema": "https://written.app/schemas/mention_extract_v4.schema.json",
     "request_schema": "https://written.app/schemas/mention_extract_request_v2.schema.json",
     "output_budget_policy": "qwen_output_budget_v1_unvalidated"
@@ -96,16 +96,17 @@
       "invalid_input"
     ],
     "max_items_wire": 8,
+    "fanout": "per_item",
     "default_batch_items": 8,
     "calibrated_max_items": 8,
     "max_mentions_per_item": 5,
-    "max_output_tokens": 8192,
-    "uncalibrated_item_reserve_tokens": 600,
+    "max_output_tokens": 3072,
+    "uncalibrated_item_reserve_tokens": 1800,
     "envelope_token_reserve": 512,
     "predictor_quantile": 0.99,
     "packing_headroom": 0.2,
-    "packing_formula": "512+ceil(1.20*sum(item_q99_token_estimates))<=4096 AND items<=2",
-    "tokenizer_manifest_sha256": "22b186f14646edf812947346f505b67e17832ebe2b6b6c454628db66184278a9",
+    "packing_formula": "per_item_fanout: envelope_reserve+ceil((1+headroom)*item_reserve)<=max_output_tokens",
+    "tokenizer_manifest_sha256": "71b49005950bc10ec61cd6e712e33d48358b9c028bfce5de65f7cd5adbf4a2fa",
     "stress_fixture_version": "kpop_cjk_output_stress_v1",
     "output_budget_gate": "blocked_until_deployed_singleton_distribution_and_forced_overflow_pass"
   },

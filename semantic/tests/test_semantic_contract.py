@@ -202,16 +202,24 @@ def test_no_legacy_hub_survives_and_redirects_land_on_canonical_ids(compiler, co
 def test_the_packing_budget_is_arithmetically_consistent(compiler, config):
     """Otherwise the startup assertion the spec describes is decorative.
 
-    `768` per item was not a worst-case bound and the reserve is now 1,280 with
-    20% headroom, which is what limits a batch to two. If either number moves
-    without the other, this is what says so.
+    **What the ceiling bounds changed on 2026-08-21.** A batch used to be one
+    sequence emitting one envelope holding every item, so `max_output_tokens`
+    had to cover all of them and the question was how many fitted. The serving
+    container now fans a batch into one sequence per item, so the ceiling
+    bounds a single item's envelope — and left at the old batch-sized 8,192 it
+    bounded nothing: a rambling sequence burned the lot and 136 seconds before
+    truncating. Under `per_item` the arithmetic asks whether one item fits;
+    how many items ride in a call is a concurrency decision, not a token one.
     """
     reserve = int(config["llm.output.uncalibrated_item_reserve_tokens"])
     envelope = int(config["llm.output.envelope_token_reserve"])
     ceiling = int(config["llm.max_output_tokens"])
     headroom = float(config["llm.output.packing_headroom"])
     derived = int((ceiling - envelope) // (reserve * (1 + headroom)))
-    assert int(config["llm.batch.calibrated_max_items"]) <= derived
+    if config.get("llm.batch.fanout") == "per_item":
+        assert derived >= 1, "the ceiling cannot hold one item's envelope"
+    else:
+        assert int(config["llm.batch.calibrated_max_items"]) <= derived
     assert int(config["llm.batch.default_items"]) <= int(config["llm.batch.calibrated_max_items"])
     assert int(config["llm.batch.calibrated_max_items"]) <= int(config["llm.batch.max_items"])
 
