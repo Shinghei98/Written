@@ -47,11 +47,11 @@ def mention(**overrides) -> dict:
         "relation_hypotheses": [],
         # v4: the §5.2 cardinal answers, present on every variant and nullable
         # for the same reason the labels are.
-        "cardinal_scores": {},
-        "selected_cardinal": None,
+        "selected_cardinal": "none",
+        "cardinal_confidence": 0,
         "parent_candidate_id": None,
-        "missing_parent": None,
-        "candidate_user_predicate": None,
+        "missing_parent_proposals": [],
+        "candidate_user_predicate": "none",
         "alternatives": [],
     }
     base.update(overrides)
@@ -72,11 +72,11 @@ def inferred_mention(**overrides) -> dict:
         "relation_hypotheses": [],
         # v4: the §5.2 cardinal answers, present on every variant and nullable
         # for the same reason the labels are.
-        "cardinal_scores": {},
-        "selected_cardinal": None,
+        "selected_cardinal": "none",
+        "cardinal_confidence": 0,
         "parent_candidate_id": None,
-        "missing_parent": None,
-        "candidate_user_predicate": None,
+        "missing_parent_proposals": [],
+        "candidate_user_predicate": "none",
         "alternatives": [],
     }
     base.update(overrides)
@@ -580,3 +580,21 @@ def test_repair_leaves_an_inferred_mention_alone(schema):
     resp = response([extracted(mentions=[inferred_mention()])])
     assert repair_offsets(resp, request) == 0
     assert "start" not in resp["items"][0]["mentions"][0]
+
+
+def test_family_and_cardinal_must_tell_one_story():
+    """The v6 corpus's defect, refused at the wire: a group filed as anime is
+    a family and a root telling two different stories about one surface."""
+    agreeing = mention(family_hypothesis="group", selected_cardinal="group",
+                       cardinal_confidence=0.9)
+    validate_response(response([extracted(mentions=[agreeing])]), REQUEST)
+
+    disagreeing = mention(family_hypothesis="anime", selected_cardinal="person",
+                          cardinal_confidence=0.9)
+    with pytest.raises(ExtractionInvalid) as caught:
+        validate_response(response([extracted(mentions=[disagreeing])]), REQUEST)
+    assert caught.value.code == "family_root_mismatch"
+
+    # 'none' abstains from the question and is never a mismatch.
+    abstaining = mention(family_hypothesis="anime", selected_cardinal="none")
+    validate_response(response([extracted(mentions=[abstaining])]), REQUEST)

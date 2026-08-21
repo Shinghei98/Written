@@ -1005,11 +1005,15 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
                 # is the selected root; the scores are the stated distribution;
                 # the user predicate is a candidate the review unit aggregates
                 # by, never a claim by itself.
-                "model_cardinal": mention.get("selected_cardinal"),
-                "model_user_predicate": mention.get("candidate_user_predicate"),
+                "model_cardinal": _sentinel_none(
+                    mention.get("selected_cardinal")),
+                "model_user_predicate": _sentinel_none(
+                    mention.get("candidate_user_predicate")),
                 "model_cardinal_scores": (
-                    json.dumps(mention["cardinal_scores"])
-                    if mention.get("cardinal_scores") else None),
+                    json.dumps({"selected": mention["selected_cardinal"],
+                                "confidence": mention["cardinal_confidence"]})
+                    if _sentinel_none(mention.get("selected_cardinal"))
+                    else None),
             })
             dictionary.append((mention, inferred))
             for relation in mention.get("relation_hypotheses") or []:
@@ -1024,8 +1028,7 @@ def _write_model_mentions(connection, user_id: str, items: list[dict],
                     "predicate": "broader",
                     "object_label_hypothesis": chosen,
                     "_selected_parent": True}))
-            proposal = mention.get("missing_parent")
-            if proposal:
+            for proposal in mention.get("missing_parent_proposals") or []:
                 parent_proposals.append((mention, proposal))
             for alternative in mention.get("alternatives") or []:
                 dictionary.append((
@@ -1117,7 +1120,7 @@ def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
         if not family:
             continue
         entries.append({
-            "normalized_label": _normalize(mention["surface"]),
+            "normalized_label": _dictionary_key(mention["surface"]),
             "family": family,
             "canonical_label": mention.get("canonical_label_hypothesis")
                                or mention["surface"],
@@ -1139,7 +1142,7 @@ def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
             continue
         label = relation["object_label_hypothesis"]
         entries.append({
-            "normalized_label": _normalize(label),
+            "normalized_label": _dictionary_key(label),
             "family": family,
             "canonical_label": label,
             "english_label": None,
@@ -1148,10 +1151,28 @@ def _write_dictionary(connection, dictionary: list[tuple[dict, bool]],
             "source_lanes": [],
         })
 
+    links = []
+    for mention, _inferred in dictionary:
+        family = mention.get("family_hypothesis")
+        if not family:
+            continue
+        variant = _dictionary_key(mention["surface"])
+        for stated in (mention.get("english_label"),
+                       mention.get("original_label"),
+                       mention.get("canonical_label_hypothesis")):
+            if not stated:
+                continue
+            canonical = _dictionary_key(stated)
+            if canonical and canonical != variant:
+                links.append({"variant": variant, "canonical": canonical,
+                              "family": family})
+
     try:
         with connection.cursor() as cursor:
             if entries:
                 cursor.executemany(_INSERT_PRESUMED_TERM, entries)
+            for link in links:
+                cursor.execute(_INSERT_TERM_LINK, link)
             for mention, relation in relations:
                 cursor.execute(_INSERT_RELATION, {
                     "predicate": relation["predicate"],
@@ -1202,6 +1223,53 @@ def _write_parent_proposals(connection, user_id: str,
                 })
     except Exception as error:  # noqa: BLE001 - reported, never fatal
         print(json.dumps({"parent_proposal_write_failed": type(error).__name__}))
+
+
+def _sentinel_none(value):
+    """'none' is the wire's stand-in for null inside a closed enum."""
+    return None if value in (None, "none") else value
+
+
+#: Release-type suffixes are mechanical similarity: stripped into the
+#: DICTIONARY key at write time (owner, 2026-08-21), so `love dive` and
+#: `love dive single` are one row going forward. Deliberately not applied to
+#: `observation_mentions.normalized_text`, which must keep resolving exactly
+#: as the exact lane does.
+_RELEASE_SUFFIXES = (" - single", " - ep", " (single)", " (ep)",
+                     " live version", " remastered", " single", " ep")
+
+
+def _strip_release_suffix(label: str) -> str:
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _RELEASE_SUFFIXES:
+            if label.endswith(suffix) and len(label) > len(suffix):
+                label = label[: -len(suffix)].rstrip()
+                changed = True
+    return label
+
+
+def _dictionary_key(surface: str) -> str:
+    """The dictionary's identity key: normalized, then release-suffix bare."""
+    return _strip_release_suffix(_normalize(surface))
+
+
+#: A cross-language identity link, from stated evidence only: one mention
+#: carried two spellings of the same thing. Applied by 0301's trigger, which
+#: flattens chains and refuses cycles; never fatal to the extraction.
+_INSERT_TERM_LINK = """
+insert into semantic_private.presumed_term_links
+  (variant_term_id, canonical_term_id, basis, evidence)
+select v.id, c.id, 'label_pair',
+       jsonb_build_object('source', 'model_lane')
+  from semantic_private.presumed_terms v,
+       semantic_private.presumed_terms c
+ where v.normalized_label = %(variant)s and v.family = %(family)s
+   and c.normalized_label = %(canonical)s and c.family = %(family)s
+   and v.id <> c.id
+   and coalesce(v.canonical_term_id, v.id) <> coalesce(c.canonical_term_id, c.id)
+"""
 
 
 def _normalize(surface: str) -> str:

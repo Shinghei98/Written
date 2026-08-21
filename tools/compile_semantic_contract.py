@@ -248,7 +248,8 @@ def _mention_properties(schema: dict[str, Any]) -> dict[str, Any]:
                 "alternative_reading's family enum drifted from the mentions'")
     proposal = defs.get("missing_parent_proposal")
     if proposal is not None and "selected_cardinal" in first:
-        roots = [v for v in first["selected_cardinal"]["enum"] if v is not None]
+        roots = [v for v in first["selected_cardinal"]["enum"]
+                 if v not in (None, "none")]
         if proposal["properties"]["cardinal_root"]["enum"] != roots:
             raise ContractError(
                 "missing_parent_proposal's roots drifted from selected_cardinal")
@@ -281,11 +282,33 @@ def validate(sheets: dict[str, Any], schema: dict[str, Any],
     # are. Null is a legality of the wire, not a vocabulary member.
     if "selected_cardinal" in mention:
         schema_enums["llm.cardinal.enum"] = [
-            v for v in mention["selected_cardinal"]["enum"] if v is not None]
+            v for v in mention["selected_cardinal"]["enum"]
+            if v not in (None, "none")]
     if "candidate_user_predicate" in mention:
         schema_enums["llm.user_predicate.enum"] = [
             v for v in mention["candidate_user_predicate"]["enum"]
-            if v is not None]
+            if v not in (None, "none")]
+    # The family→root map: authored once in the workbook, enforced in the
+    # validator, pinned to `ontology.cardinal_root_map` by migration. This
+    # check is the middle leg — the workbook and the validator module must
+    # state the same map over exactly the schema's families.
+    if "selected_cardinal" in mention:
+        import sys
+        sys.path.insert(0, str(REPOSITORY / "semantic" / "src"))
+        from written_ontology.mention_extract_v2 import FAMILY_CARDINAL
+        raw = require(config, "llm.family.cardinal_map")
+        authored = dict(pair.split("=", 1) for pair in raw.split("|"))
+        if authored != FAMILY_CARDINAL:
+            raise ContractError(
+                "llm.family.cardinal_map disagrees with the validator's map")
+        if sorted(authored) != sorted(mention["family_hypothesis"]["enum"]):
+            raise ContractError(
+                "llm.family.cardinal_map does not cover exactly the families")
+        roots = set(mention["selected_cardinal"]["enum"])
+        stray = sorted(set(authored.values()) - roots)
+        if stray:
+            raise ContractError(
+                f"llm.family.cardinal_map names roots the wire cannot say: {stray}")
 
     # 1. Enum parity, both directions. Sorted equality rather than a subset test:
     #    a value in the workbook and not the schema is as wrong as the reverse,

@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://written.app/schemas/mention_extract_v4.schema.json",
     "title": "Written mention extraction envelope v4",
-    "description": "What one model call may say about a bounded batch of source records. v4 is the Cardinal Ontology specification's §5.2 output contract: every mention now names which of the eight immutable roots it believes it is (cardinal_scores and selected_cardinal), which supplied parent it fits under (parent_candidate_id — an echo of a request-supplied id, never an invented one; the Python validator enforces the echo because a schema cannot see the request), a missing-parent proposal per §5.3 when no supplied parent fits, the user predicate it would ground (candidate_user_predicate, from the closed user registry — predicate-v2.0), and ranked alternatives so the model does not choose the globally most famous entity merely to avoid provisional state. Every guard on an EXTRACTED mention is unchanged: surface still equals the source slice exactly, and a hallucinated span is still refused. No `pattern` appears anywhere: xgrammar 0.2.3's token matcher leaks on pattern-constrained strings, so the bounds live in the Python validator.",
+    "description": "What one model call may say about a bounded batch of source records. v4 is the Cardinal Ontology specification's §5.2 output contract: every mention names which of the eight immutable roots it believes it is and how confidently, which supplied parent it fits under (parent_candidate_id — an echo of a request-supplied id, never an invented one; the Python validator enforces the echo), a §5.3 missing-parent proposal when no supplied parent fits, the user predicate it would ground, and ranked alternatives. Every guard on an EXTRACTED mention is unchanged. Grammar-shape rule, learned twice now (patterns 2026-08-19; the first draft of this file 2026-08-21, which collapsed generation to under 10 tokens/sec): xgrammar 0.2.3 is trusted ONLY with the shapes this stack has measured — pure string enums, [scalar,null] type unions, and arrays of objects with required properties. No optional properties, no null inside an enum, no anyOf-nullable objects. 'none' as an explicit enum member stands in for null, and a proposal travels in a maxItems-1 array instead of a nullable object.",
     "type": "object",
     "additionalProperties": false,
     "required": [
@@ -138,12 +138,12 @@
                 "english_label",
                 "original_label",
                 "relation_hypotheses",
-                "cardinal_scores",
                 "selected_cardinal",
                 "parent_candidate_id",
-                "missing_parent",
                 "candidate_user_predicate",
-                "alternatives"
+                "alternatives",
+                "cardinal_confidence",
+                "missing_parent_proposals"
             ],
             "properties": {
                 "surface": {
@@ -256,55 +256,9 @@
                         "$ref": "#/$defs/relation_hypothesis"
                     }
                 },
-                "cardinal_scores": {
-                    "description": "The model's belief about which roots this term could belong to, §5.2's cardinal_scores. A partial map: state only the roots that are live possibilities. May be empty when the family already says everything.",
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                        "person": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "group": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "organization": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "franchise": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "work": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "activity": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "event": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "concept": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        }
-                    }
-                },
                 "selected_cardinal": {
-                    "description": "The root the model selects, or null when it cannot say. The eight values are the immutable cardinal roots of §2; anything else is refused by the grammar itself. Null is honest and legal — the family_hypothesis map then decides.",
+                    "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+                    "type": "string",
                     "enum": [
                         "person",
                         "group",
@@ -314,11 +268,17 @@
                         "activity",
                         "event",
                         "concept",
-                        null
+                        "none"
                     ]
                 },
+                "cardinal_confidence": {
+                    "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                },
                 "parent_candidate_id": {
-                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates — the model never synthesizes canonical or provisional ids (§5.2, No model IDs). The Python validator refuses an id that was not supplied.",
+                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
                     "type": [
                         "string",
                         "null"
@@ -326,30 +286,28 @@
                     "minLength": 1,
                     "maxLength": 128
                 },
-                "missing_parent": {
-                    "description": "§5.3: proposed only when required — no supplied parent fits and the term needs a middle layer. Null otherwise. Never alongside parent_candidate_id: choosing a parent and proposing one are different answers to the same question.",
-                    "anyOf": [
-                        {
-                            "$ref": "#/$defs/missing_parent_proposal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                "missing_parent_proposals": {
+                    "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+                    "type": "array",
+                    "maxItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/missing_parent_proposal"
+                    }
                 },
                 "candidate_user_predicate": {
-                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or null. A like grounds interested_in; nothing here may claim practices from a watch — the engagement rules stay the scorer's.",
+                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+                    "type": "string",
                     "enum": [
                         "interested_in",
                         "practices",
                         "studies",
                         "creates",
                         "played",
-                        null
+                        "none"
                     ]
                 },
                 "alternatives": {
-                    "description": "§5.2, Alternatives preserved: when the mention could denote an activity, a work or a franchise, the ranked other readings. Do not choose the globally most famous entity merely to avoid provisional state — record the doubt instead.",
+                    "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
                     "type": "array",
                     "maxItems": 2,
                     "items": {
@@ -374,12 +332,12 @@
                 "english_label",
                 "original_label",
                 "relation_hypotheses",
-                "cardinal_scores",
                 "selected_cardinal",
                 "parent_candidate_id",
-                "missing_parent",
                 "candidate_user_predicate",
-                "alternatives"
+                "alternatives",
+                "cardinal_confidence",
+                "missing_parent_proposals"
             ],
             "properties": {
                 "surface": {
@@ -489,55 +447,9 @@
                         "$ref": "#/$defs/relation_hypothesis"
                     }
                 },
-                "cardinal_scores": {
-                    "description": "The model's belief about which roots this term could belong to, §5.2's cardinal_scores. A partial map: state only the roots that are live possibilities. May be empty when the family already says everything.",
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                        "person": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "group": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "organization": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "franchise": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "work": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "activity": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "event": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "concept": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        }
-                    }
-                },
                 "selected_cardinal": {
-                    "description": "The root the model selects, or null when it cannot say. The eight values are the immutable cardinal roots of §2; anything else is refused by the grammar itself. Null is honest and legal — the family_hypothesis map then decides.",
+                    "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+                    "type": "string",
                     "enum": [
                         "person",
                         "group",
@@ -547,11 +459,17 @@
                         "activity",
                         "event",
                         "concept",
-                        null
+                        "none"
                     ]
                 },
+                "cardinal_confidence": {
+                    "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                },
                 "parent_candidate_id": {
-                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates — the model never synthesizes canonical or provisional ids (§5.2, No model IDs). The Python validator refuses an id that was not supplied.",
+                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
                     "type": [
                         "string",
                         "null"
@@ -559,30 +477,28 @@
                     "minLength": 1,
                     "maxLength": 128
                 },
-                "missing_parent": {
-                    "description": "§5.3: proposed only when required — no supplied parent fits and the term needs a middle layer. Null otherwise. Never alongside parent_candidate_id: choosing a parent and proposing one are different answers to the same question.",
-                    "anyOf": [
-                        {
-                            "$ref": "#/$defs/missing_parent_proposal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                "missing_parent_proposals": {
+                    "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+                    "type": "array",
+                    "maxItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/missing_parent_proposal"
+                    }
                 },
                 "candidate_user_predicate": {
-                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or null. A like grounds interested_in; nothing here may claim practices from a watch — the engagement rules stay the scorer's.",
+                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+                    "type": "string",
                     "enum": [
                         "interested_in",
                         "practices",
                         "studies",
                         "creates",
                         "played",
-                        null
+                        "none"
                     ]
                 },
                 "alternatives": {
-                    "description": "§5.2, Alternatives preserved: when the mention could denote an activity, a work or a franchise, the ranked other readings. Do not choose the globally most famous entity merely to avoid provisional state — record the doubt instead.",
+                    "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
                     "type": "array",
                     "maxItems": 2,
                     "items": {
@@ -637,12 +553,12 @@
                 "english_label",
                 "original_label",
                 "relation_hypotheses",
-                "cardinal_scores",
                 "selected_cardinal",
                 "parent_candidate_id",
-                "missing_parent",
                 "candidate_user_predicate",
-                "alternatives"
+                "alternatives",
+                "cardinal_confidence",
+                "missing_parent_proposals"
             ],
             "properties": {
                 "surface": {
@@ -736,55 +652,9 @@
                         "$ref": "#/$defs/relation_hypothesis"
                     }
                 },
-                "cardinal_scores": {
-                    "description": "The model's belief about which roots this term could belong to, §5.2's cardinal_scores. A partial map: state only the roots that are live possibilities. May be empty when the family already says everything.",
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                        "person": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "group": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "organization": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "franchise": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "work": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "activity": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "event": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        },
-                        "concept": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
-                        }
-                    }
-                },
                 "selected_cardinal": {
-                    "description": "The root the model selects, or null when it cannot say. The eight values are the immutable cardinal roots of §2; anything else is refused by the grammar itself. Null is honest and legal — the family_hypothesis map then decides.",
+                    "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+                    "type": "string",
                     "enum": [
                         "person",
                         "group",
@@ -794,11 +664,17 @@
                         "activity",
                         "event",
                         "concept",
-                        null
+                        "none"
                     ]
                 },
+                "cardinal_confidence": {
+                    "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                },
                 "parent_candidate_id": {
-                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates — the model never synthesizes canonical or provisional ids (§5.2, No model IDs). The Python validator refuses an id that was not supplied.",
+                    "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
                     "type": [
                         "string",
                         "null"
@@ -806,30 +682,28 @@
                     "minLength": 1,
                     "maxLength": 128
                 },
-                "missing_parent": {
-                    "description": "§5.3: proposed only when required — no supplied parent fits and the term needs a middle layer. Null otherwise. Never alongside parent_candidate_id: choosing a parent and proposing one are different answers to the same question.",
-                    "anyOf": [
-                        {
-                            "$ref": "#/$defs/missing_parent_proposal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                "missing_parent_proposals": {
+                    "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+                    "type": "array",
+                    "maxItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/missing_parent_proposal"
+                    }
                 },
                 "candidate_user_predicate": {
-                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or null. A like grounds interested_in; nothing here may claim practices from a watch — the engagement rules stay the scorer's.",
+                    "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+                    "type": "string",
                     "enum": [
                         "interested_in",
                         "practices",
                         "studies",
                         "creates",
                         "played",
-                        null
+                        "none"
                     ]
                 },
                 "alternatives": {
-                    "description": "§5.2, Alternatives preserved: when the mention could denote an activity, a work or a franchise, the ranked other readings. Do not choose the globally most famous entity merely to avoid provisional state — record the doubt instead.",
+                    "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
                     "type": "array",
                     "maxItems": 2,
                     "items": {

@@ -167,10 +167,11 @@ def schema_limits(schema: dict) -> dict:
     # distribution, a whole §5.3 proposal, the alternatives at their cap.
     if "selected_cardinal" in mention:
         limits["cardinal_enum"] = [
-            v for v in mention["selected_cardinal"]["enum"] if v is not None]
+            v for v in mention["selected_cardinal"]["enum"]
+            if v not in (None, "none")]
         limits["user_predicate_enum"] = [
             v for v in mention["candidate_user_predicate"]["enum"]
-            if v is not None]
+            if v not in (None, "none")]
         limits["alternatives_max"] = mention["alternatives"]["maxItems"]
         proposal = schema["$defs"]["missing_parent_proposal"]["properties"]
         limits["parent_label_max"] = proposal["label"]["maxLength"]
@@ -230,11 +231,11 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
         ][: lim["relations_max"]]
     if "cardinal_enum" in lim:
         root = lim["cardinal_enum"][0]
-        mention["cardinal_scores"] = {c: 0.5 for c in lim["cardinal_enum"]}
         mention["selected_cardinal"] = root
+        mention["cardinal_confidence"] = 0.5
         mention["parent_candidate_id"] = None
         # The worst case is the proposal, which dwarfs an echoed id.
-        mention["missing_parent"] = {
+        mention["missing_parent_proposals"] = [{
             "label": text[: lim["parent_label_max"]],
             "definition": text[: lim["parent_definition_max"]],
             "cardinal_root": root,
@@ -244,7 +245,7 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
                 for i in range(lim["parent_children_max"])],
             "non_examples": [],
             "rationale": text[: lim["parent_rationale_max"]],
-        }
+        }]
         mention["candidate_user_predicate"] = lim["user_predicate_enum"][0]
         mention["alternatives"] = [
             {"canonical_label_hypothesis":

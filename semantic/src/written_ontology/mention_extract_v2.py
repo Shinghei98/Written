@@ -50,6 +50,36 @@ SOURCE_FIELDS = ("title", "channel_label", "description_excerpt", "tags")
 INFERRED_FIELD = "inferred"
 
 
+#: §2.1's boundary check on the wire: the family a mention claims and the
+#: cardinal root it selects must be the same statement. The map mirrors
+#: `ontology.cardinal_root_map` for the wire's families; a migration pins the
+#: two equal so they cannot drift. 'none' means the family has no root
+#: (operational metadata) and no selected cardinal may accompany it.
+FAMILY_CARDINAL = {
+    "person": "person", "group": "group", "organization": "organization",
+    "franchise": "franchise", "work": "work", "anime": "work", "book": "work",
+    "game": "work", "music_work": "work", "album": "work",
+    "sport": "activity", "activity": "activity", "idea": "concept",
+    "place": "none", "culture": "concept", "event": "event", "tour": "event",
+}
+
+#: The explicit stand-in for null inside the closed enums — a null member in
+#: an enum is not a grammar shape this stack trusts xgrammar with (measured
+#: 2026-08-21: it collapsed generation below 10 tokens/sec). Named once.
+NONE_SENTINEL = "none"
+
+
+def cardinal_of(mention: dict) -> str | None:
+    """The selected root, or None — the sentinel never leaves this module."""
+    value = mention.get("selected_cardinal")
+    return None if value in (None, NONE_SENTINEL) else value
+
+
+def user_predicate_of(mention: dict) -> str | None:
+    value = mention.get("candidate_user_predicate")
+    return None if value in (None, NONE_SENTINEL) else value
+
+
 def is_inferred(mention: dict) -> bool:
     """**The variant is read from `source_field`, never from the absence of a
     key.** A mention missing `start` because the model omitted it and one that
@@ -166,8 +196,19 @@ def _validate_cardinal_fields(mention: dict,
     so the echo rule lives here. An id the request did not supply is an
     invented id whichever field carries it.
     """
+    family = mention.get("family_hypothesis")
+    cardinal = mention.get("selected_cardinal")
+    if cardinal not in (None, NONE_SENTINEL) and family in FAMILY_CARDINAL:
+        expected = FAMILY_CARDINAL[family]
+        if expected != cardinal:
+            # The v6 corpus is the argument: a group filed as anime is a
+            # family and a root telling two different stories about one
+            # surface, and a stored contradiction cannot be repaired later.
+            raise ExtractionInvalid("family_root_mismatch",
+                                    f"{family} is not {cardinal}")
     chosen = mention.get("parent_candidate_id")
-    proposal = mention.get("missing_parent")
+    proposals = mention.get("missing_parent_proposals") or []
+    proposal = proposals[0] if proposals else None
     if chosen is not None and proposal is not None:
         raise ExtractionInvalid("parent_both_chosen_and_proposed")
     if chosen is not None and chosen not in supplied:
