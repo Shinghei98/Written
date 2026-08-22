@@ -111,6 +111,59 @@ the icebreaker exclusion, and the hard invariants the contract itself states
 Qwen never emits IDs; `known_vocabulary_only` is not a valid eligibility
 condition for any lane).
 
+## The RIS testing lane: performance and accuracy, nothing else (owner, 2026-08-22)
+
+**RIS is where the pipeline is measured; AWS is where it is governed.** The
+owner's direction, given when AWS access lapsed at free-tier expiry: on the
+university cluster the only things that matter are **how much information is
+extracted, how accurate the labels are, and how accurately terms merge**.
+Privacy projections, retention rules and the vault's key discipline are
+**bypassed for internal testing** there — RIS offers no KMS, and the owner has
+said not to work around its absence.
+
+**What this does not touch, and the distinction is the whole point:**
+
+- **The AWS deployment stays in the tree and stays correct.** It is never
+  deleted, never simplified, and keeps reading the vault through KMS with the
+  lineage and erasure guarantees that come with it. A RIS convenience must
+  never become an AWS behaviour.
+- **The published privacy policy describes the AWS path**, which is the one
+  real users' data flows through. It is not rewritten to describe a testing
+  lane, and no testing result is a reason to weaken it.
+- **A third party's terms are not the owner's to waive.** YouTube's III.E.4
+  and Spotify's IV.2 bind whoever holds the API keys, not whoever runs the
+  GPU. Testing on internal data already collected is one thing; shipping a
+  behaviour those clauses forbid is another, and this entry licenses only the
+  first.
+
+**Why the vault is skippable here at all:** `public.distilled_records` is
+plaintext at rest (`0001_initial.sql:43-70`) and holds the complete
+distillation — `name`, `creator`, `detail`, `extra` — so the RIS lane reads it
+directly and needs no data key. It is *more* complete than the promoted
+projection, which strips calendar titles and excludes YouTube titles by
+design.
+
+**What KMS was buying, so the cost of skipping it is known.** Two things, and
+only the second is felt on RIS. It wraps the per-user data keys, which is what
+makes crypto erasure real — deleting one wrapped-key row makes that person's
+evidence permanently unreadable. And it keys `source_item_hmac`, the
+identifier joining a source item to its observation. That HMAC is keyed rather
+than hashed because source ids are *guessable*: an unkeyed digest would let
+anyone with database read access confirm whether a given person liked a given
+video. The consequence for testing is concrete — **a distilled row cannot be
+rejoined to its observation without AWS**, so RIS results land in the global
+dictionary rather than becoming per-user review cards, except for music, whose
+titles sit unencrypted in `normalized_payload`.
+
+**Measured on RIS, 2026-08-22** (four A100 80GB, one prompt per item, one
+`generate()` call, prefix cached): **7.3-8.0 items/second per card against
+~0.5 on the rented L40S lane**, 5,387 items in about three minutes per shard,
+90% accepted, 14,501 mentions. Two things were worth more than any tuning:
+running `repair_offsets` before validation exactly as `gateway._accept` does
+(10,917 spans repaired; without it acceptance was 9%), and raising the output
+ceiling above the 800 tokens the AWS wire pins, which long classical titles
+legitimately exceed.
+
 ## The prime design constraint: minimum friction
 
 Data extraction must feel like a **one-button experience** per app. OAuth is the

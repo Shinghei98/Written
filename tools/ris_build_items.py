@@ -72,9 +72,31 @@ def fields_for(row: dict) -> dict:
             fields["channel_label"] = str(row["creator"])[:128]
         else:
             fields["performer"] = str(row["creator"])[:256]
-    detail = row.get("detail")
-    if detail and row.get("source") != "youtube":
-        fields["album"] = str(detail)[:256]
+    # **`detail` is not one field, it is four.** Measured against the real
+    # rows: `library_song` carries the album ("J.S. Bach: Matthäus-Passion"),
+    # `playlist_item` carries `playlist=<name>`, `recommendation` carries
+    # `shelf=<name>`, and `rating` carries the rating word. Sending all of it
+    # as `album` told the model that "playlist=周杰伦" was an album, and it
+    # dutifully merged that surface into Jay Chou — 190 such surfaces.
+    #
+    # A playlist name is still real context (a playlist called 周杰伦 says
+    # something), so it travels as `description_excerpt` where it belongs
+    # rather than being thrown away.
+    detail = (row.get("detail") or "").strip()
+    if detail:
+        lowered = detail.lower()
+        if lowered.startswith("playlist="):
+            context = detail.split("=", 1)[1].strip()
+            if context and context.lower() not in ("public", "private"):
+                fields["description_excerpt"] = f"from the playlist {context}"[:512]
+        elif lowered.startswith(("shelf=", "station=")):
+            pass  # a shelf is Apple's own merchandising, not the user's act
+        elif "=" in detail.split(" ", 1)[0]:
+            pass  # any other key=value metadata is plumbing, not a title
+        elif len(detail) <= 24 and " " not in detail:
+            pass  # a bare rating word; the action already carries it
+        elif row.get("source") != "youtube":
+            fields["album"] = detail[:256]
     return fields
 
 
