@@ -102,7 +102,12 @@ def main() -> int:
                                   if k != "tokenizer_runtime_manifest"}},
                      ensure_ascii=False), flush=True)
 
-    max_tokens = CONTRACT["output_contract"]["max_output_tokens"]
+    # The contract's ceiling by default. Overridable here because a local
+    # run is not the attested lane: 800 is what the AWS wire pins, and a
+    # long classical title with performer and album fields legitimately
+    # needs more — 1,020 of 5,387 rows truncated at it.
+    max_tokens = int(os.environ.get("WRITTEN_MAX_OUTPUT_TOKENS",
+                                    CONTRACT["output_contract"]["max_output_tokens"]))
     params = serve._structured_params(sequence_schema(OUT_SCHEMA), max_tokens)
 
     # **Prompts built through `serve._prompts`, one item at a time.** A

@@ -51,7 +51,7 @@ def main() -> int:
 
     import jsonschema
     from written_ontology.mention_extract_v2 import (
-        ExtractionInvalid, RequestItem, validate_response)
+        ExtractionInvalid, RequestItem, repair_offsets, validate_response)
 
     validator = jsonschema.Draft202012Validator(schema)
     outcomes: collections.Counter = collections.Counter()
@@ -102,6 +102,17 @@ def main() -> int:
         original = sent.get(row["row_id"], {})
         request = [RequestItem(0, original.get("fields") or {},
                                original.get("source_action"))]
+
+        # **The repair runs before validation, exactly as the gateway does.**
+        # `_accept` calls `repair_offsets` between the two layers: the model
+        # names the right entity and miscounts its code points, and where the
+        # surface occurs uniquely in the cited field the span is not in doubt.
+        # Skipping it here refused 70% of a run that the production lane would
+        # have accepted — the offsets were the only thing wrong with them.
+        repaired_here = repair_offsets(body, request)
+        if repaired_here:
+            outcomes["offsets_repaired"] += repaired_here
+
         try:
             supplied = frozenset(
                 c["term_id"] for c in (original.get("parent_candidates") or []))
