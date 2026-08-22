@@ -88,6 +88,14 @@ def engine():
             # relying on: the engine's own default has changed across versions
             # and this is the one property the batching strategy depends on.
             enable_prefix_caching=True,
+            # **How many sequences may be resident at once.** Unset on AWS,
+            # where the L40S's KV cache was the binding constraint and the
+            # engine's own default was right. An 80 GB card leaves roughly
+            # 60 GB after a 9B model in bf16, which holds far more than the
+            # default assumes — so the number is stated where the hardware
+            # justifies it and omitted (engine default) everywhere else.
+            **({"max_num_seqs": int(os.environ["WRITTEN_MAX_NUM_SEQS"])}
+               if os.environ.get("WRITTEN_MAX_NUM_SEQS") else {}),
         )))
     return _engine
 
