@@ -24,6 +24,16 @@ begin;
 update semantic_private.feature_flags set enabled = true
  where flag_key = 'calibration_reads';
 
+-- **`memories_reads` too, and only because section 9b drains the queue.**
+-- `mint_from_kept_requests` processes every pending request, so calling it once
+-- also completes the keep from section 4b — and a completed keep writes a
+-- `feedback_events` row carrying `{"surface": "memories"}`, which the surface
+-- guard checks. Both flags are turned on inside the transaction and roll back
+-- with everything else, for the reason the note above gives: a lifecycle that
+-- could only be tested by shipping a flag enabled would never be tested.
+update semantic_private.feature_flags set enabled = true
+ where flag_key = 'memories_reads';
+
 do $$
 declare
   alice     uuid := '00000000-0000-4000-8000-00000000a11c';
@@ -41,6 +51,12 @@ declare
   prov_item uuid;
   n         integer;
   state     text;
+  -- Section 9b: a struck provisional, its own fixture so the exposure count
+  -- asserted in section 1 stays true.
+  sp_prov   uuid;
+  sp_cand   uuid;
+  sp_item   uuid;
+  sp_key    text;
 begin
   -- ---------------------------------------------------------------------
   -- Seed
@@ -408,6 +424,88 @@ begin
   if not exists (select 1 from semantic_private.review_events
                   where review_item_id = item and action = 'strike_off') then
     raise exception '0230 contract: restore deleted the history of the strike';
+  end if;
+
+  -- ---------------------------------------------------------------------
+  -- 9b. A struck term is minted, and claimed about nobody
+  -- ---------------------------------------------------------------------
+  -- **The arm that would have caught `0333`.** That migration let a strike ask
+  -- for a mint, on the owner's reasoning that striking a term says it does not
+  -- describe *you*, not that it is not a term. What it missed is that
+  -- `mint_from_kept_requests` called `confirm_kept_memory` for every
+  -- disposition — so the struck term would have arrived on the striker's
+  -- Memories page as a confirmed claim, with no suppression to hide it, because
+  -- the strike writes `user_suppressions` only when the card is concept-backed
+  -- and a provisional's `concept_id` is null.
+  --
+  -- Two assertions, and the second is the one that matters: the concept exists,
+  -- **and the person who struck it is asserted nothing.**
+  --
+  -- Its own fixture rather than reusing `prov_item`, which by now carries a
+  -- keep and a strike; and inserted after section 1 so the exposure count
+  -- asserted there is untouched.
+  insert into semantic_private.provisional_entities
+    (scope, user_id, canonical_label, normalized_label, family)
+  values ('user', alice, 'Contract Struck Term', 'contract struck term', 'person')
+  returning id into sp_prov;
+
+  insert into semantic_private.user_term_candidates
+    (user_id, provisional_entity_id, user_facing_predicate, confidence_tier,
+     aggregate_score, primary_route_id, lifecycle_state)
+  values (alice, sp_prov, 'affinity_to', 'direct', 0.7, 'contract_probe', 'active')
+  returning id into sp_cand;
+
+  insert into semantic_private.review_items
+    (user_id, candidate_id, review_epoch, primary_route_id, confidence_tier,
+     aggregate_score, rank, presentation_version)
+  values (alice, sp_cand, 901, 'contract_probe', 'direct', 0.7, 0, 'calibration_v1')
+  returning id into sp_item;
+
+  -- The strike refuses an item that has not been shown, so it is shown.
+  -- Columns read from the catalog: `position` and `presentation_variant`, not
+  -- the epoch/rank/tier the review item carries.
+  insert into semantic_private.review_exposures
+    (user_id, review_item_id, position, presentation_variant)
+  values (alice, sp_item, 0, 'calibration_v1')
+  on conflict do nothing;
+
+  perform api.strike_calibration_item(sp_item);
+  set constraints all immediate;
+
+  -- The strike asks for a mint (0333).
+  select count(*) into n from semantic_private.mint_requests
+   where review_item_id = sp_item and origin = 'strike_off';
+  if n <> 1 then
+    raise exception '0230 contract: a strike wrote % mint requests', n;
+  end if;
+
+  perform semantic_private.mint_from_kept_requests();
+
+  -- The term became vocabulary. The link is `redirect_concept_id` — the
+  -- provisional points at the identity it resolved to, and `identity_state`
+  -- moves to `resolved_existing`. There is no `promoted_concept_id` here; that
+  -- column is on `presumed_terms`, which is a different dictionary.
+  select c.concept_key into sp_key
+    from semantic_private.provisional_entities pe
+    join ontology.concepts c on c.id = pe.redirect_concept_id
+   where pe.id = sp_prov;
+  if sp_key is null then
+    raise exception '0230 contract: a struck term minted no concept';
+  end if;
+  -- And it is readable, not a hash (0331).
+  if sp_key like '%:kept\_%' then
+    raise exception
+      '0230 contract: the minted key is still the md5 form (%)', sp_key;
+  end if;
+
+  -- **And nothing was claimed about the person who struck it (0334).**
+  if exists (
+    select 1 from semantic_private.user_assertions a
+     join ontology.concepts c on c.id = a.concept_id
+    where a.user_id = alice and c.concept_key = sp_key
+  ) then
+    raise exception
+      '0230 contract: striking % asserted it about the striker', sp_key;
   end if;
 
   -- ---------------------------------------------------------------------
