@@ -19,6 +19,13 @@ two disagree, this file controls. The semantic pipeline's build history is
 `semantic/JOURNAL.md`, each migration's reasoning is in its own header comment,
 and anything cut from either file is in `git log -p`.
 
+**The ontology grammar is `docs/GRAMMARBOOK.md`** — the eight cardinal roots,
+the two family tiers, the predicate registry, the wire schema, what each failed
+release taught, and the golden set that validates it. **For anything about
+families, roots, predicates, relations, the model lane or the evaluation corpus,
+that file controls and this one is out of date**: the semantic section below
+describes migration head `0231` and the head is `0328`.
+
 **What happens next is `docs/NEXT-STEPS.md`** — the dyad test, the distillation
 it is waiting on, and the two one-line things that must not be missed at launch.
 It is a plan rather than a record: an entry is deleted when it stops being true.

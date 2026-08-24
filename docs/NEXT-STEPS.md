@@ -152,10 +152,16 @@ as the owner's own page.
   is what they were told, and rewriting it later would make the record of a
   conversation disagree with the conversation.
 - **Phase 6 — the cutover**, where the server-owned surfaces replace the legacy
-  ones and `api.discover_profiles` comes out of the dark. It ships behind
-  `discovery_profile_reads`, which is false, and **the asymmetry is the safety
-  property**: flag off falls back to the direct read, flag on and failing does
-  not, because a fallback on error would quietly restore the unauthorised path.
+  ones and `api.discover_profiles` comes out of the dark. **It is already out
+  of it**: `discovery_profile_reads` was piloted to one account on 2026-08-13
+  and enabled globally on **2026-08-14 19:30 UTC**, verified against
+  `semantic_private.feature_flags` on 2026-08-23 with the kill switch down and
+  the single per-user override also true, so the flag resolves true for every
+  account. The RPC answers and the client is no longer falling back. **The
+  asymmetry is still the safety property**: flag off falls back to the direct
+  read, flag on and failing does not, because a fallback on error would quietly
+  restore the unauthorised path. What remains of Phase 6 is retiring the legacy
+  readers behind it, not turning the flag on.
 
 ## 4. The blocked decision, if she cannot install
 
