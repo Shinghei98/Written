@@ -13,7 +13,15 @@
 	     uploaded, and that is enforced twice rather than merely intended: the
 	     device derives its signals and discards the raw workouts and activity
 	     samples without writing them to disk, and `SyncService.localOnlySources`
-	     refuses the source outright. Only the derived signals below travel. -->
+	     refuses the source outright. Only the derived signals below travel.
+
+	     **That sentence is why the raw archive stops at eight sources.** When
+	     `RawArchive` was added to keep each service's own answer, HealthKit and
+	     Location were the two it was not given — for both, the discarding is the
+	     declaration, and an archive would have quietly made this paragraph and
+	     the coarse-location note untrue. A privacy manifest that a feature
+	     silently outgrew is exactly the failure this file has already had once,
+	     when phone sign-in arrived and nobody thought of a plist. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
@@ -176,7 +184,29 @@
 		     All of it is app functionality: it builds the profile the person
 		     came here to build. None of it is tracking, and none is shared with
 		     a third party — see the lyrics note in CLAUDE.md for the single
-		     exception, which sends one artist and one title and no identifier. -->
+		     exception, which sends one artist and one title and no identifier.
+
+		     **And now the sources' own answers, not only our reading of them.**
+		     `RawArchive` keeps what each connected service returned — the HTTP
+		     response for YouTube, Spotify, Apple Music and the two OAuth
+		     calendars, and a property serialisation for Apple Calendar, the
+		     device music library and Podcasts — gzipped, in the private
+		     `raw-source-archives` bucket, readable by its owner alone. It is the
+		     same data as the rows above and in fuller form: a field the parser
+		     dropped is a field nobody can get back without asking that person to
+		     connect again, which is a cost this app should carry rather than
+		     they should.
+
+		     It is included in "Download my data", it is erased by Disconnect all
+		     and by account deletion, and the YouTube part of it expires at
+		     thirty days on the same daily sweep as everything else YouTube.
+
+		     **Two sources are deliberately excluded, and the exclusion is the
+		     point of them.** HealthKit and Location are the two places where
+		     discarding *is* the promise — the sentence at the top of this file
+		     about raw samples never reaching disk, and the coarse-location note
+		     about the coordinate being thrown away. Archiving either would make
+		     a declaration in this manifest false, so neither is archived. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUsageData</string>

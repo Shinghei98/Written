@@ -377,6 +377,34 @@ enum AppConfig {
     /// — which is wanted anyway, since API Gateway caps a request at 10 MB.
     static let semanticIngestionBatchSize = 500
 
+    // MARK: The raw archive
+
+    /// Whether each source's own answer is kept beside what Written made of it.
+    ///
+    /// **The response was parsed and dropped, and that is what this turns on.**
+    /// `DistilledRecord` is eight columns and a `key=value;key=value` string;
+    /// a field the parse did not read is unrecoverable without asking somebody
+    /// to open the app again, which the project's own rule calls a bug report
+    /// about us. `RawArchive` keeps the body so a re-projection is a query.
+    ///
+    /// **A switch rather than a build flag**, because it governs what leaves
+    /// the device and that has to be answerable in one place — the same reason
+    /// `semanticSurfacesEnabled` and `memories_reads` are two switches and not
+    /// one. Turning it off stops capture; it does not delete what is already
+    /// staged, which `RawArchive.forget()` does.
+    static let rawArchiveEnabled = true
+
+    /// The ceiling one account's staged archive may reach before capture stops.
+    ///
+    /// **Measured rather than guessed is the goal; this is the guard until
+    /// then.** A library of a few thousand rows is a handful of megabytes of
+    /// gzipped JSON, but a pathological account is exactly the one nobody
+    /// tests, and an archive that fills a phone is worse than no archive.
+    /// Capture refuses past this and says so in `RawArchive.refusals`; it never
+    /// deletes to make room, because choosing which of somebody's data to drop
+    /// is not a decision a size limit should be making.
+    static let rawArchiveMaxBytes = 256 * 1024 * 1024
+
     // MARK: Distillation limits (MVP guardrails so a distill finishes quickly)
 
     /// Maximum pages fetched per paginated endpoint (50 items/page for YouTube,

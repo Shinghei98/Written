@@ -627,8 +627,13 @@ class CalendarClassifier:
             lineage_signer=self._signer,
         )
 
-    def travel_candidates(self, journeys: Iterable[Journey]) -> tuple[TravelCandidate, ...]:
-        return derive_travel_candidates(journeys)
+    def travel_candidates(
+        self,
+        journeys: Iterable[Journey],
+        *,
+        record_ends_at: datetime | None = None,
+    ) -> tuple[TravelCandidate, ...]:
+        return derive_travel_candidates(journeys, record_ends_at=record_ends_at)
 
     def _calendar_is_excluded(
         self,
@@ -727,7 +732,22 @@ class CalendarClassifier:
         origin = self._resolve_place(
             *(explicit_origin_references if any(explicit_origin_references) else (detail,))
         )
-        origin_id = origin[0] if origin is not None else None
+        # **A place the gazetteer does not know is still the same place twice.**
+        # Chaining asks whether this leg leaves where the last one landed, and
+        # that question needs identity, not a name — so an unresolved origin
+        # takes an opaque continuity key derived from its own text. It carries
+        # no label, so `derive_travel_candidates` can never mint it and no
+        # surface can ever draw it; it exists only to let two legs recognise
+        # each other. Without it every leg out of a city missing from the
+        # catalogue starts a new journey, and a connection reads as a
+        # destination.
+        origin_id = (
+            origin[0]
+            if origin is not None
+            else _continuity_key(
+                *(explicit_origin_references if any(explicit_origin_references) else (detail,))
+            )
+        )
         number = match.group("number").upper()
         reservation_id = (
             extra.get("reservation_id")
@@ -881,6 +901,33 @@ def deduplicate_flight_segments(
     return tuple(sorted(result, key=lambda item: (item.starts_at, item.lineage_id)))
 
 
+#: The prefix marking a place identified only by its own text. Nothing may
+#: label, mint or display one; `_OFFLINE_CALENDAR_PLACE_LABELS` deliberately has
+#: no entry, so every lookup misses and the place is dropped at the surface.
+UNRESOLVED_PLACE_PREFIX = "place:unresolved:"
+
+
+def _continuity_key(*references: object) -> str | None:
+    """A stable, opaque id for a place the catalogue could not name.
+
+    Derived from the normalised reference text so the same airport written the
+    same way twice compares equal, and digested so no fragment of a location
+    string survives into anything that is stored.
+    """
+
+    for reference in references:
+        normalized = _normalize(reference)
+        if not normalized:
+            continue
+        # Trailing IATA codes are dropped so `Boston BOS` and `Boston` agree.
+        normalized = re.sub(r"\s+[a-z]{3}$", "", normalized).strip()
+        if not normalized:
+            continue
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+        return f"{UNRESOLVED_PLACE_PREFIX}{digest}"
+    return None
+
+
 def _same_reservation(left: FlightSegment, right: FlightSegment) -> bool:
     return bool(
         left.reservation_id
@@ -907,13 +954,31 @@ def _activity_makes_stopover(
     return False
 
 
+#: **The line between a connection and a stopover is IATA's, not ours.** Over
+#: twenty-four hours between arriving and leaving again is a stopover — you were
+#: in that place — and under it you were changing planes. The number is taken
+#: from an external convention on purpose: a threshold read off the libraries
+#: in front of us would be fitted to them, which is the mistake `0223` froze the
+#: work rule to avoid.
+#:
+#: Measured against a labelled itinerary of 36 flights, the observed gaps are
+#: 1.4-2.7 hours for connections and 41 hours or more for stays. **Nothing lies
+#: between**, so any value from 3 to 40 hours would answer identically — which
+#: is what makes 24 a rule the data agrees with rather than a line drawn round
+#: it.
+CONNECTION_MAX_GAP = timedelta(hours=24)
+
+#: A connection needs long enough to change planes and no longer.
+CONNECTION_MIN_GAP = timedelta(minutes=30)
+
+
 def _can_chain(
     left: FlightSegment,
     right: FlightSegment,
     booked_activities: Sequence[BookedActivity] = (),
 ) -> bool:
     gap = right.starts_at - left.ends_at
-    if gap < timedelta(minutes=30) or gap > timedelta(hours=36):
+    if gap < CONNECTION_MIN_GAP or gap > CONNECTION_MAX_GAP:
         return False
     same_reservation = _same_reservation(left, right)
     spatially_continuous = bool(
@@ -924,6 +989,10 @@ def _can_chain(
         return False
     if _activity_makes_stopover(left, right, booked_activities):
         return False
+    # **Past eighteen hours spatial continuity alone is not enough.** A day in
+    # a city on two separately booked tickets is a stopover somebody arranged,
+    # not a gate change — the older rule this preserves, now sitting inside the
+    # twenty-four-hour bound rather than the thirty-six-hour one.
     if gap <= timedelta(hours=18):
         return spatially_continuous or same_reservation
     return same_reservation and (spatially_continuous or right.origin_place_id is None)
@@ -1006,14 +1075,108 @@ def _recurrence_score(votes: int, first: datetime, last: datetime) -> float:
     return round(frequency * temporal_support, 6)
 
 
+def classify_place_roles(
+    journeys: Iterable[Journey],
+    *,
+    record_ends_at: datetime | None = None,
+) -> dict[str, str]:
+    """Which places somebody was in, and which they merely passed through.
+
+    **Two clauses, and between them they need no gazetteer, no airline hub
+    table and no list of cities.**
+
+    - **You were somewhere if you departed from it.** Boarding proves presence
+      whatever brought you there — a train, a car, a leg nobody saved. This is
+      why an origin the calendar never records an arrival to still counts.
+    - **You were somewhere if you arrived and later left again**, the later
+      departure being what distinguishes a stay from a change of planes.
+      Anything under `CONNECTION_MAX_GAP` has already been folded into one
+      journey by `_can_chain`, so a terminal a *subsequent* journey departs
+      from was somewhere you stayed.
+
+    Everything else is transit: the middle of a chain, and — the clause that is
+    easy to miss — **a terminal no later journey ever departs from, where the
+    record continues past it.** An arrival with no onward leg is not evidence
+    of a stay; it is what a connection looks like when only the ticketed
+    long-haul leg was saved, and every such place in the itinerary this rule
+    was checked against was one.
+
+    **`record_ends_at` is what stops that clause inferring absence from
+    omission.** A missing return leg means something only when we can see past
+    the arrival and still find nothing; at the edge of what was captured it
+    means we stopped looking. So a terminal reached at the end of the record
+    stays a destination, and one arrival is still evidence of travel — which is
+    the same refusal that makes every ingestion scope `partial` rather than
+    `complete`. Callers that know the calendar's true horizon should pass it;
+    the default is the last journey in hand, which is the conservative reading.
+
+    **The verdict is per place across the whole record, and presence wins.** A
+    city can be a connection on one trip and a destination on another — the
+    same airport twice, once with two hours in it and once with four days — and
+    the second is a fact the first does not contradict. That is the same shape
+    as participation outranking spectating in `0200`.
+    """
+
+    # **Deduplicated by what the journey is, not by what it was signed with.**
+    # `journey_id` comes from a signer the caller supplies, and a caller that
+    # supplies a constant — the review harness did — would collapse every trip
+    # into one and answer with a single place. The segments are the identity.
+    ordered = sorted(
+        {
+            tuple(segment.lineage_id for segment in journey.segments)
+            + (journey.starts_at, journey.terminal_place_id): journey
+            for journey in journeys
+        }.values(),
+        key=lambda item: (item.starts_at, item.terminal_place_id or ""),
+    )
+    horizon = record_ends_at or (ordered[-1].ends_at if ordered else None)
+    roles: dict[str, str] = {}
+
+    def mark(place_id: str | None, role: str) -> None:
+        if not place_id:
+            return
+        if roles.get(place_id) == "destination":
+            return
+        roles[place_id] = role
+
+    for journey in ordered:
+        for place_id in journey.transit_place_ids:
+            mark(place_id, "transit")
+    for journey in ordered:
+        mark(journey.origin_place_id, "destination")
+        departed_later = any(
+            other.origin_place_id == journey.terminal_place_id
+            and other.starts_at >= journey.ends_at
+            for other in ordered
+        )
+        # No onward leg *and* nothing observed afterwards is a silence we are
+        # not entitled to read, so the arrival stands as a destination.
+        observed_afterwards = horizon is not None and horizon > journey.ends_at
+        mark(
+            journey.terminal_place_id,
+            "destination" if departed_later or not observed_afterwards else "transit",
+        )
+    return roles
+
+
 def derive_travel_candidates(
     journeys: Iterable[Journey],
+    *,
+    record_ends_at: datetime | None = None,
 ) -> tuple[TravelCandidate, ...]:
     """Create private review candidates with one maximum vote per journey."""
 
     unique_journeys = {journey.journey_id: journey for journey in journeys}
+    # **A place passed through is not a place somebody went.** The role is
+    # decided across the whole record rather than per journey, so a city that
+    # is a connection once and a destination another time keeps its candidate.
+    roles = classify_place_roles(
+        unique_journeys.values(), record_ends_at=record_ends_at
+    )
     by_terminal: dict[str, list[Journey]] = defaultdict(list)
     for journey in unique_journeys.values():
+        if roles.get(journey.terminal_place_id) != "destination":
+            continue
         by_terminal[journey.terminal_place_id].append(journey)
 
     candidates: list[TravelCandidate] = []

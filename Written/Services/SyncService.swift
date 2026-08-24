@@ -91,8 +91,21 @@ actor SyncService {
 
     /// Whether this row is kept on the device and never uploaded.
     static func isLocalOnly(_ record: DistilledRecord) -> Bool {
-        localOnlySources.contains(record.source)
-            || localOnlyTypes.contains("\(record.source)/\(record.dataType)")
+        isLocalOnlyType(source: record.source, dataType: record.dataType)
+    }
+
+    /// The same decision, asked before a record exists.
+    ///
+    /// **`RawArchive` has to ask it earlier than `push` does.** A raw capture
+    /// happens at the framework query, before anything has been turned into a
+    /// `DistilledRecord`, and applying the refusal after serialising would put
+    /// a protected characteristic in a file on disk that the Settings export
+    /// then ships. One list, asked from both ends — a second copy of
+    /// `health/biological_sex` somewhere else is how the rule stops being true
+    /// without anybody deciding to break it.
+    static func isLocalOnlyType(source: String, dataType: String) -> Bool {
+        localOnlySources.contains(source)
+            || localOnlyTypes.contains("\(source)/\(dataType)")
     }
 
     /// Returns nil when the rows landed, and why not when they didn't.

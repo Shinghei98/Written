@@ -57,6 +57,14 @@ struct MusicLibraryDistiller {
 
         let now = Date()
         let query = MPMediaQuery.songs()
+        if let payload = RawArchiveSerialiser.envelope(
+            source: "music_library", kind: "library_song",
+            objects: (query.items ?? []).map(RawArchiveSerialiser.mediaItem)
+        ) {
+            await RawArchive.shared.captureEncoded(
+                source: "music_library", endpoint: "library_song", payload: payload
+            )
+        }
 
         return (query.items ?? []).prefix(AppConfig.maxLibrarySongs).compactMap { item in
             guard let title = item.title else { return nil }

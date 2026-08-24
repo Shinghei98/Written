@@ -18,7 +18,10 @@ final class DistillViewModel: ObservableObject {
     @Published private(set) var records: [DistilledRecord] = []
 
     @Published var isExporterPresented = false
-    @Published var exportDocument: CSVDocument?
+    @Published var exportDocument: DataArchiveDocument?
+    /// What the last assembled bundle held, so the confirmation can say it.
+    private var exportedArchiveCount = 0
+    private var exportedRecordCount = 0
     @Published var exportResultMessage: String?
 
     /// What the tree is grown from. Recomputed whenever records change, never
@@ -353,6 +356,13 @@ final class DistillViewModel: ObservableObject {
         // signed in here. `AccountScope` already keys the directory, so this is
         // a second line rather than the only one.
         PendingEnvelopeStore.clear()
+
+        // **The raw archive is the strongest form of the same argument.** It is
+        // whole calendars and whole libraries as the sources gave them, for an
+        // account that is no longer signed in on this phone. Detached because
+        // `RawArchive` is an actor and this method is not async — and a
+        // sign-out must not wait on a directory walk.
+        Task.detached { await RawArchive.shared.forget() }
 
         // The next person on this phone must be asked rather than inherit an
         // answer — a consent decision is the last thing to carry across.
@@ -1438,6 +1448,15 @@ final class DistillViewModel: ObservableObject {
                 source: source, ingestionID: ingestionID, legacy: records.count,
                 withheld: withheld, refusals: refusals, summary: summary
             )
+
+            // **The raw archive rides the same detached task and shares nothing
+            // with it.** Not the summary, not `saveError`, not the coverage
+            // report — a copy that could break a distillation is not worth
+            // keeping, which is the rule dual-write is already held to: *a
+            // shadow path that can break the live one is not a shadow.* The
+            // files are on disk before this runs, so a refused upload costs a
+            // retry next time rather than the data.
+            await RawArchive.shared.flush()
         }
     }
 
@@ -2495,6 +2514,16 @@ final class DistillViewModel: ObservableObject {
             // the sources really are disconnected.
             let vaultFailure = await SemanticSurfaceService.shared.forgetDistillation()
 
+            // **The third place, and the one that would be easiest to forget.**
+            // "A deletion control names both schemas or it is not finished" was
+            // written when this call emptied four tables in `public` and named
+            // none of the ones Memories reads. The archive holds the bodies
+            // those rows were derived from — erasing the readings and keeping
+            // the source material is the worse of the two arrangements, and it
+            // is exactly the arrangement that sentence was about.
+            await RawArchive.shared.forget()
+            _ = try? await PostgREST.callFunction("forget_raw_archives")
+
             // **The same line the server draws, drawn again here.** Wiping the
             // local copy wholesale emptied the profile even where the rows had
             // been kept in Postgres — the page reads `records`, so a person saw
@@ -3056,15 +3085,52 @@ final class DistillViewModel: ObservableObject {
 
     // MARK: - Export
 
+    /// **The row says "Download my data", and until now it did not.**
+    /// `CSVExporter` writes the eight columns of `DistilledRecord` — Written's
+    /// *reading* of the sources — while the bodies those readings came from sat
+    /// in `RawArchive` and left with nobody. A control whose label promises the
+    /// whole thing should hand over the whole thing.
+    ///
+    /// The CSV is unchanged and travels inside the bundle under its old name,
+    /// so a spreadsheet built on the old file still opens.
+    ///
+    /// **Assembled off the main actor**, because it copies every archived file
+    /// and zips them: a library of a few thousand rows is a few megabytes, and
+    /// doing that on the main thread is how a button becomes a frozen screen.
     func prepareExport() {
-        exportDocument = CSVDocument(text: CSVExporter.makeCSV(from: records))
-        isExporterPresented = true
+        let csv = CSVExporter.makeCSV(from: records)
+        let rows = records.count
+        Task { [weak self] in
+            let archives = await RawArchive.shared.staged()
+            let bundle = ArchiveExporter.bundle(csv: csv, archives: archives)
+            await MainActor.run {
+                guard let self else { return }
+                guard let bundle else {
+                    // **Never present an empty file.** A save sheet that writes
+                    // nothing is a successful-looking answer to a question that
+                    // was never asked, which is this codebase's recurring shape
+                    // of defect.
+                    self.exportResultMessage = "Couldn't assemble the download."
+                    return
+                }
+                self.exportedArchiveCount = archives.count
+                self.exportedRecordCount = rows
+                self.exportDocument = DataArchiveDocument(data: bundle)
+                self.isExporterPresented = true
+            }
+        }
     }
 
     func handleExportResult(_ result: Result<URL, Error>) {
         switch result {
         case .success:
-            exportResultMessage = "CSV saved. \(records.count) distilled records exported."
+            // Both numbers, because they are two different things and a person
+            // asking for their data is owed the distinction: what Written read,
+            // and what the sources said.
+            exportResultMessage = exportedArchiveCount > 0
+                ? "Saved. \(exportedRecordCount) distilled records and "
+                  + "\(exportedArchiveCount) raw source files."
+                : "Saved. \(exportedRecordCount) distilled records."
         case .failure(let error):
             exportResultMessage = "Export failed: \(error.localizedDescription)"
         }

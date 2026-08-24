@@ -350,8 +350,19 @@ struct AppleMusicDistiller {
                   let url = URL(string: Self.apiBase + currentPath)
             else { break }
 
-            let request = MusicDataRequest(urlRequest: URLRequest(url: url))
+            let urlRequest = URLRequest(url: url)
+            let request = MusicDataRequest(urlRequest: urlRequest)
             let response = try await request.response()
+
+            // **The one Apple source with a body to keep.** MusicKit manages
+            // the tokens but `MusicDataRequest` is Apple Music's web API, so
+            // this is bytes off the wire in the same sense YouTube's are —
+            // unlike `MusicLibraryDistiller`, whose `MPMediaQuery` returns
+            // objects and has to be serialised instead.
+            await RawArchive.shared.captureResponse(
+                source: "apple_music", endpoint: currentPath,
+                request: urlRequest, data: response.data
+            )
 
             guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else { break }
             resources += json["data"] as? [[String: Any]] ?? []

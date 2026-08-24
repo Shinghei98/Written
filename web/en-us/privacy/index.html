@@ -110,6 +110,16 @@
         one of these is read-only: Written never asks any of them for permission
         to write anything back.
       </p>
+      <p>
+        Written also keeps a copy of what each service actually replied, not only
+        the version it makes of it. That copy is private to you, it is part of
+        the data you can download, and it is deleted when you disconnect or when
+        you delete your account. It exists so that improving how Written reads
+        your data never means asking you to connect everything again. Two sources
+        are left out of it on purpose — Apple Health and your location — because
+        for those we throw the detail away on your phone and keep only the
+        summary, and a stored copy would undo that.
+      </p>
       <ul>
         <li><strong>YouTube</strong> — the channels you subscribe to, the videos
           you have liked, and the playlists you made, with the labels YouTube
@@ -455,6 +465,13 @@
               <td>30 calendar days, deleted by an automatic daily job — in every
                 place we hold them, including the encrypted copy. Counts and the
                 subjects worked out from them outlive that.</td>
+            </tr>
+            <tr>
+              <td>The copy of what each service replied</td>
+              <td>Kept until you disconnect that app or delete your account,
+                whichever comes first. The YouTube part of it is deleted after 30
+                days along with everything else from YouTube. Nothing from Apple
+                Health or your location is kept this way at all.</td>
             </tr>
             <tr>
               <td>Your biological sex, as reported by Apple Health</td>

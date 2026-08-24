@@ -45,6 +45,18 @@ struct PodcastDistiller {
 
         let query = MPMediaQuery.podcasts()
         let collections = query.collections ?? []
+        // **Every episode, not the capped shows.** `maxPodcastShows` is a
+        // guardrail on how long a distillation takes; the archive is the answer
+        // the library gave, and a show trimmed here is one nobody can recover
+        // without asking somebody to open the app.
+        if let payload = RawArchiveSerialiser.envelope(
+            source: "apple_podcasts", kind: "episode",
+            objects: collections.flatMap { $0.items }.map(RawArchiveSerialiser.mediaItem)
+        ) {
+            await RawArchive.shared.captureEncoded(
+                source: "apple_podcasts", endpoint: "episode", payload: payload
+            )
+        }
         let now = Date()
 
         var records: [DistilledRecord] = []
