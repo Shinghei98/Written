@@ -364,8 +364,12 @@ struct YouTubeDistiller {
             var request = URLRequest(url: url)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+            guard let (data, response) = try? await URLSession.shared.data(for: request)
+            else { continue }
+            await RawArchive.shared.captureResponse(
+                source: "youtube", endpoint: "channels.list", request: request, data: data
+            )
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let page = try? JSONDecoder().decode(Page.self, from: data)
             else { continue }
 
@@ -412,6 +416,13 @@ struct YouTubeDistiller {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
             let (data, response) = try await URLSession.shared.data(for: request)
+            // **Archived before it is parsed, and before the status is judged.**
+            // A 403 body says which quota or allowlist refused, and that is the
+            // one answer worth keeping from a request that returned nothing —
+            // reading it back beats reproducing the refusal on somebody's phone.
+            await RawArchive.shared.captureResponse(
+                source: "youtube", endpoint: path, request: request, data: data
+            )
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 throw NSError(

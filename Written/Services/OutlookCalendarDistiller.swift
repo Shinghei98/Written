@@ -314,6 +314,15 @@ struct OutlookCalendarDistiller {
         )
 
         let (data, response) = try await URLSession.shared.data(for: request)
+        // **What is archived is the answer to the request actually made**, and
+        // `$select` names twelve fields and never `body`, `attendees`,
+        // `attachments` or `webLink`. That minimisation is ours rather than the
+        // permission's, so it survives here only because the archive keeps the
+        // response and never re-asks a wider question to enrich itself.
+        await RawArchive.shared.captureResponse(
+            source: "outlook_calendar", endpoint: "calendarView",
+            request: request, data: data
+        )
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? 0
 

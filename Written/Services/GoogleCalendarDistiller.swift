@@ -181,6 +181,12 @@ struct GoogleCalendarDistiller {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
+        // Kept before the status is judged: Google's error body is the thing
+        // that tells a revoked grant from an exhausted quota, and it is worth
+        // keeping precisely on the runs that produced no events.
+        await RawArchive.shared.captureResponse(
+            source: "google_calendar", endpoint: url, request: request, data: data
+        )
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             // Google's error body carries a message worth surfacing — a revoked

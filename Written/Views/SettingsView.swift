@@ -101,8 +101,12 @@ struct SettingsView: View {
         .fileExporter(
             isPresented: $viewModel.isExporterPresented,
             document: viewModel.exportDocument,
-            contentType: .commaSeparatedText,
-            defaultFilename: CSVExporter.suggestedFilename()
+            // **A zip, because the download is no longer only the CSV.** The
+            // spreadsheet is inside it under its old name; the raw responses
+            // each source gave are beside it. `.commaSeparatedText` here would
+            // write a zip with a `.csv` extension, which opens as gibberish.
+            contentType: .zip,
+            defaultFilename: ArchiveExporter.suggestedFilename()
         ) { result in
             viewModel.handleExportResult(result)
         }

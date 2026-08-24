@@ -242,7 +242,22 @@ struct CalendarDistiller {
                 let predicate = store.predicateForEvents(
                     withStart: window.start, end: window.end, calendars: calendars
                 )
-                for event in store.events(matching: predicate) {
+                let matched = store.events(matching: predicate)
+                // **Archived before the cap and before the dedupe**, because
+                // both are Written's readings rather than the calendar's
+                // answer: `maxCalendarEvents` stops at a number and the
+                // recurring-identifier dedupe keeps one occurrence of fifty-two.
+                // An archive that inherited those would be a copy of what we
+                // chose to look at, which is what `distilled_records` already is.
+                if let payload = RawArchiveSerialiser.envelope(
+                    source: "apple_calendar", kind: "event",
+                    objects: matched.map(RawArchiveSerialiser.event)
+                ) {
+                    await RawArchive.shared.captureEncoded(
+                        source: "apple_calendar", endpoint: "event", payload: payload
+                    )
+                }
+                for event in matched {
                     guard records.count < AppConfig.maxCalendarEvents else { return records }
                     let record = Self.record(for: event)
                     // A repeating event yields one occurrence per instance and

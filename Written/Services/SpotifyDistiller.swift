@@ -329,6 +329,14 @@ struct SpotifyDistiller {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
             let (data, response) = try await URLSession.shared.data(for: request)
+            // **Storing is permitted; feeding a model is not.** IV.2.5 allows
+            // Postgres explicitly, and IV.2.1.a forbids ingestion into an ML
+            // model even with consent — so this archive may exist and may never
+            // become training input. The corpus query at the foot of `0041` is
+            // where that exclusion lives and is unchanged by this file.
+            await RawArchive.shared.captureResponse(
+                source: "spotify", endpoint: url.path, request: request, data: data
+            )
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 throw NSError(

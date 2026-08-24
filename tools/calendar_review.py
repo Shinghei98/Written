@@ -42,6 +42,7 @@ would show `excluded_unknown` seventy times and never show the interesting ones.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -158,7 +159,18 @@ def classifier_for(user_id: str):
         place_labels=_OFFLINE_CALENDAR_PLACE_LABELS,
         carrier_codes=_OFFLINE_CALENDAR_CARRIERS,
         recognized_leisure_vendors=_OFFLINE_LEISURE_VENDORS,
-        lineage_signer=lambda _content: "review-only",
+        # **A constant is not a signer.** The Lambda derives an HMAC key from
+        # KMS and this has none and needs none — the hash identifies a row to
+        # the database and the row is already in front of us. What it must
+        # still do is *distinguish*: `build_journeys` and
+        # `derive_travel_candidates` key journeys by this value, so a constant
+        # collapses every journey somebody ever took into one. It was returning
+        # `"review-only"` for all of them, which read as a person with a single
+        # trip. A plain digest of the content keeps the property that matters
+        # and claims no secrecy it does not have.
+        lineage_signer=lambda content: hashlib.sha256(
+            content if isinstance(content, bytes) else str(content).encode("utf-8")
+        ).hexdigest(),
     )
 
 
