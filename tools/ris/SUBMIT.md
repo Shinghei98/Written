@@ -16,11 +16,26 @@ carries the prompt version, so **staging a stale one produces a v14 corpus that
 reads as a v16 result**; `run_extract.sh` refuses to start if the contract on
 the cluster does not say what the job claims.
 
+**The output schema is named by the contract, never by this file.**
+`ris_extract.py:34` reads `versions.output_schema` and loads that filename from
+beside itself, so the schema staged has to be the one the contract asks for.
+This line named `mention_extract_v4.schema.json` while the contract had already
+moved to v5 — **the job dies on a missing file after the stage, at the point
+where a GPU has been allocated**, and the version gate cannot catch it because
+the gate checks the prompt version and this is a different field. Derive it:
+
+    SCHEMA=$(python3 -c "import json;print(json.load(open('semantic/contracts/compiled_semantic_contract_v1.json'))['versions']['output_schema'].rsplit('/',1)[-1])")
+
     scp tools/ris_extract.py aws/serving/serve.py \
         semantic/contracts/compiled_semantic_contract_v1.json \
-        semantic/contracts/mention_extract_v4.schema.json \
+        "semantic/contracts/$SCHEMA" \
         out/ris/items_v16.jsonl tools/ris/run_extract.sh \
         compute1:/storage2/fs1/erichuang/Active/Users/David/written/work/
+
+**`items_v16.jsonl` is an example, not a rule** — stage whichever corpus this
+run is about, and `run_extract.sh` expects its shards as `v16_shard_<n>.jsonl`.
+That prefix is a filename convention shared with `submit_extract.sh`, not a
+claim about which prompt built the corpus.
 
     ssh compute1 'export LSF_DOCKER_ENTRYPOINT=/bin/bash \
       LSF_DOCKER_VOLUMES="/storage2/fs1/erichuang/Active:/storage2/fs1/erichuang/Active" \
