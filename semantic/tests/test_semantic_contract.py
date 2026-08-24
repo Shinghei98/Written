@@ -113,7 +113,12 @@ def test_every_enum_is_sorted_equal_in_both_directions(compiler, config, schema)
 
     for key, values in expected.items():
         assert sorted(compiler._split(config[key])) == sorted(values), key
-    assert len(expected["llm.family.enum"]) == 17
+    # 17 until 2026-08-24, when `idea` left and `art` and `field` arrived.
+    # `idea` was emitted **zero times** across 10,274 mentions and the terms it
+    # existed to carry were ruled out of scope; `art` and `field` replace it
+    # under `cardinal:concept` and are mapped onto the 93 published `movement:*`
+    # and 294 published `subject:*` concepts rather than minting a parallel set.
+    assert len(expected["llm.family.enum"]) == 18
     assert len(expected["llm.mention_role.enum"]) == 15
     assert len(expected["llm.schema.abstain_reasons"]) == 5
 
@@ -155,7 +160,10 @@ def test_every_family_maps_exactly_once_and_virtual_ones_map_to_nothing(compiler
     declared = set(compiler._split(config["ontology.family.enum"]))
     assert declared - compiler.VIRTUAL_FAMILIES <= set(mappings)
     assert not (set(mappings) & compiler.VIRTUAL_FAMILIES)
-    assert len(mappings) == 23
+    # 23 until 2026-08-24: `idea` out, `art` and `field` in. The wire gains one
+    # net (17 -> 18) and the ontology one net (23 -> 24), so the difference the
+    # forbidden-families check asserts stays exactly six.
+    assert len(mappings) == 24
 
 
 def test_the_model_may_not_emit_the_five_structural_families(compiler, config, schema):
@@ -498,7 +506,10 @@ def test_the_family_check_constraint_may_not_drift_from_the_family_map(compiler)
     """
     contract = json.loads(compiler.CONTRACT.read_text())
     families = sorted(contract["ontology_compiler"]["family_mappings"])
-    assert len(families) == 23
+    # 23 until 2026-08-24: `idea` out, `art` and `field` in. The check
+    # constraint on `presumed_terms.family` moves with it in `0332`; this test
+    # is the thing that would have caught the constraint being left behind.
+    assert len(families) == 24
     assert compiler.check_database(contract, live_with(provisional_family=families)) == []
 
     widened = families + ["telepathy"]

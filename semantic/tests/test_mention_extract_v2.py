@@ -20,7 +20,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v4.schema.json")
+               / "contracts" / "mention_extract_v5.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +38,10 @@ def mention(**overrides) -> dict:
         "canonical_label_hypothesis": "Midnight",
         "family_hypothesis": "work",
         "mention_role": "work_or_franchise",
-        "conversation_worthy": True,
+        # v5: `conversation_worthy` was here and is gone. It was required on
+        # every mention, emitted false on 8.1% of them, and read by nothing
+        # in the repository — a field every answer had to fill and no code
+        # consulted.
         # v3: present on every variant, and nullable/empty rather than
         # optional — a model permitted to omit a field omits it, and the
         # English name is the one the owner asked for by name.
@@ -66,7 +69,6 @@ def inferred_mention(**overrides) -> dict:
         "canonical_label_hypothesis": "One Piece",
         "family_hypothesis": "franchise",
         "mention_role": "work_or_franchise",
-        "conversation_worthy": True,
         "english_label": "One Piece",
         "original_label": "ワンピース",
         "relation_hypotheses": [],
@@ -84,7 +86,7 @@ def inferred_mention(**overrides) -> dict:
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v4", "items": items}
+    return {"schema_version": "mention_extract_v5", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:

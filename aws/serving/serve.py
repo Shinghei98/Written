@@ -315,9 +315,21 @@ def _prompt(payload: dict) -> str:
     is not silently read as false.
     """
     instructions = payload.get("instructions") or {}
+    # **The definitions come before the rules, and before 2026-08-24 there were
+    # none.** The families and roots reached the model only as an xgrammar
+    # constraint on decoding — a grammar over tokens, never text — so nothing
+    # ever told it what a `franchise` is, or that a title matching no definition
+    # should yield no terms. Order is deliberate: the governing rule first
+    # because it licenses refusing, then what the roots and families *are*,
+    # then how to say "present but not a term", and only then the imperative
+    # rules, which are patches over whatever the definitions leave open.
     system = "\n".join(
         part for part in (
             instructions.get("system_role"),
+            instructions.get("governing_rule"),
+            instructions.get("cardinal_definitions"),
+            instructions.get("family_definitions"),
+            instructions.get("refusal_role_definitions"),
             instructions.get("system_rules"),
             instructions.get("aboutness_example"),
         ) if part

@@ -1,0 +1,818 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://written.app/schemas/mention_extract_v5.schema.json",
+  "title": "Written mention extraction envelope v5",
+  "description": "What one model call may say about a bounded batch of source records. v5 is v4 less `conversation_worthy` and with `idea` replaced by `art`. `conversation_worthy` was required on every mention, emitted false on 8.1% of them, and read by nothing in the repository — a field every answer had to fill and no code consulted, costing output tokens on every mention. `idea` was never once emitted across 10,274 mentions and the owner ruled the terms it would have carried (ASMR, study-with-me, commentary) out of scope; `art` takes its place under cardinal:concept, alongside a `culture` redefined as a country and its cultural sphere. The swap is deliberately net-zero so the compiler's exact-difference check between the ontology's families and the wire's still balances. Grammar-shape rule, learned twice now (patterns 2026-08-19; the first draft of this file 2026-08-21, which collapsed generation to under 10 tokens/sec): xgrammar 0.2.3 is trusted ONLY with the shapes this stack has measured — pure string enums, [scalar,null] type unions, and arrays of objects with required properties. No optional properties, no null inside an enum, no anyOf-nullable objects. 'none' as an explicit enum member stands in for null, and a proposal travels in a maxItems-1 array instead of a nullable object.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "mention_extract_v5"
+    },
+    "items": {
+      "description": "Two, not four. The gateway accepts at most two indexed items and the contract calibrates for two; the schema is set to the same number so a third cannot be emitted by a model that misread its instructions. Raising it is a schema version change, which is correct: batch size is part of the output contract, not a runtime dial.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/item_extracted"
+          },
+          {
+            "$ref": "#/$defs/item_abstained"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "item_extracted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "extracted"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              },
+              {
+                "$ref": "#/$defs/mention_inferred"
+              }
+            ]
+          }
+        },
+        "abstain_reason": {
+          "type": "null"
+        }
+      }
+    },
+    "item_abstained": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_index",
+        "status",
+        "mentions",
+        "abstain_reason"
+      ],
+      "properties": {
+        "item_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "abstained"
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/mention_text"
+              },
+              {
+                "$ref": "#/$defs/mention_tag"
+              }
+            ]
+          }
+        },
+        "abstain_reason": {
+          "type": "string",
+          "enum": [
+            "no_durable_subject",
+            "hard_suppressed",
+            "ambiguous",
+            "insufficient_context",
+            "invalid_input"
+          ]
+        }
+      }
+    },
+    "mention_text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "english_label",
+        "original_label",
+        "relation_hypotheses",
+        "selected_cardinal",
+        "parent_candidate_id",
+        "candidate_user_predicate",
+        "alternatives",
+        "cardinal_confidence",
+        "missing_parent_proposals"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": [
+            "title",
+            "channel_label",
+            "description_excerpt",
+            "performer",
+            "composer",
+            "album"
+          ]
+        },
+        "source_field_index": {
+          "description": "Null outside tags.",
+          "type": "null"
+        },
+        "start": {
+          "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "art",
+            "field",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        },
+        "selected_cardinal": {
+          "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "activity",
+            "event",
+            "concept",
+            "none"
+          ]
+        },
+        "cardinal_confidence": {
+          "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "parent_candidate_id": {
+          "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "missing_parent_proposals": {
+          "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/missing_parent_proposal"
+          }
+        },
+        "candidate_user_predicate": {
+          "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+          "type": "string",
+          "enum": [
+            "interested_in",
+            "practices",
+            "studies",
+            "creates",
+            "played",
+            "none"
+          ]
+        },
+        "alternatives": {
+          "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/alternative_reading"
+          }
+        }
+      }
+    },
+    "mention_tag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "source_field_index",
+        "start",
+        "end",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "english_label",
+        "original_label",
+        "relation_hypotheses",
+        "selected_cardinal",
+        "parent_candidate_id",
+        "candidate_user_predicate",
+        "alternatives",
+        "cardinal_confidence",
+        "missing_parent_proposals"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "type": "string",
+          "enum": [
+            "tags"
+          ]
+        },
+        "source_field_index": {
+          "description": "Required for tags: the index of the tag the span is in.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
+        },
+        "start": {
+          "description": "Unicode code point offset, not a byte or UTF-16 offset. A surrogate-pair or combining-mark string makes the three disagree, and the gateway's equality check is what would fail.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "art",
+            "field",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        },
+        "selected_cardinal": {
+          "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "activity",
+            "event",
+            "concept",
+            "none"
+          ]
+        },
+        "cardinal_confidence": {
+          "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "parent_candidate_id": {
+          "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "missing_parent_proposals": {
+          "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/missing_parent_proposal"
+          }
+        },
+        "candidate_user_predicate": {
+          "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+          "type": "string",
+          "enum": [
+            "interested_in",
+            "practices",
+            "studies",
+            "creates",
+            "played",
+            "none"
+          ]
+        },
+        "alternatives": {
+          "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/alternative_reading"
+          }
+        }
+      }
+    },
+    "relation_hypothesis": {
+      "description": "A relation the model believes holds between this mention and another term — 'Luffy part_of_franchise One Piece'. The object is a bare label, never an id: the model does not know what has been minted and must never choose one. Optional by the owner's decision: an inferred term needs no tether to be admitted, and a relation is recorded when the model has one rather than demanded before it may speak.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predicate",
+        "object_label_hypothesis"
+      ],
+      "properties": {
+        "predicate": {
+          "type": "string",
+          "enum": [
+            "part_of_franchise",
+            "features",
+            "about",
+            "performed_by",
+            "composed_by",
+            "recording_of",
+            "soundtrack_of",
+            "member_of_group",
+            "played_for",
+            "official_channel_of",
+            "represented_team_in",
+            "located_in"
+          ]
+        },
+        "object_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "mention_inferred": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surface",
+        "source_field",
+        "canonical_label_hypothesis",
+        "family_hypothesis",
+        "mention_role",
+        "english_label",
+        "original_label",
+        "relation_hypotheses",
+        "selected_cardinal",
+        "parent_candidate_id",
+        "candidate_user_predicate",
+        "alternatives",
+        "cardinal_confidence",
+        "missing_parent_proposals"
+      ],
+      "properties": {
+        "surface": {
+          "description": "Kept alongside the offsets during the first evaluation so the gateway can check surface == source[start:end]. One of the two may be dropped later if multilingual offset accuracy proves reliable; they must not both remain permanently without an accuracy reason. No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "source_field": {
+          "description": "Always 'inferred'; this mention was not read from a field.",
+          "type": "string",
+          "enum": [
+            "inferred"
+          ]
+        },
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "No pattern here on purpose: xgrammar 0.2.3's token matcher leaks on patterned strings (accepts token paths outside the string language, then admits schema-illegal continuations downstream — measured 2026-08-19 against the live endpoint and reproduced locally). The control-character and not-all-whitespace guards live in written_ontology.mention_extract_v2, the layer for what the schema cannot safely express."
+        },
+        "family_hypothesis": {
+          "description": "music_recording is deliberately absent. 0221 removed recordings from the versioned ontology because identity is not vocabulary; a model emitting that family would reopen the minting route it closed.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "art",
+            "field",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        },
+        "mention_role": {
+          "type": "string",
+          "enum": [
+            "primary_subject",
+            "featured_person",
+            "performing_group",
+            "work_or_franchise",
+            "creator_identity",
+            "channel_core_topic",
+            "durable_activity_or_idea",
+            "publisher",
+            "uploader",
+            "incidental_context",
+            "tag_roster",
+            "format_token",
+            "generic_action",
+            "analogy",
+            "unresolved_generic"
+          ]
+        },
+        "english_label": {
+          "description": "The term in English, where the surface is not already English. Stored beside the original rather than joined into one string, because 'Jay Chou (周杰倫)' is a rendering and a rendering belongs where something is drawn. Null when the model has no English form.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_label": {
+          "description": "The term in its original language, where the surface is the English one. The pair is what lets a surface show either or both.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "relation_hypotheses": {
+          "description": "At most two relations to other terms. Bounded because a mention that could relate to everything is describing nothing.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/relation_hypothesis"
+          }
+        },
+        "selected_cardinal": {
+          "description": "The root the model selects, or 'none' when it cannot say — an explicit member rather than null, because a null inside an enum is not a shape this stack trusts xgrammar with. The validator maps 'none' to absence.",
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "activity",
+            "event",
+            "concept",
+            "none"
+          ]
+        },
+        "cardinal_confidence": {
+          "description": "Belief in the selected root, 0 when selected_cardinal is 'none'. The full distribution was cut deliberately: an object of optional numbers is what collapsed generation; the runner-up readings live in alternatives instead.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "parent_candidate_id": {
+          "description": "The id of the supplied parent candidate this term fits under, or null. MUST be echoed from the request's parent_candidates (§5.2, No model IDs); the Python validator refuses an id that was not supplied.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "missing_parent_proposals": {
+          "description": "§5.3: at most one proposal, only when no supplied parent fits. An array rather than a nullable object — arrays of objects are a shape generation is proven on. Never alongside parent_candidate_id.",
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/missing_parent_proposal"
+          }
+        },
+        "candidate_user_predicate": {
+          "description": "The user predicate this evidence would ground, from the closed user registry (predicate-v2.0), or 'none'. A like grounds interested_in; nothing here may claim practices from a watch.",
+          "type": "string",
+          "enum": [
+            "interested_in",
+            "practices",
+            "studies",
+            "creates",
+            "played",
+            "none"
+          ]
+        },
+        "alternatives": {
+          "description": "§5.2, Alternatives preserved: the ranked other readings, so the model does not choose the globally most famous entity merely to avoid provisional state.",
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/alternative_reading"
+          }
+        }
+      },
+      "description": "A term the model asserts from its own knowledge — the franchise behind a character, the artist behind a track, the English name of a foreign one. It has no span because it is not in the text, so `start`, `end` and `source_field_index` are absent rather than nulled: a reader must not be able to mistake an inferred mention for an extracted one whose offsets happened to be zero. `source_field` is the constant 'inferred', which is how the variant is told apart, the same mechanism `mention_tag` uses."
+    },
+    "missing_parent_proposal": {
+      "description": "§5.3's missing-parent proposal contract. The validator rejects a circular definition, a proposal whose only example child is the proposed leaf itself, and a broader_parent_id that was not supplied in the request.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "definition",
+        "cardinal_root",
+        "broader_parent_id",
+        "example_children",
+        "non_examples",
+        "rationale"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "definition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "cardinal_root": {
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "activity",
+            "event",
+            "concept"
+          ]
+        },
+        "broader_parent_id": {
+          "description": "An echoed supplied id, or null for a root-level parent.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "example_children": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "non_examples": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "alternative_reading": {
+      "description": "One other thing this mention could denote. The family enum is the mention variants' own, and the compiler asserts they cannot drift apart.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_label_hypothesis",
+        "family_hypothesis"
+      ],
+      "properties": {
+        "canonical_label_hypothesis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "family_hypothesis": {
+          "type": "string",
+          "enum": [
+            "person",
+            "group",
+            "organization",
+            "franchise",
+            "work",
+            "anime",
+            "book",
+            "game",
+            "music_work",
+            "album",
+            "sport",
+            "activity",
+            "art",
+            "field",
+            "place",
+            "culture",
+            "event",
+            "tour"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -204,7 +204,6 @@ def make_mention(text: str, lim: dict, unique_salt: int) -> dict:
         "family_hypothesis": "work" if "work" in lim["family_enum"] else lim["family_enum"][0],
         "mention_role": ("work_or_franchise" if "work_or_franchise" in lim["role_enum"]
                          else lim["role_enum"][0]),
-        "conversation_worthy": True,
     }
     # **Present only where the schema declares them.** `additionalProperties` is
     # false, so emitting a key v2 dropped produces an invalid response — which is

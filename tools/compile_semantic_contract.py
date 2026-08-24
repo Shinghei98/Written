@@ -561,6 +561,19 @@ def compile_contract(sheets: dict[str, Any], schema: dict[str, Any],
         # attests the same bytes the model was shown.
         "prompt": {
             "system_role": require(config, "prompt.system.role"),
+            # **The definitions travel, and until 2026-08-24 nothing did.** The
+            # model saw the seventeen families and eight roots only as an
+            # xgrammar decoding constraint — never as text — so "franchise"
+            # versus "group" rested on the pretrained English words and a list
+            # of imperative rules with no taxonomy behind them. Measured
+            # consequence: five families never emitted once across 10,274
+            # mentions, three carrying 86%, and abstention at 0.9%. A rule can
+            # say what to do; only a definition says what a thing *is*, and
+            # only a definition gives the model grounds to refuse.
+            "governing_rule": require(config, "prompt.governing.rule"),
+            "cardinal_definitions": require(config, "prompt.cardinal.definitions"),
+            "family_definitions": require(config, "prompt.family.definitions"),
+            "refusal_role_definitions": require(config, "prompt.refusal.role_definitions"),
             "system_rules": require(config, "prompt.system.rules"),
             "aboutness_example": require(config, "prompt.output.aboutness_example"),
             "fewshot_validation": require(config, "prompt.fewshot.validation"),

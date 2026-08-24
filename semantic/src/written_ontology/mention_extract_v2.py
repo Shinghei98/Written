@@ -38,7 +38,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v4"
+SCHEMA_VERSION = "mention_extract_v5"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
@@ -59,9 +59,18 @@ FAMILY_CARDINAL = {
     "person": "person", "group": "group", "organization": "organization",
     "franchise": "franchise", "work": "work", "anime": "work", "book": "work",
     "game": "work", "music_work": "work", "album": "work",
-    "sport": "activity", "activity": "activity", "idea": "concept",
+    "sport": "activity", "activity": "activity", "art": "concept",
+    "field": "concept",
     "place": "none", "culture": "concept", "event": "event", "tour": "event",
 }
+#: **`cardinal:concept` is reached by exactly two families, and that is the
+#: owner's decision of 2026-08-24, not an accident of what has been written.**
+#: `idea` was here and is gone: across 10,274 mentions it was emitted **zero
+#: times**, and the terms it existed to carry — ASMR, study-with-me, commentary
+#: — were ruled out of scope. `art` replaces it for art forms and styles
+#: (`art:oil_painting`, `art:impressionism`), and `culture` is redefined as a
+#: country and its cultural sphere (`culture:japan`). A person is linked to a
+#: style by a relation, never by being typed as one.
 
 #: The explicit stand-in for null inside the closed enums — a null member in
 #: an enum is not a grammar shape this stack trusts xgrammar with (measured
