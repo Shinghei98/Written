@@ -592,6 +592,13 @@ was 9% instead of 90%.** Run it exactly where `gateway._accept` runs it —
 between the model's answer and both validation layers — or a local score is
 measuring a different pipeline.
 
+**The run it was measured on**, 2026-08-22, four A100 80GB, one prompt per item,
+one `generate()` call, prefix cached: **7.3–8.0 items/second per card against
+~0.5 on the rented L40S lane**, 5,387 items in about three minutes per shard,
+90% accepted, 14,501 mentions. **Two things were worth more than any tuning** —
+this repair, and raising the output ceiling above the 800 tokens the AWS wire
+pins, which long classical titles legitimately exceed (§2.7).
+
 Three sub-rules, each bought separately:
 
 - **Bounds before equality.** Slicing clamps, so with `end` one past the source
@@ -734,6 +741,11 @@ The sharpest operational lesson, and it survives every instance bounce.
   worker with eight clocks running. Measured 2026-08-21: **concurrency 8
   delivered zero answers where concurrency 1 delivered steadily.** Batch *inside*
   one request.
+- **The configured lease is 240 s** (`model_lane.propose`), sized to worst
+  generation *plus* contention rather than to generation alone. **The client's
+  own patience is a separate number** — it collects by ticket afterwards, so
+  raising the client timeout fixes nothing if the lease is short, and raising the
+  lease fixes nothing if the client gives up first. Both numbers, or neither.
 
 Diagnose by reading `ModelLatency` in the endpoint's `data-log` and watching for
 one request id succeeding repeatedly. From every other angle it looks like a

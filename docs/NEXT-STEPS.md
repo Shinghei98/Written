@@ -281,3 +281,132 @@ published version immutable, correctly — it is what everything was scored
 against. So the fix is a version: `0.22.0` copies `0.21.0` forward with the
 fourteen retyped `curated`, published through the guard, at the cost of a
 recompute for every account that an in-place edit would not have charged.
+
+## 7. Known gaps
+
+**Moved out of `CLAUDE.md` on 2026-08-24**, where they had been sitting under a
+heading dated 2026-08-13 that said *"Delete an entry when it stops being true"* —
+in a rules file that has no mechanism for noticing when something does. They are
+a plan, so they live here. Every entry below was **re-checked against production
+on 2026-08-24**; three had changed and are marked.
+
+Ordered by what hurts soonest.
+
+### Live now
+
+- **Every account's Memories page is blank, and this is the recompute gap in its
+  finished form.** Measured 2026-08-24: all three accounts have **0 active
+  assertions**, inferred *and* declared, against CLAUDE.md's standing claim of
+  "65 active assertions per account" from 2026-08-12. One account sits at
+  **revision 665**. Nothing enqueues a recompute when somebody answers a claim,
+  so a suppression correctly stales every inferred assertion and the page stays
+  blank until the worker is run by hand — and nobody has. **The fix is one job
+  per *user*, keyed on the revision and the three analysis ids, not one per
+  tap.** Until then the main surface is empty for everyone.
+
+- **Live drift: the app offers two archived sources.** Verified 2026-08-24 and
+  still true: `Modality.swift:147` returns `youtube` and `:198` returns
+  `google_calendar`, directly beneath `ARCHIVED-YOUTUBE` and
+  `ARCHIVED-GOOGLE-CALENDAR` markers saying both were removed for the App Store
+  build. Anything shipped from this tree offers a reviewer both, and both 403 for
+  accounts off the Testing allowlist. **Close it deliberately, in one direction
+  or the other, before any upload.**
+
+### Advanced since the list was written
+
+- **Notifications on production: half proven.** The first half is now done —
+  **2 `device_tokens` rows read `production`** (2026-08-24), where the entry was
+  written when there were none. What remains is the second half: send one message
+  and check the face still arrives. `sent: 2` with `["ok","ok"]` to somebody with
+  two devices is the only proof both environments work.
+
+- **~~`birth_date` has never been observed reaching Postgres~~ — resolved.**
+  All **3 of 3** accounts carry a `birth_date` (2026-08-24). The age gate reaches
+  the database. Entry closed.
+
+- **`semantic_private.discovery_requests` is still unswept**, but the table holds
+  **0 rows**, so it is a missing sweep rather than a growing one. Cheap to add
+  before it matters; not urgent until the surface has traffic.
+
+### Standing
+
+- **Nothing lists a suppressed assertion**, so restoration is reachable only as an
+  undo in the moment and a mis-tap is permanent. It wants a server decision — a
+  second RPC or a parameter — and the question underneath is what somebody is owed
+  over their own profile. There are **8 active suppressions** today.
+- **Exposures are recorded when an answer is given, not when a row is drawn**, so
+  `assertion_exposures` cannot answer *"what was shown and not acted on"*, which
+  §10 lists among the shadow metrics.
+- **Connecting Google Calendar on a phone that already has the Google account
+  duplicates every event, and it has happened.** The guard behaved as designed and
+  its design has the hole: `hasGoogleAccountOnDevice()` returns false when calendar
+  access has not been granted, and that is exactly the person being offered Google
+  Calendar. Decide it after Apple Calendar is connected, or re-decide once access
+  exists.
+- **The assertions have been read down the strong end and not to the bottom** —
+  confirmed to 0.362, the concept nearest the 0.35 bar; the middle is unread. One
+  thing to check: **`genre:asian_music` is a container in all but name**, parent of
+  four genres it scores alongside, and the hub rule cannot catch it because its
+  kind is `genre`.
+- **Whether HealthKit habit candidates are within the grant is unanswered**, and
+  moot until a device records workouts.
+- **App Store privacy labels are not filled in.** **The three answers that must
+  agree are `PrivacyInfo.xcprivacy`, `web/en-us/privacy/` and the questionnaire**,
+  and none of the three checks the others.
+- **Identity linking is unbuilt** — three sign-in methods mean one person can hold
+  three accounts. Decide before launch.
+- **A failed record upload is recorded but undrawn** (`syncFailure`).
+- **A declined Workouts toggle is indistinguishable from no workouts.**
+  `health_sports` being empty is otherwise settled and correct. One line in the
+  distiller's `Trail` would settle the rest.
+- **A clean-device sign-in writes nine duplicate `user` rows, and
+  `append_source_records` cannot prevent it.** `flirt_level` and `response_time`
+  are each pushed **three times in one batch**; because the batch shares a
+  transaction timestamp, each row is compared against the *pre-existing* latest and
+  none of them sees its siblings, so all three insert. The function is behaving as
+  designed — **the fix belongs on the device, which should not send the same record
+  three times.** Contained: 9 rows out of 2,650, nothing outside `source = 'user'`.
+- **A slider's exact position does not survive a new device, only its band.**
+  `public.users` stores `flirt_level = 'Medium'` and `response_time = 'Allegro'`;
+  the continuous position lives only in a `distilled_records` row, so a clean device
+  re-derives it from the band's default and pushes a different number (0.309 became
+  0.375). Harmless for the four-band reading everything downstream actually uses,
+  and a real change to a value somebody set by hand.
+- **CAPTCHA is off for phone sign-in**, with the 10/hour SMS limit standing in.
+- **`SourcePayload+Legacy.swift` is scaffolding and is meant to be deleted.** Still
+  present at `Written/Models/SourcePayload+Legacy.swift`.
+- **Apple Podcasts ships with its central question unanswered: does it
+  auto-download episodes of followed shows?** Settle it by following a show on a
+  device, downloading nothing, and looking again. **An empty source that looks
+  connected is worse than none.**
+- **Outlook Calendar is absent, not disabled, until `AppConfig.microsoftClientID`
+  is real**, and is on the legacy `distilled_records` path only until exercised
+  against a real tenant.
+- **The contacts toggle promises more than it does.** `importContacts` takes names
+  only, so *"people you already know cannot see you"* is true of nothing. Closing
+  the gap means uploading contact identifiers, which needs `PrivacyInfo.xcprivacy`,
+  `web/en-us/privacy/` and the App Store questionnaire moving in the same commit.
+  **`block_by_phones` is deployed with no caller** for exactly that reason.
+
+### Deferred by decision
+
+**Google OAuth verification, deferred until the hubs exist** — submitting earlier
+means shooting the demo video against a pipeline about to be replaced, and the same
+form carries the derived-metrics request. **Nothing about that defers the policies
+themselves.** Two traps: Search Console must be verified as a **Domain** property
+signed in as an Owner of the Cloud project (verifying as the wrong account is the
+standard rejection and Google does not say so), and the consent screen must carry
+the two URLs **character for character**, matching `SignInView.swift` — not
+`/privacy`, which 301s, and a redirect is not agreement.
+
+**The Disconnect control has never been exercised against a real Google account**,
+and the published privacy policy makes a 7-day claim resting on it. That has to
+happen before YouTube comes back.
+
+**Bringing YouTube back needs three things, each weeks rather than days:** extended
+quota (requesting it triggers an audit), OAuth verification (Testing allowlists 100
+users and expires refresh tokens after 7 days; publishing needs a Search Console
+Domain property, a scope justification and a demo video), and — for the ontology
+stage — Google's **Content Categorization and Tagging** amendment, applied for on
+the same form. **Do not apply while running the unlicensed version of the thing
+being applied for.**

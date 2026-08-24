@@ -1811,10 +1811,16 @@ rules.** Every rule below was bought with a failure recorded there. **Read the
 journal before removing a guard, adapting another reference migration, or
 concluding that something looks arbitrary.**
 
-**Migration head `0218`.** `db push` is the deployment mechanism and
-`supabase/DEPLOY.md` holds the procedure. **Each migration file carries its own
-reasoning in its header comment**, and that is the record — this section carries
-only what a later change could violate.
+**The migration head is not written down here, deliberately.** Two files used to
+name it and both were wrong — this said `0218` and `CLAUDE.md` said `0231` while
+the head was `0330`. A number that advances every few days cannot be maintained
+by hand in prose, and a stale one is worse than none because it silently dates
+everything written beside it. Ask the tree: `ls supabase/migrations | tail -1`.
+
+`db push` is the deployment mechanism and `supabase/DEPLOY.md` holds the
+procedure. **Each migration file carries its own reasoning in its header
+comment**, and that is the record — this section carries only what a later
+change could violate.
 
 ### The second real account, and what it proved (2026-08-13)
 
@@ -1922,12 +1928,21 @@ refreshed within 30 days and `guard_observation_immutable` freezes
 *updates*, and no trigger fires on delete — but foreign keys do, which is what
 refused `0139`'s first draft. See the YouTube section.
 
-**Live defect:** scorer 0.7.0's co-attestation rule shipped reading
+**Closed 2026-08-24 — was recorded as a live defect and had been fixed for
+days.** Scorer 0.7.0's co-attestation rule shipped reading
 `bool_or(subscription) and bool_or(liked)` across all mappings for a concept,
 which promoted `concept:fashion` (0.190) and `medium:television` outright on
-incidental tags from *unrelated* channels. Fixed in the repository to intersect
-on channel id; **not deployed**, and both assertions are still eligible in
-production.
+incidental tags from *unrelated* channels. The repair — intersect on channel
+id — **deployed as scorer 0.9.0 in `0142`**, and the active scorer is now
+**0.17.0**, six versions past it; 0.7.0 is not in `ontology.model_versions` at
+all (the earliest surviving row is 0.11.0).
+
+**The interesting part is not the defect, it is the lag.** The text
+*"not deployed, and both assertions are still eligible in production"* stayed
+true-sounding in two files for eleven days after it stopped being true, because
+nothing re-reads a "live defect" note against the database that would settle it
+in one query. This is the argument for keeping dated claims out of the rules
+file: a rule cannot go stale, but a status can, and only the status was wrong.
 
 **Carried across from `CLAUDE.md`'s wording, 2026-08-17.** Where this repeats
 what stands above, the shorter statement is the newer one and the longer one
