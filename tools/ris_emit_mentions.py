@@ -60,8 +60,22 @@ EXTRACTOR_MODEL_ID = "900b03cb-adcf-5c43-aa50-5d53c23062bd"
 #: application is a no-op rather than a duplicate set of invocations.
 NAMESPACE = uuid.UUID("6f6b1f18-0a0e-5c2a-9a2a-1f0c3d9b7a11")
 
-PROMPT_VERSION = "qwen_extractor_v14"
-GRAMMAR_VERSION = "semantic_grammar_v5"
+#: **Read from the contract rather than typed, because it was typed and went
+#: stale.** This sat at `qwen_extractor_v14` while the compiled contract had
+#: moved to v16, and the literal is not decoration: it feeds the invocation
+#: rows, the release manifest, and `logical_extraction_key` — which is what
+#: makes a retry the same work. Emitting a v16 corpus under a v14 label would
+#: have mislabelled the provenance *and* collided keys with the v14 items,
+#: which is the same defect `run_extract.sh` refuses to start without checking.
+#: One source of truth, so the two cannot disagree again.
+def _contract_versions() -> tuple[str, str]:
+    path = (pathlib.Path(__file__).resolve().parents[1]
+            / "semantic" / "contracts" / "compiled_semantic_contract_v1.json")
+    versions = json.loads(path.read_text(encoding="utf-8"))["versions"]
+    return versions["prompt"], versions["grammar"]
+
+
+PROMPT_VERSION, GRAMMAR_VERSION = _contract_versions()
 
 #: The sources whose observations may carry a mention from this lane. The
 #: calendars are `is_private_lane_source` and are refused by trigger on the

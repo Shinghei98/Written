@@ -282,7 +282,47 @@ against. So the fix is a version: `0.22.0` copies `0.21.0` forward with the
 fourteen retyped `curated`, published through the guard, at the cost of a
 recompute for every account that an in-place edit would not have charged.
 
-## 7. Known gaps
+## 7. AWS is shut down, and what that strands (2026-08-24)
+
+**The owner's decision, 2026-08-24: AWS is off permanently for now — it was
+never paid for past the free tier.** RIS is the only lane. Measured against
+production the same day, here is what that actually costs.
+
+**Nothing that blocks the pipeline.** RIS reads `public.distilled_records`,
+which is plaintext at rest and holds the complete distillation — **6,788 rows,
+intact**. It is *more* complete than the promoted projection, so extraction,
+scoring and the dictionary are unaffected.
+
+**What is stranded, and it is not small.** `semantic_private.raw_source_records`
+holds **22,361 rows, of which 6,392 are encrypted** under ~155 per-account data
+keys. Those keys are wrapped by a KMS key that is now unreachable, so **those
+6,392 payloads can never be read again.** That is an unintended mass crypto
+erasure: the mechanism worked exactly as designed — *"deleting one wrapped-key
+row makes that person's evidence permanently unreadable"* — applied to everyone
+at once by losing the key above them. The 17,758 observations derived from them
+survive, because those were promoted before the vault closed.
+
+**A deferred repair became permanent.** `ris_link_observations.py` refuses
+ambiguous pairings rather than guessing, and its residue — 832 Spotify rows
+sharing a title and performer, 298 calendar events differing only in a stripped
+field — was documented as fixable by *one* KMS `GenerateMac` call, which would
+recompute every `source_item_hmac` and join exactly. **That call is no longer
+possible.** The residue is now the final answer, not a to-do.
+
+**The app will now fail its dual-write, quietly and by design.**
+`AppConfig.semanticIngestionSources` still carries `apple_music` and `spotify`,
+and the ingestion Lambda they post to is gone. Refusals are counted rather than
+swallowed and a permanent refusal is dropped rather than retried, so the app
+keeps working and the legacy `distilled_records` path is untouched — but nothing
+new reaches the vault. Last write: **2026-08-23 15:43 UTC**. Decide whether to
+empty that set, which would stop the attempt rather than let it fail every time.
+
+**What does not change.** The AWS code stays in the tree and stays correct; the
+published privacy policy still describes the AWS path as the one real users' data
+flows through; and third-party terms still bind. None of those lapse because the
+account did.
+
+## 8. Known gaps
 
 **Moved out of `CLAUDE.md` on 2026-08-24**, where they had been sitting under a
 heading dated 2026-08-13 that said *"Delete an entry when it stops being true"* —

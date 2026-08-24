@@ -158,79 +158,50 @@ said not to work around its absence.
   behaviour those clauses forbid is another, and this entry licenses only the
   first.
 
-**Why the vault is skippable here at all:** `public.distilled_records` is
-plaintext at rest (`0001_initial.sql:43-70`) and holds the complete
-distillation — `name`, `creator`, `detail`, `extra` — so the RIS lane reads it
-directly and needs no data key. It is *more* complete than the promoted
-projection, which strips calendar titles and excludes YouTube titles by
-design.
+**How to run the lane is not here.** `docs/RIS-DEPLOYMENT.md` holds the access,
+the workflow, the scopes and the troubleshooting. What stays below is only what
+a change may not break.
 
-**What KMS was buying, so the cost of skipping it is known.** Two things, and
-only the second is felt on RIS. It wraps the per-user data keys, which is what
-makes crypto erasure real — deleting one wrapped-key row makes that person's
-evidence permanently unreadable. And it keys `source_item_hmac`, the
-identifier joining a source item to its observation. That HMAC is keyed rather
-than hashed because source ids are *guessable*: an unkeyed digest would let
-anyone with database read access confirm whether a given person liked a given
-video. The consequence for testing is concrete — **a distilled row cannot be
-rejoined to its observation without AWS**, so RIS results land in the global
-dictionary rather than becoming per-user review cards, except for music, whose
-titles sit unencrypted in `normalized_payload`.
+**Whether AWS is running is a status, and it is in `docs/NEXT-STEPS.md`.** The
+rules below describe the AWS lane as designed, and they stay true of the code
+whether or not anything is deployed — *"a RIS convenience must never become an
+AWS behaviour"* does not lapse because the account did.
 
-**Two rules govern every measurement taken here, and both are in
-`docs/GRAMMARBOOK.md` §2.1 and §2.7 with the run they were bought on.** Run
-`repair_offsets` before validation exactly as `gateway._accept` does, or the
-number describes a pipeline that does not exist; and size the output ceiling
-above the 800 tokens the AWS wire pins, which long classical titles legitimately
-exceed. **A throughput figure quoted without the first is wrong by roughly ten
-times**, which is the whole reason it is stated as a rule rather than left in
-whoever ran it last.
-
-### Two rules the testing lane bought, and one value that must never travel
+### The three rules the testing lane bought
 
 **`ris_lab_plaintext_v1` is plaintext, and the AWS lane must never write it.**
 `guard_invocation_item_scope` refuses a succeeded invocation item for a real
 user unless `source_text_evidence` holds text that is `current`, unexpired and
 non-null — which is what makes the 30-day refresh and crypto erasure
-enforceable rather than aspirational. The production path satisfies it by
-encrypting the title with the account's data key through KMS. RIS has none, so
-`0309` files the title as bytes under that key version, chosen so **anything
-attempting to decrypt meets a version it does not know and fails loudly**. It
-is the only acceptable way to put plaintext in a column called
-`encrypted_text`, and it is the one value in this database whose appearance on
-the AWS lane would be a defect rather than a difference.
+enforceable rather than aspirational. Production satisfies it by encrypting the
+title with the account's data key through KMS; RIS has none, so `0309` files the
+title as bytes under that key version, chosen so **anything attempting to
+decrypt meets a version it does not know and fails loudly**. It is the only
+acceptable way to put plaintext in a column called `encrypted_text`, and **it is
+the one value in this database whose appearance on the AWS lane would be a
+defect rather than a difference.**
 
-**The key discipline is bypassed there; the retention clock is not.** Filed
-rows expire at 30 days and YouTube titles are filed as `youtube_api_text`, so
-the sweep reaches them exactly as it reaches the worker's. **A third party's
-term is not the testing lane's to waive**, and that is the line between what
-the owner authorised and what nobody can.
+**The key discipline is bypassed there; the retention clock is not.** Filed rows
+expire at 30 days and YouTube titles are filed as `youtube_api_text`, so the
+sweep reaches them exactly as it reaches the worker's. **A third party's term is
+not the testing lane's to waive**, and that is the line between what the owner
+authorised and what nobody can.
 
 **`0308` is a door, not a widening, and the distinction is the whole of it.**
 Calendars still answer true to `is_private_lane_source`; what changed is that
-`guard_private_source_generic_lane_v03` now also admits a mention descending
-from an invocation whose release manifest says `environment = 'ris_lab'`.
-Widening the private list instead would have taken calendars out of four
-prohibitions at once — the generic mapping lane, the feedback lane, the
-projection guard and the sanitised projection — none of which this needed.
-Reverting is deleting one clause. **Measured before it was written: the
-existing `0289` door (`calendar_public_event_is_eligible`) passes for 0 of
-1,049 calendar observations**, so the corpus was not partly reachable, it was
-wholly unreachable.
+`guard_private_source_generic_lane_v03` also admits a mention descending from an
+invocation whose release manifest says `environment = 'ris_lab'`. Widening the
+private list instead would have taken calendars out of four prohibitions at once
+— the generic mapping lane, the feedback lane, the projection guard and the
+sanitised projection — none of which this needed. **Reverting is deleting one
+clause.**
 
-**The vault join is recoverable with one AWS call, not a key export.**
-`source_item_hmac` is
-`HMAC(subkey, "written:item:v1\n<user>\n<source>\n<provider item id>")` and
-`aws/ingestion/index.mjs` derives that subkey with a **single** deterministic
-KMS `GenerateMac` over a fixed label. Whoever can make that call computes every
-hmac locally from `distilled_records.item_id` and joins exactly.
-`tools/ris_link_observations.py` matches on content instead — title and
-performer for music, channel and publication time for YouTube, start time for
-calendars — and reaches 4,085 of 4,743 observations while **refusing all 298
-ambiguous pairings rather than guessing**, because attaching a term to the
-wrong evidence is worse than a term with no evidence. The residue it cannot
-reach (832 Spotify rows sharing a title and performer, 298 calendar events
-differing only in a stripped field) is exactly what the one API call would fix.
+**A term may never be attached to the wrong evidence.** Without KMS a distilled
+row cannot be rejoined to its observation, so RIS results land in the global
+dictionary rather than becoming per-user review cards.
+`tools/ris_link_observations.py` matches on content instead and **refuses every
+ambiguous pairing rather than guessing** — a term with no evidence is better
+than a term with somebody else's.
 
 ## The prime design constraint: minimum friction
 
