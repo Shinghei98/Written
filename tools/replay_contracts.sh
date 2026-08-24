@@ -268,6 +268,16 @@ apply_after "0064_z"
 # `0227`-`0230` and the guards it relies on by `0229`.
 run_contract 0230_calibration_lifecycle_contract
 
+# **A `wrong_parent` strike reaches `classification_parent`.** `0294` could send
+# the reason and `0292` could price it while `review_events.reason` could not
+# store it, so the domain took 0 labels in production and the tap raised
+# `23514`. Its own file rather than an addition above, because that contract
+# pins an assertion to exposing exactly two items. Its last property is the
+# general one: **every reason the strike RPC can send must be one the column can
+# store** — the check that would have caught this and the two before it,
+# `user_keep` and `user_correction`. Runs after `0330` widens the constraint.
+run_contract 0330_wrong_parent_reason_contract
+
 # **The overlay arms until its work is done and then stops.** Seeds a support
 # link against a superseded resolution row — the shape production was in — and
 # asserts `build_candidate_overlay` goes quiet. Runs here because it calls
