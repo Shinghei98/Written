@@ -215,6 +215,19 @@ def main() -> int:
         # see it is what lets a sweep key on evidence rather than on a name
         # matching a pattern. The lane is a fact; a regex over names is not.
         lane = verdict.get("source_code")
+        # **One entry tallies a term once, however many times it is named.**
+        # The owner's rule, 2026-08-24: *"For each entry (1 music entry, 1
+        # youtube entry) dedup is applied so Jay Chou and hair white like snow
+        # are only each tallied once."* Measured need: **260 of 3,728
+        # (term, item) pairs were emitted more than once from a single item**,
+        # and that repetition is not evidence — it is the same title read
+        # twice. It is also how `Jay Chou/group` exists at all: one YouTube
+        # title yielded `周杰倫` as both `person` and `group`.
+        #
+        # Mentions are still counted, separately. Their divergence from entries
+        # is the measure of how much the model repeats itself, and throwing it
+        # away would hide that.
+        entry_seen: set = set()
         for mention in verdict["mentions"]:
             family = mention.get("family_hypothesis")
             surface = mention.get("surface") or ""
@@ -231,7 +244,23 @@ def main() -> int:
 
             record = terms.setdefault((key, family), {
                 "canonical": canonical, "english": None, "native": None,
-                "origin": "extracted", "mentions": 0, "lanes": set()})
+                "origin": "extracted", "mentions": 0, "entries": 0,
+                "lanes": set()})
+            # **Deduped per entry *per family*, and the family stays in the
+            # key.** Dropping it looks tidier — one item, one entry, whatever
+            # the model called it — and it destroys the measurement: `周杰倫`
+            # read as both `person` and `group` from one title would credit the
+            # entry to whichever came first and leave the other reading at
+            # zero, indistinguishable from a term never seen. Keeping the
+            # family gives `Jay Chou person 11, group 1`, which is the split
+            # this column exists to make visible.
+            #
+            # What this still collapses is the real noise: the same surface
+            # emitted twice under the *same* family from one item, which is the
+            # bulk of the 260 repeats.
+            if (key, family) not in entry_seen:
+                entry_seen.add((key, family))
+                record["entries"] += 1
             if lane:
                 record["lanes"].add(lane)
             record["english"] = record["english"] or english
@@ -273,7 +302,20 @@ def main() -> int:
                         claimed = terms.setdefault((claimant, family), {
                             "canonical": label, "english": english,
                             "native": native, "origin": "extracted",
-                            "mentions": 0, "lanes": set()})
+                            "mentions": 0, "entries": 0, "lanes": set()})
+                        # **A claimant row earns no entry, and the first
+                        # attempt at this got it wrong.** Crediting one looks
+                        # right — `路人超能100` really did appear in the title —
+                        # but the surface and the canonical are two spellings
+                        # produced by *one* mention, and counting both makes
+                        # one library item worth two entries. It showed up as
+                        # 4,628 entries against 4,003 mentions, which is not a
+                        # number that can happen.
+                        #
+                        # The entry stays on the row the mention was recorded
+                        # against, and `links` hands the evidence to whichever
+                        # row survives the merge — which is the canonical, the
+                        # one that should carry it.
                         if lane:
                             claimed["lanes"].add(lane)
 
@@ -291,9 +333,17 @@ def main() -> int:
                 object_key = normalise(object_label)
                 if not (object_family and object_key) or object_key == key:
                     continue
+                # **A stub earns no entry, deliberately.** It was never named —
+                # it is the object of somebody else's relation, which is why
+                # its origin is `inferred`. Its evidence is the relation's own
+                # `observed_count`; crediting it an entry here would make
+                # "something pointed at this" indistinguishable from "a library
+                # contained this", which is the distinction `origin` exists to
+                # draw. A later direct mention promotes both at once.
                 stub = terms.setdefault((object_key, object_family), {
                     "canonical": object_label, "english": None, "native": None,
-                    "origin": "inferred", "mentions": 0, "lanes": set()})
+                    "origin": "inferred", "mentions": 0, "entries": 0,
+                    "lanes": set()})
                 if lane:
                     stub["lanes"].add(lane)
                 edges[(key, family, predicate, object_key, object_family)] += 1
@@ -371,22 +421,72 @@ def main() -> int:
 
 insert into semantic_private.presumed_terms
   (normalized_label, family, canonical_label, english_label, original_label,
-   origin, source_lanes)
+   origin, source_lanes, mention_support, entry_support, family_support_share)
 values"""]
+
+    # **An entry can never outrun the mention it came from.** Asserted rather
+    # than trusted, because the first version of this counted the surface row
+    # and the canonical row separately and produced 4,628 entries from 4,003
+    # mentions — a shape that reads as more evidence than the corpus contains,
+    # and one no downstream reader could have caught.
+    counted_mentions = sum(r["mentions"] for r in terms.values())
+    counted_entries = sum(r["entries"] for r in terms.values())
+    if counted_entries > counted_mentions:
+        raise SystemExit(
+            f"entries ({counted_entries}) exceed mentions ({counted_mentions}): "
+            "one library item has been tallied against more than one row")
+
+    # **The share is computed over the whole corpus, once, here.** It is this
+    # row's entries against every entry naming the same normalized label in any
+    # family — so `LE SSERAFIM/franchise` reads ~0.02 beside `group`'s ~0.98,
+    # and an uncontested term reads 1.0. A later reader could not recompute it:
+    # by then other loads have merged into the same rows.
+    label_entries: collections.Counter = collections.Counter()
+    for (key, _family), record in terms.items():
+        label_entries[key] += record.get("entries", 0)
 
     rows = []
     for (key, family), record in sorted(terms.items()):
         lanes = "array[{}]::text[]".format(
             ", ".join(quote(name) for name in sorted(record.get("lanes") or ()))
         ) if record.get("lanes") else "'{}'"
-        rows.append("  ({}, {}, {}, {}, {}, {}, {})".format(
+        total = label_entries[key]
+        # A stub earns no entries, so its label may total zero. `null` rather
+        # than a share invented by dividing by zero — the column is nullable
+        # precisely so "no evidence yet" has a spelling.
+        share = "null" if not total else "{:.4f}".format(record["entries"] / total)
+        rows.append("  ({}, {}, {}, {}, {}, {}, {}, {}, {}, {})".format(
             quote(key), quote(family), quote(record["canonical"][:512]),
             quote(record["english"][:512]) if record["english"] else "null",
             quote(record["native"][:512]) if record["native"] else "null",
-            quote(record["origin"]), lanes))
+            quote(record["origin"]), lanes,
+            record["mentions"], record["entries"], share))
     out.append(",\n".join(rows))
     out.append("""on conflict (normalized_label, family) do update
    set last_seen_at = now(),
+       -- **Support sums across loads; it does not take the maximum.** The
+       -- neighbouring `presumed_term_relations` upsert uses `greatest`, and
+       -- copying that here would be wrong for the opposite reason it is right
+       -- there: a relation's `observed_count` is already this corpus's total,
+       -- so re-applying the same corpus must not add it again. A *term's*
+       -- support is evidence accumulating across different corpora — a second
+       -- person's library naming the same artist is more evidence, not the
+       -- same evidence.
+       --
+       -- The cost is that re-applying one corpus double-counts it. That is
+       -- accepted and named: `0307`, `0317` and `0319` are the same corpus
+       -- applied three times, and this is the column that would show it.
+       mention_support = semantic_private.presumed_terms.mention_support
+                         + excluded.mention_support,
+       entry_support = semantic_private.presumed_terms.entry_support
+                       + excluded.entry_support,
+       -- **The share is not summed and not averaged — the newer load wins.**
+       -- It is a ratio over one corpus, and adding two ratios is meaningless
+       -- while averaging them would weight a ten-item load equally with a
+       -- ten-thousand-item one. Keeping the latest is at least a statement
+       -- somebody made about a real corpus.
+       family_support_share = coalesce(excluded.family_support_share,
+                                       semantic_private.presumed_terms.family_support_share),
        english_label = coalesce(semantic_private.presumed_terms.english_label,
                                 excluded.english_label),
        original_label = coalesce(semantic_private.presumed_terms.original_label,
@@ -584,6 +684,15 @@ begin
   select count(*) into n from semantic_private.presumed_terms
    where proposed_parent_concept_id is not null;
   raise notice '{number}: % carry a proposed parent', n;
+  -- **The thin rows, said out loud.** 65% of this dictionary rested on a
+  -- single mention when nothing promoted; the owner's 2026-08-24 direction
+  -- makes discovery mint, so the number is now the one to watch.
+  select count(*) into n from semantic_private.presumed_terms
+   where entry_support = 1;
+  raise notice '{number}: % rest on a single library entry', n;
+  select count(*) into n from semantic_private.presumed_terms
+   where family_support_share is not null and family_support_share < 0.2;
+  raise notice '{number}: % are a minority reading of their own label', n;
 end;
 $$;
 """)
@@ -603,6 +712,12 @@ $$;
                       # silent drop would hide both.
                       "placements_for_unminted_terms": unminted,
                       "placements_declined": parents["declined"],
+                      "mentions_counted": sum(r["mentions"] for r in terms.values()),
+                      # The gap between these two is the repetition the
+                      # per-entry dedupe removed — 260 pairs in the v17 corpus.
+                      "entries_counted": sum(r["entries"] for r in terms.values()),
+                      "rows_on_one_entry": sum(
+                          1 for r in terms.values() if r["entries"] == 1),
                       "migration": str(path)}, indent=2))
     return 0
 

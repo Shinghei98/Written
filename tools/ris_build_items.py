@@ -644,6 +644,19 @@ def fields_for(row: dict) -> dict:
             pass
         else:
             fields["performer"] = str(row["creator"])[:256]
+    # **`name_the_composer_for_classical` has been a rule with no input.** The
+    # distiller stores `composer=` in `extra` and the request schema admits a
+    # `composer` field, and nothing has ever put one in it — so the model was
+    # asked to name a composer while being handed only the *performer*, under
+    # the label `performer`. On a Bach library that is most of the corpus:
+    # "Raphaël Pichon, Tim Mead & Pygmalion" is who played it, not who wrote it.
+    #
+    # Sent only when it differs from the performer, since Apple repeats the
+    # artist into the composer slot for popular music and a field saying the
+    # same thing twice invites the same term to be minted twice.
+    composer = str((row.get("extra") or {}).get("composer") or "").strip()
+    if composer and composer.casefold() != str(row.get("creator") or "").strip().casefold():
+        fields["composer"] = composer[:256]
     # **`detail` is not one field, it is four.** Measured against the real
     # rows: `library_song` carries the album ("J.S. Bach: Matthäus-Passion"),
     # `playlist_item` carries `playlist=<name>`, `recommendation` carries

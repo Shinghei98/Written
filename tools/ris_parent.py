@@ -62,8 +62,13 @@ def answer_schema(ids: list[str]) -> dict:
 SYSTEM = (
     "You place a term under the one heading it best belongs to.\n"
     "\n"
-    "You are given a term, what kind of thing it is, the title it was seen in, "
-    "and a list of headings. Choose the heading it belongs under, or 'none'.\n"
+    "You are given a term, what kind of thing it is, the titles it was seen "
+    "in, anything already known about it, and a list of headings. Choose the "
+    "heading it belongs under, or 'none'.\n"
+    "\n"
+    "Weigh all the titles together, not the first one. If the term belongs to "
+    "a group, a franchise or an artist that is named under 'known about it', "
+    "that is usually the strongest clue to where it belongs.\n"
     "\n"
     "How this catalogue is organised:\n"
     "- a person or a group belongs under the genre or tradition they work in "
@@ -82,11 +87,31 @@ SYSTEM = (
 
 def prompt_for(term: dict, candidates: list[dict], tokenizer) -> str:
     listing = "\n".join(f"  {c['term_id']} = {c['label']}" for c in candidates)
-    context = (term.get("context_title") or "").strip()
-    user = (f"term: {term['label']}\n"
-            + f"kind: {term.get('family', 'unknown')}\n"
-            + (f"seen in: {context}\n" if context else "")
-            + f"\nheadings:\n{listing}\n"
+    # **Every title, not the first one.** The first pass showed one occurrence
+    # out of however many existed, chosen by file order: `JO YURI`, seen in 31
+    # items, was placed on the strength of `Going Under` and filed under
+    # Content creators, while the thirty unshown titles carried 조유리, IZ*ONE,
+    # LE SSERAFIM and Mnet. `context_title` is still read so an older parents
+    # file still runs.
+    titles = term.get("context_titles") or (
+        [term["context_title"]] if term.get("context_title") else [])
+    titles = [t.strip() for t in titles if t and t.strip()]
+    related = [r for r in (term.get("related") or []) if r]
+
+    lines = [f"term: {term['label']}", f"kind: {term.get('family', 'unknown')}"]
+    if term.get("seen"):
+        lines.append(f"appears in {term['seen']} items")
+    if titles:
+        lines.append("seen in:")
+        lines.extend(f"  - {t}" for t in titles)
+    # **What the model already worked out about this term, handed back to it.**
+    # These come from the extraction's own `relation_hypotheses`, which no
+    # placement pass has ever read.
+    if related:
+        lines.append("known about it:")
+        lines.extend(f"  - {r}" for r in related)
+    user = ("\n".join(lines)
+            + f"\n\nheadings:\n{listing}\n"
             + "\nWhich heading does this term belong under?")
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": user}]

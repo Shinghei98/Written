@@ -51,7 +51,7 @@ cd "$ROOT/work"
 # version out of the contract would make this agree with whatever was staged,
 # which is the one thing it exists to catch: a stale contract produces a corpus
 # of the previous prompt that reads as this one's result.
-WANT=qwen_extractor_v17
+WANT=qwen_extractor_v18
 GOT=$(python3 -c "import json;print(json.load(open('compiled_semantic_contract_v1.json'))['versions']['prompt'])")
 if [ "$GOT" != "$WANT" ]; then
   echo "refusing: contract on the cluster says $GOT, this job is $WANT" >&2
