@@ -85,9 +85,19 @@ by hand and check the line counts sum to the item count.
 
 ### Stage
 
+**The output schema is named by the contract, never by this file.**
+`ris_extract.py:34` reads `versions.output_schema` and loads that filename from
+beside itself, so the schema staged has to be the one the contract asks for.
+This block named `mention_extract_v4.schema.json` while the contract had already
+moved to v5 — **the job dies on a missing file after the stage, at the point
+where a GPU has been allocated**, and the version gate cannot catch it: that
+gate checks the prompt version and this is a different field. Derive it.
+
+    SCHEMA=$(python3 -c "import json;print(json.load(open('semantic/contracts/compiled_semantic_contract_v1.json'))['versions']['output_schema'].rsplit('/',1)[-1])")
+
     scp tools/ris_extract.py aws/serving/serve.py \
         semantic/contracts/compiled_semantic_contract_v1.json \
-        semantic/contracts/mention_extract_v4.schema.json \
+        "semantic/contracts/$SCHEMA" \
         tools/ris/run_extract.sh tools/ris/submit_extract.sh \
         out/ris/v16_shard_0*.jsonl \
         compute1:$ROOT/work/
@@ -97,6 +107,10 @@ because it is not a reimplementation**. The contract carries the prompt version,
 so **staging a stale one produces a v14 corpus that reads as a v16 result**;
 `run_extract.sh` refuses to start if the contract on the cluster disagrees with
 the job.
+
+**`v16_shard_<n>.jsonl` is a filename convention, not a claim about the prompt.**
+It is shared with `submit_extract.sh` and `run_extract.sh`, both of which open
+that exact name; the corpus inside it is whichever one was just built.
 
 ### Submit
 
