@@ -675,6 +675,49 @@ extraction schema constrains eighteen fields per mention; the relabel schema
 constrains two, *"so the grammar costs almost nothing and the model spends its
 budget on the answer rather than on shape."*
 
+### Confirmed a second time, on a different field (2026-08-24)
+
+**The rule was found on labels and has now been reproduced on placement**, which
+is what makes it a rule rather than one field's quirk. David's v17 run parented
+**374 of 4,003 mentions — 9.3% — and proposed a new parent zero times in 1,540
+items**, using 15 of the 40 headings it was given.
+
+The candidate list was not the problem, and checking that mattered: the first
+diagnosis was that genres were the wrong *kind* of parent for a person, and the
+published tree refutes it — `creator → genre` is **2,441 edges, the dominant
+authored pattern**. Bach under Classical is exactly what this catalogue does.
+What the run actually shows is inconsistency on a correct list: **Chopin took
+`Classical`, Bach took nothing, in the same run off the same list.** That is not
+disagreement about Bach.
+
+Asked the same question on its own — `tools/ris_parent.py`, one question, two
+fields, thinking on, the candidate id an **enum** rather than a validated string
+— the same model placed **1,269 of 1,284 terms, 98.8%**, across **30** of the 40
+headings, at 22 terms a second.
+
+|  | in extraction | asked alone |
+|---|---|---|
+| parented | 374 / 4,003 — **9.3%** | 1,269 / 1,284 — **98.8%** |
+| headings used | 15 / 40 | 30 / 40 |
+
+And the placements are **specific rather than safe**: Bach under *Baroque Era*
+rather than Classical, Eason Chan under *Cantopop* rather than Mandopop, the
+Monteverdi Choir under *Choral*. The fifteen refusals are correct — Sheldon
+Cooper, the Marvel Cinematic Universe and Netflix Japan have no home in a list of
+music headings, and `none` is an explicit enum member for the same reason it is
+elsewhere: **a null inside an enum is not a shape this stack trusts xgrammar
+with.**
+
+Two cautions that travel with the number. **347 terms landed in the broad `Music`
+bucket** (118 albums, 110 music_works) because no better heading exists among
+forty. And **the confidence carries no signal** — 0.85 to 0.95 with a median of
+0.95 across 1,269 answers — which is why the column storing it is named
+`proposed_parent_confidence_unvalidated`.
+
+**What follows for the extraction prompt: nothing.** v16 → v17 is the controlled
+experiment — same fixtures, only the prompt changed — and more prompt text did
+not move behaviour. A task-shape defect gets a task-shape fix.
+
 ## 2.5 A repair may improve a label and may never damage one
 
 `tools/ris_relabel_merge.py`. The extraction answers are the floor. A replacement

@@ -79,6 +79,54 @@ def quote(text) -> str:
     return "'" + str(text).replace("'", "''") + "'"
 
 
+def load_parents(path: pathlib.Path) -> dict:
+    """Read `ris_parent.py`'s answers, re-keyed on *this* file's normalisation.
+
+    **The two passes normalise differently, and joining on the answer's own key
+    would silently lose exactly the rows that differ.** `ris_parent_build.key`
+    is NFKC and casefold; `normalise` here is that plus whitespace collapse plus
+    release-suffix stripping, so `Love Dive - Single` is `love dive - single`
+    there and `love dive` in the dictionary. The overlap is large enough that a
+    join on the raw key would look like it worked.
+
+    So the answer's **label** is re-normalised through the function the terms
+    were keyed with. Both passes derive the label from the same field
+    (`canonical_label_hypothesis or surface`), so the same input meets the same
+    function and the keys are the same by construction rather than by luck —
+    which is the standing rule here: *a normalisation applied at three call
+    sites out of four is the one that fails.*
+
+    `none` is dropped rather than stored. Fifteen of 1,284 answers were `none`,
+    and every one of them is a term with no defensible home in a list of music
+    headings — Sheldon Cooper, the Marvel Cinematic Universe, Netflix Japan. A
+    stored `none` would be indistinguishable from a term the pass never reached.
+    """
+    answers = {}
+    declined = unkeyed = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        answer = json.loads(line)
+        parent = answer.get("parent")
+        if not parent or parent == "none":
+            declined += 1
+            continue
+        key = normalise(answer.get("label"))
+        family = answer.get("family")
+        if not key or not family:
+            unkeyed += 1
+            continue
+        # **The best-attested answer wins a collision, not the last one.** Two
+        # spellings can normalise together here that did not there, and a
+        # file-order rule would make the result depend on how the shards were
+        # concatenated.
+        current = answers.get((key, family))
+        confidence = float(answer.get("confidence") or 0)
+        if current is None or confidence > current[1]:
+            answers[(key, family)] = (parent, confidence)
+    return {"placements": answers, "declined": declined, "unkeyed": unkeyed}
+
+
 #: Which family the object of each predicate belongs to — the same map
 #: `_OBJECT_FAMILY` states in aws/worker/overlay.py:1103. Copied rather
 #: than imported because that module needs psycopg and boto3 to load,
@@ -137,6 +185,10 @@ def _is_membership(english_key: str, related: dict, family: str) -> bool:
 def main() -> int:
     verdicts = json.loads(pathlib.Path(sys.argv[1]).read_text())
     number = sys.argv[2]
+    #: Optional, because the placement pass is a separate run over the same
+    #: verdicts and a corpus may be emitted before it has been asked.
+    parents = (load_parents(pathlib.Path(sys.argv[3])) if len(sys.argv) > 3
+               else {"placements": {}, "declined": 0, "unkeyed": 0})
 
     terms: dict = {}
     links: set = set()
@@ -439,6 +491,81 @@ $$;""")
             "semantic_private.presumed_term_relations.observed_count, "
             "excluded.observed_count);")
 
+    # ---------------------------------------------------------------------
+    # Where each term was placed
+    # ---------------------------------------------------------------------
+    #
+    # **A separate statement, after the terms exist, because it is a separate
+    # question that was asked separately.** Folding the parent into the term
+    # insert would make a placement re-run require re-emitting the corpus, and
+    # the whole finding behind `ris_parent.py` is that placement is cheap to
+    # iterate precisely because the mentions already exist.
+    #
+    # **Only pairs this corpus minted are emitted, and the rest are named.** An
+    # update that matches nothing is the failure mode that cost 38 identity
+    # groups in `0307`; here the residue is counted in Python, where the term
+    # table is known, rather than left as a row count nobody reads.
+    placed = {k: v for k, v in parents["placements"].items() if k in terms}
+    unminted = len(parents["placements"]) - len(placed)
+    if placed:
+        out.append(f"""
+-- Where each term was placed. **A proposal, not an edge** — `0335`'s column,
+-- nothing traverses it, and `0258`'s refusal to guess an entity's parent at
+-- mint time is untouched. This is the guess, kept where a guess belongs.
+--
+-- **{len(placed)} of {len(parents['placements']) + parents['declined']} answers**, from the narrow placement pass
+-- rather than from extraction: the same model, asked this one question with
+-- two fields and room to think, placed 98.8% of David's terms against the
+-- extraction's 9.3% — the field was never the defect, eighteen fields in one
+-- forward pass was. {parents['declined']} answers were `none` and are not
+-- stored, a stored `none` being indistinguishable from a term never asked
+-- about.""")
+        out.append("do $$\ndeclare\n  n integer;\n  missing text;\nbegin")
+        out.append(
+            "  create temporary table _placement "
+            "(normalized_label text, family text, parent_key text, "
+            "confidence numeric) on commit drop;")
+        out.append("  insert into _placement values")
+        out.append(",\n".join(
+            "    ({}, {}, {}, {})".format(
+                quote(key), quote(family), quote(parent), round(confidence, 4))
+            for (key, family), (parent, confidence) in sorted(placed.items())))
+        out.append("""  ;
+  -- **A heading this database does not hold is a broken run, not a skip.**
+  -- The candidate list travels with the items file, so a key that resolves to
+  -- nothing means the pass was asked about an ontology that has since moved —
+  -- and a left join would write null and call it placement.
+  select string_agg(distinct p.parent_key, ', ') into missing
+    from _placement p
+   where not exists (select 1 from ontology.concepts c
+                      where c.concept_key = p.parent_key
+                        and c.retired_at is null);
+  if missing is not null then
+    raise exception '%: placement names headings this database does not hold: %',
+      '""" + number + """', missing;
+  end if;
+
+  update semantic_private.presumed_terms t
+     set proposed_parent_concept_id = c.id,
+         proposed_parent_confidence_unvalidated = p.confidence,
+         proposed_parent_source = 'placement_pass'
+    from _placement p
+    join ontology.concepts c
+      on c.concept_key = p.parent_key and c.retired_at is null
+   where t.normalized_label = p.normalized_label
+     and t.family = p.family;
+  get diagnostics n = row_count;
+  raise notice '%: % of % placements landed', '""" + number + """',
+    n, (select count(*) from _placement);
+  -- Zero here can only mean the join is wrong: every pair emitted was minted
+  -- by the insert above, in this same migration.
+  if n = 0 then
+    raise exception
+      '%: placements were emitted and none matched a term', '""" + number + """';
+  end if;
+end;
+$$;""")
+
     out.append(f"""
 do $$
 declare
@@ -454,6 +581,9 @@ begin
   raise notice '{number}: % defer to a canonical', n;
   select count(*) into n from semantic_private.presumed_term_relations;
   raise notice '{number}: % relations recorded', n;
+  select count(*) into n from semantic_private.presumed_terms
+   where proposed_parent_concept_id is not null;
+  raise notice '{number}: % carry a proposed parent', n;
 end;
 $$;
 """)
@@ -465,6 +595,14 @@ $$;
                       "relations": len(edges),
                       "refused_as_relation": refused_relation,
                       "refused_as_metadata": refused_metadata,
+                      "placements_written": len(placed),
+                      # **Named, not swallowed.** A term the placement pass
+                      # answered about that this corpus did not mint is either
+                      # a normalisation that still disagrees or a mention the
+                      # metadata guard refused — two different problems, and a
+                      # silent drop would hide both.
+                      "placements_for_unminted_terms": unminted,
+                      "placements_declined": parents["declined"],
                       "migration": str(path)}, indent=2))
     return 0
 
