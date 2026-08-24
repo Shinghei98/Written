@@ -47,7 +47,11 @@ cd "$ROOT/work"
 # A contract left from the last run would produce a v14 corpus that reads as a
 # v16 result, and nothing downstream would say so. Checked before the GPU is
 # touched, so a stale stage costs a second rather than an hour.
-WANT=qwen_extractor_v16
+# **A literal that moves once per release, and it has to be.** Reading the
+# version out of the contract would make this agree with whatever was staged,
+# which is the one thing it exists to catch: a stale contract produces a corpus
+# of the previous prompt that reads as this one's result.
+WANT=qwen_extractor_v17
 GOT=$(python3 -c "import json;print(json.load(open('compiled_semantic_contract_v1.json'))['versions']['prompt'])")
 if [ "$GOT" != "$WANT" ]; then
   echo "refusing: contract on the cluster says $GOT, this job is $WANT" >&2

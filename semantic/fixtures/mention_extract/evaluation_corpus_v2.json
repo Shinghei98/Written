@@ -1,16 +1,37 @@
 {
   "corpus_version": "evaluation_corpus_v2",
-  "_comment": "Synthetic titles for the evaluation lane, with **typed** expectations. v1's `expects` is prose — readable, and not something a run can be scored against, so 'did the categorisation improve' stayed an opinion. Every case here names the families a correct answer must contain, so a score is a number.\n\n**Every title is invented and nothing here belongs to anybody.** Migrations 0239 and 0240 refuse an evaluation invocation that names a user, an observation or retained source text, and that constraint is why this file exists in this shape at all: the cases were derived from eleven real rows the owner hand-labelled on 2026-08-23, and the *lessons* were carried across while the titles were not. A gold set of real titles would be somebody's viewing history in git history.\n\nVersioned in the filename, so a score measured against v1 is never silently compared with one measured against v2.\n\n**How to read `expect`**: `families` are the families a correct answer must include, `forbid_families` are families that must not appear for the named surface, and `at_least`/`at_most` bound the mention count. `lesson` names the misassignment the case was built from, so a regression says what broke rather than that a number moved.",
-  "families_in_schema": ["person", "group", "organization", "franchise", "work",
-    "anime", "book", "game", "music_work", "album", "sport", "activity", "idea",
-    "place", "culture", "event", "tour"],
+  "_comment": "Synthetic titles for the evaluation lane, with **typed** expectations. v1's `expects` is prose — readable, and not something a run can be scored against, so 'did the categorisation improve' stayed an opinion. Every case here names the families a correct answer must contain, so a score is a number.\n\n**Every title is invented and nothing here belongs to anybody.** Migrations 0239 and 0240 refuse an evaluation invocation that names a user, an observation or retained source text, and that constraint is why this file exists in this shape at all: the cases were derived from eleven real rows the owner hand-labelled on 2026-08-23, and the *lessons* were carried across while the titles were not. A gold set of real titles would be somebody's viewing history in git history.\n\nVersioned in the filename, so a score measured against v1 is never silently compared with one measured against v2.\n\n**How to read `expect`**: `families` are the families a correct answer must include, `forbid_families` are families that must not appear for the named surface, and `at_least`/`at_most` bound the mention count. `lesson` names the misassignment the case was built from, so a regression says what broke rather than that a number moved.\n\n**Revised 2026-08-24 for the v17 vocabulary.** `idea` was removed — it was emitted zero times across 10,274 mentions and the terms it carried (ASMR, study-with-me, commentary) were ruled out of scope — and `art` and `field` replaced it, mapped onto the published `movement:*` and `subject:*` concepts. `fx_102` and `fx_105` named `idea` in their expectations and were unpassable by construction after that change. **Both were retargeted rather than deleted: the lesson each encodes is still true, and under the narrower vocabulary each became an abstention case, which is a harder question than the one it asked before.** A case is not loosened to make a run pass; where the correct answer shrank, the expectation shrank with it.",
+  "families_in_schema": [
+    "person",
+    "group",
+    "organization",
+    "franchise",
+    "work",
+    "anime",
+    "book",
+    "game",
+    "music_work",
+    "album",
+    "sport",
+    "activity",
+    "art",
+    "field",
+    "place",
+    "culture",
+    "event",
+    "tour"
+  ],
   "items": [
     {
       "id": "fx_101",
       "title": "~ヴェルダ戦BGM~【星霜学園】",
       "lesson": "an installment and its franchise are both terms; naming only one loses the other",
       "expect": {
-        "families": ["music_work", "game", "franchise"],
+        "families": [
+          "music_work",
+          "game",
+          "franchise"
+        ],
         "at_least": 3,
         "note": "the battle theme is a work, the game release is a work, the series is the franchise"
       }
@@ -18,12 +39,17 @@
     {
       "id": "fx_102",
       "title": "Quiet Static ASMR — tingles for sleep",
-      "lesson": "a watched content genre is a concept, never a franchise",
+      "lesson": "a watched content genre is not a term at all; the channel is the person and nothing else in the title survives",
       "expect": {
-        "families": ["person", "idea"],
-        "forbid_families": ["franchise"],
-        "at_least": 2,
-        "note": "the channel is a person; ASMR is a concept"
+        "families": [
+          "person"
+        ],
+        "forbid_families": [
+          "franchise",
+          "work"
+        ],
+        "at_most": 1,
+        "note": "ASMR was `idea` until 2026-08-24 and is now no family at all — the owner ruled watched-content genres out of scope. The correct answer shrank: the channel is a person and ASMR yields nothing, so this now tests refusing rather than typing."
       }
     },
     {
@@ -31,8 +57,13 @@
       "title": "이제 완전히 달라진 하린이 #HARIN",
       "lesson": "a hashtag repeating the subject is the same entity, not a second one under another family",
       "expect": {
-        "families": ["person"],
-        "forbid_families": ["franchise", "group"],
+        "families": [
+          "person"
+        ],
+        "forbid_families": [
+          "franchise",
+          "group"
+        ],
         "at_most": 2,
         "note": "one person, however many spellings of her name the title carries"
       }
@@ -42,8 +73,13 @@
       "title": "鸭鸭：#崔叡娜 #金采源 #曺柔理 #starlight",
       "lesson": "a music act is a group, never a franchise; a nickname is not a person",
       "expect": {
-        "families": ["group", "person"],
-        "forbid_families": ["franchise"],
+        "families": [
+          "group",
+          "person"
+        ],
+        "forbid_families": [
+          "franchise"
+        ],
         "at_least": 4,
         "note": "three members and their group; the affectionate nickname opening the title is not an entity"
       }
@@ -51,12 +87,18 @@
     {
       "id": "fx_105",
       "title": "야외 레깅스 & 탑 룩북ㅣ봄 맞이 운동복 야외 LOOKBOOK",
-      "lesson": "a descriptive video title is not a work; name the subject it is about",
+      "lesson": "a descriptive title yields no terms when nothing in it is a subject the vocabulary admits",
       "expect": {
-        "families": ["idea"],
-        "forbid_families": ["work", "music_work", "album"],
-        "at_most": 2,
-        "note": "leggings is the durable subject; the title is a description, not a released creation"
+        "families": [],
+        "forbid_families": [
+          "work",
+          "music_work",
+          "album",
+          "franchise",
+          "person"
+        ],
+        "at_most": 0,
+        "note": "`leggings` was the expected `idea` and there is no longer a family for a garment as a topic: not culture, not art, not field, not activity. So the honest answer is none, and abstaining with no_durable_subject is correct."
       }
     },
     {
@@ -64,8 +106,14 @@
       "title": "SOOMIN DRIFT AWAY FANCAM STAGEMIX #aureole #soomin #kpop #shorts",
       "lesson": "the song survives a fancam title, and the act is a group",
       "expect": {
-        "families": ["work", "person", "group"],
-        "forbid_families": ["franchise"],
+        "families": [
+          "work",
+          "person",
+          "group"
+        ],
+        "forbid_families": [
+          "franchise"
+        ],
         "at_least": 3,
         "note": "the song, the member and her group; the format and platform tokens are not terms"
       }
@@ -75,8 +123,13 @@
       "title": "'RISE UP' EXCLUSIVE PERFORMANCE VIDEO OUT NOW #AURORAKIDS #2ndMINIALBUM #RISEUP #shorts",
       "lesson": "one family per entity — never the same name as both a group and a franchise",
       "expect": {
-        "families": ["work", "group"],
-        "forbid_families": ["franchise"],
+        "families": [
+          "work",
+          "group"
+        ],
+        "forbid_families": [
+          "franchise"
+        ],
         "at_most": 4,
         "note": "the act appears once, as a group"
       }
@@ -86,7 +139,10 @@
       "title": "베가 넥스트스텝 엉덩이 때리기 킬링파트 | 2027 #한대축제",
       "lesson": "a work title is the title alone; fan commentary around it is not part of the name",
       "expect": {
-        "families": ["group", "work"],
+        "families": [
+          "group",
+          "work"
+        ],
         "at_least": 2,
         "note": "the song is `Next Step`, not the whole descriptive phrase a fan wrote around it"
       }
@@ -96,8 +152,14 @@
       "title": "LETS STOMP #aurorakids #stomp #mira #kaya #music #fyp #dance",
       "lesson": "a hashtag and the title naming one thing are one term, and a dance single is a work",
       "expect": {
-        "families": ["work", "person", "group"],
-        "forbid_families": ["franchise"],
+        "families": [
+          "work",
+          "person",
+          "group"
+        ],
+        "forbid_families": [
+          "franchise"
+        ],
         "at_least": 3,
         "note": "`LETS STOMP` and `#stomp` are one work; the two members are people; #music #fyp #dance are not terms"
       }
@@ -116,7 +178,10 @@
       "id": "fx_111",
       "title": "untitled demo 3",
       "lesson": "carried from v1: nothing conversation-worthy is an abstention",
-      "expect": {"families": [], "at_most": 0}
+      "expect": {
+        "families": [],
+        "at_most": 0
+      }
     }
   ]
 }
