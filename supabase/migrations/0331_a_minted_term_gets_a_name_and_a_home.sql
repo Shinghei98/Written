@@ -232,10 +232,17 @@ begin
     raise exception '0331: semantic_private.mint_from_kept_requests does not exist';
   end if;
 
+  -- **Count that there is something to replace, not how many.** The first
+  -- draft asserted exactly three and the body holds eight — a number guessed
+  -- from reading the source rather than counted from
+  -- `pg_get_functiondef`, and the replay refused it. What matters is that the
+  -- old form is present before and absent after; the exact arity is a fact
+  -- about formatting, and pinning it makes the migration fail on a reformat
+  -- that changed nothing.
   select count(*) into keys
     from regexp_matches(body, 'k\.concept_kind \|\| '':kept_''', 'g');
-  if keys <> 3 then
-    raise exception '0331: expected 3 key expressions, found %', keys;
+  if keys = 0 then
+    raise exception '0331: no key expression to replace; has 0258 already moved?';
   end if;
 
   -- **The family -> kind `case` was a third statement of the family map, and it

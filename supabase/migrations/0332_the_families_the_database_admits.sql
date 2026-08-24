@@ -47,13 +47,47 @@ alter table semantic_private.presumed_terms
   ));
 
 -- ---------------------------------------------------------------------------
+-- 1b. The provisional's check, which is the same vocabulary in a fourth place.
+-- ---------------------------------------------------------------------------
+-- **Found by the compiled-contract gate, not by reading.** The first draft of
+-- this migration moved `presumed_terms` and stopped, and
+-- `tools/replay_contracts.sh` refused the chain with three lines naming exactly
+-- what was wrong: `provisional_entities.family permits 'idea', which no family
+-- mapping declares`, and `art`/`field` declared but refused. Four tables state
+-- this vocabulary — the wire schema, the workbook, `presumed_terms` and here —
+-- and the gate is the only thing that compares them.
+--
+-- Safe for the same reason as `presumed_terms`: **0 provisionals carry `idea`**,
+-- measured 2026-08-24.
+alter table semantic_private.provisional_entities
+  drop constraint if exists provisional_entities_family_check;
+
+alter table semantic_private.provisional_entities
+  add constraint provisional_entities_family_check check (family in (
+    'activity','album','anime','art','book','channel','culture','event',
+    'event_type','field','franchise','game','game_category','group','hub',
+    'music_recording','music_work','organization','person','place','platform',
+    'sport','tour','work'
+  ));
+
+-- ---------------------------------------------------------------------------
 -- 2. The kind -> root map.
 -- ---------------------------------------------------------------------------
 delete from ontology.cardinal_root_map where concept_kind = 'idea';
 
-insert into ontology.cardinal_root_map (concept_kind, root_id)
-values ('art', 'cardinal:concept'), ('field', 'cardinal:concept')
-on conflict (concept_kind) do update set root_id = excluded.root_id;
+-- `rationale` is `not null` on this table, and deliberately so: a kind's root
+-- is a claim, and `0291` made every row state why. A null root is permitted
+-- (five kinds have one); a null reason is not.
+insert into ontology.cardinal_root_map (concept_kind, root_id, rationale)
+values
+  ('art', 'cardinal:concept',
+   'An art form or style is an abstract subject, not the artwork and not the '
+   'artist. Keyed movement:* to join the 93 published movements.'),
+  ('field', 'cardinal:concept',
+   'A field of study is an abstract discipline. Keyed subject:* to join the '
+   '294 published subjects rather than mint a parallel set.')
+on conflict (concept_kind) do update
+  set root_id = excluded.root_id, rationale = excluded.rationale;
 
 -- ---------------------------------------------------------------------------
 -- 3. The pin `0300` holds, restated.
@@ -101,6 +135,13 @@ $$;
 -- The widening must admit `art`, and it must still refuse a family nothing
 -- compiles — otherwise a check that admits everything would pass every
 -- assertion above.
+-- **The probe rows are rolled back, never deleted.**
+-- `presumed_terms_no_delete` refuses every delete — *"presumed terms are a
+-- dictionary; weight one down, never delete it"* — and the first draft of this
+-- block tried to tidy up after itself and was refused by that trigger, which is
+-- the trigger working. A plpgsql sub-block is an implicit savepoint, so raising
+-- out of it undoes the insert while leaving the variable set: the constraint is
+-- exercised on a real row and the dictionary keeps nothing.
 do $$
 declare
   admitted boolean := false;
@@ -111,16 +152,24 @@ begin
       (normalized_label, canonical_label, family, origin)
     values ('0332 probe art', '0332 probe art', 'art', 'inferred');
     admitted := true;
-  exception when others then
-    raise exception '0332: the widened check refused art (%)', sqlerrm;
+    raise exception 'rollback the probe' using errcode = 'P0001';
+  exception
+    when sqlstate 'P0001' then
+      null;                                   -- the insert is undone; `admitted` stands
+    when check_violation then
+      raise exception '0332: the widened check refused art';
   end;
 
   begin
     insert into semantic_private.presumed_terms
       (normalized_label, canonical_label, family, origin)
     values ('0332 probe idea', '0332 probe idea', 'idea', 'inferred');
-  exception when check_violation then
-    refused := true;
+    raise exception 'rollback the probe' using errcode = 'P0001';
+  exception
+    when check_violation then
+      refused := true;                        -- refused, which is the point
+    when sqlstate 'P0001' then
+      null;                                   -- it was admitted: caught below
   end;
 
   if not admitted then
@@ -129,8 +178,5 @@ begin
   if not refused then
     raise exception '0332: idea is still storable';
   end if;
-
-  delete from semantic_private.presumed_terms
-   where normalized_label in ('0332 probe art', '0332 probe idea');
 end;
 $$;
