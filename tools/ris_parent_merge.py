@@ -193,7 +193,11 @@ def main() -> int:
         # never silently applied over. Two distinct group headings still
         # refuse: ambiguity holds, as everywhere.
         if answer.get("family") in PARTY:
-            distinct = sorted(candidates)
+            # A bare hub is routing, not placement (§2.15) — a group whose
+            # own answer this round was a hub must not drag its members off
+            # a specific heading. Measured on the first binding run: IVE's
+            # bare hub:music pulled two members off genre:k_pop.
+            distinct = sorted(c for c in candidates if not c.startswith("hub:"))
             if len(distinct) == 1:
                 bound = distinct[0]
                 contradicts = (parent != bound
