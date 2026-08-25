@@ -38,6 +38,21 @@ sys.path.insert(0, str(HERE))
 
 NONE = "none"
 
+#: **The third answer, and the decision it makes possible.** `none` used to
+#: carry two different facts: *no parent is defensible at all* (Sheldon Cooper
+#: against a list of music headings — a correct refusal) and *the right parent
+#: exists or should exist but is not on this list* (`One Piece` wanting a
+#: film/ACG heading; `culture:taiwan` not existing anywhere). Worse, when the
+#: right answer was missing the model usually did not refuse — it dumped into
+#: the nearest broad bucket: 347 terms on `hub:music`, `One Piece ->
+#: hub:arts_live`, **491 of 1,262 placements (39%) on a broad heading.**
+#:
+#: `needs_new_parent` is the exit that routes a term to the proposal pass
+#: (`ris_parent_propose.py`), which is where "create a new parental term"
+#: becomes a governed act instead of a seven-field form nobody ever filled in
+#: (zero `missing_parent_proposal`s in 1,540 items, across every run).
+NEEDS_NEW = "needs_new_parent"
+
 #: **Two fields.** The confidence is not decoration: the merge refuses a low
 #: one rather than trusting every answer equally, and a pass whose answers are
 #: all uncertain should be visible as that rather than as placement.
@@ -47,7 +62,7 @@ def answer_schema(ids: list[str]) -> dict:
         "additionalProperties": False,
         "required": ["parent", "confidence"],
         "properties": {
-            "parent": {"type": "string", "enum": [*ids, NONE]},
+            "parent": {"type": "string", "enum": [*ids, NONE, NEEDS_NEW]},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         },
     }
@@ -77,11 +92,17 @@ SYSTEM = (
     "it is part of\n"
     "- an activity or subject belongs under the broad area it is part of\n"
     "\n"
-    "Choose 'none' only when no heading is defensible. A heading that is "
-    "broader than the term is still correct — that is what a heading is. "
-    "Do not choose a heading merely because the words overlap.\n"
+    "Three answers are possible, and they mean different things:\n"
+    "- a heading's id: the term belongs under it. A heading broader than the "
+    "term is still correct — that is what a heading is. But do not choose a "
+    "heading merely because the words overlap, and do not choose a broad "
+    "heading just because nothing better is offered.\n"
+    "- 'needs_new_parent': you know what kind of thing this is and where it "
+    "belongs, but no offered heading fits — the right heading is missing from "
+    "the list. Prefer this over dumping the term under a vague heading.\n"
+    "- 'none': you cannot say where this term belongs at all.\n"
     "\n"
-    "Answer with the heading's id and how confident you are."
+    "Answer with one of those and how confident you are."
 )
 
 

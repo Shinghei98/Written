@@ -25,7 +25,18 @@ set -euo pipefail
 ROOT=/storage2/fs1/erichuang/Active/Users/David/written
 SHARD=$1
 
-export HOME=$ROOT/work/home_v16_$SHARD
+# **The prompt version this job is.** A literal — the long note at the gate
+# below says why it must not be read from the contract.
+WANT=qwen_extractor_v19
+# **Every versioned path derives from it, and that is the second half of the
+# same lesson.** The shard read, the results written and the compile cache all
+# said `v16` while the prompt had moved to v18, so a v18 run landed in files
+# that read as the previous one — the defect the gate exists to catch, one
+# layer further out, where the gate cannot see it. One literal moves per
+# release and the filenames follow it.
+VER=${WANT##*_}
+
+export HOME=$ROOT/work/home_${VER}_$SHARD
 export HF_HOME=$ROOT/work/hf XDG_CACHE_HOME=$HOME/.cache
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export MODEL_PATH=$ROOT/models/qwen3.5-9b
@@ -51,7 +62,7 @@ cd "$ROOT/work"
 # version out of the contract would make this agree with whatever was staged,
 # which is the one thing it exists to catch: a stale contract produces a corpus
 # of the previous prompt that reads as this one's result.
-WANT=qwen_extractor_v18
+# `WANT` is set at the top, where the paths that derive from it are built.
 GOT=$(python3 -c "import json;print(json.load(open('compiled_semantic_contract_v1.json'))['versions']['prompt'])")
 if [ "$GOT" != "$WANT" ]; then
   echo "refusing: contract on the cluster says $GOT, this job is $WANT" >&2
@@ -60,4 +71,4 @@ fi
 echo "shard $SHARD  contract prompt version: $GOT"
 
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
-python3 ris_extract.py "$ROOT/work/v16_shard_$SHARD.jsonl" "$ROOT/out/v16_results_$SHARD.jsonl"
+python3 ris_extract.py "$ROOT/work/${VER}_shard_$SHARD.jsonl" "$ROOT/out/${VER}_results_$SHARD.jsonl"

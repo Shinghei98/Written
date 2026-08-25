@@ -110,7 +110,9 @@ def main() -> int:
     placed = {}
     for answer in answers:
         parent = answer.get("parent")
-        if parent and parent != "none":
+        # `needs_new_parent` routes a term to the proposal pass; it is
+        # neither a placement to index nor one to improve.
+        if parent and parent not in ("none", "needs_new_parent"):
             placed[(key(answer.get("label")), answer.get("family"))] = parent
 
     # **A term's heading looked up by label alone, across families.** Where a
@@ -143,7 +145,7 @@ def main() -> int:
     changes = []
     for answer in answers:
         parent = answer.get("parent")
-        if not parent or parent == "none":
+        if not parent or parent in ("none", "needs_new_parent"):
             continue
         subject = (key(answer.get("label")), answer.get("family"))
         # Every heading the linked terms sit on.

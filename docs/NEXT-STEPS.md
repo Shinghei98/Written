@@ -4,6 +4,23 @@
 remembered.** Delete a section when it stops being true — this file is a plan,
 not a record, and the record is `semantic/JOURNAL.md` and `git log -p`.
 
+## AWS is not running (2026-08-24)
+
+**Access ended at free-tier expiry on 2026-08-22, mid-repair** (`346fc85`'s
+note; the owner's direction is not to recharge it for now). CLAUDE.md says
+whether AWS is running is a status and lives here — this is that line, and it
+was missing for two days. Consequences, all observed in the database:
+
+- **No worker job has been claimed since 2026-08-21.** Jobs queue and sit —
+  17 across all types as of the 24th, including one `process_mint_requests`.
+- The keep→mint route is therefore paused: a keep files its request and
+  nothing drains it until the worker runs again, anywhere.
+- The measurement lane is RIS (`docs/RIS-DEPLOYMENT.md`); the AWS lane stays
+  in the tree and stays correct, per CLAUDE.md's standing entry.
+
+Delete this section when the account is recharged and a worker invocation has
+been observed claiming a job.
+
 ## Where things actually stand
 
 | | David | Timi | Demo |

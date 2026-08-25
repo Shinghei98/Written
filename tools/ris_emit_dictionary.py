@@ -108,7 +108,12 @@ def load_parents(path: pathlib.Path) -> dict:
             continue
         answer = json.loads(line)
         parent = answer.get("parent")
-        if not parent or parent == "none":
+        # `needs_new_parent` is a routing answer, not a placement — it sends
+        # the term to the proposal pass. Treated as a placement it would reach
+        # the migration's heading check and fail it loudly (no concept is
+        # keyed `needs_new_parent`), which is the good failure; this makes it
+        # a non-failure instead of relying on that.
+        if not parent or parent in ("none", "needs_new_parent"):
             declined += 1
             continue
         key = normalise(answer.get("label"))
@@ -189,6 +194,24 @@ def main() -> int:
     #: verdicts and a corpus may be emitted before it has been asked.
     parents = (load_parents(pathlib.Path(sys.argv[3])) if len(sys.argv) > 3
                else {"placements": {}, "declined": 0, "unkeyed": 0})
+
+    #: **The prompt version, from the contract rather than from a literal.**
+    #: `prompt v14` was hard-coded in the header and `ris_v14` / `ris_v15` in
+    #: the emitted SQL, so every corpus this tool ever wrote claimed to be v14
+    #: — including in `evidence ->> 'source'`, which is provenance in a durable
+    #: row. Derived here for the same reason `run_extract.sh` derives its paths
+    #: from `WANT`: one literal moves per release and everything follows.
+    #:
+    #: It also makes the merge guard below mean what it says. That guard asks
+    #: whether *this* load's links exist before raising on zero merges; keyed
+    #: to a constant it was really asking whether *any* RIS corpus had ever
+    #: landed one, so a v18 load that matched nothing would have passed
+    #: silently on v15's rows.
+    version = json.loads(
+        (REPOSITORY / "semantic" / "contracts"
+         / "compiled_semantic_contract_v1.json").read_text()
+    )["versions"]["prompt"].rsplit("_", 1)[-1]
+    corpus = f"ris_{version}"
 
     terms: dict = {}
     links: set = set()
@@ -387,10 +410,16 @@ def main() -> int:
     out: list[str] = [f"""-- {number} — the RIS corpus enters the dictionary: terms, labels, merges.
 --
 -- {len(terms)} terms extracted from the full distillation on a lab GPU (one
--- A100 80GB per shard, prompt v14), then passed a second time by
+-- A100 80GB per shard, prompt {version}), then passed a second time by
 -- `tools/ris_relabel.py` for the {relabel} terms whose native label merely
--- echoed the script it was written in. Before this the dictionary held 1,000
--- terms and 14 English labels.
+-- echoed the script it was written in.
+--
+-- **The prompt version is derived from the compiled contract, not typed.** It
+-- read `prompt v14` for every corpus this emitter ever wrote, and the same
+-- literal reached `evidence ->> 'source'` — provenance in a durable row saying
+-- a v18 corpus came from v14. It is `{corpus}` here, and the merge guard below
+-- keys on that same value, so it now asks whether *this* corpus landed rather
+-- than whether any RIS corpus ever did.
 --
 -- {len(links)} merges are written, each one stated by the model rather than
 -- guessed at by comparing strings: this project has paid twice for similarity
@@ -537,7 +566,7 @@ values"""]
             "  insert into semantic_private.presumed_term_links "
             "(variant_term_id, canonical_term_id, basis, evidence)\n"
             "  select v.id, c.id, 'label_pair', "
-            "jsonb_build_object('source', 'ris_v15')\n"
+            "jsonb_build_object('source', " + quote(corpus) + ")\n"
             "    from semantic_private.presumed_terms v, "
             "semantic_private.presumed_terms c\n"
             f"   where v.normalized_label = {quote(variant)} "
@@ -556,7 +585,7 @@ values"""]
   -- are told apart by whether this load's links exist at all.
   if {len(links)} > 0 and merged = 0 and not exists (
        select 1 from semantic_private.presumed_term_links
-        where evidence ->> 'source' = 'ris_v15') then
+        where evidence ->> 'source' = '{corpus}') then
     raise exception
       '{number}: {len(links)} merges were emitted and none matched a row';
   end if;
@@ -569,7 +598,7 @@ $$;""")
             "insert into semantic_private.presumed_term_relations "
             "(subject_term_id, predicate, object_term_id, evidence, observed_count)\n"
             f"select s.id, {quote(predicate)}, o.id, "
-            "jsonb_build_object('source', 'ris_v14'), " + str(count) + "\n"
+            "jsonb_build_object('source', " + quote(corpus) + "), " + str(count) + "\n"
             "  from semantic_private.presumed_terms s, "
             "semantic_private.presumed_terms o\n"
             f" where s.normalized_label = {quote(skey)} and s.family = {quote(sfam)}\n"

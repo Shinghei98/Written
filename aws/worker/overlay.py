@@ -181,27 +181,55 @@ on conflict (observation_id, normalized_text, mention_role,
 """
 
 
-#: §5.2: the bounded parent inventory the model may echo. The forty most
-#: load-bearing published parents by distinct-child count — a parent that
-#: already organizes many concepts is the one a new term most plausibly fits
-#: under. Id and label only; no definition text and nothing about any person.
-#: Cached per process because the published version moves by migration, and a
-#: worker container never outlives one.
+#: §5.2: the bounded parent inventory the model may echo. Id and label only;
+#: no definition text and nothing about any person. Cached per process because
+#: the published version moves by migration, and a worker container never
+#: outlives one.
+#:
+#: **Every hub is always offered; the rest go by child count.** Pure
+#: count-ordering was self-reinforcing: a heading with zero children was never
+#: offered, so nothing was ever filed under it, so it stayed at zero — which is
+#: how `hub:film_video` sat at rank 43 while a corpus full of film and TV had
+#: no top-level home, and how four game genres stayed empty forever. Measured
+#: on the 2026-08-24 corpus: ~32 of the 40 slots were Apple Music genres and a
+#: series had nowhere to land but `hub:arts_live`. Reserving the 15 hubs costs
+#: the 6 already-qualifying ones nothing and gives every top-level area a
+#: reachable representative; the remaining slots stay earned by breadth.
 _SELECT_PARENT_CANDIDATES = """
-select c.concept_key as term_id, cr.preferred_label as label
-  from ontology.concept_edges e
-  join ontology.concepts c on c.id = e.object_concept_id
-  join ontology.concept_revisions cr
-    on cr.concept_id = e.object_concept_id
-   and cr.ontology_version_id = e.ontology_version_id
- where e.predicate_key = 'broader' and e.status = 'active'
-   and e.ontology_version_id =
-       (select id from ontology.versions where status = 'published')
-   -- An era is an axis and a sphere is a scope; neither is a parent a new
-   -- term may be filed under. Same exclusion the assertion allowlist makes.
-   and c.concept_key !~ '^(era|sphere|scene):'
- group by c.concept_key, cr.preferred_label
- order by count(distinct e.subject_concept_id) desc, c.concept_key
+with published as (
+  select id from ontology.versions where status = 'published'
+),
+hubs as (
+  -- The floor: every top-level hub, whatever its child count.
+  select c.concept_key as term_id, cr.preferred_label as label,
+         0 as tier, 0::bigint as children
+    from ontology.concepts c
+    join ontology.concept_revisions cr
+      on cr.concept_id = c.id
+     and cr.ontology_version_id = (select id from published)
+   where c.concept_key like 'hub:%' and c.retired_at is null
+),
+earned as (
+  select c.concept_key as term_id, cr.preferred_label as label,
+         1 as tier, count(distinct e.subject_concept_id) as children
+    from ontology.concept_edges e
+    join ontology.concepts c on c.id = e.object_concept_id
+    join ontology.concept_revisions cr
+      on cr.concept_id = e.object_concept_id
+     and cr.ontology_version_id = e.ontology_version_id
+   where e.predicate_key = 'broader' and e.status = 'active'
+     and e.ontology_version_id = (select id from published)
+     -- An era is an axis and a sphere is a scope; neither is a parent a new
+     -- term may be filed under. Same exclusion the assertion allowlist makes.
+     -- Hubs are excluded here because the floor above already carries them.
+     and c.concept_key !~ '^(era|sphere|scene|hub):'
+   group by c.concept_key, cr.preferred_label
+   order by count(distinct e.subject_concept_id) desc, c.concept_key
+   limit 25
+)
+select term_id, label
+  from (select * from hubs union all select * from earned) pool
+ order by tier, children desc, term_id
  limit 40
 """
 

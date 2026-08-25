@@ -730,20 +730,43 @@ def main() -> int:
     """)
 
     # The parents the model may echo, exactly as the worker supplies them:
-    # ids and labels only, axes excluded, most load-bearing first.
+    # ids and labels only, axes excluded. **Every hub is always offered; the
+    # rest go by child count** — mirrors `_SELECT_PARENT_CANDIDATES` in
+    # aws/worker/overlay.py, whose comment carries the reasoning (pure
+    # count-ordering starved `hub:film_video` at rank 43 and kept zero-child
+    # headings unreachable forever). If the two ever disagree, the worker's
+    # is the one that governs.
     parents = query("""
-        select c.concept_key as term_id, cr.preferred_label as label
-          from ontology.concept_edges e
-          join ontology.concepts c on c.id = e.object_concept_id
-          join ontology.concept_revisions cr
-            on cr.concept_id = e.object_concept_id
-           and cr.ontology_version_id = e.ontology_version_id
-         where e.predicate_key = 'broader' and e.status = 'active'
-           and e.ontology_version_id =
-               (select id from ontology.versions where status = 'published')
-           and c.concept_key !~ '^(era|sphere|scene):'
-         group by c.concept_key, cr.preferred_label
-         order by count(distinct e.subject_concept_id) desc, c.concept_key
+        with published as (
+          select id from ontology.versions where status = 'published'
+        ),
+        hubs as (
+          select c.concept_key as term_id, cr.preferred_label as label,
+                 0 as tier, 0::bigint as children
+            from ontology.concepts c
+            join ontology.concept_revisions cr
+              on cr.concept_id = c.id
+             and cr.ontology_version_id = (select id from published)
+           where c.concept_key like 'hub:%' and c.retired_at is null
+        ),
+        earned as (
+          select c.concept_key as term_id, cr.preferred_label as label,
+                 1 as tier, count(distinct e.subject_concept_id) as children
+            from ontology.concept_edges e
+            join ontology.concepts c on c.id = e.object_concept_id
+            join ontology.concept_revisions cr
+              on cr.concept_id = e.object_concept_id
+             and cr.ontology_version_id = e.ontology_version_id
+           where e.predicate_key = 'broader' and e.status = 'active'
+             and e.ontology_version_id = (select id from published)
+             and c.concept_key !~ '^(era|sphere|scene|hub):'
+           group by c.concept_key, cr.preferred_label
+           order by count(distinct e.subject_concept_id) desc, c.concept_key
+           limit 25
+        )
+        select term_id, label
+          from (select * from hubs union all select * from earned) pool
+         order by tier, children desc, term_id
          limit 40
     """)
     candidates = [{"term_id": p["term_id"][:128], "label": p["label"][:128]}
