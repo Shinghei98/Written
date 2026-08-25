@@ -418,6 +418,48 @@ SLICES: tuple[Slice, ...] = (
         notes="video game genre (Q659563)",
         precedence=28,
     ),
+    # **The 2026-08-25 audit's three (owner: "fetch all three").** These parent
+    # to `medium:` layer nodes rather than hubs, because 0348 established the
+    # layer and a new genre hanging from a bare hub would recreate the state
+    # that migration asserts away. The nodes are minted by the same migration
+    # that imports these (0349), before the edges land.
+    Slice(
+        name="cuisines",
+        kind="cuisine",
+        prefix="cuisine:",
+        minimum_sitelinks=25,
+        # The subclass walk earns its place here where the genre slices refuse
+        # it: `Italian cuisine` is an instance of a *subclass* (national
+        # cuisine), and direct P31 on Q1778821 misses the entire national
+        # tier — the tier that is the point.
+        where="?item wdt:P31/wdt:P279* wd:Q1778821 .",
+        parent_key="medium:cuisines",
+        notes="cuisine (Q1778821), subclass walk for the national tier",
+        precedence=29,
+    ),
+    Slice(
+        name="literary_genres",
+        kind="genre",
+        prefix="genre:",
+        minimum_sitelinks=20,
+        where="?item wdt:P31 wd:Q223393 .",
+        parent_key="medium:literary_genres",
+        notes="literary genre (Q223393)",
+        precedence=31,
+    ),
+    Slice(
+        name="comics_genres",
+        kind="genre",
+        prefix="genre:",
+        # Lower than the screen slices: shonen and isekai live here, and manga
+        # genres run fewer Wikipedias than film genres at the same renown.
+        minimum_sitelinks=10,
+        where=("{ ?item wdt:P31 wd:Q20087698 . } "
+               "UNION { ?item wdt:P31 wd:Q103112098 . }"),
+        parent_key="medium:comics_manga_genres",
+        notes="comic genre (Q20087698) + manga genre (Q103112098)",
+        precedence=32,
+    ),
 )
 
 # The examples the owner named, and the probe that says whether the slices above
