@@ -1951,9 +1951,20 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
                 "recency_status": str(recency.temporal_status),
                 "recency_quality_label": str(recency.timestamp_quality),
                 "as_of": as_of,
-                # Never YouTube: the model lane's source wall already
-                # excludes it, and this route inherits that wall.
-                "youtube_kind": None,
+                # **This line used to say "never YouTube", and the wall it
+                # leaned on moved.** The owner's interpretation of record
+                # (2026-08-20) made YouTube a first-class discovery lane, so a
+                # kept mention can sit on a YouTube observation — the first
+                # one to arrive was "Japan" on a liked video, and the null
+                # kind this wrote was refused by
+                # `guard_youtube_mapping_fusion` on the next re-score. A kept
+                # mention is a term derived from a title, which is exactly
+                # what `written_title_tag` names; its gate (`title_tags`) has
+                # been granted since `0135`.
+                "youtube_kind": (
+                    "written_title_tag"
+                    if observation.source == YOUTUBE_SOURCE else None
+                ),
             })
             counts["kept_confirmed_mapped"] = (
                 counts.get("kept_confirmed_mapped", 0) + 1)
