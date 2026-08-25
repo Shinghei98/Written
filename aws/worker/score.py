@@ -53,11 +53,21 @@ much as at ingestion: a concept below `ELIGIBLE_STRENGTH` gets a score and no
 claim, and a concept above it gets an assertion at `machine_state='eligible'`.
 Everything scored is inspectable; only what clears the bar is assertable.
 
-The predicate is `affinity_to` — user_claim, assertion-safe, zero inference hops
-("defeasible or explicit user affinity"). It is the only predicate in the
-vocabulary that means *this person likes this*, and its zero hops matter: an
-affinity does not propagate along `broader`, so liking one K-pop group never
-becomes liking Asian music by arithmetic.
+The predicate is `affinity_to` — user_claim, assertion-safe ("defeasible or
+explicit user affinity"). It is the only predicate in the vocabulary that means
+*this person likes this*.
+
+**This file used to say here that an affinity never propagates along
+`broader`, and the owner superseded that on 2026-08-25.** The directive:
+direct evidence carries full weight; every term connected to it, directly or
+transitively through predicate edges, receives a *decaying fraction* — the
+registry's per-predicate λ (0291), multiplied per hop, cut off at a
+negligibility floor. Liking one K-pop group still never becomes liking Asian
+music *by arithmetic accident*: it becomes a small, authored, auditable
+fraction of it by λ, and the fraction is visible in the evidence path. The
+inferred tail exists to expand the global vocabulary and to be judged by the
+person on the Memories page; most of it lands `candidate`, below every bar,
+which is the design and not a defect.
 
 ## Watching against doing, which `affinity_to` cannot say
 
@@ -114,6 +124,16 @@ HALF_OBSERVATIONS = 4.0
 
 # Below this a concept is scored and makes no claim.
 ELIGIBLE_STRENGTH = 0.35
+
+# **Where propagation stops (owner, 2026-08-25: "unbounded with floor").**
+# A propagated contribution below this raw-weight amount is negligible and the
+# walk does not continue through it — depth emerges from the authored λ values
+# and the evidence, never from a hop cap. In raw pre-saturation units, same as
+# HALF_WEIGHT: 0.05 is one strong play (≈0.78) after two soundtrack_of-sized
+# hops (0.25²), which matches the owner's worked example ending at the second
+# hop for one song and reaching further only when many songs point the same
+# way.
+PROPAGATION_FLOOR = 0.05
 
 AFFINITY_PREDICATE = "affinity_to"
 
@@ -635,6 +655,105 @@ join ontology.concept_revisions r on r.concept_id = c.id
 where r.ontology_version_id = %(version)s
 """
 
+# **The traversable graph: every predicate edge carrying an authored λ.**
+# The owner's clarification (2026-08-25): inference means *all* predicated
+# terms, connected directly or indirectly — so the traversal is the whole
+# edge set and the per-predicate λ values decide the flow, never a whitelist
+# of edge types here. `propagation_weight = 0` rows simply carry no flow,
+# which is the registry's decision to make, not this query's.
+#
+# Bounded three ways, each from the registry or the edge itself: λ > 0, the
+# edge's own confidence clears the predicate's `minimum_relation_confidence`,
+# and only curated/provider provenance traverses in v1 — a model-stated edge
+# proposes vocabulary, it does not yet carry weight. `presumed_term_relations`
+# (0306) stays non-traversable exactly as its header says: only catalogue
+# edges propagate.
+PROPAGATION_EDGES = """
+select e.subject_concept_id as source, e.object_concept_id as target,
+       t.propagation_weight as lam
+from ontology.concept_edges e
+join ontology.relation_types t on t.predicate_key = e.predicate_key
+where e.ontology_version_id = %(version)s
+  and e.status = 'active'
+  and t.propagation_weight > 0
+  and coalesce(e.confidence, 1.0) >= t.minimum_relation_confidence
+  and e.provenance_type in ('curated', 'provider')
+"""
+
+# The single strongest mapping behind a source concept, so a derived
+# assertion's evidence can name a real row — `assertion_evidence` demands an
+# observation mapping, and the honest one is the mapping the propagated weight
+# mostly came from, with the path saying how it travelled.
+TOP_MAPPING_FOR_CONCEPT = """
+select m.id as mapping_id, s.independence_group,
+       m.recency_weight, m.recency_quality, m.recency_policy_version,
+       m.recency_rule_id, m.recency_status, m.recency_timestamp_quality,
+       o.source_code, o.action_type
+from semantic_private.observation_mappings m
+join semantic_private.observations o on o.id = m.observation_id
+join semantic_private.sources s on s.source_code = o.source_code
+where m.semantic_run_id = %(run)s and m.user_id = %(user_id)s
+  and m.concept_id = %(concept)s and m.mapping_state = 'accepted'
+order by m.evidence_weight * m.recency_weight desc
+limit 1
+"""
+
+
+def _propagate(direct: dict[str, float],
+               edges: dict[str, list[tuple[str, float]]]) -> dict[str, dict[str, Any]]:
+    """Walk λ-weighted edges outward from every directly-evidenced concept.
+
+    Per (source, target): the **max** over paths of the per-edge λ product —
+    two routes to the same place are one reason, not two, and max is what
+    stops a dense subgraph inflating itself. Across sources the contributions
+    **sum**, which is the point: many K-pop plays genuinely add up on
+    `genre:k_pop`.
+
+    The frontier prunes when `λ_path × W_source < PROPAGATION_FLOOR`, so the
+    walk is unbounded in hops and bounded in effect. Best-first per source
+    (largest λ first) so the first time a node is settled it is settled at its
+    best path.
+
+    Returns target -> {"weight": Σ contributions, "sources": [(source_id,
+    contribution, λ_path, hops)] sorted strongest first}.
+    """
+    import heapq
+    received: dict[str, dict[str, Any]] = {}
+    for source_id, source_weight in direct.items():
+        if source_weight <= 0:
+            continue
+        best: dict[str, float] = {source_id: 1.0}
+        hops: dict[str, int] = {source_id: 0}
+        heap = [(-1.0, source_id)]
+        while heap:
+            neg_lam, node = heapq.heappop(heap)
+            lam_here = -neg_lam
+            if lam_here < best.get(node, 0.0):
+                continue
+            for target, lam_edge in edges.get(node, ()):
+                lam_path = lam_here * lam_edge
+                if lam_path * source_weight < PROPAGATION_FLOOR:
+                    continue
+                if lam_path > best.get(target, 0.0):
+                    best[target] = lam_path
+                    hops[target] = hops[node] + 1
+                    heapq.heappush(heap, (-lam_path, target))
+        for target, lam_path in best.items():
+            if target == source_id or target in direct:
+                # **Propagation only reaches concepts holding no direct
+                # mapping in this run.** A directly-evidenced concept's
+                # evidence already speaks; adding a fraction of a neighbour's
+                # would count one library twice.
+                continue
+            entry = received.setdefault(target, {"weight": 0.0, "sources": []})
+            contribution = lam_path * source_weight
+            entry["weight"] += contribution
+            entry["sources"].append(
+                (source_id, contribution, lam_path, hops[target]))
+    for entry in received.values():
+        entry["sources"].sort(key=lambda s: -s[1])
+    return received
+
 # **Read from the mappings rather than passed in.** A score's recency policy
 # must be the one its evidence was weighted under; taking it as an argument
 # means two places can disagree and the row would still insert, recording a
@@ -918,6 +1037,26 @@ def score_user(connection, user_id: str, run_id: str, version: str,
             for row in cursor.fetchall()
         }
     counts["transferred_concepts"] = len(transferred)
+
+    # **λ propagation (owner's directive, 2026-08-25).** Runs on raw
+    # pre-saturation weight, exactly like the suppression transfer above and
+    # for the same reason: the curve, not the constant, decides what a
+    # fraction is worth. Direct weight per concept is what the loop below will
+    # saturate — total plus transfer — so the walk starts from the same
+    # numbers the person's direct terms are scored on.
+    direct_weights = {
+        str(agg["concept_id"]):
+            float(agg["total_weight"]) + transferred.get(str(agg["concept_id"]), 0.0)
+        for agg in aggregates
+    }
+    with connection.cursor() as cursor:
+        cursor.execute(PROPAGATION_EDGES, {"version": version})
+        edges: dict[str, list[tuple[str, float]]] = {}
+        for row in cursor.fetchall():
+            edges.setdefault(str(row["source"]), []).append(
+                (str(row["target"]), float(row["lam"])))
+    propagated = _propagate(direct_weights, edges)
+    counts["propagated_concepts"] = len(propagated)
 
     for agg in aggregates:
         concept_id = str(agg["concept_id"])
@@ -1212,6 +1351,178 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                     "rule": item["recency_rule_id"],
                     "status": item["recency_status"],
                     "quality_label": item["recency_timestamp_quality"],
+                "as_of": as_of,
+            })
+        if evidence_rows:
+            with connection.cursor() as cursor:
+                cursor.executemany(INSERT_EVIDENCE, evidence_rows)
+            counts["evidence_rows"] += len(evidence_rows)
+
+    # ------------------------------------------------------------------
+    # The propagated tail: every concept the evidence reaches only through
+    # λ-weighted edges. Same writes as a direct concept, marked derived at
+    # every layer so nothing downstream can mistake arithmetic for evidence.
+    # ------------------------------------------------------------------
+    for concept_id, arrival in propagated.items():
+        label = labels.get(concept_id)
+        if label is None:
+            # An edge reaching a concept with no active revision at this
+            # version — counted, not scored; a claim needs a name.
+            counts["propagated_unlabelled"] = \
+                counts.get("propagated_unlabelled", 0) + 1
+            continue
+
+        strength = _saturate(arrival["weight"], HALF_WEIGHT)
+        # **A derived concept's confidence counts reasons, not observations.**
+        # It has no observations of its own; what it has is distinct direct
+        # concepts pointing at it, and that is the honest analogue of the
+        # observation count — one strong source is a hint, several agreeing is
+        # a pattern. Breadth is 1: independence lives on real evidence.
+        confidence = _saturate(float(len(arrival["sources"])), HALF_OBSERVATIONS)
+
+        explanation = {
+            "derived": True,
+            "propagated_weight": round(arrival["weight"], 4),
+            "direct_weight": 0,
+            "source_concepts": [
+                {"concept_key": (labels.get(s) or {}).get("concept_key"),
+                 "contribution": round(c, 4), "lambda_path": round(l, 4),
+                 "hops": h}
+                for s, c, l, h in arrival["sources"][:8]
+            ],
+            "half_weight": HALF_WEIGHT,
+            "propagation_floor": PROPAGATION_FLOOR,
+            "stability_basis": "no_prior_run",
+            "concept_key": label.get("concept_key"),
+        }
+        with connection.cursor() as cursor:
+            cursor.execute(INSERT_SCORE, {
+                "run": run_id, "user_id": user_id, "version": version,
+                "concept": concept_id,
+                "strength": strength, "confidence": confidence,
+                "breadth": 1, "stability": 0.0,
+                "usable": 0, "missing": connected,
+                "explanation": json.dumps(explanation),
+                "agreement": None, "quality": None,
+                "policy": policy_version, "as_of": as_of,
+            })
+        counts["scored"] += 1
+        scored_concepts.append(concept_id)
+
+        kind = label.get("concept_kind")
+        key = label.get("concept_key") or ""
+        policy = label.get("inference_policy") or "inferable"
+        if policy in NEVER_INFERRED_POLICIES:
+            counts["policy_withheld"] = counts.get("policy_withheld", 0) + 1
+            state = "candidate"
+        elif kind in NEVER_ASSERTED_KINDS or key.startswith(NEVER_ASSERTED_KEY_PREFIXES):
+            counts["container_kind"] = counts.get("container_kind", 0) + 1
+            state = "candidate"
+        else:
+            bar = ELIGIBLE_STRENGTH_BY_KIND.get(kind, ELIGIBLE_STRENGTH)
+            state = "eligible" if strength >= bar else "candidate"
+        counts[state] += 1
+        # **Unlike a direct concept, a derived `candidate` still gets its
+        # assertion row.** The direct loop demotes-and-continues below the
+        # bar; here the whole point of the tail is to reach the Memories page
+        # under a cutoff release that admits it, and `list_assertions` already
+        # includes `candidate` — machine_state is the claim's standing, not
+        # its visibility.
+        predicate = assertion_predicate(kind, key, {})
+        if (concept_id, predicate) in suppressed:
+            counts["user_suppressed"] = counts.get("user_suppressed", 0) + 1
+            state = "candidate"
+
+        with connection.cursor() as cursor:
+            cursor.execute(FIND_ASSERTION, {
+                "user_id": user_id, "predicate": predicate,
+                "concept": concept_id,
+            })
+            existing = cursor.fetchone()
+        if existing:
+            assertion_id = existing["id"]
+            with connection.cursor() as cursor:
+                cursor.execute(UPDATE_ASSERTION, {
+                    "id": assertion_id, "user_id": user_id, "state": state,
+                })
+        else:
+            with connection.cursor() as cursor:
+                cursor.execute(INSERT_ASSERTION, {
+                    "user_id": user_id, "predicate": predicate,
+                    "concept": concept_id, "version": version,
+                    "run": run_id, "state": state,
+                })
+                assertion_id = cursor.fetchone()["id"]
+
+        with connection.cursor() as cursor:
+            cursor.execute(DEMOTE_OTHER_PREDICATES, {
+                "user_id": user_id, "concept": concept_id,
+                "predicates": list(ASSERTABLE_PREDICATES), "keep": predicate,
+            })
+            superseded = cursor.fetchall()
+        if superseded:
+            counts["repredicated"] = counts.get("repredicated", 0) + len(superseded)
+            counts["decisions_carried"] = counts.get("decisions_carried", 0) + \
+                carry_user_decisions(
+                    connection, user_id=user_id, concept_id=concept_id,
+                    keep=predicate, retired=superseded, assertion_id=assertion_id,
+                )
+
+        payload = {
+            "concept_key": label.get("concept_key"),
+            "label": label.get("preferred_label"),
+            "kind": label.get("concept_kind"),
+            "predicate": predicate,
+            "derived": True,
+        }
+        with connection.cursor() as cursor:
+            cursor.execute(INSERT_SCORE_VERSION, {
+                "assertion": assertion_id, "user_id": user_id, "run": run_id,
+                "version": version, "strength": strength,
+                "confidence": confidence, "breadth": 1, "stability": 0.0,
+                "surfacing": strength * confidence,
+                "payload": json.dumps(payload),
+                "agreement": None, "quality": None,
+                "policy": policy_version, "as_of": as_of,
+            })
+            version_row = cursor.fetchone()
+        if version_row is None:
+            continue
+        score_version_id = version_row["id"]
+
+        # **Evidence names a real mapping, reached through a stated path.**
+        # `assertion_evidence` demands an observation mapping; the honest one
+        # is the strongest mapping behind each contributing source concept,
+        # with the path recording the hop count and λ that carried it here.
+        total = arrival["weight"] or 1.0
+        evidence_rows = []
+        for source_id, contribution, lam_path, hop_count in arrival["sources"][:5]:
+            with connection.cursor() as cursor:
+                cursor.execute(TOP_MAPPING_FOR_CONCEPT, {
+                    "run": run_id, "user_id": user_id, "concept": source_id,
+                })
+                top = cursor.fetchone()
+            if top is None:
+                continue
+            evidence_rows.append({
+                "version_id": score_version_id, "user_id": user_id,
+                "mapping": top["mapping_id"],
+                "contribution": min(1.0, contribution / total),
+                "group": top["independence_group"],
+                "path": json.dumps({
+                    "step": "lambda_propagation",
+                    "from_concept_key": (labels.get(source_id) or {}).get("concept_key"),
+                    "lambda_path": round(lam_path, 4),
+                    "hops": hop_count,
+                    "source": top["source_code"],
+                    "action": top["action_type"],
+                }),
+                "recency_weight": top["recency_weight"],
+                "recency_quality": top["recency_quality"],
+                "policy": top["recency_policy_version"],
+                "rule": top["recency_rule_id"],
+                "status": top["recency_status"],
+                "quality_label": top["recency_timestamp_quality"],
                 "as_of": as_of,
             })
         if evidence_rows:

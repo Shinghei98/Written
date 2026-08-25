@@ -1144,15 +1144,33 @@ is the full 12 regardless of `source_profile`.
 
 **A calendar item can therefore legally propose `performed_by`.**
 
-## 4. λ propagation is prepared apparatus, not live behaviour
+## 4. λ propagation is live (0359, scorer 0.18.0 — owner's directive 2026-08-25)
 
-`propagation_weight`, `reverse_propagation_weight`,
-`minimum_propagation_authority`, `minimum_relation_confidence` and
-`may_propagate_user_predicates` appear in exactly one file in the repository:
-`0291`. Neither `resolve.py` nor `score.py` reads them, and the taxonomy
-coefficients λ_parent / λ_root the header describes are not stored at all.
+**The dormancy this section used to record ended with `0359`.** The scorer
+walks every active curated/provider `concept_edges` row whose predicate
+carries `propagation_weight > 0` and whose own confidence clears the
+predicate's `minimum_relation_confidence`: per source concept, path weight
+is the max-over-paths product of per-edge λ; contributions sum across
+sources; the frontier prunes where `λ_path × W_source < 0.05`
+(`PROPAGATION_FLOOR`, raw pre-saturation units — unbounded hops, bounded
+effect). **A concept holding any direct mapping in the run receives
+nothing**, which is what makes propagated weight vocabulary-expansion rather
+than double-counting. `broader` carries λ_parent = 0.40
+(`registry_version = 'predicate-v2.1'`); the owner's worked example lands
+exactly: soundtrack_of 0.25 for the film, × 0.40 = 0.10 for its genre.
 
-(`granularity.py:393` has an unrelated field of the same name — not this.)
+Derived concepts are scored (`explanation.derived = true`), asserted mostly
+`candidate`, and their `assertion_evidence` names the strongest mapping
+behind each contributing source through a `lambda_propagation` evidence
+path. What is *shown* of the tail is the Memories cutoff's decision
+(`0360`): per (user, topical hub), versioned releases, exactly one active,
+`cutoff-v0` = show everything for the n=1 bootstrap fit
+(`tools/fit_memories_cutoff.py` → `memories_cutoff_dry_runs`, 0361).
+
+Still true: `reverse_propagation_weight` is 0 everywhere and unread;
+`presumed_term_relations` (0306) stays non-traversable — only catalogue
+edges propagate. (`granularity.py:393` has an unrelated field of the same
+name — not this.)
 
 ## 5. The compiled contract runs ahead of every registered release
 

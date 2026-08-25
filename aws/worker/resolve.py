@@ -342,6 +342,15 @@ CLASSICAL_PERFORMER_MIN_ALBUMS = 2
 # assertion needs.
 INCIDENTAL_PERFORMER_WEIGHT = 0.02
 
+# **A pop song's composer is a fact about the song, not much of one about the
+# listener** (owner's worked example, 2026-08-25: the composer of a
+# non-classical song counts "to a lesser degree"). In classical the composer
+# *is* the taste — Bach, whoever performs him — and keeps full weight; outside
+# it, the credit stands at a fraction, for the same reason `0038` refused to
+# tell a pop listener they are into Max Martin. 0.6 rather than incidental's
+# 0.02 because a stated composer credit is still a read, not a guess.
+NONCLASSICAL_COMPOSER_WEIGHT = 0.6
+
 
 def _term(text: str, role: str, source_field: str, type_hint: str | None,
           weight: float = 1.0) -> Term:
@@ -489,7 +498,9 @@ def terms_for(payload: dict[str, Any], action: str,
         # — but capped, because a pop track credits seventeen writers and only
         # the first few are who the song is by.
         for person in composers_in(composer):
-            terms.append(_term(person, "composer", "composer", "creator"))
+            terms.append(_term(
+                person, "composer", "composer", "creator",
+                weight=1.0 if classical else NONCLASSICAL_COMPOSER_WEIGHT))
 
     album = _text(payload.get("album"))
     if album and normalize_text(album) != normalize_text(title):
