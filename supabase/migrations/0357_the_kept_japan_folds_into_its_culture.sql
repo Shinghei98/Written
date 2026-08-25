@@ -127,9 +127,16 @@ begin
   end if;
 
   -- The keep is honoured: the user's assertion follows the subject it was
-  -- always about, and the provisional redirect follows with it.
+  -- always about, and the provisional redirect follows with it. The
+  -- composite foreign key (created_ontology_version_id, concept_id) →
+  -- concept_revisions *proves* the assertion names a revision that exists —
+  -- and culture:japan has no revision at the keep's original version, so
+  -- the pair moves together: the assertion is about the winner as of the
+  -- merge version. Found by the constraint itself on the first deploy,
+  -- which is what a proving key is for.
   update semantic_private.user_assertions
-     set concept_id = winner_id
+     set concept_id = winner_id,
+         created_ontology_version_id = new_version_id
    where concept_id = loser_id;
   get diagnostics assertions_moved = row_count;
 
