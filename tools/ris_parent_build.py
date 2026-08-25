@@ -114,6 +114,18 @@ INVERSE = {
 #: strong evidence of what it is.
 INVERSE_RANK = 1
 
+#: **The owner's rule, 2026-08-25: in one entry, look for the person first;
+#: every other term in that entry takes the person as its anchor for context.**
+#: The rule was bought by the routing queue's own contents: `California`,
+#: `Spanish Sahara` and `西西里` were sent to `hub:places_cultures` on their
+#: names alone — while `Chappell Roan`, `Foals` and `Jay Chou` stood in the
+#: same entries, each already resolvable to a music genre. A song wearing a
+#: place name is ambiguous; a song beside its performer is not. The anchor
+#: outranks every relation (rank below LINKING's 0), because the person is
+#: the one term in an entry whose identity survives ambiguity best — which is
+#: the same reason the person subtype pass exists at all.
+ANCHOR_RANK = -1
+
 
 #: Which key prefix each wire family may resolve against — mirrors
 #: `ontology.family_mint_convention` (0337), which is the copy that governs.
@@ -188,6 +200,19 @@ def main() -> int:
     already = 0
     for verdict in verdicts["verdicts"]:
         title = titles.get(verdict.get("row_id"), "")
+        # **Person first (owner's rule).** One sweep for the entry's persons
+        # before any term is recorded, so a term early in the mention list
+        # still anchors on a person emitted after it.
+        # A performing group is the entry's party as much as a person is —
+        # `Spanish Sahara` beside `Foals` missed its anchor on the first
+        # build because Foals is family `group`.
+        persons_in_entry = []
+        for mention in verdict.get("mentions", []):
+            if mention.get("family_hypothesis") in ("person", "group"):
+                person = (mention.get("canonical_label_hypothesis")
+                          or mention.get("surface") or "").strip()
+                if person and key(person) not in {key(p) for p in persons_in_entry}:
+                    persons_in_entry.append(person)
         for mention in verdict.get("mentions", []):
             if mention.get("parent_candidate_id"):
                 already += 1
@@ -213,6 +238,15 @@ def main() -> int:
                     "_related": collections.Counter(),
                 }
             record["seen"] += 1
+            # The anchor: every non-person term in the entry is prioritized to
+            # read against the entry's persons. A person does not anchor on a
+            # fellow person — a duet partner says nothing about who somebody is.
+            if family != "person":
+                for person in persons_in_entry:
+                    if key(person) != k[0]:
+                        record["_related"][(ANCHOR_RANK,
+                                           f"artist in this entry: {person}")] += 1
+                        record.setdefault("_anchor_persons", set()).add(person)
             # **Grounded means at least one mention carried a span.** The
             # corroboration guard downstream turns on this: a term attested
             # only by inference — the lane the offset checks cannot reach, and
@@ -286,6 +320,9 @@ def main() -> int:
         # be compared: this is the exact string the one-title pass was given.
         record["context_title"] = record["context_titles"][0] if record["context_titles"] else ""
         record["related"] = [r for (_rank, r), _n in related_ranked[:MAX_TITLES]]
+        # Carried structurally as well as in prose, because the merge inherits
+        # along anchors the same way it inherits along relations.
+        record["anchor_persons"] = sorted(record.pop("_anchor_persons", set()))
         rows.append(record)
 
     # ------------------------------------------------------------------
@@ -359,6 +396,7 @@ def main() -> int:
         "titles_available": sum(p["seen"] for p in rows),
         "terms_carrying_relations": sum(1 for p in rows if p["related"]),
         "inverse_statements_applied": inverses_applied,
+        "terms_carrying_anchor_person": sum(1 for p in rows if p["anchor_persons"]),
         "by_family": dict(families.most_common()),
         "out": str(out),
     }, indent=1, ensure_ascii=False))

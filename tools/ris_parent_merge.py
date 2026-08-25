@@ -126,6 +126,17 @@ def main() -> int:
 
     links: dict[tuple, set] = collections.defaultdict(set)
     for verdict in verdicts["verdicts"]:
+        # **The owner's rule, 2026-08-25: the entry's person anchors every
+        # other term in it.** `California` beside `Chappell Roan` is her song,
+        # whatever its name says; the person's placement flows to the entry's
+        # works exactly as an explicit `performed_by` would flow it. Persons do
+        # not anchor persons (a duet partner is not an identity), which is the
+        # same PARTY rule the explicit relations already obey.
+        persons_in_entry = {
+            key(m.get("canonical_label_hypothesis") or m.get("surface") or "")
+            for m in verdict.get("mentions", [])
+            if m.get("family_hypothesis") in ("person", "group")}
+        persons_in_entry.discard("")
         for mention in verdict.get("mentions", []):
             family = mention.get("family_hypothesis")
             label = (mention.get("canonical_label_hypothesis")
@@ -140,6 +151,10 @@ def main() -> int:
                 obj = key(relation.get("object_label_hypothesis"))
                 if obj and obj != subject[0]:
                     links[subject].add(obj)
+            # The anchor links: same-entry persons, for non-person subjects.
+            if family not in PARTY:
+                links[subject] |= {p for p in persons_in_entry
+                                   if p != subject[0]}
 
     moved = refused_ambiguous = refused_not_descendant = unlinked = 0
     changes = []

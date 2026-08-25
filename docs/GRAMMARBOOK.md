@@ -842,6 +842,32 @@ and `additionalProperties: false` does the work a forbidden-key list used to:
 never permitted, not because somebody remembered to name it. **The failure mode
 of a deny-list is silence.**"*
 
+## 2.14 The person is the anchor of the entry (owner's rule, 2026-08-25)
+
+**In one entry, look for the person first. Once a person is identified, every
+other term in that entry is prioritized to read against that person.**
+
+Bought by the routing queue's own contents: `California`, `Spanish Sahara` and
+`西西里` were routed to `hub:places_cultures` on their names alone, while
+`Chappell Roan`, `Foals` and `Jay Chou` stood in the same entries — each
+already resolvable to a music genre. A song wearing a place name is ambiguous;
+a song beside its performer is not. The person is the term whose identity
+survives ambiguity best, which is the same fact the person-subtype vocabulary
+rests on.
+
+Two enforcement points, and neither is a prompt instruction:
+
+- **Context** (`ris_parent_build.py`): each entry is swept for persons before
+  any term is recorded; every non-person term gains
+  `person in this entry: <name>` at a rank above every relation
+  (`ANCHOR_RANK = -1` against `LINKING`'s 0–3), and carries `anchor_persons`
+  structurally beside the prose.
+- **Inheritance** (`ris_parent_merge.py`): a non-person term links to its
+  entry's persons exactly as an explicit `performed_by` would link it, so the
+  person's placement flows to the entry's works under the same demotion-only,
+  closure-checked rules. Persons do not anchor persons — a duet partner is not
+  an identity — the same `PARTY` asymmetry the explicit relations obey.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
