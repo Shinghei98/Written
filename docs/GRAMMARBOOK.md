@@ -842,10 +842,17 @@ and `additionalProperties: false` does the work a forbidden-key list used to:
 never permitted, not because somebody remembered to name it. **The failure mode
 of a deny-list is silence.**"*
 
-## 2.14 The person is the anchor of the entry (owner's rule, 2026-08-25)
+## 2.14 The anchor ladder of an entry (owner's rule, 2026-08-25)
 
-**In one entry, look for the person first. Once a person is identified, every
-other term in that entry is prioritized to read against that person.**
+**In one entry, look for the person first. Once a person (or performing
+group) is identified, every other term in that entry is prioritized to read
+against them. If no person is found, the entry's franchise anchors; if no
+franchise, its work: `person -> franchise -> work`, strictly a fallback —
+only the highest non-empty tier anchors, because a lower tier beside a
+higher one is the thing being anchored, not the anchor.** Parties are
+anchors, never receivers: a duet partner is not an identity, and a
+character (family `person`) anchors its entry rather than inheriting from
+it.
 
 Bought by the routing queue's own contents: `California`, `Spanish Sahara` and
 `西西里` were routed to `hub:places_cultures` on their names alone, while

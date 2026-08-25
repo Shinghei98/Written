@@ -114,8 +114,12 @@ INVERSE = {
 #: strong evidence of what it is.
 INVERSE_RANK = 1
 
-#: **The owner's rule, 2026-08-25: in one entry, look for the person first;
-#: every other term in that entry takes the person as its anchor for context.**
+#: **The owner's rule, 2026-08-25, extended the same day to a ladder:
+#: person -> franchise -> work.** In one entry, look for the person (or
+#: performing group) first; if none, the entry's franchise is the anchor; if
+#: no franchise, its work. Strictly a fallback — only the highest non-empty
+#: tier anchors, because a lower tier beside a higher one is the thing being
+#: anchored, not the anchor.**
 #: The rule was bought by the routing queue's own contents: `California`,
 #: `Spanish Sahara` and `西西里` were sent to `hub:places_cultures` on their
 #: names alone — while `Chappell Roan`, `Foals` and `Jay Chou` stood in the
@@ -125,6 +129,19 @@ INVERSE_RANK = 1
 #: the one term in an entry whose identity survives ambiguity best — which is
 #: the same reason the person subtype pass exists at all.
 ANCHOR_RANK = -1
+
+#: The ladder's tiers, highest first, each with the phrase the prompt shows.
+#: Work-shaped families all count as the work tier. Note the asymmetry this
+#: preserves: a character is family `person`, so an entry holding one anchors
+#: *on* the character (tier 1) — parties are anchors, never receivers, and a
+#: work tier only ever fires in an entry with no party and no franchise at
+#: all.
+ANCHOR_TIERS = (
+    (("person", "group"), "artist in this entry"),
+    (("franchise",), "franchise in this entry"),
+    (("work", "anime", "book", "game", "music_work", "album"),
+     "work in this entry"),
+)
 
 
 #: Which key prefix each wire family may resolve against — mirrors
@@ -200,19 +217,27 @@ def main() -> int:
     already = 0
     for verdict in verdicts["verdicts"]:
         title = titles.get(verdict.get("row_id"), "")
-        # **Person first (owner's rule).** One sweep for the entry's persons
-        # before any term is recorded, so a term early in the mention list
-        # still anchors on a person emitted after it.
-        # A performing group is the entry's party as much as a person is —
-        # `Spanish Sahara` beside `Foals` missed its anchor on the first
-        # build because Foals is family `group`.
-        persons_in_entry = []
+        # **The ladder (owner's rule): person -> franchise -> work.** One
+        # sweep collects every tier; the highest non-empty tier anchors. A
+        # performing group counts as the person tier — `Spanish Sahara`
+        # beside `Foals` missed its anchor when only literal persons did.
+        tier_labels = {i: [] for i in range(len(ANCHOR_TIERS))}
         for mention in verdict.get("mentions", []):
-            if mention.get("family_hypothesis") in ("person", "group"):
-                person = (mention.get("canonical_label_hypothesis")
-                          or mention.get("surface") or "").strip()
-                if person and key(person) not in {key(p) for p in persons_in_entry}:
-                    persons_in_entry.append(person)
+            fam = mention.get("family_hypothesis")
+            lab = (mention.get("canonical_label_hypothesis")
+                   or mention.get("surface") or "").strip()
+            if not lab:
+                continue
+            for i, (families, _phrase) in enumerate(ANCHOR_TIERS):
+                if fam in families:
+                    if key(lab) not in {key(x) for x in tier_labels[i]}:
+                        tier_labels[i].append(lab)
+                    break
+        anchor_tier = next((i for i in range(len(ANCHOR_TIERS))
+                            if tier_labels[i]), None)
+        persons_in_entry = tier_labels[anchor_tier] if anchor_tier is not None else []
+        anchor_families = ANCHOR_TIERS[anchor_tier][0] if anchor_tier is not None else ()
+        anchor_phrase = ANCHOR_TIERS[anchor_tier][1] if anchor_tier is not None else ""
         for mention in verdict.get("mentions", []):
             if mention.get("parent_candidate_id"):
                 already += 1
@@ -238,14 +263,14 @@ def main() -> int:
                     "_related": collections.Counter(),
                 }
             record["seen"] += 1
-            # The anchor: every non-person term in the entry is prioritized to
-            # read against the entry's persons. A person does not anchor on a
-            # fellow person — a duet partner says nothing about who somebody is.
-            if family != "person":
+            # The anchor: every term outside the anchoring tier reads against
+            # it. Parties never receive anchors (a duet partner is not an
+            # identity), and a tier never anchors its own members.
+            if family not in anchor_families and family not in ("person", "group"):
                 for person in persons_in_entry:
                     if key(person) != k[0]:
                         record["_related"][(ANCHOR_RANK,
-                                           f"artist in this entry: {person}")] += 1
+                                           f"{anchor_phrase}: {person}")] += 1
                         record.setdefault("_anchor_persons", set()).add(person)
             # **Grounded means at least one mention carried a span.** The
             # corroboration guard downstream turns on this: a term attested

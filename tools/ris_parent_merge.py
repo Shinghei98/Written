@@ -132,11 +132,21 @@ def main() -> int:
         # works exactly as an explicit `performed_by` would flow it. Persons do
         # not anchor persons (a duet partner is not an identity), which is the
         # same PARTY rule the explicit relations already obey.
-        persons_in_entry = {
-            key(m.get("canonical_label_hypothesis") or m.get("surface") or "")
-            for m in verdict.get("mentions", [])
-            if m.get("family_hypothesis") in ("person", "group")}
-        persons_in_entry.discard("")
+        # The ladder: person -> franchise -> work; the highest non-empty
+        # tier anchors, and only that tier.
+        tiers = (("person", "group"), ("franchise",),
+                 ("work", "anime", "book", "game", "music_work", "album"))
+        persons_in_entry: set = set()
+        anchor_families: tuple = ()
+        for tier in tiers:
+            found = {
+                key(m.get("canonical_label_hypothesis") or m.get("surface") or "")
+                for m in verdict.get("mentions", [])
+                if m.get("family_hypothesis") in tier}
+            found.discard("")
+            if found:
+                persons_in_entry, anchor_families = found, tier
+                break
         for mention in verdict.get("mentions", []):
             family = mention.get("family_hypothesis")
             label = (mention.get("canonical_label_hypothesis")
@@ -151,8 +161,9 @@ def main() -> int:
                 obj = key(relation.get("object_label_hypothesis"))
                 if obj and obj != subject[0]:
                     links[subject].add(obj)
-            # The anchor links: same-entry persons, for non-person subjects.
-            if family not in PARTY:
+            # The anchor links: the entry's anchor tier, for subjects outside
+            # both that tier and the party set.
+            if family not in PARTY and family not in anchor_families:
                 links[subject] |= {p for p in persons_in_entry
                                    if p != subject[0]}
 
