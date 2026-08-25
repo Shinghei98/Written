@@ -89,20 +89,30 @@ def main() -> int:
         t = truth.get(answer["key"])
         if not t:
             continue
-        assigned = answer.get("parent")
+        # Any-placement scoring (owner's rule): a term with per-hub
+        # placements is judged on its best one — one may be a screen genre
+        # and another the authored music genre, and both being held is the
+        # design, not a tie to break.
+        candidates = [answer.get("parent")] if answer.get("parent") else []
+        for pl in answer.get("placements") or ():
+            if pl.get("parent") and pl["parent"] not in candidates:
+                candidates.append(pl["parent"])
+        assigned = candidates[0] if candidates else None
         authored = [p for p in t["parents"]
                     if not p.split(":")[0] in ("era", "sphere", "scene")]
-        if assigned in (None, "none"):
-            abstained += 1
-        elif assigned == "needs_new_parent":
-            routed += 1
-        elif assigned in authored:
+        real = [c for c in candidates if c not in ("none", "needs_new_parent")]
+        if not real:
+            if "needs_new_parent" in candidates:
+                routed += 1
+            else:
+                abstained += 1
+        elif any(c in authored for c in real):
             exact += 1
-        elif any(related(assigned, p, ancestors) for p in authored):
+        elif any(related(c, p, ancestors) for c in real for p in authored):
             congruent += 1
         else:
             misassigned += 1
-            misses.append((answer["key"], assigned, authored))
+            misses.append((answer["key"], real, authored))
     judged = exact + congruent + misassigned
     holdout_report = {
         "holdout_terms": len(holdout),
@@ -183,7 +193,8 @@ def main() -> int:
                      indent=1, ensure_ascii=False))
     print("\nholdout misassignments (term, assigned, authored):")
     for k, a, t in misses[:20]:
-        print(f"  {k[:34]:<36} {a:<28} truth={t}")
+        shown = a if isinstance(a, str) else ", ".join(a)
+        print(f"  {k[:34]:<36} {shown:<40} truth={t}")
     print("\nanchor-incongruent samples:")
     for k, p, anchor, targets in flags[:12]:
         print(f"  {k[:30]:<32} at {p:<24} anchor {anchor[:20]:<22} -> {targets[:2]}")

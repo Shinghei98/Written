@@ -875,6 +875,33 @@ Two enforcement points, and neither is a prompt instruction:
   closure-checked rules. Persons do not anchor persons — a duet partner is not
   an identity — the same `PARTY` asymmetry the explicit relations obey.
 
+## 2.15 One placement per hub, many across hubs (owner's rule, 2026-08-25)
+
+**A term counts toward at most one parent within a cardinal hub, and toward
+any number of hubs** — genre and person's world, work and movement. Enforced
+by `presumed_term_placements`' unique `(label, family, hub)` (0353), never by
+convention; the primary `proposed_parent_concept_id` keeps its exact prior
+semantics beside the multiples.
+
+**A correction is part of this rule's record.** The first justification
+claimed the holdout's eight misses were stage collisions with an earlier
+stage holding the truth. That table was contaminated: the "truth-holding"
+rows were catalogue pseudo-anchors — the answer key itself, present because
+holdout terms are catalogue-resolved. Measured honestly, the three original
+stages produce **zero** cross-hub disagreements, so the rule is realised by a
+**fourth stage**: the cross-hub second ask, run wherever a term's anchor
+lives in a hub the term holds no placement in — the anchor audit's flagged
+pairs (Persona 5 at `role_playing_game` beside its singer at `soundtrack`)
+being the genuine instances.
+
+Measured effect (v19, 200-term authored-truth holdout, any-placement
+scoring): misassignment **4.7% → 3.0%**, anchor incongruence **8.2% → 2.2%**,
+**130 terms** legitimately multi-hub. Two rules the implementation bought:
+**a bare hub is routing, not placement** (judging hub answers as assignments
+turned 24 abstentions into fake misses), and in-batch dedupe on the
+constrained key, because `on conflict do update` refuses to touch a row twice
+in one statement.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
