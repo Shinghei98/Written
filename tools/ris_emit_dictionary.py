@@ -127,8 +127,14 @@ def load_parents(path: pathlib.Path) -> dict:
         # concatenated.
         current = answers.get((key, family))
         confidence = float(answer.get("confidence") or 0)
+        # **Strict means the heading was on the run's own candidate list.** An
+        # inherited placement came from catalogue ancestry, which includes
+        # runtime-minted concepts (`kept_` keys, the genre miner's mints) — a
+        # clean replay legitimately does not hold those, so they resolve
+        # best-effort while a missing *candidate* stays a broken run.
+        strict = answer.get("parent_source") != "inherited"
         if current is None or confidence > current[1]:
-            answers[(key, family)] = (parent, confidence)
+            answers[(key, family)] = (parent, confidence, strict)
     return {"placements": answers, "declined": declined, "unkeyed": unkeyed}
 
 
@@ -653,24 +659,42 @@ $$;""")
         out.append(
             "  create temporary table _placement "
             "(normalized_label text, family text, parent_key text, "
-            "confidence numeric) on commit drop;")
+            "confidence numeric, strict boolean) on commit drop;")
         out.append("  insert into _placement values")
         out.append(",\n".join(
-            "    ({}, {}, {}, {})".format(
-                quote(key), quote(family), quote(parent), round(confidence, 4))
-            for (key, family), (parent, confidence) in sorted(placed.items())))
+            "    ({}, {}, {}, {}, {})".format(
+                quote(key), quote(family), quote(parent), round(confidence, 4),
+                "true" if strict else "false")
+            for (key, family), (parent, confidence, strict)
+            in sorted(placed.items())))
         out.append("""  ;
-  -- **A heading this database does not hold is a broken run, not a skip.**
-  -- The candidate list travels with the items file, so a key that resolves to
-  -- nothing means the pass was asked about an ontology that has since moved —
-  -- and a left join would write null and call it placement.
+  -- **A missing heading means two different things, split by how the
+  -- placement arrived.** A *candidate* heading travelled with the items file,
+  -- so its absence means the pass was asked about an ontology that has since
+  -- moved — a broken run, and it raises. An *inherited* heading came from
+  -- catalogue ancestry, which includes runtime-minted concepts (`kept_` keys,
+  -- the genre miner's `genre:britpop`) that a clean replay legitimately does
+  -- not hold — those resolve best-effort and the misses are counted, because
+  -- the first version raised on `genre:britpop` and made the whole load
+  -- unreplayable over a heading production genuinely holds.
   select string_agg(distinct p.parent_key, ', ') into missing
     from _placement p
-   where not exists (select 1 from ontology.concepts c
+   where p.strict
+     and not exists (select 1 from ontology.concepts c
                       where c.concept_key = p.parent_key
                         and c.retired_at is null);
   if missing is not null then
-    raise exception '%: placement names headings this database does not hold: %',
+    raise exception '%: placement names candidate headings this database does not hold: %',
+      '""" + number + """', missing;
+  end if;
+  select string_agg(distinct p.parent_key, ', ') into missing
+    from _placement p
+   where not p.strict
+     and not exists (select 1 from ontology.concepts c
+                      where c.concept_key = p.parent_key
+                        and c.retired_at is null);
+  if missing is not null then
+    raise notice '%: inherited headings not held here, skipped: %',
       '""" + number + """', missing;
   end if;
 
@@ -722,6 +746,22 @@ begin
   select count(*) into n from semantic_private.presumed_terms
    where family_support_share is not null and family_support_share < 0.2;
   raise notice '{number}: % are a minority reading of their own label', n;
+end;
+$$;
+
+-- **Every load ends with the resolver — 0340's own rule, honoured by the
+-- emitter rather than remembered by an operator.** The first load shipped
+-- with 1,475 rows naming concepts the catalogue already published and none
+-- linked, because resolution was a step somebody had to think of. Exact
+-- identity, kind agreement, ambiguity refused; the counts land in the log.
+do $$
+declare
+  r record;
+begin
+  select * into r from semantic_private.resolve_presumed_terms_to_catalogue();
+  raise notice
+    '{number}: resolver linked %, refused % ambiguous, % kind-mismatched',
+    r.linked, r.ambiguous, r.kind_mismatch;
 end;
 $$;
 """)
