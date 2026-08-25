@@ -375,17 +375,25 @@ SLICES: tuple[Slice, ...] = (
     #
     # **A genre's fame is its own**, like a sport's and unlike an athlete's —
     # the sitelink bound measures the thing itself, so the athletes failure
-    # mode does not apply. Direct `P31`, no subclass walk: `P279*` from
-    # `music genre` reaches individual scenes and microgenres; the instances
-    # of the class itself are the recognised level the owner asked for.
+    # mode does not apply.
+    #
+    # **Corrected 2026-08-25: the walk is the default, and the floor is the
+    # depth guard.** The first cut used direct `P31` on the reasoning that
+    # `P279*` reaches microgenres — half-right, and the measured cost was the
+    # whole regional tier: Peking opera is `instance of: opera genre`, a
+    # subclass, so the direct fetch left Kunqu, Peking and Yue opera invisible
+    # while a corpus full of them refused every heading. The cuisines slice
+    # had already learned this (Italian cuisine is an instance of *national
+    # cuisine*); the genre slices refused the same lesson. A microgenre nobody
+    # writes about falls below any floor; Peking opera does not.
     Slice(
         name="music_genres",
         kind="genre",
         prefix="genre:",
         minimum_sitelinks=25,
-        where="?item wdt:P31 wd:Q188451 .",
+        where="?item wdt:P31/wdt:P279* wd:Q188451 .",
         parent_key="hub:music",
-        notes="music genre (Q188451)",
+        notes="music genre (Q188451), subclass walk for the regional tier",
         precedence=25,
     ),
     Slice(
@@ -393,9 +401,9 @@ SLICES: tuple[Slice, ...] = (
         kind="genre",
         prefix="genre:",
         minimum_sitelinks=20,
-        where="?item wdt:P31 wd:Q201658 .",
+        where="?item wdt:P31/wdt:P279* wd:Q201658 .",
         parent_key="hub:film_video",
-        notes="film genre (Q201658)",
+        notes="film genre (Q201658), subclass walk",
         precedence=26,
     ),
     Slice(
@@ -403,9 +411,9 @@ SLICES: tuple[Slice, ...] = (
         kind="genre",
         prefix="genre:",
         minimum_sitelinks=15,
-        where="?item wdt:P31 wd:Q15961987 .",
+        where="?item wdt:P31/wdt:P279* wd:Q15961987 .",
         parent_key="hub:film_video",
-        notes="television genre (Q15961987)",
+        notes="television genre (Q15961987), subclass walk",
         precedence=27,
     ),
     Slice(
@@ -413,9 +421,9 @@ SLICES: tuple[Slice, ...] = (
         kind="genre",
         prefix="genre:",
         minimum_sitelinks=15,
-        where="?item wdt:P31 wd:Q659563 .",
+        where="?item wdt:P31/wdt:P279* wd:Q659563 .",
         parent_key="hub:games_play",
-        notes="video game genre (Q659563)",
+        notes="video game genre (Q659563), subclass walk",
         precedence=28,
     ),
     # **The 2026-08-25 audit's three (owner: "fetch all three").** These parent
@@ -446,6 +454,20 @@ SLICES: tuple[Slice, ...] = (
         parent_key="medium:literary_genres",
         notes="literary genre (Q223393)",
         precedence=31,
+    ),
+    Slice(
+        name="theatre_genres",
+        kind="genre",
+        prefix="genre:",
+        # The class the audit skipped — stage had no slice at all, which is
+        # half of how three Chinese opera traditions went unrepresented while
+        # a corpus full of their recordings refused every heading. The trio
+        # must arrive through this rule, never by being typed into a file.
+        minimum_sitelinks=12,
+        where="?item wdt:P31/wdt:P279* wd:Q7777573 .",
+        parent_key="medium:stage_genres",
+        notes="theatrical genre (Q7777573), subclass walk",
+        precedence=30,
     ),
     Slice(
         name="comics_genres",

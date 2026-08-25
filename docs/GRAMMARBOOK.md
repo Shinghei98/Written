@@ -902,6 +902,30 @@ turned 24 abstentions into fake misses), and in-batch dedupe on the
 constrained key, because `on conflict do update` refuses to touch a row twice
 in one statement.
 
+## 2.16 The recognised regional tier lives one subclass down (owner's rule, 2026-08-25)
+
+**Heading-like slices fetch `P31/P279*` from the class; depth is governed by
+the sitelink floor, never by refusing the walk.** Named by the owner after the
+Chinese-opera gap, with the instruction that mattered: *learn from the error —
+if there are other genres, extend from the rule* — never patch the instance.
+
+Three instances of the same error:
+
+1. **Cuisines** (caught at fetch): Italian cuisine is an instance of *national
+   cuisine*, a subclass — that slice walked from day one.
+2. **Chinese opera** (missed): Peking opera is `instance of: opera genre`, a
+   subclass direct `P31` never reaches — so Kunqu, Peking and Yue opera were
+   invisible while a corpus full of their recordings refused every heading.
+3. **The original anti-walk reasoning was half-wrong**: "instances of the
+   class are the recognised level" is true of the top tier and false of the
+   regional one; a microgenre nobody writes about falls below any floor, and
+   Peking opera does not.
+
+The acceptance condition, met by `0355`: the trio arrives **from the rule**,
+never typed into any file — and brought Cantonese opera, Noh and Kabuki with
+it, plus 106 stage genres under a class the audit had skipped entirely
+(`medium:stage_genres`, theatrical genre Q7777573).
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
