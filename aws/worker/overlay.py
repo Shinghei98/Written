@@ -221,8 +221,11 @@ earned as (
      and e.ontology_version_id = (select id from published)
      -- An era is an axis and a sphere is a scope; neither is a parent a new
      -- term may be filed under. Same exclusion the assertion allowlist makes.
-     -- Hubs are excluded here because the floor above already carries them.
-     and c.concept_key !~ '^(era|sphere|scene|hub):'
+     -- Hubs are excluded here because the floor above already carries
+     -- them; a medium: layer node (0348) is structure, not a
+     -- destination — offering "Music genres" would recreate the
+     -- hub-dump one level down.
+     and c.concept_key !~ '^(era|sphere|scene|hub|medium):'
    group by c.concept_key, cr.preferred_label
    order by count(distinct e.subject_concept_id) desc, c.concept_key
    limit 25

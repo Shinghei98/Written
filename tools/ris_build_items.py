@@ -759,7 +759,7 @@ def main() -> int:
              and cr.ontology_version_id = e.ontology_version_id
            where e.predicate_key = 'broader' and e.status = 'active'
              and e.ontology_version_id = (select id from published)
-             and c.concept_key !~ '^(era|sphere|scene|hub):'
+             and c.concept_key !~ '^(era|sphere|scene|hub|medium):'
            group by c.concept_key, cr.preferred_label
            order by count(distinct e.subject_concept_id) desc, c.concept_key
            limit 25
