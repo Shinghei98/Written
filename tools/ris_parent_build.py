@@ -86,6 +86,34 @@ LINKING = {"member_of_group": 0, "part_of_franchise": 1, "soundtrack_of": 1,
            "composed_by": 2, "created_by": 2,
            "performed_by": 3, "recording_of": 3}
 
+#: **The inverse direction, and the term it exists for.** `Jekyll & Hyde` the
+#: franchise was placed under `genre:pop` with `genre:musicals` on offer and
+#: the words "Musical … Cast Recording" in its own prompt — because the
+#: franchise record carried `related: []`. Its songs each said
+#: `part_of_franchise -> Jekyll & Hyde`; nothing said anything back. A term
+#: whose whole identity is "the thing these works belong to" arrived with no
+#: structural statement of it, which is the thinnest record a term can have:
+#: inference-only, no offsets, no relations.
+#:
+#: So belonging-type relations now write an inverse line onto the *object's*
+#: record — the franchise learns which works it contains, the group which
+#: members it has. Maker-type predicates (`performed_by`, `composed_by`) are
+#: deliberately absent: a person's record already carries their titles, and
+#: "performed X" fifty times over is noise, not identity.
+#:
+#: The object's family comes from the same predicate map the dictionary
+#: emitter states (`_OBJECT_FAMILY_FOR`); copied for the same reason it copies
+#: the worker's — this tool must load without psycopg — and the worker's is
+#: the copy that governs.
+INVERSE = {
+    "part_of_franchise": ("franchise", "franchise of"),
+    "member_of_group": ("group", "has member"),
+    "soundtrack_of": ("work", "soundtrack includes"),
+}
+#: Below membership (0), above maker-credits (3): what a thing contains is
+#: strong evidence of what it is.
+INVERSE_RANK = 1
+
 
 #: Which key prefix each wire family may resolve against — mirrors
 #: `ontology.family_mint_convention` (0337), which is the copy that governs.
@@ -154,6 +182,9 @@ def main() -> int:
                 candidates = item.get("parent_candidates", [])
 
     picked: dict[tuple[str, str], dict] = {}
+    #: Inverse statements buffered until every record exists — a franchise
+    #: mentioned on shard one must still receive members from shard four.
+    inverse_buffer: dict[tuple[str, str], collections.Counter] = collections.defaultdict(collections.Counter)
     already = 0
     for verdict in verdicts["verdicts"]:
         title = titles.get(verdict.get("row_id"), "")
@@ -211,6 +242,23 @@ def main() -> int:
                 if key(obj) == k[0]:
                     continue
                 record["_related"][(LINKING[predicate], f"{predicate} {obj}")] += 1
+                # The inverse: the object learns what points at it.
+                if predicate in INVERSE:
+                    obj_family, phrase = INVERSE[predicate]
+                    inverse_buffer[(key(obj), obj_family)][f"{phrase} {label}"] += 1
+
+    # Apply the buffered inverses now that every record exists. Only onto
+    # records that were actually picked — an object that never appeared as a
+    # term of its own has nowhere to receive them, and inventing a record for
+    # it here would smuggle relation objects back into the ask list.
+    inverses_applied = 0
+    for target, statements in inverse_buffer.items():
+        record = picked.get(target)
+        if record is None:
+            continue
+        for statement, count in statements.items():
+            record["_related"][(INVERSE_RANK, statement)] += count
+            inverses_applied += 1
 
     # **Chosen by frequency, then by length, and the second half is not a
     # nicety.** First-writer-wins handed `One Piece` the title `Sen No Yoru Wo
@@ -310,6 +358,7 @@ def main() -> int:
         "titles_shown": sum(len(p["context_titles"]) for p in rows),
         "titles_available": sum(p["seen"] for p in rows),
         "terms_carrying_relations": sum(1 for p in rows if p["related"]),
+        "inverse_statements_applied": inverses_applied,
         "by_family": dict(families.most_common()),
         "out": str(out),
     }, indent=1, ensure_ascii=False))
