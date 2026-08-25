@@ -170,6 +170,15 @@ def _payload_for(job_type: str, user_id: str, connection) -> dict:
                 "   and status = 'active'")
             for row in cursor.fetchall():
                 payload[f"{row['model_role']}_model_id"] = row["model_id"]
+            # The third identity key, from where 0093's armer takes it. The
+            # armer tolerates its absence, so a null travels rather than the
+            # key being dropped — `resolve_user` indexes it unconditionally.
+            cursor.execute(
+                "select id::text as model_id from ontology.embedding_models"
+                " where status = 'active'"
+                " order by created_at desc, id limit 1")
+            row = cursor.fetchone()
+            payload["embedding_model_id"] = row["model_id"] if row else None
     return payload
 
 
