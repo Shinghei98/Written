@@ -27,7 +27,7 @@ SHARD=$1
 
 # **The prompt version this job is.** A literal — the long note at the gate
 # below says why it must not be read from the contract.
-WANT=qwen_extractor_v19
+WANT=qwen_extractor_v20
 # **Every versioned path derives from it, and that is the second half of the
 # same lesson.** The shard read, the results written and the compile cache all
 # said `v16` while the prompt had moved to v18, so a v18 run landed in files

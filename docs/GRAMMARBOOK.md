@@ -1016,6 +1016,33 @@ once** — λ propagation sums across sources through `part_of_franchise`
 (λ 0.45). Scorer 0.19.0 (`0376`) opened the one wall this needed:
 promoted relation edges conduct λ.
 
+## 2.20 A manufactured representation is validated, never prompted (2026-08-25)
+
+**A rule about a representation that another rule manufactures cannot live
+in the prompt.** Prompt rules are declarative over the surfaces the model
+reads; its own transformations then create surfaces no rule re-checks, and
+ordering cannot be prompted. Measured on v20's first half: the
+strip-the-credits rule manufactured the bare container "Violin Concertos"
+out of "Brahms & Ligeti: Violin Concertos" *downstream* of the
+container-rule checkpoint. Such rules are enforced deterministically at
+validation (`tools/ris_validate_corrections.py`), over the final emitted
+labels:
+
+- **An album term's name is the release title, whole and verbatim**
+  (owner's identity ruling) — stripping is for commentary around a title,
+  never parts of it; restored from the input's own album field, so it
+  applies retroactively with no re-extraction. 127 names restored on the
+  first half-corpus.
+- **A work claiming `composed_by` two distinct composers is a container**
+  — a grammatical impossibility, not a vocabulary list; dropped, its
+  people surviving as their own mentions. Albums exempt: a two-composer
+  release is a real thing to own. 17 dropped on the first half-corpus.
+
+The prompt-side wording is still corrected for the *next* version (the
+workbook stages `qwen_extractor_v21`; the compiled contract remains the
+run's truth until the next emit) — a better instruction reduces the
+correction count, but the validator is the guarantee.
+
 **Identity mints; weight measures (owner's correction, same day).** The
 support ≥ 2 floor conflated the two — and was miscalibrated besides: a
 work states its franchise about once, so per-pair support of 2 refused

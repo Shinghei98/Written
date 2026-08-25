@@ -18,6 +18,12 @@
 #                       `run_relabel.sh` already carried the warning: *"a
 #                       truncated one matches nothing and reads as scarcity."*
 #
+# **`-oo` rather than `-o`, and that is a third one.** `-o` *appends*, so a run
+# submitted under a log name a previous run already used writes beneath it —
+# and `tail` then shows the last run's ending as though it were this one's
+# progress. Found on 2026-08-24 with five jobs queued against logs holding a
+# completed pass. `-oo` overwrites, so the file means one run.
+#
 # The GPU spec below is the one that has actually completed a job here: the
 # relabel pass ran to "Successfully completed" on `compute1-exec-401` with it.
 #
@@ -38,6 +44,20 @@ set -euo pipefail
 ROOT=/storage2/fs1/erichuang/Active/Users/David/written
 WORK=$ROOT/work
 
+# **The version is read out of `run_extract.sh`, never written again here.**
+# Two literals would be two places to edit, and this is the one that would be
+# forgotten: the staged-shard check below and the job's own input path would
+# then disagree about which file is the shard, and the refusal would name a
+# name nothing had ever written. Grepped rather than sourced — sourcing that
+# script runs it, and it opens `$1` under `set -u`.
+WANT=$(grep -m1 '^WANT=' "$WORK/run_extract.sh" | cut -d= -f2)
+VER=${WANT##*_}
+if [ -z "$VER" ]; then
+  echo "refusing: cannot read the prompt version from $WORK/run_extract.sh" >&2
+  exit 1
+fi
+echo "prompt version: $WANT  (paths carry $VER)"
+
 export LSF_DOCKER_ENTRYPOINT=/bin/bash
 export LSF_DOCKER_VOLUMES="/storage2/fs1/erichuang/Active:/storage2/fs1/erichuang/Active"
 
@@ -50,8 +70,8 @@ fi
 # costs an hour of queue time to discover otherwise, and the job's own contract
 # check cannot run until a host has been found.
 for s in "${SHARDS[@]}"; do
-  if [ ! -f "$WORK/v16_shard_$s.jsonl" ]; then
-    echo "refusing: $WORK/v16_shard_$s.jsonl is not staged" >&2
+  if [ ! -f "$WORK/${VER}_shard_$s.jsonl" ]; then
+    echo "refusing: $WORK/${VER}_shard_$s.jsonl is not staged" >&2
     exit 1
   fi
 done
@@ -59,12 +79,12 @@ done
 for s in "${SHARDS[@]}"; do
   bsub -q general -G compute-gfwu -n 8 -M 64GB \
        -R "rusage[mem=64GB]" \
-       -R "select[hname!='compute1-exec-399']" \
+       -R "select[hname!='compute1-exec-399' && hname!='compute1-exec-394']" \
        -gpu "num=1:gmodel=NVIDIAA100_SXM4_80GB" \
        -R "gpuhost" \
        -a "docker(vllm/vllm-openai:v0.27.1)" \
        -J "wx$s" \
-       -o "$WORK/extract_v16_$s.log" \
+       -oo "$WORK/extract_${VER}_$s.log" \
        bash "$WORK/run_extract.sh" "$s"
 done
 

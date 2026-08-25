@@ -169,6 +169,7 @@ def main() -> int:
 
     moved = refused_ambiguous = refused_not_descendant = unlinked = 0
     changes = []
+    flags: list = []
     for answer in answers:
         parent = answer.get("parent")
         if not parent or parent in ("none", "needs_new_parent"):
@@ -181,6 +182,34 @@ def main() -> int:
         candidates.discard(parent)
         if not candidates:
             unlinked += 1
+            continue
+
+        # **A party's stated membership BINDS (the ladder's tier 1, owner
+        # 2026-08-25).** For a person or group whose entry stated a
+        # `member_of_group` whose group's heading is known, the group's
+        # heading wins *even across branches* — wu hao's evidence named the
+        # Hao Xuan Peking Opera group and the model still chose Cantonese
+        # opera; structure beats the model, and a contradiction is flagged,
+        # never silently applied over. Two distinct group headings still
+        # refuse: ambiguity holds, as everywhere.
+        if answer.get("family") in PARTY:
+            distinct = sorted(candidates)
+            if len(distinct) == 1:
+                bound = distinct[0]
+                contradicts = (parent != bound
+                               and parent not in (ancestors.get(bound) or ()))
+                changes.append((answer["key"], parent, bound))
+                if contradicts:
+                    flags.append({
+                        "key": answer["key"], "label": answer.get("label"),
+                        "model_said": parent, "bound_to": bound,
+                        "via": "member_of_group"})
+                answer["parent"] = bound
+                answer["parent_source"] = "inherited"
+                answer["parent_inherited_from"] = parent
+                moved += 1
+            else:
+                refused_ambiguous += 1
             continue
 
         # **Keep only headings strictly below this one.** `parent in
@@ -208,8 +237,16 @@ def main() -> int:
     out_path.write_text(
         "\n".join(json.dumps(a, ensure_ascii=False) for a in answers) + "\n",
         encoding="utf-8")
+    # The binding contradictions, beside the output: the report artifact the
+    # ladder promises — a model answer overridden by stated membership is a
+    # fact somebody reads, never a silent replacement.
+    flags_path = out_path.with_suffix(".flags.jsonl")
+    flags_path.write_text(
+        "\n".join(json.dumps(f, ensure_ascii=False) for f in flags)
+        + ("\n" if flags else ""), encoding="utf-8")
 
     print(json.dumps({
+        "binding_flags": len(flags),
         "answers": len(answers),
         "moved_to_a_more_specific_heading": moved,
         "refused_no_linked_term_placed": unlinked,
