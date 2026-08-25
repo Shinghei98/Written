@@ -135,8 +135,25 @@ def main() -> int:
                          "empty and every proposal unconstrained")
     hub_ids = [str(h["term_id"]) for h in hubs]
 
+    # **A bare-hub placement is the routing signal, said implicitly.** The
+    # explicit exit fired zero times in its first 2,135 live answers while 94%
+    # of placements dumped onto hubs — the fifth time this session an
+    # instruction lost to the structure of a choice. A term whose best heading
+    # after the inheritance merge is still a bare hub is exactly a term whose
+    # right parent is missing from the list or from the catalogue, which is
+    # what `needs_new_parent` was defined to mean; the model just says it by
+    # choosing the vaguest defensible thing. So both spellings route here, and
+    # the gates downstream stay the decision-makers either way — a proposal
+    # for a term genuinely at home under its hub simply never gathers three
+    # grounded proposers for anything finer.
+    def routed(answer: dict) -> bool:
+        if answer.get("parent_source") == "catalogue":
+            return False
+        parent = answer.get("parent") or ""
+        return parent == NEEDS_NEW or parent.startswith("hub:")
+
     asked = [terms[a["key"]] for a in answers
-             if a.get("parent") == NEEDS_NEW and a["key"] in terms]
+             if routed(a) and a["key"] in terms]
     print(json.dumps({"stage": "loaded", "needs_new_parent": len(asked),
                       "hubs": len(hub_ids)}), flush=True)
     if not asked:
