@@ -970,6 +970,38 @@ predates this slice and mirrors the resolver's floor. The pipeline resolves
 on translated English, so the loss is a missing secondary net, not a missing
 subject.
 
+## 2.18 The disambiguation ladder (owner's design, 2026-08-25)
+
+**An ambiguous name — Minnie, Lisa, Lucifer — resolves from its entry's
+context in identity-strength order, or holds.** This composes with §2.14
+(salience: person→franchise→work, who the entry is *about*) rather than
+replacing it: disambiguation orders by which context pins an identity
+hardest.
+
+Pass 1: every unambiguous term resolves deterministically and forms the
+entry's *context set*. Pass 2, per ambiguous term, first tier that answers
+wins; iterate to a fixed point:
+
+1. **Stated in-entry relation** (member_of_group, performed_by,
+   part_of_franchise) → the candidate carrying that relation wins.
+   **Binding over the model's answer.**
+2. **Catalogue join against the context set** — a candidate whose
+   catalogue relations reach any resolved term in the entry. **Binding.**
+3. **Source-shape constraint** — a music row's title is a song, never a
+   TV series; eliminates candidate *classes* before any model runs.
+4. **The user's own library** ranks surviving candidates and **never
+   decides** (the BLACKPINK-Lisa / LiSA problem is real in one library).
+5. **Still ambiguous → hold**: user-scoped provisional identity
+   (`identity_state = 'ambiguous'`), evidence attaches, shown for
+   keep/strike, **no global mint, no cross-user merge** — the linker's
+   refuse-ambiguity rule generalized.
+
+A model answer contradicting a tier-1/2 binding is flagged, never applied.
+Tier 2's substrate is the relation promotion lane (`0374`): stated
+relations cross into `concept_edges` as `learned` only with both ends
+promoted, support ≥ 2, a registered predicate, and per-predicate kind
+agreement — refusals counted, never bent.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
