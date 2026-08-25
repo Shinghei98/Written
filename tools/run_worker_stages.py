@@ -158,6 +158,18 @@ def _payload_for(job_type: str, user_id: str, connection) -> dict:
                 "  from semantic_private.user_state_versions"
                 " where user_id = %(user)s::uuid", {"user": user_id})
             payload["input_revision"] = cursor.fetchone()["revision"]
+            # **The run's identity carries the model ids, so the payload must**
+            # — `resolve_user` reads both keys, exactly as the armer's payload
+            # supplies them, and a run recorded without them would not name
+            # which resolver and scorer produced it. Read from the same place
+            # the armer reads: the one active row per role.
+            cursor.execute(
+                "select model_role, id::text as model_id"
+                "  from ontology.model_versions"
+                " where model_role in ('resolver', 'scorer')"
+                "   and status = 'active'")
+            for row in cursor.fetchall():
+                payload[f"{row['model_role']}_model_id"] = row["model_id"]
     return payload
 
 
