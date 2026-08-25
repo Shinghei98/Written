@@ -275,6 +275,17 @@ def main() -> int:
                 print(json.dumps({"stage": stage, "status": "no_handler"}))
                 return 1
             payload = _payload_for(stage, options.user, reader)
+            # **`_arguments` existed and was never merged, which is how
+            # `resolve_mention` failed with KeyError 'resolver_version' on
+            # the first full run.** The stage's own parameter names come from
+            # `_arguments` (mirroring overlay's dicts); the two DB-sourced
+            # values fill in where the command line said nothing.
+            extra = _arguments(stage, options)
+            if extra.get("version") is None:
+                extra["version"] = payload.get("ontology_version_id")
+            if extra.get("epoch") is None and "review_epoch" in payload:
+                extra["epoch"] = payload["review_epoch"]
+            payload.update({k: v for k, v in extra.items() if v is not None})
             try:
                 receipt = run(_job(stage, payload))
             except Exception as error:  # noqa: BLE001 — named, never silent
