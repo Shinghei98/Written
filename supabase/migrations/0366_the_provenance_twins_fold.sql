@@ -159,7 +159,11 @@ begin
 
     -- One claim, once: retire the loser's assertion where the winner is
     -- already held under the same predicate; repoint the rest, version and
-    -- concept moving together.
+    -- concept moving together. **The repoint must exclude what the retire
+    -- just handled** — a retired row still matches `concept_id = loser`,
+    -- and moving it onto the winner collides with the very row that made
+    -- it redundant (`user_assertion_concept_identity_idx`, which caught
+    -- exactly this on the first deploy).
     update semantic_private.user_assertions a
        set machine_state = 'inactive', updated_at = now()
      where a.concept_id = pair.loser_id
@@ -170,7 +174,11 @@ begin
     update semantic_private.user_assertions a
        set concept_id = pair.winner_id,
            created_ontology_version_id = new_version_id
-     where a.concept_id = pair.loser_id;
+     where a.concept_id = pair.loser_id
+       and not exists (
+         select 1 from semantic_private.user_assertions w
+          where w.user_id = a.user_id and w.concept_id = pair.winner_id
+            and w.predicate_key = a.predicate_key);
 
     update semantic_private.provisional_entities
        set redirect_concept_id = pair.winner_id
@@ -188,10 +196,13 @@ begin
 
   perform ontology.publish_version(new_version_id);
 
+  -- Retired duplicates keep naming the loser — that is their record of
+  -- having been superseded. What may not remain is a *standing* claim.
   if exists (
     select 1 from semantic_private.user_assertions a
-     join _twins t on t.loser_id = a.concept_id) then
-    raise exception '0366: an assertion still names a folded concept';
+     join _twins t on t.loser_id = a.concept_id
+    where a.machine_state <> 'inactive') then
+    raise exception '0366: a standing assertion still names a folded concept';
   end if;
 
   perform semantic_private.enqueue_recompute_on_analysis_change(
