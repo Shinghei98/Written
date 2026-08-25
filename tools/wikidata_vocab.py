@@ -362,6 +362,62 @@ SLICES: tuple[Slice, ...] = (
         notes="craft (Q2207288)",
         precedence=20,
     ),
+    # **The heading slices (owner, 2026-08-25): categories the model may
+    # select and may never invent.** The v19 proposal pass measured what
+    # open-vocabulary category generation produces — "Chinese pop music",
+    # "C-pop" and "Mandopop songs" as three mintable headings for one
+    # concept-space, "Songs" and "Music albums" as headings at all — and the
+    # owner's direction is the person-subtype method applied to headings:
+    # pre-emptively mint the recognised category system from one curated CC0
+    # source, then the model only chooses. The measured holes, 2026-08-25:
+    # `hub:film_video` had **zero** authored sub-headings (why every series
+    # hub-dumped), `hub:games_play` five, `hub:music` only Apple's 104.
+    #
+    # **A genre's fame is its own**, like a sport's and unlike an athlete's —
+    # the sitelink bound measures the thing itself, so the athletes failure
+    # mode does not apply. Direct `P31`, no subclass walk: `P279*` from
+    # `music genre` reaches individual scenes and microgenres; the instances
+    # of the class itself are the recognised level the owner asked for.
+    Slice(
+        name="music_genres",
+        kind="genre",
+        prefix="genre:",
+        minimum_sitelinks=25,
+        where="?item wdt:P31 wd:Q188451 .",
+        parent_key="hub:music",
+        notes="music genre (Q188451)",
+        precedence=25,
+    ),
+    Slice(
+        name="film_genres",
+        kind="genre",
+        prefix="genre:",
+        minimum_sitelinks=20,
+        where="?item wdt:P31 wd:Q201658 .",
+        parent_key="hub:film_video",
+        notes="film genre (Q201658)",
+        precedence=26,
+    ),
+    Slice(
+        name="tv_genres",
+        kind="genre",
+        prefix="genre:",
+        minimum_sitelinks=15,
+        where="?item wdt:P31 wd:Q15961987 .",
+        parent_key="hub:film_video",
+        notes="television genre (Q15961987)",
+        precedence=27,
+    ),
+    Slice(
+        name="game_genres",
+        kind="genre",
+        prefix="genre:",
+        minimum_sitelinks=15,
+        where="?item wdt:P31 wd:Q659563 .",
+        parent_key="hub:games_play",
+        notes="video game genre (Q659563)",
+        precedence=28,
+    ),
 )
 
 # The examples the owner named, and the probe that says whether the slices above
