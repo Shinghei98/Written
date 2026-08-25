@@ -487,6 +487,17 @@ where user_id = %(user_id)s and predicate_key = %(predicate)s
 limit 1
 """
 
+# The person's own claim about a concept, standing whatever the bar says —
+# what a below-bar measurement attaches to (scorer 0.20.0).
+FIND_DECLARED_ASSERTION = """
+select id from semantic_private.user_assertions
+where user_id = %(user_id)s and predicate_key = %(predicate)s
+  and concept_id = %(concept)s
+  and assertion_origin <> 'inferred'
+  and machine_state in ('candidate', 'eligible')
+limit 1
+"""
+
 INSERT_ASSERTION = """
 insert into semantic_private.user_assertions (
   user_id, predicate_key, concept_id, created_ontology_version_id,
@@ -1242,6 +1253,42 @@ def score_user(connection, user_id: str, run_id: str, version: str,
                     "concept": concept_id,
                 })
                 counts["demoted"] += cursor.rowcount
+            # **A declared claim below the bar still gets its measurement**
+            # (scorer 0.20.0, 2026-08-25). The bar governs what the machine
+            # asserts; a kept or typed assertion is the person's claim, shown
+            # by declaration — and this `continue` used to skip the score
+            # write entirely, so every below-bar kept term drew with no
+            # weight bar forever (measured: karina at 0.231, nine mappings,
+            # zero score versions). DEMOTE_ASSERTION above touches only
+            # `inferred` rows, so the declared assertion is still standing;
+            # it takes the score the concept just earned.
+            declared_predicate = assertion_predicate(kind, key, agg)
+            with connection.cursor() as cursor:
+                cursor.execute(FIND_DECLARED_ASSERTION, {
+                    "user_id": user_id, "predicate": declared_predicate,
+                    "concept": concept_id,
+                })
+                declared = cursor.fetchone()
+            if declared:
+                with connection.cursor() as cursor:
+                    cursor.execute(INSERT_SCORE_VERSION, {
+                        "assertion": declared["id"], "user_id": user_id,
+                        "run": run_id, "version": version,
+                        "strength": strength, "confidence": confidence,
+                        "breadth": breadth, "stability": 0.0,
+                        "surfacing": strength * confidence,
+                        "payload": json.dumps({
+                            "concept_key": label.get("concept_key"),
+                            "label": label.get("preferred_label"),
+                            "kind": label.get("concept_kind"),
+                            "predicate": declared_predicate,
+                        }),
+                        "agreement": float(agg["mapping_agreement"]),
+                        "quality": float(agg["evidence_quality"]),
+                        "policy": policy_version, "as_of": as_of,
+                    })
+                counts["declared_scored_below_bar"] = \
+                    counts.get("declared_scored_below_bar", 0) + 1
             continue
 
         predicate = assertion_predicate(kind, key, agg)
