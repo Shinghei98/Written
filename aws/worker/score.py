@@ -677,7 +677,17 @@ where e.ontology_version_id = %(version)s
   and e.status = 'active'
   and t.propagation_weight > 0
   and coalesce(e.confidence, 1.0) >= t.minimum_relation_confidence
-  and e.provenance_type in ('curated', 'provider')
+  and (e.provenance_type in ('curated', 'provider')
+       -- **A corroborated promotion carries weight (owner, 2026-08-25).**
+       -- The owner's franchise rule — Iron Man and Thor both predicate on
+       -- their franchise and trickle weight to it concurrently — needs the
+       -- promoted relation edges to conduct, and the original wall kept
+       -- every `learned` edge out. The gate stays structural: only edges
+       -- the 0374 lane admitted (both ends promoted, support >= 2,
+       -- registered predicate, per-predicate kind agreement) conduct; a
+       -- bare model statement still does not.
+       or (e.provenance_type = 'learned'
+           and e.provenance ->> 'source' = '0374_relation_promotion'))
 """
 
 # The single strongest mapping behind a source concept, so a derived

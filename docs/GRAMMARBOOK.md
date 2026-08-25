@@ -1002,6 +1002,32 @@ relations cross into `concept_edges` as `learned` only with both ends
 promoted, support ≥ 2, a registered predicate, and per-predicate kind
 agreement — refusals counted, never bent.
 
+## 2.19 The franchise-first rule at work registration (owner, 2026-08-25)
+
+**"When our system sees a work, it must first think: is there a
+franchise?"** Registered → link (`part_of_franchise`); clearly present and
+absent → mint it through the governed franchise lane (`0347` admits the
+family; `0341` is the machinery). Most works have no franchise, and that
+is fine — the ask is mandatory, the answer is usually no.
+
+The point is concurrent contribution: a user holding Iron Man and Thor
+has both predicate on `franchise:mcu`, and both **trickle weight to it at
+once** — λ propagation sums across sources through `part_of_franchise`
+(λ 0.45). Scorer 0.19.0 (`0376`) opened the one wall this needed:
+promoted relation edges conduct λ.
+
+**Identity mints; weight measures (owner's correction, same day).** The
+support ≥ 2 floor conflated the two — and was miscalibrated besides: a
+work states its franchise about once, so per-pair support of 2 refused
+the ordinary case forever. `0377` drops the floor from the
+mint-and-connect path: an unambiguous franchise object mints at whatever
+whisper of weight its evidence gives (below every cutoff, invisible,
+globally registered — the founding principle), and relations connect
+stated-once through the unchanged identity gates (both ends promoted,
+registered predicate, per-predicate kind agreement, ambiguity refuses).
+Noise is the cutoff's problem and the strike lane's price signal, never
+the mint gate's.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
