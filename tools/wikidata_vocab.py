@@ -187,6 +187,24 @@ class Slice:
     parent_key: str | None = None
     parent_property: str | None = None
     limit: int = 400
+    # **A narrow opt-out for the kind guard, owned by the slice that needs
+    # it.** `kind_contradicts` exists because the musicals seed returned Cole
+    # Porter — an entity whose own type says the slice is wrong about it. The
+    # cultures slice is the one place the crossing IS the design: a country's
+    # own type says `place`, and minting it as a culture subject is the
+    # owner's definition ("not the place as a location" — a different subject
+    # about the same referent). Naming the accepted kind here keeps the guard
+    # armed against every other contradiction: a human in the countries slice
+    # still refuses.
+    accepts_type_kind: str = ""
+    # **The official short name is a name the source states** (P1813), and for
+    # polity-shaped entities it is the name people actually say — Wikidata
+    # labels Q148 "People's Republic of China" and reserves "China" for the
+    # civilization entity, whose own country claim is deprecated-rank and so
+    # invisible to a truthy walk. Harvesting P1813 (and P150, which the
+    # part-whole cede below needs) costs one extra SPARQL round per slice, so
+    # a slice opts in rather than every slice paying it.
+    harvest_short_names: bool = False
     notes: str = ""
     # Lower wins when one entity satisfies two slices. **Measured, not
     # anticipated**: the first run put 40 entities in two slices at once, all of
@@ -456,6 +474,49 @@ SLICES: tuple[Slice, ...] = (
         precedence=31,
     ),
     Slice(
+        name="cultures",
+        kind="culture",
+        prefix="culture:",
+        # **The empty family, filled by the rule rather than a list (owner,
+        # 2026-08-25).** A country and its cultural sphere as one subject —
+        # the family has had a wire slot, a mint convention and an assertion
+        # surface since it was designed, and zero members. The selector was
+        # verified against its four hardest names before being written down:
+        # Taiwan arrives via the country walk; **Hong Kong does not** (a
+        # special administrative region subclasses no country), which is what
+        # the dependent-territory union exists for; the USSR and the Roman
+        # Empire are excluded by the dissolution filter, because the design is
+        # living cultural spheres and a fallen empire is a history subject.
+        minimum_sitelinks=55,
+        # **The walk alone leaks, and the fence is an identity property, not a
+        # deeper walk.** Measured on the first fetch: `municipality of
+        # Portugal`, `Roman province` and `micronation` all chain P279* to
+        # country, so Tavira, Cisalpine Gaul and Molossia arrived as cultures.
+        # The fence: an ISO 3166-1 code (P297), a literal `P31 country`, or
+        # the constituent-country arm — which alone admits exactly twelve
+        # rows, all genuine (England, Scotland, Wales, Northern Ireland; the
+        # rest already carry ISO codes). Verified live 2026-08-25: every
+        # leaker gone, Scotland/Wales/Hong Kong/Taiwan/Kosovo present, USSR
+        # and Roman Empire still excluded by dissolution.
+        where=("{ ?item wdt:P31/wdt:P279* wd:Q6256 . } "
+               "UNION { ?item wdt:P31/wdt:P279* wd:Q161243 . } "
+               "UNION { ?item wdt:P31/wdt:P279? wd:Q1763527 . } "
+               "FILTER NOT EXISTS { ?item wdt:P576 ?dissolved . } "
+               "FILTER( EXISTS { ?item wdt:P297 ?iso } "
+               "|| EXISTS { ?item wdt:P31 wd:Q6256 } "
+               "|| EXISTS { ?item wdt:P31/wdt:P279? wd:Q1763527 } )"),
+        parent_key="medium:cultures",
+        accepts_type_kind="place",
+        harvest_short_names=True,
+        # LIMIT counts result ROWS, and a country carries many P31 types —
+        # France alone multiplies into six rows — so 400 starved the slice to
+        # 39 items on the first fetch. Raised to cover ~475 entities times
+        # their type fan-out.
+        limit=4000,
+        notes="country (Q6256) + dependent territory (Q161243), undissolved",
+        precedence=33,
+    ),
+    Slice(
         name="theatre_genres",
         kind="genre",
         prefix="genre:",
@@ -717,6 +778,48 @@ def fetch_aliases(qids: list[str], provider: WikidataProvider) -> dict[str, list
     return out
 
 
+def fetch_short_names_and_parts(
+    qids: list[str], provider: WikidataProvider
+) -> tuple[dict[str, list[dict[str, str]]], dict[str, set[str]]]:
+    """P1813 short names as extra aliases; P150 containment for the cede rule.
+
+    Batched through VALUES. **P1813 is read through its statement nodes, not
+    `wdt:`** — truthy serving returns only best-rank values, and Q148 marks
+    中国 preferred, which hid "China"@en entirely on the first fetch. The zh
+    variants fold to `zh`, matching how ALIAS_LANGUAGES speaks.
+    """
+    wanted = {"en": "en", "ja": "ja", "ko": "ko",
+              "zh": "zh", "zh-hans": "zh", "zh-hant": "zh"}
+    short: dict[str, list[dict[str, str]]] = {}
+    contains: dict[str, set[str]] = {}
+    for start in range(0, len(qids), 200):
+        batch = " ".join(f"wd:{q}" for q in qids[start : start + 200])
+        rows = sparql(
+            f"""SELECT ?item ?sn ?part WHERE {{
+  VALUES ?item {{ {batch} }}
+  OPTIONAL {{
+    ?item p:P1813 ?snStatement .
+    ?snStatement ps:P1813 ?sn .
+    FILTER NOT EXISTS {{ ?snStatement wikibase:rank wikibase:DeprecatedRank }}
+  }}
+  OPTIONAL {{ ?item wdt:P150 ?part . }}
+}}""",
+            provider,
+        )
+        for row in rows:
+            qid = row.get("item", {}).get("value", "").rsplit("/", 1)[-1]
+            sn = row.get("sn", {})
+            locale = wanted.get(sn.get("xml:lang", ""))
+            if sn.get("value") and locale:
+                entry = {"value": sn["value"], "locale": locale}
+                if entry not in short.setdefault(qid, []):
+                    short[qid].append(entry)
+            part = row.get("part", {}).get("value", "").rsplit("/", 1)[-1]
+            if _QID.fullmatch(part):
+                contains.setdefault(qid, set()).add(part)
+    return short, contains
+
+
 def alias_is_usable(value: str) -> bool:
     normalized = normalize_text(value)
     # `MIN_TAG_LENGTH` at the other end is 3, and a one- or two-character alias
@@ -750,9 +853,41 @@ def build(provider: WikidataProvider) -> dict[str, Any]:
     # QID -> the slice that has claimed it, so one entity becomes one concept.
     claimed_by: dict[str, Slice] = {}
 
+    # QID -> the QIDs it P150-contains, for the part-whole label cede below.
+    contains_all: dict[str, set[str]] = {}
+
     for item in sorted(SLICES, key=lambda s: s.precedence):
         rows = fetch_slice(item, provider)
         aliases = fetch_aliases([row["qid"] for row in rows], provider)
+        if item.harvest_short_names:
+            short, parts = fetch_short_names_and_parts(
+                [row["qid"] for row in rows], provider)
+            for qid, extras in short.items():
+                aliases.setdefault(qid, []).extend(extras)
+            for qid, contained in parts.items():
+                contains_all.setdefault(qid, set()).update(contained)
+            # **The short name becomes the preferred label only where it names
+            # nothing else in the slice.** Q148's en short name is "China" and
+            # no other admitted row is called that, so the culture is keyed
+            # and shown as China; the Kingdom of the Netherlands' short name
+            # is its own constituent's label, so it keeps its formal name and
+            # the cede rule below settles the alias.
+            taken = {normalize_text(row["label"]): row["qid"] for row in rows}
+            for row in rows:
+                # An entity can state several en short names — Q148 states
+                # "China" and "PRC" — and an acronym is a way to *write* the
+                # name, not the name. Only worded short names promote: an
+                # entity whose every short name is an initialism (Taiwan's
+                # "ROC", Hong Kong's "HK") keeps the label it came with. Ties
+                # go to the shortest, that being what "short name" means.
+                worded = [s["value"] for s in short.get(row["qid"], [])
+                          if s["locale"] == "en" and not s["value"].isupper()]
+                en_short = min(worded, key=len, default=None)
+                if not en_short:
+                    continue
+                holder = taken.get(normalize_text(en_short))
+                if holder is None or holder == row["qid"]:
+                    row["label"] = en_short
         minted_here = 0
         for row in rows:
             tail = slug(row["label"])
@@ -764,6 +899,11 @@ def build(provider: WikidataProvider) -> dict[str, Any]:
             reason: str | None = None
 
             contradiction = kind_contradicts(item.kind, row.get("types") or set())
+            # The slice's declared crossing is not a contradiction: the
+            # cultures slice mints entities whose own type says `place`, and
+            # that is the owner's definition, not the Cole Porter failure.
+            if contradiction and contradiction == item.accepts_type_kind:
+                contradiction = None
             if contradiction:
                 refusals.append({
                     "slice": item.name, "qid": row["qid"], "label": row["label"],
@@ -930,7 +1070,43 @@ def build(provider: WikidataProvider) -> dict[str, Any]:
     # same normalized label mint neither — a label that names two things resolves
     # to nothing at the other end anyway, and the resolver's own rule is to
     # refuse an ambiguous label rather than pick.
+    # **A whole and its part sharing a name is not ambiguity — it is the
+    # source's formal/common split, and the culture is the part's.** The
+    # Kingdom of the Netherlands P150-contains the Netherlands and states its
+    # constituent's name as its own short name; refusing both would leave
+    # `culture:netherlands` unreachable by the word everyone says. When
+    # exactly two proposed concepts claim a label and one contains the other,
+    # the container cedes: the part keeps the name, the wrapper stays
+    # reachable by its formal one. Unrelated homographs (the two Saint
+    # Martins, side by side rather than nested) still refuse both ways below.
+    key_to_qid = {p["concept_key"]: p["qid"] for p in proposals}
     by_normalized: dict[str, list[str]] = {}
+    for proposal in proposals:
+        for entry in proposal["labels"]:
+            by_normalized.setdefault(entry["normalized"], []).append(proposal["concept_key"])
+    ceding: dict[str, str] = {}  # normalized label -> concept_key that cedes it
+    for text, keys in by_normalized.items():
+        pair = sorted(set(keys))
+        if len(pair) != 2:
+            continue
+        qid_a, qid_b = key_to_qid.get(pair[0]), key_to_qid.get(pair[1])
+        if qid_a and qid_b:
+            if qid_a in contains_all.get(qid_b, ()):
+                ceding[text] = pair[1]
+            elif qid_b in contains_all.get(qid_a, ()):
+                ceding[text] = pair[0]
+    for proposal in proposals:
+        dropped = [e for e in proposal["labels"]
+                   if ceding.get(e["normalized"]) == proposal["concept_key"]]
+        if dropped:
+            proposal["labels"] = [e for e in proposal["labels"] if e not in dropped]
+            for entry in dropped:
+                refusals.append({
+                    "slice": proposal["slice"], "qid": proposal["qid"],
+                    "label": entry["label"],
+                    "reason": "ceded to the concept this one contains",
+                })
+    by_normalized = {}
     for proposal in proposals:
         for entry in proposal["labels"]:
             by_normalized.setdefault(entry["normalized"], []).append(proposal["concept_key"])

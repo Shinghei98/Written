@@ -926,6 +926,50 @@ never typed into any file — and brought Cantonese opera, Noh and Kabuki with
 it, plus 106 stage genres under a class the audit had skipped entirely
 (`medium:stage_genres`, theatrical genre Q7777573).
 
+## 2.17 The cultures: identity fences, short names, and the part-whole cede (2026-08-25)
+
+**The `culture:` family is filled by the same one-source rule as the genre
+layers** (`0356`, `medium:cultures` under `hub:places_cultures`): countries
+(`P31/P279*` Q6256), dependent territories (Q161243) and constituent
+countries (Q1763527), undissolved — a fallen empire is a history subject. The
+owner's definition binds the slice: the country **as a cultural sphere, not
+the place as a location** — which is why the fetch guard's place-kind
+contradiction is waived for this slice alone (`accepts_type_kind`).
+
+Four rules were learned on the fetch, each from a measured failure:
+
+1. **The walk alone leaks, and the fence is an identity property, not a
+   deeper walk.** `municipality of Portugal`, `Roman province` and
+   `micronation` all chain `P279*` to country — Tavira, Cisalpine Gaul and
+   the Republic of Molossia arrived as cultures. The fence: an ISO 3166-1
+   code (P297), a literal `P31 country`, or the constituent-country arm
+   (which alone admits exactly the twelve genuine rows — England, Scotland,
+   Wales, Northern Ireland and ISO-coded peers).
+2. **The official short name (P1813) is the name people say, read through
+   statement nodes** — truthy `wdt:` serving hid "China"@en behind a
+   preferred-rank 中国. It promotes to preferred label only where it names
+   nothing else in the slice, and **an initialism never promotes** (Taiwan
+   keeps "Taiwan", not "ROC").
+3. **A whole and its part sharing a name is the source's formal/common
+   split, not ambiguity.** When exactly two proposed concepts claim a label
+   and one `P150`-contains the other, the container cedes — the Kingdom of
+   the Netherlands keeps its formal name and `netherlands` reaches the
+   constituent. Unrelated homographs (the two Saint Martins) still refuse
+   both ways.
+4. **The twin-merge narrows to `place` twins.** A culture re-keys onto its
+   unparented location twin (`place:hong_kong` learns its names and gains
+   the layer parent); a twin of any other kind refuses the merge and the
+   import mints beside it minus the colliding label — the user-kept work
+   "Japan" (`genre:pop`) holds `japan`, so `culture:japan` stands without
+   its English name until the owner adjudicates. Asserted in `0356`, so the
+   conflict stays measured.
+
+Known limit, deliberately not widened here: two-character CJK names (中国,
+香港, 日本) fall to the tool-wide `MIN_TAG_LENGTH >= 3` alias guard, which
+predates this slice and mirrors the resolver's floor. The pipeline resolves
+on translated English, so the loss is a missing secondary net, not a missing
+subject.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
