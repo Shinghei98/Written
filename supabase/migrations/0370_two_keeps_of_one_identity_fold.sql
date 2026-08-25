@@ -35,37 +35,48 @@ begin
   select version, id into current_version, old_version_id
     from ontology.versions where status = 'published';
 
-  create temporary table _twins on commit drop as
-  with dict as (
-    select t.promoted_concept_id as winner_id,
-           t.family,
-           array_remove(array[
-             btrim(lower(regexp_replace(t.english_label,  '[^a-z0-9À-￿]+', ' ', 'gi'))),
-             btrim(lower(regexp_replace(t.original_label, '[^a-z0-9À-￿]+', ' ', 'gi'))),
-             btrim(lower(regexp_replace(t.canonical_label,'[^a-z0-9À-￿]+', ' ', 'gi'))),
-             t.normalized_label
-           ], '') as identities
-      from semantic_private.presumed_terms t
-     where t.promoted_concept_id is not null
-  )
-  select distinct c.id as loser_id, c.concept_key as loser_key,
-         d.winner_id, wc.concept_key as winner_key
-    from dict d
-    join ontology.concepts wc on wc.id = d.winner_id and wc.retired_at is null
-    join ontology.concept_revisions wr
-      on wr.concept_id = wc.id and wr.ontology_version_id = old_version_id
-     and wr.status = 'active'
-    join ontology.concept_labels l
-      on l.ontology_version_id = old_version_id and l.status = 'active'
-     and l.normalized_label = any(d.identities)
-    join ontology.concepts c on c.id = l.concept_id
-     and c.id <> d.winner_id and c.retired_at is null
-     and (c.concept_key like '%:kept\_%' escape '\'
-          or c.concept_key like '%:yt\_%' escape '\'
-          or c.concept_key like '%:channel\_%' escape '\')
+  -- **Built from the small side.** The first form matched every dictionary
+  -- row's identity *array* against every label (`= any(...)`), which
+  -- planned as a nested loop over ~300k labels and met the statement
+  -- timeout on production. The suffixed concepts are a few hundred; their
+  -- labels join flat identity rows on an equijoin.
+  create temporary table _suffixed_labels on commit drop as
+  select c.id as loser_id, c.concept_key as loser_key,
+         r.concept_kind, l.normalized_label
+    from ontology.concepts c
     join ontology.concept_revisions r
       on r.concept_id = c.id and r.ontology_version_id = old_version_id
-     and r.status = 'active' and r.concept_kind = wr.concept_kind;
+     and r.status = 'active'
+    join ontology.concept_labels l
+      on l.concept_id = c.id and l.ontology_version_id = old_version_id
+     and l.status = 'active'
+   where c.retired_at is null
+     and (c.concept_key like '%:kept\_%' escape '\'
+          or c.concept_key like '%:yt\_%' escape '\'
+          or c.concept_key like '%:channel\_%' escape '\');
+
+  create temporary table _identities on commit drop as
+  select distinct t.promoted_concept_id as winner_id, ident
+    from semantic_private.presumed_terms t
+    cross join lateral unnest(array[
+      btrim(lower(regexp_replace(t.english_label,  '[^a-z0-9À-￿]+', ' ', 'gi'))),
+      btrim(lower(regexp_replace(t.original_label, '[^a-z0-9À-￿]+', ' ', 'gi'))),
+      btrim(lower(regexp_replace(t.canonical_label,'[^a-z0-9À-￿]+', ' ', 'gi'))),
+      t.normalized_label
+    ]) as ident
+   where t.promoted_concept_id is not null
+     and coalesce(ident, '') <> '';
+
+  create temporary table _twins on commit drop as
+  select distinct sl.loser_id, sl.loser_key,
+         i.winner_id, wc.concept_key as winner_key
+    from _suffixed_labels sl
+    join _identities i on i.ident = sl.normalized_label
+    join ontology.concepts wc on wc.id = i.winner_id
+     and wc.id <> sl.loser_id and wc.retired_at is null
+    join ontology.concept_revisions wr
+      on wr.concept_id = wc.id and wr.ontology_version_id = old_version_id
+     and wr.status = 'active' and wr.concept_kind = sl.concept_kind;
 
   -- Ambiguity refuses, both ways: a loser claimed by two winners, and a
   -- winner that is itself somebody's loser.
