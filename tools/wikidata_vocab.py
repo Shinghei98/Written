@@ -425,6 +425,25 @@ SLICES: tuple[Slice, ...] = (
         precedence=26,
     ),
     Slice(
+        name="screen_genres_deep",
+        kind="genre",
+        prefix="genre:",
+        # **The owner's directive, 2026-08-25: Lucifer needs "police
+        # procedural", and one class walk at one floor cannot see the whole
+        # screen-genre space.** Multi-class union — film genre, television
+        # genre, television series genre, drama genre — floor tuned low (8)
+        # because the twin-merge and the kind guard do the dedup and the
+        # harmonisation downstream, exactly as the music layer was built.
+        minimum_sitelinks=8,
+        where=("{ ?item wdt:P31/wdt:P279* wd:Q201658 . } "
+               "UNION { ?item wdt:P31/wdt:P279* wd:Q15961987 . } "
+               "UNION { ?item wdt:P31/wdt:P279* wd:Q10992055 . } "
+               "UNION { ?item wdt:P31/wdt:P279* wd:Q21010853 . }"),
+        parent_key="medium:screen_genres",
+        notes="film+TV+series+drama genre classes, union, floor 8",
+        precedence=34,
+    ),
+    Slice(
         name="tv_genres",
         kind="genre",
         prefix="genre:",
