@@ -28,7 +28,7 @@ Terms carry their hub via `semantic_private.concept_hub` (0360); a struck
 term is one with an active `user_term_suppressions` / `user_suppressions`
 row or a `suppressed` preference; kept is shown-and-not-struck.
 
-    SUPABASE_SECRET_KEY=... python3 tools/fit_memories_cutoff.py <user_uuid> \
+    WRITTEN_DATABASE_URL=... python3 tools/fit_memories_cutoff.py <user_uuid> \
         [proposed_release]
 """
 from __future__ import annotations
@@ -87,9 +87,9 @@ def main() -> int:
 
     # Direct Postgres as the worker role — the fit reads semantic_private,
     # which no HTTP surface exposes, and writes one dry-run row.
-    dsn = os.environ.get("WRITTEN_DB_DSN")
+    dsn = os.environ.get("WRITTEN_DATABASE_URL")
     if not dsn:
-        raise SystemExit("set WRITTEN_DB_DSN (worker-role Postgres DSN)")
+        raise SystemExit("set WRITTEN_DATABASE_URL (worker-role Postgres DSN)")
     import psycopg
     from psycopg.rows import dict_row
 
