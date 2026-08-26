@@ -45,14 +45,10 @@ import urllib.request
 EDGES = """
 select e.id as edge_id, e.predicate_key,
        sc.concept_key as subject_key, oc.concept_key as object_key,
-       (select l.label from ontology.concept_labels l
-         where l.concept_id = sc.id and l.status = 'active'
-         order by (l.label_type = 'preferred') desc, l.ontology_version_id desc
-         limit 1) as subject_label,
-       (select l.label from ontology.concept_labels l
-         where l.concept_id = oc.id and l.status = 'active'
-         order by (l.label_type = 'preferred') desc, l.ontology_version_id desc
-         limit 1) as object_label
+       (select array_agg(distinct l.label) from ontology.concept_labels l
+         where l.concept_id = sc.id and l.status = 'active') as subject_labels,
+       (select array_agg(distinct l.label) from ontology.concept_labels l
+         where l.concept_id = oc.id and l.status = 'active') as object_labels
 from ontology.concept_edges e
 join ontology.versions v on v.id = e.ontology_version_id and v.status = 'published'
 join ontology.concepts sc on sc.id = e.subject_concept_id
@@ -88,28 +84,32 @@ def _api(params: dict) -> dict:
     raise RuntimeError("unreachable")
 
 
-def entity_ids(label: str) -> list[str]:
+def entity_ids(label: str) -> list[str] | None:
+    """None means the lookup FAILED; [] means it worked and found nothing.
+    The distinction is the audit's own rule: an audit that cannot see the
+    witness does not rule — the first run demoted true relations because
+    429s were silently read as refutations."""
     time.sleep(1.0)
     try:
         found = _api({"action": "wbsearchentities", "language": "en",
                       "type": "item", "limit": 5, "search": label})
-    except Exception:  # noqa: BLE001 - absence, not failure
-        return []
+    except Exception:  # noqa: BLE001 - failure, distinct from absence
+        return None
     return [hit["id"] for hit in found.get("search", [])
             if norm(hit.get("label") or "") == norm(label)
             or norm(hit.get("match", {}).get("text") or "") == norm(label)]
 
 
-def claims_reference(qids_a: list[str], qids_b: list[str]) -> str | None:
-    """A claim on any A referencing any B (or the reverse) corroborates."""
+def claims_reference(qids_a: list[str], qids_b: list[str]):
+    """(found, reference): found=False means the check could not run."""
     if not qids_a or not qids_b:
-        return None
+        return True, None
     time.sleep(1.0)
     try:
         entities = _api({"action": "wbgetentities", "props": "claims",
                          "ids": "|".join((qids_a + qids_b)[:10])})
-    except Exception:  # noqa: BLE001
-        return None
+    except Exception:  # noqa: BLE001 - the check did not run
+        return False, None
     set_a, set_b = set(qids_a), set(qids_b)
     for qid, entity in (entities.get("entities") or {}).items():
         other = set_b if qid in set_a else set_a if qid in set_b else set()
@@ -120,8 +120,8 @@ def claims_reference(qids_a: list[str], qids_b: list[str]) -> str | None:
                 value = (claim.get("mainsnak", {}).get("datavalue", {})
                          .get("value") or {})
                 if isinstance(value, dict) and value.get("id") in other:
-                    return f"{qid}->{value.get('id')}"
-    return None
+                    return True, f"{qid}->{value.get('id')}"
+    return True, None
 
 
 def main() -> int:
@@ -194,38 +194,53 @@ def main() -> int:
     # ------------------------------------------------------------------
     # The verdict per edge.
     # ------------------------------------------------------------------
-    grounded, corroborated, demote, unmatched = [], [], [], []
+    grounded, corroborated, demote = [], [], []
+    unmatched, unverifiable = [], []
     for edge in edges:
-        s_label = edge["subject_label"] or ""
-        o_label = edge["object_label"] or ""
-        key = (norm(s_label), edge["predicate_key"], norm(o_label))
-        entries = stated.get(key)
+        s_labels = [l for l in (edge["subject_labels"] or []) if l]
+        o_labels = [l for l in (edge["object_labels"] or []) if l]
         row = {"edge_id": str(edge["edge_id"]),
-               "subject": s_label, "predicate": edge["predicate_key"],
-               "object": o_label, "subject_key": edge["subject_key"],
+               "subject": (s_labels or ["?"])[0],
+               "predicate": edge["predicate_key"],
+               "object": (o_labels or ["?"])[0],
+               "subject_key": edge["subject_key"],
                "object_key": edge["object_key"]}
+        entries = None
+        for sl in s_labels:
+            for ol in o_labels:
+                found = stated.get((norm(sl), edge["predicate_key"], norm(ol)))
+                if found is not None:
+                    entries = (entries or []) + found
         if entries is None:
-            # No corpus statement found (label drift, older lane) — leave
-            # standing: an audit that cannot see the witness does not rule.
             unmatched.append(row)
             continue
-        if any(norm(o_label) in text for text in entries if text):
+        if any(any(norm(ol) in text for ol in o_labels)
+               for text in entries if text):
             grounded.append(row)
             continue
-        reference = claims_reference(entity_ids(s_label), entity_ids(o_label))
-        if reference:
+        s_ids = entity_ids(s_labels[0]) if s_labels else []
+        o_ids = entity_ids(o_labels[0]) if o_labels else []
+        if s_ids is None or o_ids is None:
+            unverifiable.append(row)
+            continue
+        found, reference = claims_reference(s_ids, o_ids)
+        if not found:
+            unverifiable.append(row)
+        elif reference:
             corroborated.append({**row, "wikidata": reference})
         else:
             demote.append(row)
 
     out_path.write_text(json.dumps({
         "grounded": grounded, "corroborated": corroborated,
-        "demote": demote, "unmatched_left_standing": unmatched},
+        "demote": demote, "unmatched_left_standing": unmatched,
+        "unverifiable_left_standing": unverifiable},
         ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({"edges": len(edges), "grounded": len(grounded),
                       "corroborated": len(corroborated),
                       "demote": len(demote),
                       "unmatched_left_standing": len(unmatched),
+                      "unverifiable_left_standing": len(unverifiable),
                       "out": str(out_path)}))
     return 0
 
