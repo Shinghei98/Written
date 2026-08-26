@@ -56,8 +56,19 @@ join ontology.concepts g on g.id = e.object_concept_id
 join ontology.concept_revisions r on r.concept_id = c.id
   and r.ontology_version_id = v.id and r.status = 'active'
 where e.status = 'active' and e.predicate_key = 'broader'
-  and g.concept_key ~ '^genre:.*(film|procedural|thriller|fiction|television|drama$)'
-  and e.provenance ->> 'source' ~ 'dictionary_bridge'
+  and ((g.concept_key ~ '^genre:.*(film|procedural|thriller|fiction|television|drama$)'
+        and e.provenance ->> 'source' ~ 'dictionary_bridge')
+       -- A work whose only placement is the video-hub floor is a screen
+       -- work whose genre question was never put to the authority —
+       -- Loki's case (owner, 2026-08-26). Same re-ask, wider door.
+       or (g.concept_key = 'hub:film_video'
+           and not exists (
+             select 1 from ontology.concept_edges ge
+               join ontology.concepts gg on gg.id = ge.object_concept_id
+              where ge.subject_concept_id = c.id
+                and ge.ontology_version_id = v.id
+                and ge.status = 'active' and ge.predicate_key = 'broader'
+                and gg.concept_key like 'genre:%')))
 """
 
 GENRE_QIDS = """
