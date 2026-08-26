@@ -438,7 +438,12 @@ SLICES: tuple[Slice, ...] = (
         where=("{ ?item wdt:P31/wdt:P279* wd:Q201658 . } "
                "UNION { ?item wdt:P31/wdt:P279* wd:Q15961987 . } "
                "UNION { ?item wdt:P31/wdt:P279* wd:Q10992055 . } "
-               "UNION { ?item wdt:P31/wdt:P279* wd:Q21010853 . }"),
+               "UNION { ?item wdt:P31/wdt:P279* wd:Q21010853 . } "
+               # Procedurals and crime dramas file under detective/crime
+               # FICTION genre classes, not the screen classes — the subclass
+               # arm reaches them (police procedural = P279* crime fiction).
+               "UNION { ?item wdt:P279* wd:Q5937792 . } "
+               "UNION { ?item wdt:P279* wd:Q6585139 . }"),
         parent_key="medium:screen_genres",
         notes="film+TV+series+drama genre classes, union, floor 8",
         precedence=34,
