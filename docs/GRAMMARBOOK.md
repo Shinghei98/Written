@@ -1150,6 +1150,39 @@ correct behaviour.
 (§2.18) is the identity half: a container is *typed* here and *identified*
 there, and neither guesses.
 
+## 2.22 A stated relation is grounded, corroborated, or a candidate (owner, 2026-08-26)
+
+**The measured case.** The model stated "aespa `part_of_franchise` Black
+Myth: Wukong" on two entries whose full text is "aespa" and a Winter
+fancam title — the game appears in neither. Because the same
+hallucination fired twice, it cleared the N≥2 promotion floor and λ
+carried the owner's real aespa listening into a game nobody touched.
+**Two statements by one model from one prior are one witness speaking
+twice** — self-agreement is not corroboration, and the floor must never
+again be satisfiable by it.
+
+**The three-way split, which preserves franchise-first minting
+(*identity mints, weight measures*):**
+
+1. **Grounded** — the object's name appears in a source entry that
+   stated the relation (Minnie's rows name "I burn - EP"). The entry is
+   the witness; the relation is a read, and the edge conducts.
+2. **Ungrounded, corroborated** — the object is model world-knowledge
+   and an external catalogue (Wikidata) connects the two entities.
+   Iron Man → MCU lives here; the edge conducts, stamped with its
+   corroboration.
+3. **Ungrounded, uncorroborated** — a fabrication wearing a relation's
+   clothes. **The identity still mints** (the owner's MCU ruling is
+   untouched); the edge enters — or demotes to — `candidate`, which the
+   propagation query and the filing climb both ignore. With nothing
+   conducted, the cutoff keeps it invisible until evidence or
+   corroboration arrives.
+
+`tools/ris_relation_audit.py` is both the retro-audit (run 2026-08-26
+over every promotion-lane edge) and the recurring pass for future
+cycles; an edge the audit cannot match to a witness is left standing —
+an audit that cannot see the witness does not rule.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
