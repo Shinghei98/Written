@@ -2183,6 +2183,19 @@ select (mr.outcome ->> 'concept_id')::uuid as concept_id,
               then o.normalized_payload -> 'topics' else '[]'::jsonb end) t on true
  where mr.status = 'completed'
    and mr.outcome ->> 'concept_id' is not null
+   -- **Alive at published, or it is not an orphan — it is a ghost.** A fold
+   -- retires the kept concept's revision and moves its identity to the
+   -- survivor; the mint request's outcome is immutable history and keeps
+   -- naming the old id. Without this predicate every folded keep re-enters
+   -- the repair forever, gets a parent attached to a corpse, still computes
+   -- no block, and the guard rolls back the whole batch — including the one
+   -- living concept whose repair the loop exists for.
+   and exists (
+     select 1 from ontology.concept_revisions cr
+      where cr.concept_id = (mr.outcome ->> 'concept_id')::uuid
+        and cr.ontology_version_id =
+              (select id from ontology.versions where status = 'published')
+        and cr.status = 'active')
    and semantic_private.concept_block(
          (mr.outcome ->> 'concept_id')::uuid,
          (select id from ontology.versions where status = 'published')) is null
