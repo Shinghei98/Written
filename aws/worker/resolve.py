@@ -1109,10 +1109,11 @@ select o.id, o.source_code, o.data_type, o.action_type, o.occurred_at,
 OPEN_RUN = """
 insert into semantic_private.semantic_runs (
   user_id, ontology_version_id, resolver_model_id, scorer_model_id,
-  embedding_model_id, input_revision, input_hash, status
+  embedding_model_id, input_revision, input_hash, calibration_release_id, status
 ) values (
   %(user_id)s, %(ontology_version_id)s, %(resolver_model_id)s, %(scorer_model_id)s,
-  %(embedding_model_id)s, %(input_revision)s, %(input_hash)s, 'running'
+  %(embedding_model_id)s, %(input_revision)s, %(input_hash)s,
+  %(calibration_release_id)s, 'running'
 )
 -- **`do nothing`, because recomputing identical input is not an error.**
 -- `semantic_run_live_identity_idx` is unique on
@@ -1544,21 +1545,33 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
     # reached, from the moment it shipped. `test_identifier_normalization.py`
     # passed throughout, because it imports the function and calls it directly;
     # nothing asked whether the *caller* could still see it.
+    # **0412: the calibration release is a scorer input, so it is part of
+    # the run's identity.** Without it, publishing a release changed every
+    # score's meaning while every existing run still answered "already
+    # resolved" — the owner's neutrality republish rescored nobody until
+    # the identity learned to see it.
+    with connection.cursor() as cursor:
+        cursor.execute("select id from semantic_private.calibration_releases"
+                       " where status = 'active'")
+        release_row = cursor.fetchone()
+    calibration_release_id = str(release_row["id"]) if release_row else None
+
     run_identity = {
         "user_id": user_id,
         "ontology_version_id": version,
         "resolver_model_id": job_payload["resolver_model_id"],
         "scorer_model_id": job_payload["scorer_model_id"],
-        # The run's identity is the ontology it ran against and the state it
-        # read, which is what makes a re-run comparable to this one.
+        # The run's identity is the ontology it ran against, the state it
+        # read, and the calibration regime it scored under.
         "input_revision": revision,
-        "input_hash": f"{version}:{revision}",
+        "input_hash": f"{version}:{revision}:{calibration_release_id or 'none'}",
     }
 
     with connection.cursor() as cursor:
         cursor.execute(OPEN_RUN, {
             **run_identity,
             "embedding_model_id": job_payload["embedding_model_id"],
+            "calibration_release_id": calibration_release_id,
         })
         run = cursor.fetchone()
 
