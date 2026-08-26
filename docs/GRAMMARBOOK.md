@@ -1109,6 +1109,15 @@ their author (`composed_by` when the author files under classical — the
 composer convention — else `performed_by`; both conduct the display
 climb).
 
+**The degenerate echo stands (owner, 2026-08-26).** Spotify publishes a
+game's soundtrack under an artist page named after the game, so the
+performer credit of "Where Winds Meet" is "Where Winds Meet" and the
+composed label reads `Where Winds Meet - Where Winds Meet`. The owner's
+ruling: keep it, even when the prefix equals the name — both halves are
+read from the source, and a faithful reading outranks a prettier label.
+No suppression rule; a future audit finding such a label is looking at
+correct behaviour.
+
 `0398` is the reconciliation of the existing dictionary under these rules
 — evidence already stored, no re-distillation. The disambiguation ladder
 (§2.18) is the identity half: a container is *typed* here and *identified*
