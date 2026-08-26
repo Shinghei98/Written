@@ -1002,6 +1002,23 @@ relations cross into `concept_edges` as `learned` only with both ends
 promoted, support ≥ 2, a registered predicate, and per-predicate kind
 agreement — refusals counted, never bent.
 
+**Where the ladder now lives (built 2026-08-26).** Tier 1 (stated
+membership binds, contradictions flagged) has run in
+`tools/ris_parent_merge.py` since the wu-hao fix. That tool now also
+carries **tier 2** — an optional catalogue-placements file
+(`tools/ris_export_catalogue_placements.py`, keyed by the merge tool's
+own NFKC+casefold normalization) lets a linked term bind against what
+the catalogue already knows — and **fixed-point sweeps**: a term bound
+this sweep is context for the next, bounded at five. The evidence-side
+tiers live in `0400`: a blockless person's own entry evidence (the album
+on their rows → the album term's stated performer) binds them to a
+unique placeable target, two targets refuse, and a youtube-only person
+the context cannot place files under `subject:content_creators` — a
+rule on lane and family, never a name list. Tier 4 remains rank-only in
+the resolver; tier 5 is the resolver's standing ambiguous-hold. Tier 3
+(source-shape family constraints at registration) rides with the v21
+validation batch.
+
 ## 2.19 The franchise-first rule at work registration (owner, 2026-08-25)
 
 **"When our system sees a work, it must first think: is there a

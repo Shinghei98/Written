@@ -106,6 +106,16 @@ def main() -> int:
     #: {concept_key: [every ancestor's concept_key]}
     ancestors = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
     out_path = pathlib.Path(sys.argv[4])
+    # **Tier 2's substrate (GRAMMARBOOK 2.18, built 2026-08-26): the standing
+    # catalogue's own placements**, {label_key: [parent_concept_key]} exported
+    # from the published version. Without it a linked term binds only when
+    # *this round* also placed it; with it the join reaches everything the
+    # catalogue already knows. Optional: absent, the pass behaves as before.
+    catalogue_by_label: dict = {}
+    if len(sys.argv) > 5:
+        catalogue_by_label = {
+            k: set(v) for k, v in json.loads(
+                pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")).items()}
 
     placed = {}
     for answer in answers:
@@ -121,6 +131,8 @@ def main() -> int:
     # about one name, the most specific shared answer is not obvious and the
     # pairing is refused below rather than guessed.
     by_label: dict[str, set] = collections.defaultdict(set)
+    for label_key, parents in catalogue_by_label.items():
+        by_label[label_key] |= parents
     for (label_key, _family), parent in placed.items():
         by_label[label_key].add(parent)
 
@@ -170,73 +182,90 @@ def main() -> int:
     moved = refused_ambiguous = refused_not_descendant = unlinked = 0
     changes = []
     flags: list = []
-    for answer in answers:
-        parent = answer.get("parent")
-        if not parent or parent in ("none", "needs_new_parent"):
-            continue
-        subject = (key(answer.get("label")), answer.get("family"))
-        # Every heading the linked terms sit on.
-        candidates = set()
-        for obj in links.get(subject, ()):
-            candidates |= by_label.get(obj, set())
-        candidates.discard(parent)
-        if not candidates:
-            unlinked += 1
-            continue
+    # **Iterate to a fixed point (the ladder's pass-2 rule).** A term bound
+    # this sweep is context for the next: wu hao's group resolves first, and
+    # only then can the group's heading reach the terms that named wu hao.
+    # Bounded — each sweep must move something, and five sweeps outruns any
+    # real dependency chain this corpus has produced.
+    for _sweep in range(5):
+        moved_before = moved
+        refused_ambiguous = refused_not_descendant = unlinked = 0
+        for answer in answers:
+            parent = answer.get("parent")
+            if not parent or parent in ("none", "needs_new_parent"):
+                continue
+            subject = (key(answer.get("label")), answer.get("family"))
+            # Every heading the linked terms sit on.
+            candidates = set()
+            for obj in links.get(subject, ()):
+                candidates |= by_label.get(obj, set())
+            candidates.discard(parent)
+            if not candidates:
+                unlinked += 1
+                continue
 
-        # **A party's stated membership BINDS (the ladder's tier 1, owner
-        # 2026-08-25).** For a person or group whose entry stated a
-        # `member_of_group` whose group's heading is known, the group's
-        # heading wins *even across branches* — wu hao's evidence named the
-        # Hao Xuan Peking Opera group and the model still chose Cantonese
-        # opera; structure beats the model, and a contradiction is flagged,
-        # never silently applied over. Two distinct group headings still
-        # refuse: ambiguity holds, as everywhere.
-        if answer.get("family") in PARTY:
-            # A bare hub is routing, not placement (§2.15) — a group whose
-            # own answer this round was a hub must not drag its members off
-            # a specific heading. Measured on the first binding run: IVE's
-            # bare hub:music pulled two members off genre:k_pop.
-            distinct = sorted(c for c in candidates if not c.startswith("hub:"))
-            if len(distinct) == 1:
-                bound = distinct[0]
-                contradicts = (parent != bound
-                               and parent not in (ancestors.get(bound) or ()))
-                changes.append((answer["key"], parent, bound))
-                if contradicts:
-                    flags.append({
-                        "key": answer["key"], "label": answer.get("label"),
-                        "model_said": parent, "bound_to": bound,
-                        "via": "member_of_group"})
-                answer["parent"] = bound
-                answer["parent_source"] = "inherited"
-                answer["parent_inherited_from"] = parent
-                moved += 1
-            else:
+            # **A party's stated membership BINDS (the ladder's tier 1, owner
+            # 2026-08-25).** For a person or group whose entry stated a
+            # `member_of_group` whose group's heading is known, the group's
+            # heading wins *even across branches* — wu hao's evidence named the
+            # Hao Xuan Peking Opera group and the model still chose Cantonese
+            # opera; structure beats the model, and a contradiction is flagged,
+            # never silently applied over. Two distinct group headings still
+            # refuse: ambiguity holds, as everywhere.
+            if answer.get("family") in PARTY:
+                # A bare hub is routing, not placement (§2.15) — a group whose
+                # own answer this round was a hub must not drag its members off
+                # a specific heading. Measured on the first binding run: IVE's
+                # bare hub:music pulled two members off genre:k_pop.
+                distinct = sorted(c for c in candidates if not c.startswith("hub:"))
+                if len(distinct) == 1:
+                    bound = distinct[0]
+                    contradicts = (parent != bound
+                                   and parent not in (ancestors.get(bound) or ()))
+                    changes.append((answer["key"], parent, bound))
+                    if contradicts:
+                        flags.append({
+                            "key": answer["key"], "label": answer.get("label"),
+                            "model_said": parent, "bound_to": bound,
+                            "via": "member_of_group"})
+                    answer["parent"] = bound
+                    answer["parent_source"] = "inherited"
+                    answer["parent_inherited_from"] = parent
+                    moved += 1
+                else:
+                    refused_ambiguous += 1
+                continue
+
+            # **Keep only headings strictly below this one.** `parent in
+            # ancestors[c]` is the test, and it is asymmetric on purpose: it admits
+            # `hub:music -> genre:k_pop` and refuses the reverse.
+            deeper = [c for c in candidates if parent in (ancestors.get(c) or ())]
+            if not deeper:
+                refused_not_descendant += 1
+                continue
+            if len(deeper) > 1:
+                # **Two descendants and no way to choose is a refusal.** Picking
+                # the deepest would be inventing a tiebreak, and a term filed under
+                # the wrong specific heading reads more confident than one left
+                # under a broad one — the failure this whole pass exists to avoid,
+                # made worse.
                 refused_ambiguous += 1
-            continue
+                continue
 
-        # **Keep only headings strictly below this one.** `parent in
-        # ancestors[c]` is the test, and it is asymmetric on purpose: it admits
-        # `hub:music -> genre:k_pop` and refuses the reverse.
-        deeper = [c for c in candidates if parent in (ancestors.get(c) or ())]
-        if not deeper:
-            refused_not_descendant += 1
-            continue
-        if len(deeper) > 1:
-            # **Two descendants and no way to choose is a refusal.** Picking
-            # the deepest would be inventing a tiebreak, and a term filed under
-            # the wrong specific heading reads more confident than one left
-            # under a broad one — the failure this whole pass exists to avoid,
-            # made worse.
-            refused_ambiguous += 1
-            continue
+            changes.append((answer["key"], parent, deeper[0]))
+            answer["parent"] = deeper[0]
+            answer["parent_source"] = "inherited"
+            answer["parent_inherited_from"] = parent
+            moved += 1
 
-        changes.append((answer["key"], parent, deeper[0]))
-        answer["parent"] = deeper[0]
-        answer["parent_source"] = "inherited"
-        answer["parent_inherited_from"] = parent
-        moved += 1
+
+        # The sweep's placements join the context for the next sweep.
+        if moved == moved_before:
+            break
+        for answer in answers:
+            parent = answer.get("parent")
+            if parent and parent not in ("none", "needs_new_parent"):
+                by_label[key(answer.get("label"))].add(parent)
 
     out_path.write_text(
         "\n".join(json.dumps(a, ensure_ascii=False) for a in answers) + "\n",
