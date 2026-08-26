@@ -247,6 +247,12 @@ NEVER_INFERRED_POLICIES = ("explicit_only", "prohibited")
 # somebody's whole library in memory for arithmetic Postgres does better — and
 # the weights are already columns.
 #
+# **0409: the calibration multiplier joins the formula** — the active
+# release's (source, action) multiplier, resolved most-specific-first,
+# 1.0 for silence. Applied BEFORE aggregation and saturation, so the
+# strike lane's recalibration propagates through λ to every related node
+# and surfaces in the ordering, which is the owner's requirement stated
+# 2026-08-26. Scorer 0.21.0.
 # `evidence_weight` and `recency_weight` are what the resolver stored per
 # mapping; `default_reliability` and the per-action weight come from
 # `semantic_private.sources`, which is authored data and not this file's
@@ -301,6 +307,7 @@ with weighted as (
   select m.concept_id, m.observation_id,
          m.evidence_path -> 0 ->> 'role' as role,
          m.evidence_weight * m.recency_weight * s.default_reliability
+           * semantic_private.calibration_multiplier(o.source_code, o.action_type)
            * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0) as w
     from semantic_private.observation_mappings m
     join semantic_private.observations o on o.id = m.observation_id
@@ -358,6 +365,7 @@ select
     m.evidence_weight
     * m.recency_weight
     * s.default_reliability
+    * semantic_private.calibration_multiplier(o.source_code, o.action_type)
     * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0)
   )                                            as total_weight,
   avg(m.confidence)                            as mapping_agreement,
@@ -438,6 +446,7 @@ where m.semantic_run_id = %(run)s
 group by m.concept_id
 having sum(
     m.evidence_weight * m.recency_weight * s.default_reliability
+           * semantic_private.calibration_multiplier(o.source_code, o.action_type)
     * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0)
   ) > 0
 """
@@ -448,6 +457,7 @@ having sum(
 EVIDENCE = """
 select m.id as mapping_id, s.independence_group,
        m.evidence_weight * m.recency_weight * s.default_reliability
+           * semantic_private.calibration_multiplier(o.source_code, o.action_type)
          * coalesce((s.action_weights ->> o.action_type)::double precision, 0.0)
          as weight,
        m.recency_weight, m.recency_quality, m.recency_policy_version,
@@ -728,7 +738,8 @@ join semantic_private.observations o on o.id = m.observation_id
 join semantic_private.sources s on s.source_code = o.source_code
 where m.semantic_run_id = %(run)s and m.user_id = %(user_id)s
   and m.concept_id = %(concept)s and m.mapping_state = 'accepted'
-order by m.evidence_weight * m.recency_weight desc
+order by m.evidence_weight * m.recency_weight
+         * semantic_private.calibration_multiplier(o.source_code, o.action_type) desc
 limit 1
 """
 
