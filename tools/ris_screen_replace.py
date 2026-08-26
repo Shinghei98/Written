@@ -48,7 +48,13 @@ SCREEN_CLASSES = {
 }
 
 AFFECTED = """
-select distinct c.id as concept_id, c.concept_key, r.preferred_label
+select distinct c.id as concept_id, c.concept_key, r.preferred_label,
+       -- The dictionary's english half: a kept concept can wear its
+       -- original-script surface (洛基) while the english name lives in
+       -- presumed_terms — searching Wikidata in english needs it.
+       (select pt.english_label from semantic_private.presumed_terms pt
+         where pt.promoted_concept_id = c.id and pt.english_label is not null
+         order by pt.mention_support desc nulls last limit 1) as english_label
 from ontology.concept_edges e
 join ontology.versions v on v.id = e.ontology_version_id and v.status = 'published'
 join ontology.concepts c on c.id = e.subject_concept_id
@@ -118,19 +124,38 @@ def main() -> int:
             genre_by_qid = {qid: key for qid, key in cursor.fetchall() if qid}
 
     assignments, refused, absent = [], [], []
-    for _cid, concept_key, title in works:
-        time.sleep(1.0)
-        try:
-            found = _api({"action": "wbsearchentities", "language": "en",
-                          "type": "item", "limit": 8, "search": title})
-        except Exception as error:  # noqa: BLE001 - recorded, not fatal
-            absent.append({"concept_key": concept_key, "title": title,
-                           "reason": f"search_error:{error}"})
+    for _cid, concept_key, title, english in works:
+        # Every name the concept answers to, most-english-first; a
+        # non-ASCII name is also searched in its own script's language.
+        searches = []
+        for name in dict.fromkeys([english, title]):
+            if not name:
+                continue
+            searches.append(("en", name))
+            if any(ord(ch) > 127 for ch in name):
+                lang = ("zh" if any('\u4e00' <= ch <= '\u9fff' for ch in name)
+                        else "ja" if any('\u3040' <= ch <= '\u30ff' for ch in name)
+                        else "ko")
+                searches.append((lang, name))
+        candidates = []
+        for lang, name in searches:
+            time.sleep(1.0)
+            try:
+                found = _api({"action": "wbsearchentities", "language": lang,
+                              "type": "item", "limit": 8, "search": name})
+            except Exception as error:  # noqa: BLE001 - recorded, not fatal
+                absent.append({"concept_key": concept_key, "title": title,
+                               "reason": f"search_error:{error}"})
+                candidates = None
+                break
+            candidates = [hit["id"] for hit in found.get("search", [])
+                          if (hit.get("label") or "").casefold() == name.casefold()
+                          or (hit.get("match", {}).get("text") or "").casefold()
+                          == name.casefold()]
+            if candidates:
+                break
+        if candidates is None:
             continue
-        candidates = [hit["id"] for hit in found.get("search", [])
-                      if (hit.get("label") or "").casefold() == title.casefold()
-                      or (hit.get("match", {}).get("text") or "").casefold()
-                      == title.casefold()]
         if not candidates:
             absent.append({"concept_key": concept_key, "title": title,
                            "reason": "no_exact_label"})
