@@ -18,18 +18,31 @@
 --     make YouTube the strongest concept in every library. Registered so
 --     the zero is a decision on a row, not an absence.
 --
--- Set at authoring, by analogy within the registry's own scale, and
--- recorded here as every λ is; the strike lane's Δ-log-odds
+-- Rows take `member_of_group`'s shape (descriptive, one hop, not
+-- assertion-safe, `supported` authority, propagating `interested_in`
+-- only); `platform_of` tightens to `verified` authority and propagates
+-- nothing, its λ being zero either way. Set at authoring, by analogy
+-- within the registry's own scale; the strike lane's Δ-log-odds
 -- recalibration owns them from here.
 
 begin;
 
 insert into ontology.relation_types
-  (predicate_key, propagation_weight, minimum_relation_confidence)
+  (predicate_key, relation_class, inverse_predicate_key, is_symmetric,
+   transitive_for_inference, max_inference_hops, assertion_safe,
+   description, propagation_weight, reverse_propagation_weight,
+   minimum_propagation_authority, minimum_relation_confidence,
+   may_propagate_user_predicates, registry_version)
 values
-  ('work_in_collection', 0.45, 0.65),
-  ('signed_to_label', 0.20, 0.65),
-  ('platform_of', 0.00, 0.65)
+  ('work_in_collection', 'descriptive', null, false, false, 1, false,
+   'A work belongs to a titled collection or cycle.',
+   0.45, 0, 'supported', 0.65, array['interested_in'], 'predicate-v2.2'),
+  ('signed_to_label', 'descriptive', null, false, false, 1, false,
+   'An act records for a named label organization.',
+   0.20, 0, 'supported', 0.65, array['interested_in'], 'predicate-v2.2'),
+  ('platform_of', 'descriptive', null, false, false, 1, false,
+   'Material was published on this platform; carries no taste weight.',
+   0.00, 0, 'verified', 0.65, array[]::text[], 'predicate-v2.2')
 on conflict (predicate_key) do nothing;
 
 commit;

@@ -40,8 +40,9 @@
 --   5. **The filing climb learns `composed_by`** beside `performed_by`
 --      (0397's shape) so a cycle reaches its composer's genre.
 --
--- Dictionary rows are retyped in place (0367's precedent) and relation
--- predicates move to the typed vocabulary — three new predicates join the
+-- Dictionary term rows are retyped in place (0367's precedent); relation
+-- rows are append-only, so each typed reading is a new `authored` row
+-- beside the model's statement, with `restates` naming the original — three new predicates join the
 -- check constraint (0371's precedent). Ontology changes land at a new
 -- version, published, and per 0396's rule the publish ends with
 -- `enqueue_recompute_on_analysis_change`.
@@ -277,31 +278,50 @@ begin
          set concept_kind = 'organization'
        where ontology_version_id = new_version_id
          and concept_id = row_c.concept_id and status = 'active';
-      update semantic_private.presumed_terms
+      update semantic_private.presumed_terms pt0
          set family = 'platform'
-       where promoted_concept_id = row_c.concept_id and family = 'franchise';
+       where pt0.promoted_concept_id = row_c.concept_id and pt0.family = 'franchise'
+         -- The fracture can hold a true-family twin of the same name;
+         -- retyping beside it would mint a duplicate identity. The twin
+         -- keeps the identity; the franchise row stays as history.
+         and not exists (
+           select 1 from semantic_private.presumed_terms t2
+            where t2.normalized_label = pt0.normalized_label
+              and t2.family = 'platform');
       typed_platform := typed_platform + 1;
       raise notice '0398: % is the platform itself — withheld by kind', row_c.norm_label;
 
     elsif row_c.verdict = 'group' then
-      update semantic_private.presumed_terms
+      update semantic_private.presumed_terms pt0
          set family = 'group'
-       where promoted_concept_id = row_c.concept_id and family = 'franchise';
+       where pt0.promoted_concept_id = row_c.concept_id and pt0.family = 'franchise'
+         -- The fracture can hold a true-family twin of the same name;
+         -- retyping beside it would mint a duplicate identity. The twin
+         -- keeps the identity; the franchise row stays as history.
+         and not exists (
+           select 1 from semantic_private.presumed_terms t2
+            where t2.normalized_label = pt0.normalized_label
+              and t2.family = 'group');
       -- Person-members join the group; a work pointing into its group is
       -- the group performing it — two facts, two predicates.
-      update semantic_private.presumed_term_relations r
-         set predicate = 'member_of_group'
-        from semantic_private.presumed_terms pt, semantic_private.presumed_terms s
+      -- Relations are append-only ("a record of what was said at a
+      -- moment"), so the typed reading is a new `authored` row beside the
+      -- model's statement, never a rewrite of it.
+      insert into semantic_private.presumed_term_relations
+        (subject_term_id, predicate, object_term_id, basis, evidence)
+      select r.subject_term_id,
+             case when s.family = 'person' then 'member_of_group'
+                  else 'performed_by' end,
+             r.object_term_id, 'authored',
+             jsonb_build_object('rule', '0398 container reconciliation',
+                                'restates', r.id)
+        from semantic_private.presumed_term_relations r
+        join semantic_private.presumed_terms pt on pt.id = r.object_term_id
+        join semantic_private.presumed_terms s on s.id = r.subject_term_id
        where pt.promoted_concept_id = row_c.concept_id
-         and r.object_term_id = pt.id and r.predicate = 'part_of_franchise'
-         and s.id = r.subject_term_id and s.family = 'person';
-      update semantic_private.presumed_term_relations r
-         set predicate = 'performed_by'
-        from semantic_private.presumed_terms pt, semantic_private.presumed_terms s
-       where pt.promoted_concept_id = row_c.concept_id
-         and r.object_term_id = pt.id and r.predicate = 'part_of_franchise'
-         and s.id = r.subject_term_id
-         and s.family in ('work','music_work','album','music_recording');
+         and r.predicate = 'part_of_franchise'
+         and s.family in ('person','work','music_work','album','music_recording')
+      on conflict do nothing;
       typed_group := typed_group + 1;
       if row_c.majority_block is not null then
         insert into ontology.concept_edges (
@@ -318,14 +338,27 @@ begin
       end if;
 
     elsif row_c.verdict = 'organization' then
-      update semantic_private.presumed_terms
+      update semantic_private.presumed_terms pt0
          set family = 'organization'
-       where promoted_concept_id = row_c.concept_id and family = 'franchise';
-      update semantic_private.presumed_term_relations r
-         set predicate = 'signed_to_label'
-        from semantic_private.presumed_terms pt
+       where pt0.promoted_concept_id = row_c.concept_id and pt0.family = 'franchise'
+         -- The fracture can hold a true-family twin of the same name;
+         -- retyping beside it would mint a duplicate identity. The twin
+         -- keeps the identity; the franchise row stays as history.
+         and not exists (
+           select 1 from semantic_private.presumed_terms t2
+            where t2.normalized_label = pt0.normalized_label
+              and t2.family = 'organization');
+      insert into semantic_private.presumed_term_relations
+        (subject_term_id, predicate, object_term_id, basis, evidence)
+      select r.subject_term_id, 'signed_to_label', r.object_term_id,
+             'authored',
+             jsonb_build_object('rule', '0398 container reconciliation',
+                                'restates', r.id)
+        from semantic_private.presumed_term_relations r
+        join semantic_private.presumed_terms pt on pt.id = r.object_term_id
        where pt.promoted_concept_id = row_c.concept_id
-         and r.object_term_id = pt.id and r.predicate = 'part_of_franchise';
+         and r.predicate = 'part_of_franchise'
+      on conflict do nothing;
       typed_org := typed_org + 1;
       -- The shelf: music when the member majority's block climbs to
       -- hub:music, else entertainment — derived, not chosen per name.
@@ -359,19 +392,32 @@ begin
       placement_edges := placement_edges + 1;
 
     elsif row_c.verdict = 'collection' then
-      update semantic_private.presumed_terms
+      update semantic_private.presumed_terms pt0
          set family = case when exists (
                 select 1 from _members m where m.concept_id = row_c.concept_id
                   and m.member_family = 'album')
               then 'album' else 'work' end
-       where promoted_concept_id = row_c.concept_id and family = 'franchise';
-      update semantic_private.presumed_term_relations r
-         set predicate = 'work_in_collection'
-        from semantic_private.presumed_terms pt, semantic_private.presumed_terms s
+       where pt0.promoted_concept_id = row_c.concept_id and pt0.family = 'franchise'
+         and not exists (
+           select 1 from semantic_private.presumed_terms t2
+            where t2.normalized_label = pt0.normalized_label
+              and t2.family = case when exists (
+                    select 1 from _members m2 where m2.concept_id = row_c.concept_id
+                      and m2.member_family = 'album')
+                  then 'album' else 'work' end);
+      insert into semantic_private.presumed_term_relations
+        (subject_term_id, predicate, object_term_id, basis, evidence)
+      select r.subject_term_id, 'work_in_collection', r.object_term_id,
+             'authored',
+             jsonb_build_object('rule', '0398 container reconciliation',
+                                'restates', r.id)
+        from semantic_private.presumed_term_relations r
+        join semantic_private.presumed_terms pt on pt.id = r.object_term_id
+        join semantic_private.presumed_terms s on s.id = r.subject_term_id
        where pt.promoted_concept_id = row_c.concept_id
-         and r.object_term_id = pt.id and r.predicate = 'part_of_franchise'
-         and s.id = r.subject_term_id
-         and s.family in ('work','music_work','album','music_recording');
+         and r.predicate = 'part_of_franchise'
+         and s.family in ('work','music_work','album','music_recording')
+      on conflict do nothing;
       typed_collection := typed_collection + 1;
       -- The person-member is the collection's author: composed_by when
       -- that person files under classical (the composer convention),
