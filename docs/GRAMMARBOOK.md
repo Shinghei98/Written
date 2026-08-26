@@ -1055,6 +1055,16 @@ labels:
   people surviving as their own mentions. Albums exempt: a two-composer
   release is a real thing to own. 17 dropped on the first half-corpus.
 
+- **An underscore in a music title is a separator, and the qualifier
+  survives in full-width parentheses** (owner, 2026-08-26). Spotify's
+  game-soundtrack lane joins track and section as `夢問紅塵_不羨仙`; the
+  term reads `夢問紅塵（不羨仙）`, prefixed by its performer through the
+  standard machinery — `singer - 夢問紅塵（不羨仙）`. Full-width
+  parentheses mark a *qualifier*; the ASCII parentheses of the bilingual
+  name rule (§ the 0364 syntax) keep marking the *original-language
+  name* — two conventions, two meanings, deliberately distinct. No
+  canonical label carries an underscore.
+
 The prompt-side wording is still corrected for the *next* version (the
 workbook stages `qwen_extractor_v21`; the compiled contract remains the
 run's truth until the next emit) — a better instruction reduces the

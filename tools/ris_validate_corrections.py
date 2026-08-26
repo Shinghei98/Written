@@ -20,6 +20,13 @@ Pass A — per-row corrections, both deterministic, both counted:
    grammatical impossibility; dropped, its people surviving as their own
    mentions. Album-family terms exempt.
 
+3. **An underscore in a music title is a separator, and the qualifier
+   survives in full-width parentheses** (owner's syntax ruling,
+   2026-08-26): Spotify's game-soundtrack lane joins track and section
+   as `夢問紅塵_不羨仙`, and the term reads `夢問紅塵（不羨仙）` — the
+   performer prefix arrives from the standard machinery. Split at the
+   first underscore; the remainder is the qualifier verbatim.
+
 Pass B — the container taxonomy (GRAMMARBOOK §2.21, owner's replan
 2026-08-26). The v20 grammar had one container word — `franchise` — and
 the model filed groups, labels, platforms, work-cycles and even genres
@@ -140,7 +147,7 @@ def main() -> int:
     # ------------------------------------------------------------------
     # Second read: apply passes A and B.
     # ------------------------------------------------------------------
-    restored = dropped = rows = 0
+    restored = dropped = rows = underscore_split = 0
     retyped: dict[str, int] = defaultdict(int)
     relations_retyped = classification_edges = entities_dropped = held = 0
     out_lines = []
@@ -220,6 +227,21 @@ def main() -> int:
                     relations_retyped += 1
                     changed = True
 
+                # Pass A.3 — the underscore split (owner's ruling,
+                # 2026-08-26): music-family titles only, first underscore
+                # separates, qualifier kept in full-width parentheses.
+                label_now = m.get("canonical_label_hypothesis") or ""
+                if ("_" in label_now
+                        and fam in ("work", "music_work", "album",
+                                    "music_recording")
+                        and m.get("source_field") != "album"):
+                    left, _, right = label_now.partition("_")
+                    left, right = left.strip(), right.strip()
+                    if left and right:
+                        m["canonical_label_hypothesis"] = f"{left}（{right}）"
+                        underscore_split += 1
+                        changed = True
+
                 # Pass A.1 — the album name, whole.
                 if (album and m.get("source_field") == "album"
                         and (m.get("canonical_label_hypothesis") or "") != album):
@@ -240,6 +262,7 @@ def main() -> int:
     out_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     print(json.dumps({"rows": rows, "album_names_restored": restored,
                       "impossible_works_dropped": dropped,
+                      "underscore_titles_split": underscore_split,
                       "containers_retyped": dict(retyped),
                       "relations_retyped": relations_retyped,
                       "classification_edges": classification_edges,
