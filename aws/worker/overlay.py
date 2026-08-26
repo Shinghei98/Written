@@ -2122,6 +2122,19 @@ def process_mint_requests(job) -> dict[str, Any]:
 
     with psycopg.connect(database_url(), row_factory=dict_row,
                          prepare_threshold=None) as connection:
+        # **0405: fields promote before anything else asks the dictionary.**
+        # A music row's primary_performer (and classical composer) is a
+        # statement the source already made; the function appends it as a
+        # dictionary relation between existing terms, idempotently. Guarded
+        # on existence so a worker deployed ahead of the migration degrades
+        # to the old behaviour instead of failing the stage.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "select to_regproc('semantic_private.promote_field_stated_relations') as fn")
+            if cursor.fetchone()["fn"] is not None:
+                cursor.execute(
+                    "select semantic_private.promote_field_stated_relations()")
+                cursor.fetchone()
         parents = _kept_parents(connection)
         with connection.cursor() as cursor:
             cursor.execute(
