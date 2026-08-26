@@ -705,8 +705,11 @@ where e.ontology_version_id = %(version)s
        -- collection authors — the same structural standard as the 0374
        -- lane, decided by a different judge. A bare model statement still
        -- does not conduct.
+       -- The doubled percent is psycopg's escape for a literal '%' in a
+       -- parameterized query, not SQL: the pattern the server sees is
+       -- '0398 %'.
        or (e.provenance_type = 'learned'
-           and e.provenance ->> 'rule' like '0398 %'))
+           and e.provenance ->> 'rule' like '0398 %%'))
 """
 
 # The single strongest mapping behind a source concept, so a derived
