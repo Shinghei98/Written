@@ -698,7 +698,15 @@ where e.ontology_version_id = %(version)s
        -- registered predicate, per-predicate kind agreement) conduct; a
        -- bare model statement still does not.
        or (e.provenance_type = 'learned'
-           and e.provenance ->> 'source' = '0374_relation_promotion'))
+           and e.provenance ->> 'source' = '0374_relation_promotion')
+       -- **The container reconciliation's edges conduct (owner's grammar
+       -- replan, 2026-08-26).** 0398 derived them by rule from member-
+       -- family evidence — member-majority blocks, organization shelves,
+       -- collection authors — the same structural standard as the 0374
+       -- lane, decided by a different judge. A bare model statement still
+       -- does not conduct.
+       or (e.provenance_type = 'learned'
+           and e.provenance ->> 'rule' like '0398 %'))
 """
 
 # The single strongest mapping behind a source concept, so a derived

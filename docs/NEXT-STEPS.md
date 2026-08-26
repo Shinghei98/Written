@@ -21,6 +21,22 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
+## The queue consumer: built, awaiting install (2026-08-26)
+
+The producers were never broken — ingestion enqueues on finalize, and since
+`0396` every ontology publish enqueues too. The consumer went with AWS, which
+is why Timi's hourglass sat 12 hours on a queued `recompute_user`. The
+replacement is `tools/run_worker_queue.py` (claims queued `recompute_user`
+jobs with `for update skip locked`, one stage run per user per pass, backoff
+to `dead` after 5 attempts) scheduled by
+`tools/com.written.worker-queue.plist` every 10 minutes on the owner's Mac.
+**Status: code committed, not yet installed** — installation needs the DSN in
+`~/.written/env` (mode 600, outside the repo), which only the owner can
+place; the install commands are in the plist's header comment. The pg_cron
+armers stay unscheduled *by design* — re-arming them without a consumer is
+exactly `0363`'s bug. Delete this section when a queue drain has been
+observed in `~/.written/worker-queue.log`.
+
 ## Where things actually stand
 
 | | David | Timi | Demo |

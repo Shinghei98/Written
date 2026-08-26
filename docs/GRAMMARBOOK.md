@@ -1055,6 +1055,65 @@ registered predicate, per-predicate kind agreement, ambiguity refuses).
 Noise is the cutoff's problem and the strike lane's price signal, never
 the mint gate's.
 
+## 2.21 The container taxonomy: one word stops doing five jobs (owner's replan, 2026-08-26)
+
+**The measured defect.** The v20 grammar had exactly one container concept
+— `franchise` — and one containment predicate — `part_of_franchise` — so
+the model filed every "X belongs to Y" as a franchise whatever Y was.
+Read off the dictionary on 2026-08-26: girl groups (Brown Eyed Girls,
+KiiiKiii), a label conglomerate (HYBE Labels), the platform itself
+(YouTube), a work-cycle (Bach's Violin Sonatas), a pipe-joined performer
+credit (the Gardiner ensemble) and outright classifications ("Jazz",
+"K-Pop", "Contemporary Era") all carried family `franchise`. Every
+downstream placement rule keyed on the true family and found `franchise`
+instead; each patch re-aimed one rule while the grammar kept
+manufacturing new misses. **The patches were correct and the grammar was
+wrong.** The families the grammar needed — `group`, `organization`,
+`platform`, `album` — existed in `presumed_terms_family_check` the whole
+time; the model never chose them for containers.
+
+**The taxonomy (binding for v21 onward):**
+
+- **group** — members are persons. Bands, idol groups, ensembles; a
+  multi-person channel stays a group; a pipe-joined performer credit IS
+  the performer and types as a group, never as an entity of family
+  franchise.
+- **organization** — members are groups or channels: labels, broadcasters.
+  `platform` for the sites themselves — and *a container whose label is a
+  registered source code is the platform*, decided against
+  `semantic_private.sources`, never a name list.
+- **collection** — members are works: `album` for releases, `work` for
+  cycles. Carries `composed_by` / `performed_by`, never members.
+- **franchise** — reserved for narrative/creative universes (MCU, BTS
+  Universe). The word stops being the default; works + a group pointing
+  in is the franchise shape, works + persons is the collection shape.
+- **classifications are edges, never entities.** A containment object
+  whose label uniquely resolves to genre/era/scene vocabulary becomes a
+  `broader` edge at validation and no term row is minted.
+
+**Predicates follow the container**: `member_of_group`, `signed_to_label`,
+`platform_of`, `work_in_collection`, `part_of_franchise` (true franchises
+only), `broader`. A work pointing into its own group is the group
+performing it — `performed_by`, two facts never one predicate.
+
+**Typing is decided by the validator from member-family evidence**
+(§2.20's law: a manufactured representation is validated, never
+prompted): person-majority members → group; any group member →
+organization (+ works → franchise); work-majority → collection.
+Ambiguous membership refuses to `unknown` and holds — the linker's rule
+generalized. Placement then falls out of machinery that already exists:
+organizations shelve (music when the member majority's block climbs to
+`hub:music`), groups and franchises inherit the member-majority block
+(≥ 2/3 of placeable members, ties refuse), collections file through
+their author (`composed_by` when the author files under classical — the
+composer convention — else `performed_by`; both conduct the display
+climb).
+
+`0398` is the reconciliation of the existing dictionary under these rules
+— evidence already stored, no re-distillation. The disambiguation ladder
+(§2.18) is the identity half: a container is *typed* here and *identified*
+there, and neither guesses.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
