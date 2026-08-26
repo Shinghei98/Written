@@ -705,12 +705,13 @@ where e.ontology_version_id = %(version)s
        -- collection authors — the same structural standard as the 0374
        -- lane, decided by a different judge. A bare model statement still
        -- does not conduct.
-       -- The doubled percent below is psycopg's escape for a literal
-       -- percent sign in a parameterized query (psycopg reads
-       -- placeholders even inside SQL comments, which is how the first
-       -- wording of this very comment broke the run).
+       -- Any numbered reconciliation rule's edges conduct — 0398's
+       -- containers, 0400's ladder bindings, and their successors — all
+       -- derived from evidence under the same structural standard. The
+       -- regex avoids the literal percent that psycopg would read as a
+       -- placeholder even inside a SQL comment.
        or (e.provenance_type = 'learned'
-           and e.provenance ->> 'rule' like '0398 %%'))
+           and e.provenance ->> 'rule' ~ '^[0-9]{4} '))
 """
 
 # The single strongest mapping behind a source concept, so a derived
