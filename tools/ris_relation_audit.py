@@ -260,6 +260,39 @@ def main() -> int:
             ambiguous_identity.append({**row, "subject_candidates": len(s_ids),
                                        "object_candidates": len(o_ids)})
 
+    # ------------------------------------------------------------------
+    # Triangulation: an ambiguous name whose OTHER wire corroborated has
+    # a pinned identity — the QID that verified IS our catalogue's
+    # referent (Lyn is the entity Wikidata credits for Persona). Re-run
+    # the held checks against the pinned entity; unique by construction.
+    # ------------------------------------------------------------------
+    pinned: dict[str, str] = {}
+    for row in corroborated:
+        qa, qb = (row.get("wikidata") or "->").split("->")
+        if qa:
+            pinned.setdefault(row["subject_key"], qa)
+        if qb:
+            pinned.setdefault(row["object_key"], qb)
+    still_ambiguous = []
+    for row in ambiguous_identity:
+        s_pin = pinned.get(row["subject_key"])
+        o_labels_row = row.get("object")
+        o_ids = entity_ids(o_labels_row) if o_labels_row else []
+        if s_pin and o_ids is not None and len(o_ids) == 1:
+            found, reference = claims_reference([s_pin], o_ids)
+            if not found:
+                unverifiable.append(row)
+            elif reference:
+                corroborated.append({**row, "wikidata": reference,
+                                     "via": "triangulated"})
+            else:
+                demote.append({**row, "subject_qid": s_pin,
+                               "object_qid": o_ids[0],
+                               "via": "triangulated"})
+            continue
+        still_ambiguous.append(row)
+    ambiguous_identity = still_ambiguous
+
     out_path.write_text(json.dumps({
         "grounded": grounded, "corroborated": corroborated,
         "demote": demote, "unmatched_left_standing": unmatched,
