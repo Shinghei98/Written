@@ -1183,6 +1183,29 @@ over every promotion-lane edge) and the recurring pass for future
 cycles; an edge the audit cannot match to a witness is left standing —
 an audit that cannot see the witness does not rule.
 
+## 2.23 A relation is a business connection, not a resemblance (owner, 2026-08-27)
+
+**The ruling, verbatim in substance:** a work-work or work-person
+predicate must be a genuine business, legal, or proprietary connection —
+a commissioned theme, a franchise's own release, a label's own act.
+**Loose inspiration and shared names are not relations.** David Tao's
+"討厭紅樓夢" alludes to the novel; JJ Lin's "曹操" shares a name with
+the warlord; neither song has any proprietary connection to its
+namesake, and both minted `part_of_franchise` wires that conducted real
+listening into concepts nobody engaged. At most such a link is `about`;
+under this ruling it conducts nothing.
+
+The distinguishing test is the one §2.22's audit already runs: a
+proprietary connection is *catalogued* (Lyn is Wikidata's own credited
+Persona vocalist; Mika Nakashima's One Piece themes are commissioned
+tie-ins — both pass), while a resemblance is not (no catalogue connects
+the song to the novel — it fails and demotes). The traced page
+convergence of 2026-08-27 (Persona, BTS Universe, One Piece appearing
+for both test users) was **not** cross-user leakage: every term reached
+each page through that user's own evidence over shared global wires —
+the two wrong cases were both allusion wires, which is what this section
+retires.
+
 ---
 
 # Part 3 — The golden set, and how a label becomes one
