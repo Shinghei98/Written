@@ -83,14 +83,19 @@ def main() -> int:
             if line.strip()}
 
     album_by_row: dict[str, str] = {}
+    text_by_row: dict[str, str] = {}
     source_codes: set[str] = set()
     for line in items_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         item = json.loads(line)
-        album = ((item.get("fields") or {}).get("album") or "").strip()
+        fields = item.get("fields") or {}
+        album = (fields.get("album") or "").strip()
         if album and item.get("row_id"):
             album_by_row[item["row_id"]] = album
+        if item.get("row_id"):
+            text_by_row[item["row_id"]] = _norm(
+                " ".join(str(v) for v in fields.values() if v))
         if item.get("source"):
             source_codes.add(_norm(item["source"]))
 
@@ -147,7 +152,7 @@ def main() -> int:
     # ------------------------------------------------------------------
     # Second read: apply passes A and B.
     # ------------------------------------------------------------------
-    restored = dropped = rows = underscore_split = 0
+    restored = dropped = rows = underscore_split = fabricated_dropped = 0
     retyped: dict[str, int] = defaultdict(int)
     relations_retyped = classification_edges = entities_dropped = held = 0
     out_lines = []
@@ -166,6 +171,24 @@ def main() -> int:
             for m in item.get("mentions", []):
                 fam = m.get("family_hypothesis") or ""
                 label = _norm(m.get("canonical_label_hypothesis") or "")
+
+                # Pass B0 — **a mention the entry never made** (GRAMMARBOOK
+                # §2.22, descended to mentions 2026-08-27): a model-lane
+                # mention whose surface and canonical both appear nowhere
+                # in the entry's own text is a fabrication — Timi's 21
+                # "One Piece" mentions on Mandopop ballads — and is
+                # dropped whole. Relations still carry ungrounded objects
+                # into the candidate path; standalone mentions may not.
+                entry_text = text_by_row.get(row.get("row_id") or "", "")
+                if (m.get("extraction_method") in ("model_proposed",
+                                                   "model_inferred")
+                        and entry_text
+                        and _norm(m.get("canonical_label_hypothesis") or "")
+                            not in entry_text
+                        and _norm(m.get("surface") or "") not in entry_text):
+                    fabricated_dropped += 1
+                    changed = True
+                    continue
 
                 # Pass A.2 — the impossible work.
                 if fam not in ("album",):
@@ -263,6 +286,7 @@ def main() -> int:
     print(json.dumps({"rows": rows, "album_names_restored": restored,
                       "impossible_works_dropped": dropped,
                       "underscore_titles_split": underscore_split,
+                      "fabricated_mentions_dropped": fabricated_dropped,
                       "containers_retyped": dict(retyped),
                       "relations_retyped": relations_retyped,
                       "classification_edges": classification_edges,
