@@ -902,27 +902,26 @@ struct DiscoveryCard: View {
         .padding(.top, 6)
     }
 
+    /// One line per photo page (owner, 2026-08-28): the card composes on
+    /// two photographs, and the bio pages with them — line 1 under photo
+    /// 1, line 2 under photo 2 — so each swipe reads as a fresh remark
+    /// rather than a stacked list. The name still runs into the line the
+    /// way it does on a real caption.
     private var caption: some View {
         VStack(alignment: .leading, spacing: 3) {
-            ForEach(Array(profile.lines.enumerated()), id: \.offset) { index, line in
-                // The name runs into the first line the way it does on a real
-                // caption, so the block reads as one utterance rather than as
-                // two labelled fields.
-                if index == 0 {
-                    (
-                        Text(profile.name).font(.system(size: 15, weight: .semibold))
-                        + Text(" " + line).font(.system(size: 15))
-                    )
-                    .foregroundStyle(GardenPalette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(line)
-                        .font(.system(size: 15))
-                        .foregroundStyle(GardenPalette.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if let line = profile.lines.indices.contains(page)
+                ? profile.lines[page] : profile.lines.first {
+                (
+                    Text(profile.name).font(.system(size: 15, weight: .semibold))
+                    + Text(" " + line).font(.system(size: 15))
+                )
+                .foregroundStyle(GardenPalette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .id(page)
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.18), value: page)
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 16)
