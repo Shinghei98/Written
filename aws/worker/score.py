@@ -670,9 +670,14 @@ join ontology.concept_labels l
  -- Whole-phrase, space-bounded: substring containment asserted the band
  -- Chic from a Chichen Itza ticket and Final Fantasy VI from a Final
  -- Fantasy VII one. Both sides collapse to alphanumeric words first.
- and (' ' || regexp_replace(lower(convert_from(e.encrypted_text, 'utf8')),
+ -- Accents fold on both sides (0423's lesson, again): the label's
+ -- normalized form is unaccented while ticket text keeps its accents,
+ -- and Chichén Itzá went unmatched for the difference.
+ and (' ' || regexp_replace(extensions.unaccent(
+                lower(convert_from(e.encrypted_text, 'utf8'))),
                             '[^a-z0-9]+', ' ', 'g') || ' ')
-     like ('%% ' || regexp_replace(l.normalized_label, '[^a-z0-9]+', ' ', 'g')
+     like ('%% ' || regexp_replace(extensions.unaccent(l.normalized_label),
+                                   '[^a-z0-9]+', ' ', 'g')
            || ' %%')
 join ontology.concepts c2 on c2.id = l.concept_id
 join ontology.concept_revisions r
