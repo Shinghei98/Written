@@ -414,6 +414,15 @@ Ordered by what hurts soonest.
   are the signal) and belongs to the v21 corpus run — decide there whether
   location text is filed beside the title, and how a second text per
   observation fits a table whose readers all assume one.
+- **The place vocabulary has no script or code aliases (2026-08-27).**
+  Flight locations arrive as "洛杉磯 LAX" / "香港 HKG" and match nothing —
+  no Chinese-script city labels, no IATA codes (three letters, under the
+  matcher's four-char floor). 0431's chain rule works around it (an
+  unknown origin is no objection) and the origin-from-location lookup is
+  already structured, so the aliases turn it on the day they land. Derive
+  them, don't type them: Wikidata P238 (airport→city) and the city
+  concepts' own multilingual labels are the sources; `ris_screen_replace.py`
+  is the tooling shape.
 - **Nothing lists a suppressed assertion**, so restoration is reachable only as an
   undo in the moment and a mis-tap is permanent. It wants a server decision — a
   second RPC or a parameter — and the question underneath is what somebody is owed
