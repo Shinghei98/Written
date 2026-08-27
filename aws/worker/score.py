@@ -644,6 +644,33 @@ on conflict (assertion_id, semantic_run_id) do nothing
 returning id
 """
 
+#: **The calendar predicates score by their bookings (0157's design,
+#: built 2026-08-27).** A `booked_public_event_about` assertion has no
+#: observation mappings by construction (calendar rows may not enter the
+#: mapping table); its support is the count of booked-event candidates
+#: whose own text names the concept — read from the plaintext evidence
+#: lane, the same witness that wrote the assertion.
+SCORE_CALENDAR_BOOKED = """
+select a.id as assertion_id, c2.concept_key, count(distinct b.id) as bookings
+from semantic_private.user_assertions a
+join ontology.concepts c2 on c2.id = a.concept_id
+join ontology.concept_labels l
+  on l.concept_id = a.concept_id and l.status = 'active'
+ and l.ontology_version_id = %(version)s
+ and length(l.normalized_label) >= 4
+join semantic_private.booked_activity_candidates b
+  on b.user_id = a.user_id and b.predicate_key = 'booked_event'
+join semantic_private.source_text_evidence e
+  on e.observation_id = b.source_observation_id and e.user_id = a.user_id
+ and e.refresh_status = 'current' and e.deleted_at is null
+ and e.encryption_key_version = 'ris_lab_plaintext_v1'
+where a.user_id = %(user_id)s
+  and a.predicate_key = 'booked_public_event_about'
+  and a.machine_state in ('candidate', 'eligible')
+  and position(l.normalized_label in lower(convert_from(e.encrypted_text, 'utf8'))) > 0
+group by a.id, c2.concept_key
+"""
+
 INSERT_EVIDENCE = """
 insert into semantic_private.assertion_evidence (
   assertion_score_version_id, user_id, observation_mapping_id,
@@ -1618,6 +1645,34 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     # somebody who likes nothing. `score_user` already returns early when a run
     # mapped nothing at all (that path never reaches here); this covers the
     # other shape, where the loop ran and produced no scores.
+    # **Calendar-predicate assertions score here** — recognized by
+    # predicate, never by mappings, per 0157. One booking is already a
+    # meaningful act (strength n/(n+1) starts at 0.5); confidence is the
+    # deterministic read's. An assertion whose bookings have expired gets
+    # no score this run and the page withholds it — decay by silence.
+    with connection.cursor() as cursor:
+        cursor.execute(SCORE_CALENDAR_BOOKED,
+                       {"user_id": user_id, "version": version})
+        booked_rows = cursor.fetchall()
+    for booked in booked_rows:
+        n = float(booked["bookings"])
+        strength = n / (n + 1.0)
+        with connection.cursor() as cursor:
+            cursor.execute(INSERT_SCORE_VERSION, {
+                "assertion": booked["assertion_id"], "user_id": user_id,
+                "run": run_id, "version": version,
+                "strength": strength, "confidence": 0.8,
+                "breadth": 1, "stability": 0.0,
+                "surfacing": strength * 0.8,
+                "payload": json.dumps({
+                    "concept_key": booked["concept_key"],
+                    "predicate": "booked_public_event_about",
+                    "bookings": int(n), "calendar": True}),
+                "agreement": None, "quality": None,
+                "policy": policy_version, "as_of": as_of,
+            })
+        counts["calendar_scored"] = counts.get("calendar_scored", 0) + 1
+
     scored_concepts.extend(travel_concepts)
     if scored_concepts:
         with connection.cursor() as cursor:
