@@ -1430,16 +1430,29 @@ struct DashboardView: View {
         }
     }
 
-    /// The calendar card: rows the server composed whole
-    /// ("Scheduled travel to Hong Kong"), drawn only when any exist.
+    /// The calendar cards: rows the server composed whole
+    /// ("Scheduled travel to Hong Kong · Nov 2022"), split by kind —
+    /// journeys under TRAVEL, booked tours/shows/festivals under EVENTS —
+    /// each card drawn only when it has rows.
     @ViewBuilder
     private var calendarCard: some View {
-        if !calendarMemories.isEmpty {
+        calendarKindCard("TRAVEL", icon: "airplane",
+                         rows: calendarMemories.filter { $0.kind == "scheduled_travel_candidate" })
+            .id("calendar-travel")
+        calendarKindCard("EVENTS", icon: "ticket",
+                         rows: calendarMemories.filter { $0.kind == "booked_activity_candidate" })
+            .id("calendar-events")
+    }
+
+    @ViewBuilder
+    private func calendarKindCard(_ title: String, icon: String,
+                                  rows: [SemanticSurfaceService.CalendarMemory]) -> some View {
+        if !rows.isEmpty {
             card {
-                cardLabel("CALENDAR", icon: "calendar")
+                cardLabel(title, icon: icon)
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
                 entryStack {
-                    ForEach(Array(calendarMemories.enumerated()), id: \.element.id) { row, memory in
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { row, memory in
                         if row > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
                         HStack(spacing: 8) {
                             Text(memory.label)
@@ -1454,7 +1467,6 @@ struct DashboardView: View {
                     }
                 }
             }
-            .id("calendar")
         }
     }
 
