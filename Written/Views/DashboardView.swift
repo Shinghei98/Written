@@ -1466,6 +1466,8 @@ struct DashboardView: View {
                 cardLabel(title, icon: icon)
                 Divider().overlay(GardenPalette.ink.opacity(0.08))
                 entryStack {
+                    // No badge: the card title already says what these
+                    // are, and every row's source is the calendar.
                     ForEach(Array(rows.enumerated()), id: \.element.id) { row, memory in
                         if row > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
                         HStack(spacing: 8) {
@@ -1473,11 +1475,21 @@ struct DashboardView: View {
                                 .font(.system(size: 14))
                                 .foregroundStyle(GardenPalette.ink)
                             Spacer(minLength: 0)
-                            Text(memory.badge)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(GardenPalette.muted)
                         }
                         .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Task {
+                                    if await SemanticSurfaceService.shared
+                                        .suppressCalendarMemory(memory.id) {
+                                        calendarMemories.removeAll { $0.id == memory.id }
+                                    }
+                                }
+                            } label: {
+                                Label("Remove", systemImage: "eye.slash")
+                            }
+                        }
                     }
                 }
             }

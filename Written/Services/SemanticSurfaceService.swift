@@ -354,6 +354,38 @@ actor SemanticSurfaceService {
         await answer("suppress_assertion", assertion, rank: rank, surface: surface)
     }
 
+    /// The calendar rows' strike (0434). The server keys the preference
+    /// on stable identity (place concept, booking lineage), so removal
+    /// survives every journey rebuild; the item key is only the handle.
+    /// No exposure — the calendar pane records none.
+    func suppressCalendarMemory(_ itemKey: String) async -> Bool {
+        do {
+            _ = try await PostgREST.callFunction(
+                "suppress_calendar_memory",
+                arguments: ["p_item_key": itemKey])
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// The undo, valid only in the moment — nothing lists what was
+    /// hidden (the same standing gap as assertions).
+    func restoreCalendarMemory(_ itemKey: String) async -> Bool {
+        do {
+            _ = try await PostgREST.callFunction(
+                "restore_calendar_memory",
+                arguments: ["p_item_key": itemKey])
+            lastError = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     /// **Restore takes no exposure, and that is the schema being right.**
     /// `restore_assertion` has three parameters where its siblings have four:
     /// a suppressed assertion is filtered out of `list_assertions`, so it was

@@ -22,8 +22,14 @@
 #   contract needs a built snapshot over candidate fixtures, which is a
 #   fixture chain (classification -> candidate -> snapshot) worth writing
 #   with the calendar lane's own contract, owed alongside memories_status.
+# suppress_calendar_memory / restore_calendar_memory — the strike pair on
+#   calendar rows (0434); they need the same fixture chain as the reader
+#   plus an auth.uid() session, and all three are one contract when the
+#   calendar lane's contract is written.
 discover_profiles
 forget_source
 memories_status
 resolve_term_for_addition
 list_memories_snapshot
+suppress_calendar_memory
+restore_calendar_memory
