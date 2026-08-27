@@ -403,6 +403,17 @@ Ordered by what hurts soonest.
 
 ### Standing
 
+- **The calendar lane files titles only, and the Cancún control showed what
+  that costs (2026-08-27).** David's genuine Cancún trip exists as
+  "Ticket: Chichén Itzá Premier Tour…" whose *location* field carries
+  "Cancún, Quintana Roo, Mexico" — the title never says Cancún, and 0309's
+  RIS filing put only titles into `source_text_evidence`, so no place
+  matcher can reach it. 0425's ticket-prefix rule got the event onto his
+  booked list; the *place* joining the evidence is an extraction-time
+  decision (the calendar stores events whole precisely because the fields
+  are the signal) and belongs to the v21 corpus run — decide there whether
+  location text is filed beside the title, and how a second text per
+  observation fits a table whose readers all assume one.
 - **Nothing lists a suppressed assertion**, so restoration is reachable only as an
   undo in the moment and a mis-tap is permanent. It wants a server decision — a
   second RPC or a parameter — and the question underneath is what somebody is owed
