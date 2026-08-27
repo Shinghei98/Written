@@ -1272,7 +1272,7 @@ struct DashboardView: View {
     private func refreshMemories() async {
         // The calendar card's rows ride the same refresh: fetched in
         // parallel, nil for could-not-ask keeps the last drawn answer.
-        async let calendar = surfaces.calendarMemories()
+        async let calendar = SemanticSurfaceService.shared.calendarMemories()
         if let fetched = await calendar { calendarMemories = fetched }
         assertions = await SemanticSurfaceService.shared.assertions()
         suggestions = await SemanticSurfaceService.shared.suggestions()
