@@ -1147,6 +1147,23 @@ select id, started_at, status
 #: keeps join through the provisional; existing-concept keeps join through the
 #: concept. The resolver writes the mapping because only a running run may —
 #: `guard_semantic_output_writable` is the door, and the keep is the license.
+GROUNDED_RESOLVED_MENTIONS = """
+select distinct mn.observation_id, mn.id as mention_id, mr.concept_id,
+       coalesce(mn.evidence_weight, 1.0) as mention_weight
+from semantic_private.observation_mentions mn
+join semantic_private.current_mention_resolutions mr
+  on mr.mention_id = mn.id and mr.route_id = 'exact_label'
+ and mr.resolution = 'resolved_existing' and mr.concept_id is not null
+join semantic_private.source_text_evidence e
+  on e.observation_id = mn.observation_id and e.user_id = mn.user_id
+ and e.refresh_status = 'current' and e.deleted_at is null
+ and e.encryption_key_version = 'ris_lab_plaintext_v1'
+where mn.user_id = %(user_id)s
+  and mn.extraction_method in ('model_proposed', 'model_inferred')
+  and position(lower(btrim(mn.mention_text))
+        in lower(convert_from(e.encrypted_text, 'utf8'))) > 0
+"""
+
 KEPT_CONFIRMED_MENTIONS = """
 select m.observation_id, m.id as mention_id,
        (req.outcome ->> 'concept_id')::uuid as concept_id,
@@ -1729,6 +1746,24 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             kept_confirmed.setdefault(
                 identity(kept["observation_id"]), []).append(dict(kept))
 
+    # **A term the title states carries weight (the owner's standing rule,
+    # wired at last, 2026-08-27).** The authority chain ends in confirmed
+    # mapping evidence -> scorer, and the keep path honoured it while a
+    # mention resolving to an ALREADY-known concept earned nothing — One
+    # Piece needed no keep, so 54 genuine title mentions scored zero and
+    # the page row lived on borrowed wires. A model-lane mention that (a)
+    # resolved to an existing concept deterministically and (b) is
+    # grounded — its text present in the row's own evidence title, §2.22's
+    # test — becomes an accepted `lexical` mapping with the mention's own
+    # weight. Grounding reads the testing lane's plaintext; rows under the
+    # KMS key wait for the worker that can decrypt them.
+    grounded_resolved: dict[str, list[dict]] = {}
+    with connection.cursor() as cursor:
+        cursor.execute(GROUNDED_RESOLVED_MENTIONS, {"user_id": user_id})
+        for grounded in cursor.fetchall():
+            grounded_resolved.setdefault(
+                identity(grounded["observation_id"]), []).append(dict(grounded))
+
     # Computed once over the whole set, because neither is decidable per row.
     facts = library_facts(rows)
 
@@ -1991,6 +2026,54 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             })
             counts["kept_confirmed_mapped"] = (
                 counts.get("kept_confirmed_mapped", 0) + 1)
+            counts["mappings"] += 1
+            counts["accepted"] += 1
+
+        # **The grounded-mention lane, beside the keep it generalizes.**
+        for grounded in grounded_resolved.get(identity(observation.id), ()):
+            grounded_concept = str(grounded["concept_id"])
+            already = any(
+                str(existing["observation"]) == str(observation.id)
+                and str(existing["concept"]) == grounded_concept
+                for existing in mapping_rows)
+            if already:
+                counts["grounded_duplicate_of_deterministic"] = (
+                    counts.get("grounded_duplicate_of_deterministic", 0) + 1)
+                continue
+            mapping_rows.append({
+                "run": run_id,
+                "observation": observation.id,
+                "user_id": user_id,
+                "version": version,
+                "concept": grounded_concept,
+                "method": "lexical",
+                "state": "accepted",
+                "confidence": 0.9,
+                "rank": 1,
+                "margin": None,
+                "evidence_path": json.dumps(
+                    [{"step": "grounded_title_mention",
+                      "mention_id": str(grounded["mention_id"])},
+                     recency.evidence_step()]
+                ),
+                "evidence_weight": float(grounded["mention_weight"]),
+                "recency_weight": recency.weight,
+                "recency_quality": recency.timestamp_quality_weight,
+                "recency_policy": recency.policy_version,
+                "recency_rule": recency.rule_id,
+                "recency_status": str(recency.temporal_status),
+                "recency_quality_label": str(recency.timestamp_quality),
+                "as_of": as_of,
+                # The same licensing as the keep path: a term derived from
+                # a title is what `written_title_tag` names, granted since
+                # 0135.
+                "youtube_kind": (
+                    "written_title_tag"
+                    if observation.source == YOUTUBE_SOURCE else None
+                ),
+            })
+            counts["grounded_title_mapped"] = (
+                counts.get("grounded_title_mapped", 0) + 1)
             counts["mappings"] += 1
             counts["accepted"] += 1
 

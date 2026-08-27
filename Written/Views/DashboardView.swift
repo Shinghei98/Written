@@ -75,6 +75,11 @@ struct DashboardView: View {
     /// `-probe-surface` exists to keep distinguishable.
     @State private var assertions: [SemanticSurfaceService.Assertion]?
 
+    /// The calendar memories — scheduled trips, booked activities — drawn
+    /// as their own card beneath the term blocks. Empty draws nothing:
+    /// a heading with no rows would ask a question the page cannot answer.
+    @State private var calendarMemories: [SemanticSurfaceService.CalendarMemory] = []
+
     /// Terms the model proposed and the owner has not yet judged. A question,
     /// not an answer: drawn in its own card, visually apart from Memories, so
     /// the page never implies a suggestion is already true.
@@ -1265,6 +1270,10 @@ struct DashboardView: View {
     /// `nil` is *could not ask*, and answering "done" to that would empty the
     /// card while the work carries on.
     private func refreshMemories() async {
+        // The calendar card's rows ride the same refresh: fetched in
+        // parallel, nil for could-not-ask keeps the last drawn answer.
+        async let calendar = surfaces.calendarMemories()
+        if let fetched = await calendar { calendarMemories = fetched }
         assertions = await SemanticSurfaceService.shared.assertions()
         suggestions = await SemanticSurfaceService.shared.suggestions()
         isRecomputing = await SemanticSurfaceService.shared.isRecomputing() ?? false
@@ -1421,11 +1430,40 @@ struct DashboardView: View {
         }
     }
 
+    /// The calendar card: rows the server composed whole
+    /// ("Scheduled travel to Hong Kong"), drawn only when any exist.
+    @ViewBuilder
+    private var calendarCard: some View {
+        if !calendarMemories.isEmpty {
+            card {
+                cardLabel("CALENDAR", icon: "calendar")
+                Divider().overlay(GardenPalette.ink.opacity(0.08))
+                entryStack {
+                    ForEach(Array(calendarMemories.enumerated()), id: \.element.id) { row, memory in
+                        if row > 0 { Divider().overlay(GardenPalette.ink.opacity(0.06)) }
+                        HStack(spacing: 8) {
+                            Text(memory.label)
+                                .font(.system(size: 14))
+                                .foregroundStyle(GardenPalette.ink)
+                            Spacer(minLength: 0)
+                            Text(memory.badge)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(GardenPalette.muted)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+            .id("calendar")
+        }
+    }
+
     @ViewBuilder
     private var assertionSection: some View {
         suggestionSection
         recomputingCard
         if let assertions, !assertions.isEmpty {
+            calendarCard
             let blocks = assertionBlocks(assertions)
             ForEach(Array(blocks.enumerated()), id: \.element.id) { position, block in
                 card {

@@ -196,6 +196,48 @@ actor SemanticSurfaceService {
         }
     }
 
+    /// A calendar memory: a scheduled trip or a booked activity, served
+    /// from the memories snapshot with its label and payload already
+    /// composed server-side — the card draws, it never derives.
+    struct CalendarMemory: Identifiable, Sendable {
+        let id: String
+        let kind: String
+        let label: String
+        let badge: String
+    }
+
+    /// The calendar memories, or `nil` for *could not ask* — the same
+    /// contract as `assertions()`, including the disabled-surface reading
+    /// of `42501`.
+    func calendarMemories() async -> [CalendarMemory]? {
+        guard AppConfig.semanticSurfacesEnabled else { return [] }
+        do {
+            let rows = try await PostgREST.callFunction("list_memories_snapshot")
+            lastError = nil
+            return rows.compactMap { row in
+                guard let key = row["item_key"] as? String,
+                      let kind = row["item_kind"] as? String,
+                      let label = row["display_label"] as? String
+                else { return nil }
+                let payload = row["display_payload"] as? [String: Any]
+                let badges = payload?["source_badges"] as? [String]
+                return CalendarMemory(id: key, kind: kind, label: label,
+                                      badge: badges?.first ?? "Calendar")
+            }
+        } catch let error as PostgREST.Failure {
+            if case .server(_, let code, let message) = error,
+               code == "42501", message.contains("is disabled") {
+                lastError = nil
+                return []
+            }
+            lastError = error.localizedDescription
+            return nil
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     func assertions() async -> [Assertion]? {
         guard AppConfig.semanticSurfacesEnabled else { return [] }
         do {
