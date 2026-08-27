@@ -1437,7 +1437,7 @@ struct DashboardView: View {
     @ViewBuilder
     private var calendarCard: some View {
         calendarKindCard("TRAVEL", icon: "airplane",
-                         rows: calendarMemories.filter { $0.kind == "scheduled_travel_candidate" })
+                         rows: calendarMemories.filter { $0.kind == "visited_city" })
             .id("calendar-travel")
         calendarKindCard("EVENTS", icon: "ticket",
                          rows: calendarMemories.filter { $0.kind == "booked_activity_candidate" })

@@ -221,8 +221,11 @@ actor SemanticSurfaceService {
                 else { return nil }
                 let payload = row["display_payload"] as? [String: Any]
                 let badges = payload?["source_badges"] as? [String]
+                // The category ("Live show", "Festival") travels as the
+                // payload's subtitle and outranks the source badge.
+                let subtitle = payload?["subtitle"] as? String
                 return CalendarMemory(id: key, kind: kind, label: label,
-                                      badge: badges?.first ?? "Calendar")
+                                      badge: subtitle ?? badges?.first ?? "Calendar")
             }
         } catch let error as PostgREST.Failure {
             if case .server(_, let code, let message) = error,
