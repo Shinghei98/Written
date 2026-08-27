@@ -273,6 +273,33 @@ def main() -> int:
             pinned.setdefault(row["subject_key"], qa)
         if qb:
             pinned.setdefault(row["object_key"], qb)
+    # A grounded wire pins too: the partner the entry proved (Persona 5)
+    # resolves uniquely, and the subject candidate holding a claim to it
+    # is our referent — the entry's witness reaches into Wikidata.
+    grounded_partner: dict[str, list[str]] = {}
+    for row in grounded:
+        grounded_partner.setdefault(row["subject_key"], []).append(row["object"])
+    for subject_key, partners in grounded_partner.items():
+        if subject_key in pinned:
+            continue
+        subject_label = next((r["subject"] for r in grounded
+                              if r["subject_key"] == subject_key), None)
+        s_ids = entity_ids(subject_label) if subject_label else []
+        if not s_ids or len(s_ids) == 1:
+            if s_ids and len(s_ids) == 1:
+                pinned[subject_key] = s_ids[0]
+            continue
+        for partner in partners[:3]:
+            o_ids = entity_ids(partner)
+            if not o_ids or len(o_ids) != 1:
+                continue
+            for candidate in s_ids:
+                found, reference = claims_reference([candidate], o_ids)
+                if found and reference:
+                    pinned[subject_key] = candidate
+                    break
+            if subject_key in pinned:
+                break
     still_ambiguous = []
     for row in ambiguous_identity:
         s_pin = pinned.get(row["subject_key"])
