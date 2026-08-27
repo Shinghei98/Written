@@ -18,7 +18,12 @@
 #   covered yet.
 # resolve_term_for_addition — the lookup behind a user typing their own term;
 #   cheap to cover and simply not covered yet.
+# list_memories_snapshot — the calendar-memories pane reader (0424); a
+#   contract needs a built snapshot over candidate fixtures, which is a
+#   fixture chain (classification -> candidate -> snapshot) worth writing
+#   with the calendar lane's own contract, owed alongside memories_status.
 discover_profiles
 forget_source
 memories_status
 resolve_term_for_addition
+list_memories_snapshot
