@@ -690,10 +690,37 @@ on conflict (assertion_score_version_id, observation_mapping_id) do nothing
 #: keyed on `(concept, user_facing_predicate)` and only `active` ones count —
 #: `restored_at` being set is the user changing their mind, and the row survives
 #: either way so the history of having struck it is not rewritten.
+#: **A strike on a person reaches their songs (owner, 2026-08-27).** A
+#: suppressed singer, composer or group carries every work affiliated to
+#: them by `performed_by`/`composed_by` — through the concept edges and
+#: through the dictionary's promoted links, because most songs' relations
+#: live at term level. Derived rather than written: a new song by a
+#: struck singer arrives already struck, and restoring the person
+#: restores the lot, with no cascade rows to forget.
 ACTIVE_SUPPRESSIONS = """
 select concept_id, user_facing_predicate
   from semantic_private.user_term_suppressions
  where user_id = %(user_id)s and active and concept_id is not null
+union
+select e.subject_concept_id, s.user_facing_predicate
+  from semantic_private.user_term_suppressions s
+  join ontology.concept_edges e
+    on e.object_concept_id = s.concept_id
+   and e.predicate_key in ('performed_by', 'composed_by')
+   and e.status = 'active'
+   and e.ontology_version_id = %(version)s
+ where s.user_id = %(user_id)s and s.active and s.concept_id is not null
+union
+select t.promoted_concept_id, s.user_facing_predicate
+  from semantic_private.user_term_suppressions s
+  join semantic_private.presumed_terms ot
+    on ot.promoted_concept_id = s.concept_id
+  join semantic_private.presumed_term_relations rel
+    on rel.object_term_id = ot.id
+   and rel.predicate in ('performed_by', 'composed_by')
+  join semantic_private.presumed_terms t
+    on t.id = rel.subject_term_id and t.promoted_concept_id is not null
+ where s.user_id = %(user_id)s and s.active and s.concept_id is not null
 """
 
 CONCEPT_LABELS = """
@@ -1092,7 +1119,7 @@ def score_user(connection, user_id: str, run_id: str, version: str,
     # what somebody did is evidence rather than a claim about them. Asserting it
     # took the whole worker down once.
     with connection.cursor() as cursor:
-        cursor.execute(ACTIVE_SUPPRESSIONS, {"user_id": user_id})
+        cursor.execute(ACTIVE_SUPPRESSIONS, {"user_id": user_id, "version": version})
         suppressed = {
             (str(row["concept_id"]), row["user_facing_predicate"])
             for row in cursor.fetchall()
