@@ -1430,19 +1430,33 @@ struct DashboardView: View {
         }
     }
 
-    /// The calendar cards: rows the server composed whole
-    /// ("Scheduled travel to Hong Kong · Nov 2022"), split by kind —
-    /// journeys under TRAVEL, booked tours/shows/festivals under EVENTS —
-    /// each card drawn only when it has rows.
+    /// The calendar cards: rows the server composed whole. Cities under
+    /// TRAVEL; booked events split one card per category — the server
+    /// never sends the `other` catch-all, so absence is the filter.
+    /// Each card draws only when it has rows.
     @ViewBuilder
     private var calendarCard: some View {
         calendarKindCard("TRAVEL", icon: "airplane",
                          rows: calendarMemories.filter { $0.kind == "visited_city" })
             .id("calendar-travel")
-        calendarKindCard("EVENTS", icon: "ticket",
-                         rows: calendarMemories.filter { $0.kind == "booked_activity_candidate" })
-            .id("calendar-events")
+        ForEach(Self.eventCategories, id: \.title) { section in
+            calendarKindCard(section.title, icon: section.icon,
+                             rows: calendarMemories.filter {
+                                 $0.kind == "booked_activity_candidate"
+                                     && $0.category == section.category
+                             })
+                .id("calendar-\(section.category)")
+        }
     }
+
+    /// One card per server category, in a fixed order. The strings are
+    /// the server's own subtitle vocabulary (0430/0432).
+    private static let eventCategories: [(title: String, icon: String, category: String)] = [
+        ("FESTIVALS", "sparkles", "Festival"),
+        ("RESTAURANTS", "fork.knife", "Restaurant"),
+        ("LIVE SHOWS", "music.mic", "Live show"),
+        ("EXHIBITIONS", "building.columns", "Exhibition"),
+    ]
 
     @ViewBuilder
     private func calendarKindCard(_ title: String, icon: String,

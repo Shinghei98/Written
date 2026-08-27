@@ -204,6 +204,9 @@ actor SemanticSurfaceService {
         let kind: String
         let label: String
         let badge: String
+        /// The event's category ("Live show", "Restaurant"…), server-
+        /// composed; nil for city rows. The card split keys on it.
+        let category: String?
     }
 
     /// The calendar memories, or `nil` for *could not ask* — the same
@@ -222,10 +225,12 @@ actor SemanticSurfaceService {
                 let payload = row["display_payload"] as? [String: Any]
                 let badges = payload?["source_badges"] as? [String]
                 // The category ("Live show", "Festival") travels as the
-                // payload's subtitle and outranks the source badge.
+                // payload's subtitle; the per-category cards key on it,
+                // so the row badge stays the source name.
                 let subtitle = payload?["subtitle"] as? String
                 return CalendarMemory(id: key, kind: kind, label: label,
-                                      badge: subtitle ?? badges?.first ?? "Calendar")
+                                      badge: badges?.first ?? "Calendar",
+                                      category: subtitle)
             }
         } catch let error as PostgREST.Failure {
             if case .server(_, let code, let message) = error,
