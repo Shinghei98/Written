@@ -1430,15 +1430,14 @@ struct DashboardView: View {
         }
     }
 
-    /// The calendar cards: rows the server composed whole. Cities under
-    /// TRAVEL; booked events split one card per category — the server
-    /// never sends the `other` catch-all, so absence is the filter.
-    /// Each card draws only when it has rows.
+    /// The calendar cards hold only what is a record and not a concept:
+    /// dated bookings, one card per category — the server never sends
+    /// the `other` catch-all, so absence is the filter. Cities are NOT
+    /// here: a visited place asserts into the graph as an ordinary term
+    /// ("Trip to Cancún") with the same styling and controls as every
+    /// other term, which is where the owner ruled they belong.
     @ViewBuilder
     private var calendarCard: some View {
-        calendarKindCard("TRAVEL", icon: "airplane",
-                         rows: calendarMemories.filter { $0.kind == "visited_city" })
-            .id("calendar-travel")
         ForEach(Self.eventCategories, id: \.title) { section in
             calendarKindCard(section.title, icon: section.icon,
                              rows: calendarMemories.filter {

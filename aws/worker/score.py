@@ -870,17 +870,39 @@ def _saturate(value: float, half: float) -> float:
 # vault next to the row that correctly omits it. Taking `distinct on
 # (source_item_hmac) … order by created_at desc` is what stops a superseded
 # reading resurrecting a base as a holiday.
+#: **The places come from the typed structures, not the fossil stamp.**
+#: The first version read `normalized_payload ->> 'place_key'`, a field
+#: only the dead AWS-era classifier ever wrote — so trips asserted for
+#: exactly the observations that lane had touched (Cancún, Hong Kong)
+#: and never for anything the deterministic lane built since. The
+#: current sources are the journey terminals and the booked events'
+#: locations (0428-0431); a layover is already not a terminal, and the
+#: place's concept key carries the identity the trip vocabulary is
+#: keyed on.
 TRAVEL_PLACES = """
-select place_key, occurred_at from (
-  select distinct on (observation.source_item_hmac)
-         observation.normalized_payload ->> 'place_key' as place_key,
-         observation.occurred_at
-  from semantic_private.observations as observation
-  where observation.user_id = %(user_id)s
-    and semantic_private.is_private_calendar_source(observation.source_code)
-  order by observation.source_item_hmac, observation.created_at desc
-) as latest
-where place_key is not null
+select pc.concept_key as place_key, max(x.occurred_at) as occurred_at
+from (
+  select c.destination_place_concept_id as place_id,
+         (select max(o.occurred_at)
+            from semantic_private.travel_journey_segments js
+            join semantic_private.travel_segments s on s.id = js.segment_id
+            join semantic_private.observations o
+              on o.id = s.source_observation_id
+           where js.journey_id = c.travel_journey_id) as occurred_at
+    from semantic_private.scheduled_travel_candidates c
+   where c.user_id = %(user_id)s
+     and c.candidate_state in ('candidate', 'eligible')
+  union all
+  select b.event_place_concept_id,
+         (select o.occurred_at from semantic_private.observations o
+           where o.id = b.source_observation_id)
+    from semantic_private.booked_activity_candidates b
+   where b.user_id = %(user_id)s
+     and b.event_place_concept_id is not null
+     and b.booking_state <> 'cancelled'
+) x
+join ontology.concepts pc on pc.id = x.place_id
+group by pc.concept_key
 """
 
 TRAVEL_CONCEPT = """
