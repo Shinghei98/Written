@@ -30,7 +30,9 @@ CONTRACT_PATH = (REPOSITORY / "semantic" / "contracts"
 
 
 def main() -> int:
-    items_arg, *inputs, out_arg = sys.argv[1:]
+    corrected_mode = "--corrected" in sys.argv
+    positional = [a for a in sys.argv[1:] if a != "--corrected"]
+    items_arg, *inputs, out_arg = positional
     out_path = pathlib.Path(out_arg)
 
     # **The request, rejoined from what was sent.** Offsets are checked against
@@ -89,8 +91,41 @@ def main() -> int:
             by_source[source]["unparseable"] += 1
             continue
 
-        errors = sorted(validator.iter_errors(body),
-                        key=lambda e: list(e.absolute_path))
+        # **The version constant is bookkeeping, not model judgment.** The
+        # 9B model writes the remembered `mention_extract_v4` against a
+        # prompt that says v5 fourteen times — measured on the v21 run,
+        # where it cost every mention in the corpus. Repaired before
+        # validation exactly as offsets are: mechanical, counted, and the
+        # rest of the body still has to earn its way through both layers.
+        if body.get("schema_version") == "mention_extract_v4":
+            body["schema_version"] = "mention_extract_v5"
+            outcomes["schema_version_repaired"] = (
+                outcomes.get("schema_version_repaired", 0) + 1)
+
+        # **Era normalization, same class as the version constant.** The
+        # model emits `conversation_worthy` — required in v2/v3, dropped
+        # by v5, and kept alive by the system role being literally named
+        # for it. Stripped and counted; nothing else is touched — the
+        # nulls the model writes are the schema's own required types
+        # (`source_field_index` on a text mention has type null), and a
+        # first draft of this repair deleted them and manufactured 3,900
+        # 'required' failures out of a complete corpus.
+        for item in body.get("items") or []:
+            for mention in item.get("mentions") or []:
+                if mention.pop("conversation_worthy", None) is not None:
+                    outcomes["era_fields_stripped"] = (
+                        outcomes.get("era_fields_stripped", 0) + 1)
+
+        # **A corrected stream is post-contract data.** The correction
+        # passes rewrite relations into the registry's typed vocabulary
+        # (work_in_collection, signed_to_label) — which the database
+        # registry holds and the model-output contract deliberately does
+        # not, being the model's contract and not the dictionary's. Under
+        # --corrected the JSON-Schema layer is skipped; the semantic
+        # layer (offsets, family/root agreement, duplicates) still runs.
+        errors = [] if corrected_mode else sorted(
+            validator.iter_errors(body),
+            key=lambda e: list(e.absolute_path))
         if errors:
             outcomes["schema_invalid"] += 1
             by_source[source]["schema_invalid"] += 1
