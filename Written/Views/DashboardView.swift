@@ -1277,6 +1277,12 @@ struct DashboardView: View {
         assertions = await SemanticSurfaceService.shared.assertions()
         suggestions = await SemanticSurfaceService.shared.suggestions()
         isRecomputing = await SemanticSurfaceService.shared.isRecomputing() ?? false
+        #if DEBUG
+        let fetchError = await SemanticSurfaceService.shared.lastError
+        print("memories-fetch: assertions=\(assertions.map { String($0.count) } ?? "nil") " +
+              "calendar=\(calendarMemories.count) recomputing=\(isRecomputing) " +
+              "error=\(fetchError ?? "none")")
+        #endif
 
         var checks = 0
         while isRecomputing, checks < 60, isVisible, !Task.isCancelled {
