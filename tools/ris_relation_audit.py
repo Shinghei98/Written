@@ -66,6 +66,22 @@ def norm(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", (text or "")).casefold().split())
 
 
+_CACHE_PATH = pathlib.Path.home() / ".written" / "wikidata_cache.json"
+try:
+    _CACHE = json.loads(_CACHE_PATH.read_text())
+except Exception:  # noqa: BLE001
+    _CACHE = {}
+
+
+def _cache_put(key: str, value) -> None:
+    _CACHE[key] = value
+    try:
+        _CACHE_PATH.parent.mkdir(exist_ok=True)
+        _CACHE_PATH.write_text(json.dumps(_CACHE))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _api(params: dict) -> dict:
     url = ("https://www.wikidata.org/w/api.php?format=json&"
            + urllib.parse.urlencode(params))
@@ -89,15 +105,20 @@ def entity_ids(label: str) -> list[str] | None:
     The distinction is the audit's own rule: an audit that cannot see the
     witness does not rule — the first run demoted true relations because
     429s were silently read as refutations."""
+    cached = _CACHE.get("ent:" + norm(label))
+    if cached is not None:
+        return cached
     time.sleep(1.0)
     try:
         found = _api({"action": "wbsearchentities", "language": "en",
                       "type": "item", "limit": 5, "search": label})
     except Exception:  # noqa: BLE001 - failure, distinct from absence
         return None
-    return [hit["id"] for hit in found.get("search", [])
-            if norm(hit.get("label") or "") == norm(label)
-            or norm(hit.get("match", {}).get("text") or "") == norm(label)]
+    ids = [hit["id"] for hit in found.get("search", [])
+           if norm(hit.get("label") or "") == norm(label)
+           or norm(hit.get("match", {}).get("text") or "") == norm(label)]
+    _cache_put("ent:" + norm(label), ids)
+    return ids
 
 
 def claims_reference(qids_a: list[str], qids_b: list[str]):
@@ -195,7 +216,7 @@ def main() -> int:
     # The verdict per edge.
     # ------------------------------------------------------------------
     grounded, corroborated, demote = [], [], []
-    unmatched, unverifiable = [], []
+    unmatched, unverifiable, ambiguous_identity = [], [], []
     for edge in edges:
         s_labels = [l for l in (edge["subject_labels"] or []) if l]
         o_labels = [l for l in (edge["object_labels"] or []) if l]
@@ -228,19 +249,29 @@ def main() -> int:
             unverifiable.append(row)
         elif reference:
             corroborated.append({**row, "wikidata": reference})
+        elif len(s_ids) == 1 and len(o_ids) == 1:
+            # **Only a uniquely resolved pair may demote** — the asa/ruka
+            # lesson: a short name matching several namesakes means the
+            # check may have examined the wrong witness, and an audit
+            # that saw the wrong witness must not rule.
+            demote.append({**row, "subject_qid": s_ids[0],
+                           "object_qid": o_ids[0]})
         else:
-            demote.append(row)
+            ambiguous_identity.append({**row, "subject_candidates": len(s_ids),
+                                       "object_candidates": len(o_ids)})
 
     out_path.write_text(json.dumps({
         "grounded": grounded, "corroborated": corroborated,
         "demote": demote, "unmatched_left_standing": unmatched,
-        "unverifiable_left_standing": unverifiable},
+        "unverifiable_left_standing": unverifiable,
+        "ambiguous_identity_left_standing": ambiguous_identity},
         ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({"edges": len(edges), "grounded": len(grounded),
                       "corroborated": len(corroborated),
                       "demote": len(demote),
                       "unmatched_left_standing": len(unmatched),
                       "unverifiable_left_standing": len(unverifiable),
+                      "ambiguous_identity_left_standing": len(ambiguous_identity),
                       "out": str(out_path)}))
     return 0
 
