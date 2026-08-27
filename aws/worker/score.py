@@ -151,6 +151,7 @@ SPECTATING_PREDICATE = "follows_activity"
 # re-score can ever withdraw.
 ASSERTABLE_PREDICATES = (
     AFFINITY_PREDICATE, PARTICIPATION_PREDICATE, SPECTATING_PREDICATE,
+    "booked_public_event_about",
 )
 
 # **Only an activity can be watched or done.** A creator, a work, a genre or a
@@ -650,6 +651,33 @@ returning id
 #: mapping table); its support is the count of booked-event candidates
 #: whose own text names the concept — read from the plaintext evidence
 #: lane, the same witness that wrote the assertion.
+#: **What a booked ticket names, the person booked an event about.** The
+#: creation half 0157 never built: one concept per (user, concept) whose
+#: active label appears whole in a booked ticket's filed text — the same
+#: containment read SCORE_CALENDAR_BOOKED trusts for support, used once
+#: more to decide what to assert. Works and creators only: a genre named
+#: on a poster is a description, not what the evening was about.
+BOOKED_EVENT_CONCEPTS = """
+select c2.id as concept_id, count(distinct b.id) as bookings
+from semantic_private.booked_activity_candidates b
+join semantic_private.source_text_evidence e
+  on e.observation_id = b.source_observation_id and e.user_id = b.user_id
+ and e.refresh_status = 'current' and e.deleted_at is null
+ and e.encryption_key_version = 'ris_lab_plaintext_v1'
+join ontology.concept_labels l
+  on l.status = 'active' and l.ontology_version_id = %(version)s
+ and length(l.normalized_label) >= 4
+ and position(l.normalized_label in lower(convert_from(e.encrypted_text, 'utf8'))) > 0
+join ontology.concepts c2 on c2.id = l.concept_id
+join ontology.concept_revisions r
+  on r.concept_id = c2.id and r.ontology_version_id = %(version)s
+ and r.status = 'active' and r.concept_kind in ('work', 'creator')
+where b.user_id = %(user_id)s
+  and b.predicate_key = 'booked_event'
+  and b.booking_state <> 'cancelled'
+group by c2.id
+"""
+
 SCORE_CALENDAR_BOOKED = """
 select a.id as assertion_id, c2.concept_key, count(distinct b.id) as bookings
 from semantic_private.user_assertions a
@@ -999,6 +1027,60 @@ def carry_user_decisions(connection, *, user_id: str, concept_id: str,
     return carried
 
 
+def assert_booked_events(connection, user_id: str, run_id: str, version: str,
+                         as_of, policy_version,
+                         suppressed: set, counts: dict) -> list:
+    """Assert what the person's booked tickets were about (0157's missing
+    creation half, built 2026-08-28 for the dynamic bio).
+
+    `assert_travel`'s shape exactly: writes no evidence rows, honors the
+    suppressed set, and **the caller must add these to `scored_concepts`**
+    or the demotion sweep retires them the moment they are written."""
+    with connection.cursor() as cursor:
+        cursor.execute(BOOKED_EVENT_CONCEPTS,
+                       {"user_id": user_id, "version": version})
+        named = cursor.fetchall()
+    if not named:
+        return []
+
+    asserted: list = []
+    for row in named:
+        concept_id = str(row["concept_id"])
+        n = float(row["bookings"])
+        strength = n / (n + 1.0)
+        with connection.cursor() as cursor:
+            cursor.execute(FIND_ASSERTION, {
+                "user_id": user_id, "predicate": "booked_public_event_about",
+                "concept": concept_id,
+            })
+            existing = cursor.fetchone()
+            if existing is None and (concept_id, "booked_public_event_about") in suppressed:
+                counts["user_suppressed"] = counts.get("user_suppressed", 0) + 1
+                continue
+            if existing is None:
+                cursor.execute(INSERT_ASSERTION, {
+                    "user_id": user_id, "predicate": "booked_public_event_about",
+                    "concept": concept_id, "version": version,
+                    "run": run_id, "state": "eligible",
+                })
+                assertion_id = str(cursor.fetchone()["id"])
+            else:
+                assertion_id = str(existing["id"])
+                cursor.execute(UPDATE_ASSERTION, {
+                    "id": assertion_id, "user_id": user_id, "state": "eligible",
+                })
+            cursor.execute(INSERT_SCORE_VERSION, {
+                "assertion": assertion_id, "user_id": user_id, "run": run_id,
+                "version": version, "strength": strength,
+                "confidence": 0.8, "breadth": 1,
+                "stability": 0.0, "surfacing": strength * 0.8,
+                "payload": "{}", "agreement": None, "quality": None,
+                "policy": policy_version, "as_of": as_of,
+            })
+        asserted.append(concept_id)
+    return asserted
+
+
 def assert_travel(connection, user_id: str, run_id: str, version: str,
                   as_of: Any, policy_version: Any,
                   suppressed: set[tuple[str, str]], counts: dict[str, Any]) -> list[str]:
@@ -1132,6 +1214,10 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         suppressed=suppressed, counts=counts,
     )
     counts["travel"] = len(travel_concepts)
+    booked_event_concepts = assert_booked_events(
+        connection, user_id, run_id, version, as_of, policy_version,
+        suppressed, counts)
+    counts["booked_events"] = len(booked_event_concepts)
 
     with connection.cursor() as cursor:
         cursor.execute(CONCEPT_LABELS, {"version": version})
@@ -1723,6 +1809,7 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         counts["calendar_scored"] = counts.get("calendar_scored", 0) + 1
 
     scored_concepts.extend(travel_concepts)
+    scored_concepts.extend(booked_event_concepts)
     if scored_concepts:
         with connection.cursor() as cursor:
             cursor.execute(DEMOTE_UNSCORED_ASSERTIONS, {
