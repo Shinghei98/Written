@@ -1109,11 +1109,12 @@ select o.id, o.source_code, o.data_type, o.action_type, o.occurred_at,
 OPEN_RUN = """
 insert into semantic_private.semantic_runs (
   user_id, ontology_version_id, resolver_model_id, scorer_model_id,
-  embedding_model_id, input_revision, input_hash, calibration_release_id, status
+  embedding_model_id, input_revision, input_hash, calibration_release_id,
+  analysis_epoch, status
 ) values (
   %(user_id)s, %(ontology_version_id)s, %(resolver_model_id)s, %(scorer_model_id)s,
   %(embedding_model_id)s, %(input_revision)s, %(input_hash)s,
-  %(calibration_release_id)s, 'running'
+  %(calibration_release_id)s, %(analysis_epoch)s, 'running'
 )
 -- **`do nothing`, because recomputing identical input is not an error.**
 -- `semantic_run_live_identity_idx` is unique on
@@ -1554,7 +1555,13 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         cursor.execute("select id from semantic_private.calibration_releases"
                        " where status = 'active'")
         release_row = cursor.fetchone()
+        # 0415: the analysis epoch — one counter every declared analysis
+        # change bumps — joins the identity, so no scorer input ever again
+        # needs to be taught to it one column at a time.
+        cursor.execute("select epoch from semantic_private.analysis_epoch")
+        epoch_row = cursor.fetchone()
     calibration_release_id = str(release_row["id"]) if release_row else None
+    analysis_epoch = epoch_row["epoch"] if epoch_row else 0
 
     run_identity = {
         "user_id": user_id,
@@ -1564,7 +1571,9 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
         # The run's identity is the ontology it ran against, the state it
         # read, and the calibration regime it scored under.
         "input_revision": revision,
-        "input_hash": f"{version}:{revision}:{calibration_release_id or 'none'}",
+        "input_hash": (f"{version}:{revision}"
+                       f":{calibration_release_id or 'none'}"
+                       f":e{analysis_epoch}"),
     }
 
     with connection.cursor() as cursor:
@@ -1572,6 +1581,7 @@ def resolve_user(connection, user_id: str, job_payload: dict[str, Any]) -> dict[
             **run_identity,
             "embedding_model_id": job_payload["embedding_model_id"],
             "calibration_release_id": calibration_release_id,
+            "analysis_epoch": analysis_epoch,
         })
         run = cursor.fetchone()
 
