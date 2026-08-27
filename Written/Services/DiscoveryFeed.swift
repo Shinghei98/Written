@@ -112,7 +112,7 @@ struct DiscoveryFeed {
 
     /// Per person, the photos and interests not yet used this cycle.
     private var photoPool: [String: [PhotoRef]] = [:]
-    private var interestPool: [String: [DiscoveryService.Person.Interest]] = [:]
+    private var linePool: [String: [BioComposer.Line]] = [:]
 
     /// The order the current round emits, and how far through it we are.
     private var round: [DiscoveryService.Person] = []
@@ -169,8 +169,27 @@ struct DiscoveryFeed {
             : person.photoPaths.map(PhotoRef.stored)
         let photos = Self.draw(&photoPool, for: person.id,
                                refill: pool, count: 2, rng: &rng)
-        let interests = Self.draw(&interestPool, for: person.id,
-                                  refill: person.interests, count: 2, rng: &rng)
+        // The composed dynamic bio wins where it exists; the legacy
+        // interest lines are the never-invent fallback (new users, the
+        // flag-off path, a viewer whose own terms could not be asked).
+        let refillLines: [BioComposer.Line] = person.bioLines.isEmpty
+            ? person.interests.map {
+                BioComposer.Line(text: Ontology.line(for: $0.domain, subject: $0.subject),
+                                 hub: nil)
+              }
+            : person.bioLines
+        var drawn = Self.draw(&linePool, for: person.id,
+                              refill: refillLines, count: 2, rng: &rng)
+        // The two-ontology rule, carried over as hubs: when both drawn
+        // lines share a hub and the person's remaining pool holds one
+        // from a different world, swap it forward — prefer, never invent.
+        if drawn.count == 2, let hub = drawn[0].hub, drawn[1].hub == hub,
+           var remaining = linePool[person.id],
+           let swap = remaining.firstIndex(where: { $0.hub != hub }) {
+            remaining.append(drawn[1])
+            drawn[1] = remaining.remove(at: swap)
+            linePool[person.id] = remaining
+        }
 
         return Profile(
             id: "\(person.id)#\(emitted)",
@@ -179,7 +198,7 @@ struct DiscoveryFeed {
             age: person.age,
             district: person.district,
             photos: photos,
-            lines: interests.map { Ontology.line(for: $0.domain, subject: $0.subject) }
+            lines: drawn.map(\.text)
         )
     }
 

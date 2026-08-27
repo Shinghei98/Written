@@ -116,6 +116,13 @@ private struct ProbeAlert: ViewModifier {
                 result = ("Assertion surface probe", await SemanticSurfaceService.shared.probe())
             }
             .task {
+                guard DebugLaunch.probesBio,
+                      DebugLaunch.firesOnce("probe-bio") else { return }
+                let answer = BioComposerProbe.run()
+                print("probe-bio:\n\(answer)")
+                result = ("Bio composer probe", answer)
+            }
+            .task {
                 guard DebugLaunch.probesOutlook,
                       DebugLaunch.firesOnce("probe-outlook") else { return }
                 // Printed as well as shown, for the reason set out below: the

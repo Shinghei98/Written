@@ -31,15 +31,45 @@ actor DiscoveryService {
         let photoPaths: [String]
         let interests: [Interest]
         /// What this person may show on the matching surface, from
-        /// `api.discover_profiles`. Empty on the legacy path, and **drawn by
-        /// nothing yet** — routing decides *who* is shown before it changes
-        /// *what* is shown, so a feed that suddenly looked different could not
-        /// be confused with a feed that suddenly authorised differently.
-        var terms: [String] = []
+        /// `api.discover_profiles` — each already cleared the full naming
+        /// gate stack server-side and carries its closed-vocabulary
+        /// category, hub and block (0442). Empty on the legacy path.
+        var terms: [BioTerm] = []
+        /// The composed dynamic bio: up to six sentences, filled by
+        /// `BioComposer` at feed build. Empty means the legacy interest
+        /// lines draw instead — the never-invent fallback.
+        var bioLines: [BioComposer.Line] = []
 
         struct Interest: Equatable {
             let domain: Ontology.Domain
             let subject: String
+        }
+    }
+
+    /// One term as `matching_terms` now ships it (0442).
+    struct BioTerm: Equatable {
+        let label: String
+        let kind: String?
+        let score: Double
+        let category: BioCategory
+        let hub: String?
+        let block: String?
+    }
+
+    /// The server's closed category vocabulary. A string the binary does
+    /// not know decodes to `.other` — a server ahead of the app must
+    /// degrade to silence, never crash or mislabel.
+    enum BioCategory: String, Equatable {
+        case composer, performer, movie, book, creator, game, travel
+        case subject, other, screen
+        case tvSeries = "tv_series"
+        case authorDirector = "author_director"
+        case sportDoing = "sport_doing"
+        case subjectLanguage = "subject_language"
+        case athleteTeam = "athlete_team"
+
+        init(wire: String?) {
+            self = wire.flatMap(BioCategory.init(rawValue:)) ?? .other
         }
     }
 
@@ -181,7 +211,20 @@ actor DiscoveryService {
                 for row in rows {
                     guard var person = Self.person(from: row) else { continue }
                     person.terms = (row["terms"] as? [[String: Any]] ?? [])
-                        .compactMap { $0["label"] as? String }
+                        .compactMap { term in
+                            guard let label = term["label"] as? String
+                            else { return nil }
+                            return BioTerm(
+                                label: label,
+                                kind: term["kind"] as? String,
+                                score: (term["score"] as? Double)
+                                    ?? (term["score"] as? NSNumber)?.doubleValue
+                                    ?? 1.0,
+                                category: BioCategory(wire: term["category"] as? String),
+                                hub: term["hub"] as? String,
+                                block: term["block"] as? String
+                            )
+                        }
                     found.append(person)
                 }
                 guard rows.count == 50, let last = rows.last else { break }

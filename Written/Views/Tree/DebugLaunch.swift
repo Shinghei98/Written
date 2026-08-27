@@ -211,6 +211,13 @@ enum DebugLaunch {
         UserDefaults.standard.string(forKey: "probe-outlook") != nil
     }
 
+    /// `-probe-bio 1` → run `BioComposerProbe`'s fixture checks in-process
+    /// and report each case — the composer's unit tests, in the only
+    /// harness this project runs app code under.
+    static var probesBio: Bool {
+        UserDefaults.standard.string(forKey: "probe-bio") != nil
+    }
+
     /// `-tutorial badge` → open the coach mark that lights the connected badge,
     /// without connecting anything.
     ///

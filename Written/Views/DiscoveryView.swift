@@ -469,7 +469,12 @@ final class DiscoveryModel: ObservableObject {
         // serial fetch would show every saved profile unsaved and then correct
         // itself under the reader's thumb.
         async let bookmarkedTask = BookmarkService.shared.bookmarkedIDs()
-        let people = await peopleTask
+        // The reader's own terms, for the dynamic bio intersection —
+        // concurrent with the rest, and nil (could not ask) composes
+        // every card from its owner's own terms rather than erroring.
+        async let viewerTask = BioComposer.viewerSnapshot()
+        let people = BioComposer.composed(await peopleTask,
+                                          viewer: await viewerTask)
         let invitations = await likedTask
         liked = invitations.liked
         messaged = invitations.withNote

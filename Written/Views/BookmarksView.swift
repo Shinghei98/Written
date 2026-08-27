@@ -231,8 +231,11 @@ final class BookmarksModel: ObservableObject {
         // **One round, one card each** — see the note on the view. Built through
         // `DiscoveryFeed` rather than by hand so the photograph and line
         // selection are the same code Explore uses, then stopped after every
-        // person has appeared once.
-        var feed = DiscoveryFeed(people: visible)
+        // person has appeared once. The dynamic bio composes through the
+        // same shared helper as Explore, for the same reason.
+        let composed = BioComposer.composed(
+            visible, viewer: await BioComposer.viewerSnapshot())
+        var feed = DiscoveryFeed(people: composed)
         items = feed.nextItems(visible.count).compactMap {
             if case .profile(let profile) = $0 { return profile }
             return nil

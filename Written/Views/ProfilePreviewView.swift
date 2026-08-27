@@ -8,8 +8,9 @@ import SwiftUI
 /// beside it: the page makes a single claim, and every extra card was another
 /// way of restating it.
 ///
-/// `DynamicPrompts` still exists and is still what the per-reader rewriting will
-/// be built from; it is simply not what this screen shows any more.
+/// The per-reader rewriting now exists for real: `BioComposer` composes the
+/// discovery cards' sentences from the reader's own terms. This screen stays
+/// a single-claim preview.
 struct ProfilePreviewView: View {
     @ObservedObject var viewModel: DistillViewModel
     var onBack: () -> Void = {}
