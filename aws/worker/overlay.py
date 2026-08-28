@@ -2212,6 +2212,20 @@ select (mr.outcome ->> 'concept_id')::uuid as concept_id,
    and semantic_private.concept_block(
          (mr.outcome ->> 'concept_id')::uuid,
          (select id from ontology.versions where status = 'published')) is null
+   -- **0452: a concept already holding a `broader` edge is not an orphan.**
+   -- An active edge means it is parented and attaching would skip it; a
+   -- non-active one is an adjudication (Footloose's sits `rejected`) that a
+   -- repair pass never re-litigates. Selecting it anyway made every run call
+   -- the attach function with a batch that changed nothing — which still
+   -- published a version and, per `0396`, enqueued the recompute that would
+   -- select it again: a queue that could never drain. An orphan is a kept
+   -- concept with no parent edge at all.
+   and not exists (
+     select 1 from ontology.concept_edges held
+      where held.ontology_version_id =
+              (select id from ontology.versions where status = 'published')
+        and held.subject_concept_id = (mr.outcome ->> 'concept_id')::uuid
+        and held.predicate_key = 'broader')
  group by 1
 """
 
