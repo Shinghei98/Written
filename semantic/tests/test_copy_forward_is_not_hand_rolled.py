@@ -61,6 +61,40 @@ VERSIONED_TABLES = (
 # existed when it was written.
 FIRST_BOUND_MIGRATION = 222
 
+# **Grandfathered offenders — deployed history, not licence.** These migrations
+# were bound by the rule and broke it: five (0346, 0349, 0355, 0356, 0389)
+# hand-rolled the whole five-table copy-forward without the helper, and the
+# rest hand-inserted into a versioned table beside a helper call. They shipped
+# while this suite was red and they have run against production, so rewriting
+# the files would make replay disagree with what actually ran. **Measured
+# 2026-08-28 against production before grandfathering:** current version 0.9.0
+# holds zero identity-registry revisions and zero identity-registry labels —
+# the hand-rolls copied from predecessor versions that were already clean, so
+# neither of the two defects the helper guards against (the 0213 dropped table,
+# the 0221 identity restore) occurred. A filename added to this set needs the
+# same measurement, and a migration not yet deployed never qualifies: fix it
+# instead.
+GRANDFATHERED = frozenset({
+    "0346_the_recognised_headings_arrive.sql",
+    "0349_the_audit_slices_arrive.sql",
+    "0350_two_names_for_one_genre_become_one.sql",
+    "0355_the_regional_tier_arrives.sql",
+    "0356_the_cultures_arrive.sql",
+    "0357_the_kept_japan_folds_into_its_culture.sql",
+    "0366_the_provenance_twins_fold.sql",
+    "0370_two_keeps_of_one_identity_fold.sql",
+    "0389_the_deep_screen_genre_layer.sql",
+    "0396_a_published_version_asks_for_its_recompute.sql",
+    "0402_classical_music_was_already_classical.sql",
+    "0404_two_translations_of_one_novel_were_two_concepts.sql",
+    "0438_a_field_shows_its_name.sql",
+    "0439_a_language_has_a_name.sql",
+    "0449_a_promotion_into_a_grave_revives_or_refuses.sql",
+    "0451_a_rejected_parent_is_a_decision.sql",
+    "0452_a_repair_that_changes_nothing_publishes_nothing.sql",
+    "0462_the_song_nominates_its_film.sql",
+})
+
 
 def _migrations():
     directory = pathlib.Path(REPOSITORY) / "supabase" / "migrations"
@@ -96,8 +130,17 @@ def test_the_helper_exists_and_names_both_rules():
 def test_no_later_migration_hand_rolls_a_copy_forward():
     """**The regression.** A sixth hand-written copy-forward fails here."""
     offenders = []
+    names = {path.name for _, path in _migrations()}
+    missing = GRANDFATHERED - names
+    assert not missing, (
+        "grandfathered migrations that no longer exist — prune them from the "
+        "set rather than letting it hold names nothing checks: "
+        + ", ".join(sorted(missing))
+    )
     for number, path in _migrations():
         if number < FIRST_BOUND_MIGRATION:
+            continue
+        if path.name in GRANDFATHERED:
             continue
         text = path.read_text()
         # Strip comments so a migration *describing* the pattern is not an

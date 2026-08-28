@@ -87,7 +87,13 @@ def test_a_genre_is_scored_against_the_general_bar_not_the_work_relief(score):
         "resolve.py and 0220 is written against ELIGIBLE_STRENGTH and must be "
         "re-derived"
     )
-    assert by_kind.get("work") == 0.25
+    # 0.25 was superseded by the owner, 2026-08-28: one weak direct evidence is
+    # enough, for now. The relief sits just under the weakest single-track work
+    # measured (0.042) and above the propagated λ-dust; the single-witness gate
+    # in the derived tail is what now keeps one song from asserting its film.
+    # The genre arithmetic below is unaffected — a genre still takes the plain
+    # ELIGIBLE_STRENGTH bar, which is the claim this file exists to defend.
+    assert by_kind.get("work") == 0.03
     bar = by_kind.get("genre", score.ELIGIBLE_STRENGTH)
     assert bar == score.ELIGIBLE_STRENGTH == 0.35
 
