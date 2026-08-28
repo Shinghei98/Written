@@ -30,6 +30,79 @@ _loaded = threading.Event()
 #: the attestation is where a claim about the running container belongs.
 _dropped_engine_args: list[str] = []
 
+#: The same, for the structured-output params. Kept apart from the engine list
+#: because they fail at different moments: an engine argument is wrong once at
+#: load, this one is wrong on every request.
+_dropped_structured_args: list[str] = []
+
+
+def _structured_kwargs(cls, kwargs: dict) -> dict:
+    """The structured-output arguments this build actually takes.
+
+    `_supported` for `StructuredOutputsParams` — same rule, different class, and
+    worth having rather than passing `disable_any_whitespace` blind: it exists
+    in vLLM 0.27.1 (verified against the pinned image before this was written)
+    and a build without it must still serve rather than raise.
+    """
+    try:
+        import dataclasses  # noqa: PLC0415
+        fields = {field.name for field in dataclasses.fields(cls)}
+    except Exception:  # noqa: BLE001 - a class that cannot be inspected
+        return kwargs      # is one whose arguments are its own business
+    kept = {name: value for name, value in kwargs.items() if name in fields}
+    dropped = sorted(set(kwargs) - set(kept))
+    for name in dropped:
+        if name not in _dropped_structured_args:
+            _dropped_structured_args.append(name)
+    return kept
+
+
+def _effective_whitespace_guard():
+    """Read the guard back off the **loaded engine**, never off what was asked.
+
+    **The distinction is the whole lesson of 2026-08-24.** The request carried
+    `disable_any_whitespace=True`, `dropped_structured_args` was empty, and the
+    engine was running `StructuredOutputsConfig(disable_any_whitespace=False)`
+    the entire time — so every reported signal said the guard was on while the
+    overflow count did not move. A declaration cannot verify itself; this is the
+    same rule `gateway_revision` follows against the declared image digests.
+
+    `None` means the attribute could not be found, which is reported as unknown
+    rather than guessed at. It is never reported as `True` on a failed read.
+    """
+    for path in (("llm_engine", "vllm_config", "structured_outputs_config"),
+                 ("llm_engine", "vllm_config", "decoding_config"),
+                 ("llm_engine", "model_config", "structured_outputs_config")):
+        node = _engine
+        for step in path:
+            node = getattr(node, step, None)
+            if node is None:
+                break
+        value = getattr(node, "disable_any_whitespace", None) if node else None
+        if value is not None:
+            return bool(value)
+    return None
+
+
+def _effective_structured_backend():
+    """Which structured-output backend the loaded engine actually resolved to.
+
+    Read back for the same reason the guard is: `auto` is a request, not an
+    answer, and the whitespace constraint is honoured by xgrammar and guidance
+    alone.
+    """
+    for path in (("llm_engine", "vllm_config", "structured_outputs_config"),
+                 ("llm_engine", "vllm_config", "decoding_config")):
+        node = _engine
+        for step in path:
+            node = getattr(node, step, None)
+            if node is None:
+                break
+        value = getattr(node, "backend", None) if node else None
+        if value is not None:
+            return str(value)
+    return None
+
 
 def _supported(kwargs: dict) -> dict:
     """The arguments this build of vLLM actually accepts.
@@ -96,6 +169,39 @@ def engine():
             # justifies it and omitted (engine default) everywhere else.
             **({"max_num_seqs": int(os.environ["WRITTEN_MAX_NUM_SEQS"])}
                if os.environ.get("WRITTEN_MAX_NUM_SEQS") else {}),
+            # **The whitespace guard belongs here, on the engine, and putting it
+            # on the request instead cost a whole run.** `StructuredOutputsParams`
+            # has a `disable_any_whitespace` field, so passing it per request is
+            # accepted and reports nothing dropped — and the engine goes on
+            # constructing `StructuredOutputsConfig(disable_any_whitespace=False)`
+            # and governs. Measured 2026-08-24: the flag was passed on every
+            # request, `dropped_structured_args` was empty, and the overflow
+            # count went 147 -> 148. **Accepted is not effective**, which is this
+            # codebase's oldest defect wearing new clothes — a call that can fail
+            # and a result nobody reads.
+            #
+            # What it fixes: JSON permits unbounded whitespace between tokens, so
+            # a constrained decoder may emit spaces for ever where the model is
+            # unsure. All 147 of that run's `output_overflow` rows were spaces —
+            # 141 stalled immediately after `"source_field_index":` — and none
+            # was a long answer. The token ceiling was never the cause.
+            #
+            # **The backend has to be named, and that is forced rather than
+            # chosen.** `disable_any_whitespace` is supported only by xgrammar
+            # and guidance, and `StructuredOutputsConfig` validates that at
+            # construction — `backend='auto'` with the flag set is refused by
+            # pydantic before the engine starts: *"disable_any_whitespace is
+            # only supported for xgrammar and guidance backends"*. So the two
+            # settings travel together or neither does.
+            #
+            # Pinning the backend is a real change and worth stating: `auto` may
+            # pick a different one per schema and per release, which for a lane
+            # whose whole purpose is to be comparable with the last run is the
+            # same objection this project makes to a floating image tag. xgrammar
+            # is vLLM's default for JSON schema and is what `auto` was already
+            # resolving to here.
+            structured_outputs_config={"backend": "xgrammar",
+                                       "disable_any_whitespace": True},
         )))
     return _engine
 
@@ -150,6 +256,19 @@ def _runtime() -> dict:
     # else would ever report, and this lane's recurring defect is the call
     # that fails while nobody reads the result.
     facts["dropped_engine_args"] = list(_dropped_engine_args)
+    # **What was dropped, and separately, what is actually in force.** Empty
+    # here means the *argument* was accepted, which is not the same claim and
+    # was measured saying "fine" while the guard was off.
+    facts["dropped_structured_args"] = list(_dropped_structured_args)
+    # **The one that can contradict us.** Read off the loaded engine: `true` is
+    # the guard in force, `false` means the `output_overflow` bucket is back,
+    # and `null` means the attribute moved and this needs a new path rather
+    # than being trusted either way.
+    facts["disable_any_whitespace"] = _effective_whitespace_guard()
+    # **The backend beside it, because the guard is only real on two of them.**
+    # A reader seeing `disable_any_whitespace: true` under a backend that does
+    # not honour it would be reading a claim the engine cannot keep.
+    facts["structured_outputs_backend"] = _effective_structured_backend()
 
     manifest = pathlib.Path(MODEL_PATH) / "manifest.json"
     if manifest.is_file():
@@ -214,6 +333,29 @@ def _structured_params(schema: dict, max_tokens: int):
     **Never unconstrained.** If neither is available this raises: an engine that
     cannot be constrained returns prose, which fails acceptance for a reason that
     looks like a bad model.
+
+    **Whitespace is forbidden, and that is not tidiness — it is the whole of the
+    `output_overflow` bucket.** JSON permits arbitrary whitespace between tokens,
+    so a grammar-constrained decoder may legally emit spaces for ever; the model
+    reaches a point it is unsure of and drifts into that state instead of
+    committing. Measured on the v18 run, 2026-08-24: **147 of 4,187 production
+    rows finished on `length`, and all 147 were whitespace loops — none was a
+    genuinely long answer.** 141 stalled at the same place, immediately after
+    `"source_field_index":`, the one nullable integer in the schema; the rest
+    stalled after an unescaped quote inside a title that contained one.
+
+    **So the token ceiling was never the cause, and raising it never was the
+    cure.** `WRITTEN_MAX_OUTPUT_TOKENS` went 800 -> 2400 for "long classical
+    titles"; what that actually bought was three times as many spaces per stuck
+    row. `disable_any_whitespace` removes the state from the grammar, which is
+    the only fix that ends the loop rather than lengthening it.
+
+    **Filtered against the build, for the reason `_supported` gives.** A keyword
+    this engine does not have is a `TypeError` at the first inference, on a GPU
+    that is already charging — and unlike the engine arguments, this one is
+    reached per request rather than once at load. What is dropped is named in
+    `runtime`, because a constraint that silently stopped applying is this lane's
+    recurring defect.
     """
     from vllm import SamplingParams  # noqa: PLC0415
 
@@ -222,7 +364,9 @@ def _structured_params(schema: dict, max_tokens: int):
 
         return SamplingParams(
             temperature=0, max_tokens=max_tokens,
-            structured_outputs=StructuredOutputsParams(json=schema))
+            structured_outputs=StructuredOutputsParams(**_structured_kwargs(
+                StructuredOutputsParams,
+                {"json": schema, "disable_any_whitespace": True})))
     except ImportError:
         pass
 

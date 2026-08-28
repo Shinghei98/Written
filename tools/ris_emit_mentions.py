@@ -277,9 +277,11 @@ def main() -> int:
 -- the observation the link resolved.
 --
 -- **A manifest is published rather than borrowed.** The newest manifest in
--- this database is `qwen_extractor_v13`; the corpus was extracted under v14,
--- staged on the cluster and never registered. Pointing these invocations at
--- the v13 row would make them state something untrue about what ran.
+-- this database is `qwen_extractor_v13`; the corpus was extracted under
+-- {PROMPT_VERSION}, staged on the cluster and never registered. Pointing these
+-- invocations at the v13 row would make them state something untrue about what
+-- ran. The v13 lookup below is a *template* to copy shape from, not a claim
+-- about this corpus — and it is the last literal here that does not derive.
 --
 -- **Calendar is included, through the door `0308` opens.**
 -- `guard_private_source_generic_lane_v03` admits a private-lane observation

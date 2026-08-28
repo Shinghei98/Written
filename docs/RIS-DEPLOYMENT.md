@@ -70,7 +70,7 @@ is a credential problem. Only the middle is recoverable without RIS.
 
 ### Build the work list (Mac)
 
-    python3 tools/ris_build_items.py out/ris/items_v16.jsonl [--limit N]
+    python3 tools/ris_build_items.py out/ris/items_v18.jsonl [--limit N]
 
 Reads `summary_distilled_records` plus the top-40 `broader` parents as
 `parent_candidates`. Applies the source exclusions, the calendar gate, the
@@ -79,9 +79,21 @@ Reads `summary_distilled_records` plus the top-40 `broader` parents as
 
 ### Shard it
 
-`run_extract.sh` reads `$ROOT/work/v16_shard_$SHARD.jsonl`, one file per shard.
+`run_extract.sh` reads `$ROOT/work/<ver>_shard_$SHARD.jsonl`, one file per shard.
 Four shards, one A100 each. **Nothing in the repository splits the file** — do it
 by hand and check the line counts sum to the item count.
+
+**`<ver>` is derived, not typed.** `run_extract.sh` sets `WANT` — the prompt
+version this job claims, and the one literal that has to move per release — and
+every versioned path takes its suffix: the shard read, the results written, the
+compile cache, and the log `submit_extract.sh` opens. `submit_extract.sh` greps
+`WANT` out of `run_extract.sh` rather than holding a second copy.
+
+The reason is the same one the gate below exists for, one layer further out.
+The paths all said `v16` while the prompt moved to v18, so a v18 run would have
+landed in files reading as the previous pass — **and the gate cannot see that**,
+because it compares the contract against `WANT` and says nothing about where the
+answers go. One literal moves; the filenames follow.
 
 ### Stage
 
@@ -99,7 +111,7 @@ gate checks the prompt version and this is a different field. Derive it.
         semantic/contracts/compiled_semantic_contract_v1.json \
         "semantic/contracts/$SCHEMA" \
         tools/ris/run_extract.sh tools/ris/submit_extract.sh \
-        out/ris/v16_shard_0*.jsonl \
+        out/ris/v18_shard_0*.jsonl out/ris/v18_shard_fx.jsonl \
         compute1:$ROOT/work/
 
 `serve.py` is the production prompt builder — **the run is only meaningful
@@ -108,9 +120,12 @@ so **staging a stale one produces a v14 corpus that reads as a v16 result**;
 `run_extract.sh` refuses to start if the contract on the cluster disagrees with
 the job.
 
-**`v16_shard_<n>.jsonl` is a filename convention, not a claim about the prompt.**
-It is shared with `submit_extract.sh` and `run_extract.sh`, both of which open
-that exact name; the corpus inside it is whichever one was just built.
+**Re-staging `run_extract.sh` changes what an already-queued job will do**, and
+that is occasionally what you want: the job runs `bash $WORK/run_extract.sh`,
+read at execution time rather than at submit. The `-oo` log path is the
+exception — LSF fixes it when the job is submitted, so changing it needs a
+resubmission. A job that has not started has spent no GPU time, so killing and
+resubmitting costs only queue position.
 
 ### Submit
 
@@ -122,7 +137,7 @@ form that used to be documented here.
 
 ### Watch
 
-    ssh compute1 'bjobs -w; tail -40 $ROOT/work/extract_v16_00.log'
+    ssh compute1 'bjobs -w; tail -40 $ROOT/work/extract_v18_00.log'
 
 The first line is the contract's prompt version, printed **before the GPU is
 touched**, so a stale stage costs a second rather than an hour. Expect ~10
@@ -130,9 +145,9 @@ minutes per shard, nearly all of it model load.
 
 ### Collect and validate (Mac)
 
-    scp 'compute1:$ROOT/out/v16_results_0*.jsonl' out/ris/
+    scp 'compute1:$ROOT/out/v18_results_0*.jsonl' out/ris/
     PYTHONPATH=semantic/src semantic/.venv/bin/python tools/ris_ingest_results.py \
-        out/ris/items_v16.jsonl out/ris/v16_results_0*.jsonl out/ris/verdicts_v16.json
+        out/ris/items_v18.jsonl out/ris/v18_results_0*.jsonl out/ris/verdicts_v18.json
 
 **Validation happens here, not on the cluster.** The contract, the schema and the
 semantic validator live with the repository; the GPU emits raw text and this
@@ -142,8 +157,8 @@ JSON-Schema → **`repair_offsets`** → `validate_response`.
 ### Emit and apply
 
     python3 tools/ris_link_observations.py out/ris/links.json
-    python3 tools/ris_emit_dictionary.py out/ris/verdicts_v16.json <n>
-    python3 tools/ris_emit_mentions.py   out/ris/verdicts_v16.json links.json items.jsonl <n>
+    python3 tools/ris_emit_dictionary.py out/ris/verdicts_v18.json <n>
+    python3 tools/ris_emit_mentions.py   out/ris/verdicts_v18.json links.json items.jsonl <n>
     supabase db push && ./tools/replay_contracts.sh
 
 Each emitter **writes a migration and applies nothing**.
@@ -169,13 +184,25 @@ id; production rows carry content hashes, so every case reports
 `absent_from_answer` and `scored: 0`. **That is the scorer being right** — *"a
 missing run and a run that failed every case are different facts."*
 
-To get a number, run the fixtures as their own shard:
+To get a number, run the fixtures as their own shard. **Rebuild it every time
+the prompt moves** — a fixtures shard built for the previous prompt scores the
+previous prompt and reports the number as this one's:
 
-1. Build items from `evaluation_corpus_v2.json` with `row_id = case id`, on the
-   same item shape as production (`out/ris/items_fixtures_v16.jsonl`).
-2. Stage as `v16_shard_fx.jsonl`, submit with `submit_extract.sh fx`.
-3. Ingest to `verdicts_fixtures_v16.json`, then
-   `python3 tools/score_categorisation.py <that file>`.
+    python3 tools/ris_build_fixture_items.py out/ris/items_fixtures_v18.jsonl \
+        --items out/ris/items_v18.jsonl
+    cp out/ris/items_fixtures_v18.jsonl out/ris/v18_shard_fx.jsonl
+    # stage with the rest, then:
+    ssh compute1 'bash $ROOT/work/submit_extract.sh fx'
+    python3 tools/score_categorisation.py out/ris/verdicts_fixtures_v18.json
+
+**This was prose with no implementation until 2026-08-24**, and that is exactly
+why the shard sat at v16 while the prompt moved twice: a step that has to be
+remembered is a step that goes stale between runs. `ris_build_fixture_items.py`
+reads `parent_candidates` **from the production items file** rather than
+rebuilding the inventory, so the two shards cannot describe different ontologies
+— and it keeps `row_id` as the case id, which is the join
+`score_categorisation.py` uses. Anything else there scores zero and reports it
+as the model failing.
 
 **Real titles never become fixtures.** `out/` is git-ignored and migrations
 `0239`/`0240` refuse an evaluation invocation naming a user, an observation or
@@ -208,10 +235,10 @@ failure. The load-bearing ones:
 
 | var | value | why |
 |---|---|---|
-| `HOME` | `$ROOT/work/home_v16_$SHARD` | the container mounts real home read-only; Triton and Inductor write `$HOME/.cache` directly and die `EACCES` **after** the model loads, so it reads as a model problem. **Per-shard**, or four shards race in the compile cache |
+| `HOME` | `$ROOT/work/home_<ver>_$SHARD` | the container mounts real home read-only; Triton and Inductor write `$HOME/.cache` directly and die `EACCES` **after** the model loads, so it reads as a model problem. **Per-shard**, or four shards race in the compile cache |
 | `HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE` | `1` | a compute node has no egress; without it the loader waits on huggingface.co and times out |
 | `VLLM_WORKER_MULTIPROC_METHOD` | `spawn` | vLLM's default fork method raises inside CUDA here |
-| `WRITTEN_MAX_OUTPUT_TOKENS` | `2400` | 800 is what the AWS wire pins, and long classical titles exceed it legitimately |
+| `WRITTEN_MAX_OUTPUT_TOKENS` | `2400` | 800 is what the AWS wire pins. **This was also blamed for `output_overflow` and was never the cause** — see §7; the overflows were whitespace loops and a higher ceiling only made each stuck row cost more |
 | `WRITTEN_GPU_MEMORY_UTILIZATION` | `0.95` | |
 
 ---
@@ -223,7 +250,7 @@ failure. The load-bearing ones:
 | **"There are no suitable hosts", pending for hours** | `gmodel=NVIDIAA100_SXM4` is **truncated**. The real string is `NVIDIAA100_SXM4_80GB`; `lshosts -gpu` truncates its column to 15 chars, which is what makes the short form look right | use `submit_extract.sh`. **Cost the v16 run 18 hours on 2026-08-24.** Narrow with `bhosts -R "<clause>"` to prove the resource clause is satisfiable before blaming the cluster |
 | Job dies instantly, no GPU touched | submitted with no shard argument; `run_extract.sh` opens `SHARD=$1` under `set -u` | `submit_extract.sh` passes it |
 | Acceptance ~9% instead of ~90% | `repair_offsets` skipped between schema and semantic validation | run it exactly as `gateway._accept` does |
-| Many `output_overflow` | the 800-token AWS ceiling meets long titles | `WRITTEN_MAX_OUTPUT_TOKENS=2400` |
+| Many `output_overflow` | **almost certainly a whitespace loop, not a long answer.** JSON permits unbounded whitespace between tokens, so a constrained decoder can emit spaces for ever where the model is unsure. Measured on v18, 2026-08-24: **147 of 4,187 rows finished on `length` and all 147 were whitespace** — 141 stalled right after `"source_field_index":`, the schema's one nullable integer | `disable_any_whitespace=True` on `StructuredOutputsParams` (`serve.py:_structured_params`). **Check `runtime.dropped_structured_args` is empty** — if the knob is listed there the guard is not applying. Raising the ceiling does not fix this and never did |
 | *Every* batch `output_overflow` | prompt carries one item, schema permits eight, model pads to the cap | `sequence_schema` sets `maxItems: 1` |
 | `User not in the specified user group` | `-G` guessed from the storage path | `groups \| grep ^compute-` |
 | `Error near "exec": incorrect section name` | unquoted hostname in `select[]` — LSF reads hyphens as operators | `select[hname!='compute1-exec-399']`, quoted |
@@ -240,15 +267,35 @@ path is the filesystem.
 
 ## 8. State, 2026-08-24
 
-**v16 extracted and validated** — 4,187 rows, **3,603 accepted (86.1%)**, 10,274
-mentions, 7,370 offsets repaired. Against v14's 5,387 / 4,832 (89.7%) / 13,833 —
-**not directly comparable**: v16 excludes `recommendation` rows and applies the
-calendar gate and the 150-subscriber floor, so it is a different corpus.
+**v18 extracted and validated** — 4,187 rows, **3,846 accepted (91.9%)**, 10,627
+mentions, 7,030 offsets repaired. Against v16's 4,187 / 3,603 (86.1%) / 10,274
+this **is** directly comparable — the same corpus, the same exclusions, only the
+prompt moved: **+243 rows, +5.8pp**.
+
+v16 against v14 (5,387 / 4,832 / 13,833) was **not** comparable: v16 excludes
+`recommendation` rows and applies the calendar gate and the 150-subscriber floor.
+
+Those are the numbers **with the whitespace guard on**. Without it the same run
+scored 3,717 (88.8%) and 10,038 mentions: every one of its 147 `output_overflow`
+rows was a decoder whitespace loop, and turning the guard on took that bucket to
+**zero** and returned 129 rows. See §7 — the token ceiling was never the cause.
+
+**Fixtures: 3 of 10 scored cases pass.** The denominator moved from 9 because
+`fx_106` was the whitespace loop and is now answered — 347 tokens where it used
+to emit 2,400 spaces. It **fails** on the merits (`person`, `culture`; wanted
+`work` and `group`), which is a far better state than the four runs where it was
+invisible. `fx_107` is still absent and is a different defect: a clean 521-token
+answer refused on `surface_offset_mismatch`.
+
+Pass count is unchanged from v17, so **v18 buys well-formedness, not better
+categorisation**. Read it as a smoke test rather than an accuracy figure: eleven
+invented cases cannot separate two prompts.
 
 Already in the database from v14: 9,486 presumed terms, 6,991 relations, 19,599
-observation mentions all joined to observations, 393,937 mappings.
+observation mentions all joined to observations, 393,937 mappings. **v18 has not
+been emitted.**
 
 **Known stale:** `ris_corpus_probe.py` pins schema v2 / request v1 while the
-contract is on v4 / request_v2. **`0309` does not exist** — it is referenced by
+contract is on v5 / request_v2. **`0309` does not exist** — it is referenced by
 `CLAUDE.md` and by `0308`/`0310`, but the numbering jumps; the plaintext filing
 it describes lives in `0311`/`0312`/`0314`.
