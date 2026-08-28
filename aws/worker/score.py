@@ -209,7 +209,17 @@ NEVER_ASSERTED_KINDS = frozenset({"hub"})
 #
 # **One library and one reviewer, so this is a judgement rather than a
 # measurement.** The next library is what would make it either.
-ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.25}
+#
+# **Superseded by the owner, 2026-08-28: one weak direct evidence is enough,
+# for now.** 0.25 kept every single-OST franchise out — Attack on Titan at
+# 0.042 (one saved track) sat candidate forever, which starved the
+# watchable-media bio layer of exactly the works it exists for. 0.03 sits
+# just under the weakest single-track work measured (0.042) and above the
+# propagated λ-dust, so one real act of listening clears and a graph echo
+# does not. **Deliberately uncalibrated** — the owner's words were
+# "calibrate later", and the calibration wants more libraries, not more
+# argument about this one.
+ELIGIBLE_STRENGTH_BY_KIND = {"work": 0.03}
 
 # **A bare decade, which is a different argument from the hub above.**
 #
