@@ -1701,6 +1701,19 @@ def score_user(connection, user_id: str, run_id: str, version: str,
         elif kind in NEVER_ASSERTED_KINDS or key.startswith(NEVER_ASSERTED_KEY_PREFIXES):
             counts["container_kind"] = counts.get("container_kind", 0) + 1
             state = "candidate"
+        elif kind == "work" and len(arrival["sources"]) < 2:
+            # **One song's echo is not a franchise claim (owner, 2026-08-28).**
+            # The 0.03 bar let a single top track assert its whole film —
+            # Chungking Express arrived on a card from one Faye Wong cover.
+            # A derived work needs two distinct directly-evidenced concepts
+            # agreeing before it crosses the bar: one source is a hint and
+            # stays candidate, where Memories can still show it and a second
+            # related term — or a keep — promotes it. Works only: a genre
+            # accumulating one artist's whole library through `broader` is a
+            # different shape of evidence and keeps the plain bar.
+            counts["single_witness_work"] = \
+                counts.get("single_witness_work", 0) + 1
+            state = "candidate"
         else:
             bar = ELIGIBLE_STRENGTH_BY_KIND.get(kind, ELIGIBLE_STRENGTH)
             state = "eligible" if strength >= bar else "candidate"
