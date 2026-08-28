@@ -180,9 +180,9 @@ enum BioTemplates {
         case .performer:
             return "Listening to \(label) again. Its so peak!"
         case .tvSeries:
-            return "Looking for someone to binge-watch \(label) start to finish."
+            return "\(label) is the greatest show of all time. Period."
         case .movie:
-            return "\(label) is the greatest movie in the world. Period. Debate me."
+            return "\(label) is the greatest movie of all time. Period."
         case .authorDirector:
             return "\(label) never fails me, best director/author ever."
         case .book:
@@ -191,6 +191,11 @@ enum BioTemplates {
             return "Lets exchange secrets. I'll go first: Watching \(label) is my guilty pleasure."
         case .game:
             return "Swipe right to play \(label) together."
+        case .genre:
+            // The vocabulary says "Soundtrack"; the owner's line says what
+            // a person would: the playlist is movie OSTs.
+            let genre = label == "Soundtrack" ? "movie OST" : label
+            return "Don't judge me but my playlist is all \(genre)."
         case .travel:
             // The trip concept's label is "Trip to Tokyo"; the sentence
             // wants the city.

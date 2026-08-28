@@ -61,7 +61,7 @@ actor DiscoveryService {
     /// degrade to silence, never crash or mislabel.
     enum BioCategory: String, Equatable {
         case composer, performer, movie, book, creator, game, travel
-        case subject, other, screen
+        case subject, other, screen, genre
         case tvSeries = "tv_series"
         case authorDirector = "author_director"
         case sportDoing = "sport_doing"
