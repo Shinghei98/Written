@@ -668,35 +668,47 @@ returning id
 #: more to decide what to assert. Works and creators only: a genre named
 #: on a poster is a description, not what the evening was about.
 BOOKED_EVENT_CONCEPTS = """
-select c2.id as concept_id, count(distinct b.id) as bookings
-from semantic_private.booked_activity_candidates b
-join semantic_private.source_text_evidence e
-  on e.observation_id = b.source_observation_id and e.user_id = b.user_id
- and e.refresh_status = 'current' and e.deleted_at is null
- and e.encryption_key_version = 'ris_lab_plaintext_v1'
-join ontology.concept_labels l
-  on l.status = 'active' and l.ontology_version_id = %(version)s
- and length(l.normalized_label) >= 4
- -- Whole-phrase, space-bounded: substring containment asserted the band
- -- Chic from a Chichen Itza ticket and Final Fantasy VI from a Final
- -- Fantasy VII one. Both sides collapse to alphanumeric words first.
- -- Accents fold on both sides (0423's lesson, again): the label's
- -- normalized form is unaccented while ticket text keeps its accents,
- -- and Chichén Itzá went unmatched for the difference.
- and (' ' || regexp_replace(extensions.unaccent(
-                lower(convert_from(e.encrypted_text, 'utf8'))),
-                            '[^a-z0-9]+', ' ', 'g') || ' ')
-     like ('%% ' || regexp_replace(extensions.unaccent(l.normalized_label),
-                                   '[^a-z0-9]+', ' ', 'g')
-           || ' %%')
-join ontology.concepts c2 on c2.id = l.concept_id
-join ontology.concept_revisions r
-  on r.concept_id = c2.id and r.ontology_version_id = %(version)s
- and r.status = 'active' and r.concept_kind in ('work', 'creator')
-where b.user_id = %(user_id)s
-  and b.predicate_key = 'booked_event'
-  and b.booking_state <> 'cancelled'
-group by c2.id
+with tickets as materialized (
+  -- Each ticket's text normalized ONCE. The first shape of this query
+  -- carried the unaccent/regexp cascade inside the join condition, so
+  -- the planner evaluated it per (booking x label) pair — measured
+  -- 2026-08-28 at 116s-and-cancelled against the 2-minute statement
+  -- timeout, the first time a genuinely fresh recompute ran it. The
+  -- semantics below are identical; only the evaluation count moves.
+  select b.id as booking_id,
+         (' ' || regexp_replace(extensions.unaccent(
+                    lower(convert_from(e.encrypted_text, 'utf8'))),
+                              '[^a-z0-9]+', ' ', 'g') || ' ') as words
+  from semantic_private.booked_activity_candidates b
+  join semantic_private.source_text_evidence e
+    on e.observation_id = b.source_observation_id and e.user_id = b.user_id
+   and e.refresh_status = 'current' and e.deleted_at is null
+   and e.encryption_key_version = 'ris_lab_plaintext_v1'
+  where b.user_id = %(user_id)s
+    and b.predicate_key = 'booked_event'
+    and b.booking_state <> 'cancelled'
+),
+labels as materialized (
+  select l.concept_id,
+         regexp_replace(extensions.unaccent(l.normalized_label),
+                        '[^a-z0-9]+', ' ', 'g') as phrase
+  from ontology.concept_labels l
+  join ontology.concept_revisions r
+    on r.concept_id = l.concept_id and r.ontology_version_id = %(version)s
+   and r.status = 'active' and r.concept_kind in ('work', 'creator')
+  where l.status = 'active' and l.ontology_version_id = %(version)s
+    and length(l.normalized_label) >= 4
+)
+-- Whole-phrase, space-bounded: substring containment asserted the band
+-- Chic from a Chichen Itza ticket and Final Fantasy VI from a Final
+-- Fantasy VII one. Both sides collapse to alphanumeric words first.
+-- Accents fold on both sides (0423's lesson, again): the label's
+-- normalized form is unaccented while ticket text keeps its accents,
+-- and Chichén Itzá went unmatched for the difference.
+select labels.concept_id, count(distinct tickets.booking_id) as bookings
+from tickets
+join labels on tickets.words like ('%% ' || labels.phrase || ' %%')
+group by labels.concept_id
 """
 
 SCORE_CALENDAR_BOOKED = """
