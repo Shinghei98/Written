@@ -789,6 +789,13 @@ select c.id, c.concept_key, r.preferred_label, r.concept_kind, r.inference_polic
 from ontology.concepts c
 join ontology.concept_revisions r on r.concept_id = c.id
 where r.ontology_version_id = %(version)s
+  -- A deprecated revision is out of the scorer's universe. 0460 deprecated
+  -- 377 recording-family mis-mints and left their edges standing (climbs
+  -- may pass through a corpse; nothing may land on one), and 0462's newly
+  -- conducting edges then carried propagated weight INTO one — the insert
+  -- met guard_user_assertion_relation_class and the whole run rolled back.
+  -- The guard was right; this is the scorer honouring it one layer earlier.
+  and r.status = 'active'
 """
 
 # **The traversable graph: every predicate edge carrying an authored λ.**
