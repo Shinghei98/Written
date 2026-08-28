@@ -46,6 +46,10 @@ actor MatchProfileService {
         /// One per photograph, positionally. `nil` where there was nothing true
         /// to say — see `captions(theirs:viewer:count:)`.
         let captions: [String?]
+        /// The same gated ingredients the feed composes from — served by
+        /// `match_card` out of `matching_terms`, so this page and the
+        /// discovery card cannot drift apart.
+        let terms: [DiscoveryService.BioTerm]
     }
 
     private(set) var lastError: String?
@@ -132,6 +136,30 @@ actor MatchProfileService {
                 }
 
             let paths = card["photo_paths"] as? [String] ?? []
+            // The composed dynamic bio, the owner's direction (2026-08-28):
+            // the six photographs read as six cards carrying the same lines
+            // the discovery page draws. Same decode as `DiscoveryService`,
+            // same composer, same mutuality snapshot — the legacy overlap
+            // captions below survive only as the never-invent fallback for
+            // a person whose terms compose to nothing.
+            let terms: [DiscoveryService.BioTerm] =
+                (card["terms"] as? [[String: Any]] ?? [])
+                .compactMap { term in
+                    guard let label = term["label"] as? String
+                    else { return nil }
+                    return DiscoveryService.BioTerm(
+                        label: label,
+                        kind: term["kind"] as? String,
+                        score: (term["score"] as? Double)
+                            ?? (term["score"] as? NSNumber)?.doubleValue
+                            ?? 1.0,
+                        category: DiscoveryService.BioCategory(wire: term["category"] as? String),
+                        hub: term["hub"] as? String,
+                        block: term["block"] as? String
+                    )
+                }
+            let composed = BioComposer.compose(
+                viewer: await BioComposer.viewerSnapshot(), terms: terms)
             lastError = nil
             return Profile(
                 personID: personID,
@@ -146,12 +174,17 @@ actor MatchProfileService {
                 domains: theirDomains,
                 // Three, matching the reference's posts / followers / following.
                 topSubjects: theirTopSubjects,
-                captions: Self.captions(
-                    theirSubjects: theirSubjects,
-                    theirDomains: theirDomains,
-                    viewer: viewer,
-                    count: paths.count
-                )
+                captions: composed.isEmpty
+                    ? Self.captions(
+                        theirSubjects: theirSubjects,
+                        theirDomains: theirDomains,
+                        viewer: viewer,
+                        count: paths.count
+                      )
+                    : (0..<paths.count).map { index in
+                        index < composed.count ? composed[index].text : nil
+                      },
+                terms: terms
             )
         } catch {
             lastError = error.localizedDescription
