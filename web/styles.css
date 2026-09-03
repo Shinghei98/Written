@@ -468,13 +468,13 @@ h3 {
   margin: 0 0 1.2rem;   /* the paragraph's own bottom margin, so the two
                            boxes end on the same line */
   min-height: 0;
-  /* Owner's direction 2026-09-03: a fifth larger than the paragraph's height,
-     200px further right and 50px up. A transform from the top-left corner
-     keeps the grid row keyed to the paragraph - the box is still
-     paragraph-height, the drawing is 120% of it - and .story's overflow
-     clips anything past the edge. */
+  /* Owner's direction 2026-09-03: 158% of the paragraph's height (a fifth
+     larger twice, then a tenth), 200px further right and 50px up. A
+     transform from the top-left corner keeps the grid row keyed to the
+     paragraph - the box is still paragraph-height, only the drawing is
+     scaled - and .story's overflow clips anything past the edge. */
   transform-origin: 0 0;
-  transform: translate(200px, -50px) scale(1.2);
+  transform: translate(200px, -50px) scale(1.584);
 }
 
 .stage-2 .stage-photo img {
