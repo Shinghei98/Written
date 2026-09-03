@@ -469,12 +469,12 @@ h3 {
                            boxes end on the same line */
   min-height: 0;
   /* Owner's direction 2026-09-03: 166% of the paragraph's height (a fifth
-     larger twice, a tenth, then a twentieth), 180px further right and 50px
+     larger twice, a tenth, then a twentieth), 165px further right and 50px
      up. A transform from the top-left corner keeps the grid row keyed to
      the paragraph - the box is still paragraph-height, only the drawing is
      scaled - and .story's overflow clips anything past the edge. */
   transform-origin: 0 0;
-  transform: translate(180px, -50px) scale(1.6632);
+  transform: translate(165px, -50px) scale(1.6632);
 }
 
 .stage-2 .stage-photo img {
@@ -484,7 +484,9 @@ h3 {
   height: 100%;
   object-fit: cover;
   object-position: 50% 30%;
-  border-radius: 2px;
+  /* rounded corners, per the owner; the figure's scale makes the drawn
+     radius about 20px on desktop */
+  border-radius: 12px;
 }
 
 /* On a phone the two do not fit side by side: the photograph drops beneath
