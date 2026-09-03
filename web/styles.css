@@ -1,11 +1,13 @@
 /* ==========================================================================
    Written — one page
    --------------------------------------------------------------------------
-   The palette is the app's own: parchment (243,239,233) is GardenPalette's
-   page colour, and the inks come from the logo write-on that the opening
-   here is copied from. Quicksand is the app's only display face, so it is
-   the only display face on the site; body copy sits in the system stack
-   exactly as it does on the phone.
+   The palette is black and gold on the app's own parchment: parchment
+   (243,239,233) is GardenPalette's page colour, the ink is a warm near-black,
+   and gold plays the role an accent purple plays elsewhere. Quicksand is the
+   app's only display face, so it is the only display face on the site; the
+   three storybook chapters set their prose in an old-style serif because the
+   ivy beside them is book-plate engraving, and the rest of the body copy sits
+   in the system stack exactly as it does on the phone.
    ========================================================================== */
 
 @font-face {
@@ -17,17 +19,42 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Quicksand";
+  src: url("assets/fonts/Quicksand-Light.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Quicksand";
+  src: url("assets/fonts/Quicksand-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --parchment: #F3EFE9;
   --paper:     #FBFCFA;
-  --ink:       #1B221A;
-  --muted:     #6E766A;
-  --line:      #E2DED4;
-  --brand:     #6DBE46;
-  --brand-deep:#4E9A32;
+  --ink:       #171410;
+  --coal:      #0E0C09;
+  --muted:     #6E675B;
+  --line:      #E2DCCE;
+
+  /* Gold, in three weights: --brand is the fill (buttons, marks), --brand-deep
+     is dark enough to be *text* on parchment, --gold-bright is text on coal.
+     The names --brand/--brand-deep are kept from the green era because the
+     document pages (privacy, terms, cookies, support) style their links and
+     callouts from them and are not edited in this pass. */
+  --brand:      #C9A227;
+  --brand-deep: #7A600F;
+  --gold-bright:#D9B03C;
 
   --display: "Quicksand", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
   --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --book: "Iowan Old Style", "Palatino", "Book Antiqua", Georgia, serif;
 
   --banner-h: 68px;
   --gutter: clamp(20px, 5vw, 64px);
@@ -52,6 +79,8 @@ body {
 
 img, svg, picture { display: block; max-width: 100%; }
 a { color: inherit; }
+
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
 .wrap {
   width: min(100% - var(--gutter) * 2, 68rem);
@@ -86,6 +115,39 @@ h3 {
   max-width: var(--measure);
   color: var(--muted);
   margin: 0;
+}
+
+/* The button, in Hinge's proportions and our gold. One style, two states:
+   solid gold for a door that opens, outlined and inert for one that does not
+   open yet. */
+.btn-gold {
+  display: inline-block;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: #fff;
+  background: var(--brand);
+  border: 2px solid var(--brand);
+  border-radius: 999px;
+  padding: 14px 38px;
+  cursor: pointer;
+  transition: background-color .2s, border-color .2s, transform .15s;
+}
+
+.btn-gold:hover { background: #B8922B; border-color: #B8922B; transform: translateY(-1px); }
+.btn-gold:active { transform: translateY(0); }
+
+/* The inert twin: same gold, same white text, but it presses nothing. */
+.btn-ghost,
+.btn-ghost:hover {
+  background: var(--brand);
+  border-color: var(--brand);
+  transform: none;
+  cursor: default;
+  opacity: .85;
 }
 
 /* ==========================================================================
@@ -303,234 +365,400 @@ h3 {
   line-height: 1.5;
 }
 
-.hero-cue {
-  position: absolute;
-  left: 50%;
-  bottom: clamp(20px, 3.4vh, 30px);
-  translate: -50% 0;
-  width: 26px;
-  height: 42px;
-  border: 1px solid rgba(255, 255, 255, .5);
-  border-radius: 999px;
-  display: grid;
-  place-items: start center;
-  padding-top: 8px;
-}
-
-.hero-cue span {
-  width: 3px;
-  height: 8px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, .85);
-  animation: cue 1.9s ease-in-out infinite;
-}
-
-@keyframes cue {
-  0%, 100% { transform: translateY(0);   opacity: .9; }
-  50%      { transform: translateY(9px); opacity: .25; }
-}
-
 /* ==========================================================================
-   Distillation, hugged by the vine
+   The book: three chapters, each kept company by watercolor ivy
    --------------------------------------------------------------------------
-   Each stage carries its own segment of the plant, entering the top and
-   leaving the bottom at the same x, so four fixed-ratio drawings read as one
-   continuous stem however tall the text beside them becomes.
+   The chapters alternate sides - right, left, right - and each carries one
+   painted piece behind its prose: a bush at the first chapter's bottom-left
+   corner, a trailing branch entering from the right below the second, and
+   hanging strands beside the third. The paintings sit inside .stage-body at
+   z-index -1, so the scroll reveal carries text and ivy together, and a
+   painting can never sit on top of a word.
    ========================================================================== */
 
-.growth {
+.story {
   position: relative;
-  padding: clamp(72px, 12vh, 148px) 0 clamp(60px, 10vh, 120px);
+  padding: 0 0 clamp(80px, 12vh, 160px);
+  overflow: hidden;
 }
 
-.growth-head {
-  width: min(100% - var(--gutter) * 2, 68rem);
-  margin: 0 auto clamp(36px, 7vh, 84px);
-}
-
-.stages-frame {
-  position: relative;
+.chapters {
   width: min(100% - var(--gutter) * 2, 68rem);
   margin-inline: auto;
-  --rail: clamp(112px, 17vw, 220px);
 }
-
-/* **One plant, tiled — not one drawing per stage.** Four separate sprigs read
-   as four sprigs however carefully they are aligned, and stretching a single
-   drawing to whatever the prose happens to cost thins it wherever the text is
-   long. Repeating a tile whose stem enters and leaves at the same x, with a
-   vertical tangent at both ends, gives a stem of constant weight and no seam
-   at any height. */
-.vine-rail {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  translate: -50% 0;
-  width: var(--rail);
-  background: url("assets/vine.svg") repeat-y center top;
-  background-size: var(--rail) calc(var(--rail) * 460 / 220);
-  pointer-events: none;
-}
-
-/* **The hidden state is applied by script, never by the stylesheet.** Written
-   the other way round, a page whose JavaScript fails is a page of invisible
-   prose that no reload will fix. Declared here, the content is visible by
-   default and the animation is the thing that has to opt in. */
-.js-reveal .vine-rail { clip-path: inset(0 0 var(--ungrown, 100%) 0); }
 
 .stages {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.stage { position: relative; }
+.stage + .stage { margin-top: clamp(100px, 14vh, 170px); }
+
+/* Each chapter is a grid: the painting owns one column and the prose the
+   other, so they cannot overlap at any width. */
+/* The first chapter, to the owner's plate: the garland hangs large from
+   the top right with its stems flush on the screen edge and nothing cropped,
+   and the prose column sits right of centre, nested under the garland's dip. */
+.stage-1 {
   position: relative;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
 }
 
-/* The text hugs the stem from alternate sides as it descends. It stays
-   left-aligned on both: ragged-right beside the vine costs nothing, and five
-   right-aligned lines of prose are genuinely harder to read. */
-.stage {
+.decor-garland {
+  display: block;
+  width: 53vw;
+  margin-left: auto;
+  margin-right: 0;
+  /* pulled up past the section's clipped top edge: the ivy's crown is
+     deliberately cropped so its leaves meet the painting with no gap */
+  margin-top: calc(clamp(34px, 5.25vh, 68px) - 100px);
+}
+
+.stage-1 .stage-body {
+  max-width: 34rem;
+  margin: -8vw 0 0 57.5vw;
+}
+
+/* the word-cloud portrait, on the open parchment left of the first chapter */
+.lady-portrait {
+  position: absolute;
+  left: calc(7vw + 150px);
+  top: calc(7vw + 270px);
+  width: 18.67vw;
+}
+
+.stage-2 { max-width: 34rem; }
+
+/* The second chapter carries a photograph to the right of its paragraph, the
+   same height as the paragraph. The body is a two-column grid: heading,
+   paragraph and button keep the left column (so the heading fitter still
+   measures the paragraph alone), and the figure takes the right column on
+   the paragraph's row only. The figure contributes no height of its own -
+   its image is absolutely positioned - so the row is exactly as tall as the
+   paragraph and the photo is cropped to that, never the other way round. */
+.stage-2 { --photo-w: 17.5rem; --photo-gap: 1.75rem; max-width: none; }
+
+.stage-2 .stage-body {
+  max-width: none;
   display: grid;
-  grid-template-columns: 1fr var(--rail) 1fr;
-  align-items: center;
+  grid-template-columns: auto var(--photo-w);
+  column-gap: var(--photo-gap);
+  justify-content: start;
+  align-items: start;
 }
 
-.stage .stage-body { grid-column: 1; padding-right: clamp(10px, 2vw, 30px); }
-.stage:nth-child(even) .stage-body { grid-column: 3; padding-right: 0; padding-left: clamp(10px, 2vw, 30px); }
-
-.vine .stem,
-.vine .limb,
-.vine .tendril {
-  fill: none;
-  stroke: var(--ink);
-  stroke-linecap: round;
+.stage-2 .stage-body > h2,
+.stage-2 .stage-body > p,
+.stage-2 .stage-body > .btn-gold {
+  grid-column: 1;
+  /* fit-content boxes, as they were as block/inline-block: the heading
+     fitter reads the heading's rect, and a stretched grid item would give
+     it the column instead of the text */
+  justify-self: start;
 }
 
-.vine .stem    { stroke-width: 7; }
-.vine .limb    { stroke-width: 3.4; }
-.vine .tendril { stroke-width: 2.6; }
-.vine .leaf    { fill: var(--ink); }
-.vine .bud     { fill: var(--ink); }
+.stage-2 .stage-photo {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: stretch;
+  position: relative;
+  margin: 0 0 1.2rem;   /* the paragraph's own bottom margin, so the two
+                           boxes end on the same line */
+  min-height: 0;
+  /* Owner's direction 2026-09-03: a fifth larger than the paragraph's height,
+     200px further right and 50px up. A transform from the top-left corner
+     keeps the grid row keyed to the paragraph - the box is still
+     paragraph-height, the drawing is 120% of it - and .story's overflow
+     clips anything past the edge. */
+  transform-origin: 0 0;
+  transform: translate(200px, -50px) scale(1.2);
+}
+
+.stage-2 .stage-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+  border-radius: 2px;
+}
+
+/* On a phone the two do not fit side by side: the photograph drops beneath
+   the paragraph at the paragraph's width and its natural proportion. */
+@media (max-width: 46rem) {
+  .stage-2 .stage-body { grid-template-columns: minmax(0, 1fr); }
+  .stage-2 .stage-photo {
+    grid-column: 1;
+    grid-row: auto;
+    font-size: 15px;      /* the paragraph's size below the breakpoint */
+    max-width: 21.9em;    /* so this is the paragraph's measure */
+    aspect-ratio: 3 / 2;
+    margin: 0 0 1.2rem;
+    transform: none;
+  }
+}
+
+/* The third chapter lives inside the licensed ivy wreath: the prose is
+   centred in the wreath's clear interior and its type scales with the
+   wreath, so the enclosure holds at every width. */
+.stage-3 {
+  position: relative;
+  margin-bottom: 100px;
+  width: 815px;
+  max-width: 100%;
+  /* the text inside the wreath starts 24% into it; this places that text
+     edge on the same x as paragraph 1's (57.5vw) */
+  margin-left: calc(7.5vw + 50% - 196px);
+  container-type: inline-size;
+}
+
+.decor-wreath {
+  display: block;
+  width: 100%;
+  position: relative;
+  left: 15px;
+  top: 90px;
+}
+
+/* The publication wall: a 2x4 matrix of journal plates to the left of the
+   wreath, flush cells, rows ordered as the owner's plate lays them. */
+.pub-grid {
+  position: absolute;
+  right: calc(100% + 3vw - 14px);
+  top: 50%;
+  transform: translateY(calc(-42% + 85px));
+  width: 27.98vw;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.pub-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 100 / 141;
+  object-fit: cover;
+}
+
+.stage-3 .stage-body {
+  position: absolute;
+  left: 24%;
+  top: 50%;
+  /* two slight steps above where the live page has shown it */
+  transform: translateY(-45px);
+  width: 466px;
+  max-width: none;
+}
+
+.stage-3 .stage-body p { margin-bottom: 0; }
+
+
+/* only below the desktop breakpoint does the wreath's prose scale with the
+   wreath - on desktop it is the same size as every other paragraph */
+@media (max-width: 60rem) {
+  .stage-3 .stage-body p { font-size: clamp(9px, 2.15cqw, 15px); line-height: 1.5; }
+}
+
+/* the wreath's own top gap makes the third gap read deeper; pulled back so
+   the spacing between the three text blocks is even */
+.stage + .stage-3 { margin-top: -20px; }
 
 .stage-body {
-  padding: clamp(28px, 5vh, 64px) 0;
-  max-width: var(--measure);
+  position: relative;
+  max-width: 34rem;
 }
 
-.js-reveal .stage-body {
+.stage-body h2 {
+  display: inline-block;
+  font-size: clamp(1.25rem, 6vw, 2.3rem);
+  white-space: nowrap;
+}
+
+.decor { display: block; }
+
+/* The reveal rides the `translate` property, NOT `transform` - stage-3's
+   body carries a layout transform of its own, and the reveal's final state
+   must never override it (it silently did, and every positional nudge on
+   the live page was a no-op while test renders with ?grown=1 looked fine). */
+.js-reveal .stage-body,
+.js-reveal .decor {
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 900ms ease, transform 900ms cubic-bezier(.2, .7, .25, 1);
+  translate: 0 18px;
+  transition: opacity 900ms ease, translate 900ms cubic-bezier(.2, .7, .25, 1);
   transition-delay: 220ms;
 }
 
-.js-reveal .stage.grown .stage-body { opacity: 1; transform: none; }
+.js-reveal .stage.grown .stage-body,
+.js-reveal .stage.grown .decor { opacity: 1; translate: none; }
 
-.stage-index {
-  font-family: var(--display);
-  font-size: 12px;
-  letter-spacing: .3em;
-  text-transform: uppercase;
-  color: var(--brand-deep);
-  margin: 0 0 .5rem;
+/* Book prose at Hinge's paragraph size, with the illuminated initials. */
+.stage-body p {
+  font-family: var(--book);
+  font-size: 15px;
+  line-height: 1.72;
+  margin: 0 0 1.2rem;
 }
 
-.stage-body p { margin: 0 0 .9rem; }
+/* Every chapter paragraph shares one measure - the width of the first
+   paragraph's opening line - and is set justified. */
+.stage-body p {
+  max-width: 21.9em;
+  text-align: justify;
+}
+
+/* The template's scale: on a wide screen the prose runs larger, and the
+   headline fitter stretches each heading to the same measure. */
+@media (min-width: 60rem) {
+  .stage-body p { font-size: 21px; line-height: 1.5; }
+}
+
 .stage-body p:last-child { margin-bottom: 0; }
 
-.aside {
-  color: var(--muted);
-  font-size: .93em;
-  padding-left: 1rem;
-  border-left: 2px solid var(--line);
+.stage-body > p:first-of-type::first-letter {
+  float: left;
+  font-family: var(--book);
+  font-size: 3.1em;
+  line-height: .82;
+  padding: .08em .12em 0 0;
+  color: var(--brand-deep);
+}
+
+/* 10% smaller than the standard button, type included */
+.stage-body .btn-gold {
+  margin-top: .6rem;
+  font-size: 13.5px;
+  padding: 12.6px 22px;
 }
 
 /* ==========================================================================
-   Sources
+   The numbers, on black
    ========================================================================== */
 
-.sources {
-  background: var(--paper);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  padding: clamp(64px, 11vh, 132px) 0;
+.numbers {
+  background: var(--coal);
+  color: var(--parchment);
+  padding: clamp(64px, 10vh, 120px) 0 clamp(40px, 6vh, 64px);
 }
 
-.source-grid {
-  margin-top: clamp(32px, 5vh, 56px);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
-  gap: clamp(20px, 3vw, 34px);
+.numbers-head {
+  color: var(--gold-bright);
+  margin-bottom: clamp(28px, 5vh, 56px);
 }
 
-.source {
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: clamp(20px, 2.4vw, 30px);
-  background: #fff;
+/* Two pages, swiped or stepped. Scroll-snap does the swiping; the arrows and
+   dots exist for a mouse. */
+.swipe { position: relative; }
+
+.swipe-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
-.source p { margin: 0; color: var(--muted); }
+.swipe-track::-webkit-scrollbar { display: none; }
 
-.scope {
+.slide {
+  flex: 0 0 100%;
+  min-width: 100%;
+  scroll-snap-align: start;
+}
+
+.slide-lede {
   font-family: var(--display);
-  font-size: 12px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--brand-deep) !important;
-  margin: 0 0 .8rem !important;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  line-height: 1.4;
+  max-width: 38rem;
+  margin: 0 0 clamp(24px, 4vh, 44px);
+  color: var(--parchment);
 }
 
-.scope code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .95em;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* The three sentences that follow the source list.
-   --------------------------------------------------------------------------
-   Deliberately inside `.sources` rather than a section of their own. A reader
-   who has just finished the list of what is read should meet "and it is read
-   once, and you can strike it out, and you can delete it" in the same breath;
-   a section break puts a scroll between the question and the answer. */
-.pledges {
-  margin-top: clamp(40px, 6vh, 68px);
-  padding-top: clamp(30px, 4vh, 48px);
-  border-top: 1px solid var(--line);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: clamp(24px, 3.4vw, 44px);
-}
-
-.pledge h3 { margin: 0 0 .5rem; font-family: var(--display); font-weight: 400; }
-.pledge p { margin: 0; color: var(--muted); }
-
-/* ==========================================================================
-   Privacy
-   ========================================================================== */
-
-.policy { padding: clamp(64px, 11vh, 132px) 0; }
-
-.policy-grid {
-  margin-top: clamp(32px, 5vh, 56px);
+.chart-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  gap: clamp(26px, 4vw, 48px);
+  gap: clamp(20px, 3vw, 40px);
+  align-items: start;
 }
 
-.policy-item p { margin: 0 0 .8rem; color: var(--muted); }
-.policy-item p:last-child { margin-bottom: 0; }
-.policy-item a { color: var(--brand-deep); text-underline-offset: 3px; }
+.chart { margin: 0; }
 
-.fine { font-size: .9em; }
+.chart figcaption {
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: #DCD6C8;
+  margin-bottom: 10px;
+}
 
-.policy-note {
-  margin-top: clamp(30px, 5vh, 52px);
-  padding-top: 1.4rem;
+.chart .cap-gold { color: var(--gold-bright); }
+
+.chart svg {
+  width: 100%;
+  height: auto;
+  max-width: 30rem;
+}
+
+.chart svg text { font-family: var(--body); }
+
+.swipe-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-top: clamp(20px, 3vh, 32px);
+}
+
+.swipe-arrow {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(243, 239, 233, .35);
+  color: var(--parchment);
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+
+.swipe-arrow:hover { border-color: var(--gold-bright); color: var(--gold-bright); }
+
+.swipe-dots { display: flex; gap: 10px; }
+
+.swipe-dot {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(243, 239, 233, .3);
+  cursor: pointer;
+  transition: background-color .25s, transform .25s;
+}
+
+.swipe-dot.is-active { background: var(--gold-bright); transform: scale(1.25); }
+
+/* ==========================================================================
+   Hiring
+   ========================================================================== */
+
+.hiring {
+  background: var(--paper);
   border-top: 1px solid var(--line);
+  padding: clamp(64px, 11vh, 132px) 0;
+  text-align: center;
+}
+
+.hiring-lede {
+  max-width: var(--measure);
+  margin: 0 auto 1.8rem;
   color: var(--muted);
-  font-size: .92em;
 }
 
 /* ==========================================================================
@@ -656,16 +884,21 @@ h3 {
 
 /* ==========================================================================
    Foot
+   --------------------------------------------------------------------------
+   Two arrangements over one palette. The document pages keep the small
+   centred foot they have always had (.foot-inner); the homepage carries the
+   tall left-aligned foot (.foot-home), logo at the top left and the imprint
+   at the bottom left, black to the end of the page.
    ========================================================================== */
 
 .foot {
-  background: var(--ink);
-  color: #EAF0E5;
+  background: var(--coal);
+  color: #EFEAE0;
   padding: clamp(48px, 8vh, 92px) 0;
 }
 
 .foot-inner { display: grid; justify-items: center; gap: 14px; text-align: center; }
-.foot-mark { background-color: #EAF0E5; width: 38px; height: 37px; }
+.foot-mark { background-color: #fff; width: 38px; height: 37px; }
 
 .foot-line {
   font-family: var(--display);
@@ -676,29 +909,137 @@ h3 {
 .foot-legal {
   margin: 0;
   font-size: 13px;
-  color: rgba(234, 240, 229, .62);
+  color: rgba(239, 234, 224, .62);
 }
 
 .foot-legal a { color: inherit; text-underline-offset: 3px; }
+
+.foot-home { padding-bottom: clamp(28px, 4vh, 44px); }
+
+.foot-home .foot-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: clamp(220px, 34vh, 380px);
+}
+
+.foot-word {
+  display: inline-flex;
+  align-items: flex-end;
+  transform: translateY(-15px);
+}
+
+.foot-home .foot-mark { width: 52px; height: 51px; }
+
+/* "ritten" completes the W into the wordmark. Quicksand, like the slogan
+   under the mark everywhere else the logo speaks. */
+/* "ritten" carries the Bold cut so its strokes match the weight of the
+   calligraphic W beside it. */
+.foot-ritten {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1;
+  color: #fff;
+  margin-left: -6px;
+  padding-bottom: 1px;
+}
+
+/* The lower section, in Hinge's arrangement: wordmark left, columns of
+   links right, small uppercase column headers over larger link text. */
+.foot-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+  gap: clamp(32px, 6vw, 96px);
+  flex-wrap: wrap;
+}
+
+.foot-cols {
+  display: flex;
+  gap: clamp(40px, 8vw, 120px);
+  flex-wrap: wrap;
+}
+
+.foot-col { min-width: 120px; }
+
+.foot-col h3 {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(239, 234, 224, .55);
+  margin: 0 0 18px;
+}
+
+.foot-col a {
+  display: block;
+  font-size: 16px;
+  line-height: 2.1;
+  color: #EFEAE0;
+  text-decoration: none;
+}
+
+.foot-col a:hover { color: var(--gold-bright); text-decoration: underline; }
+
+.foot-home .foot-bottom {
+  margin-top: auto;
+  padding-top: clamp(48px, 8vh, 120px);
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.foot-copy {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(239, 234, 224, .62);
+}
 
 /* ==========================================================================
    Narrow screens
    ========================================================================== */
 
-@media (max-width: 46rem) {
-  /* No room to read around a stem in the middle: the vine moves to the edge
-     and every block sits to its right. */
-  .stages-frame { --rail: clamp(64px, 21vw, 104px); }
-  .vine-rail { left: 0; translate: 0 0; }
-  .stage { grid-template-columns: var(--rail) minmax(0, 1fr); }
-  .stage .stage-body,
-  .stage:nth-child(even) .stage-body {
-    grid-column: 2;
-    padding-left: clamp(12px, 4vw, 26px);
-    padding-right: 0;
+@media (max-width: 60rem) {
+  .stage-1 { width: auto; margin-left: 0; }
+  .lady-portrait {
+    position: static;
+    display: block;
+    width: min(78vw, 380px);
+    margin: 22px auto 0;
   }
+
+  .decor-garland {
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: 0;
+    margin-bottom: -6px;
+  }
+
+  .stage-1 .stage-body { margin: 0; max-width: 34rem; }
+
+  .stage-3 { margin-left: auto; margin-right: auto; }
+  .pub-grid {
+    position: static;
+    transform: none;
+    width: 100%;
+    margin-bottom: 20px;
+  }
+  .stage-3 .stage-body { width: 53.5%; }
+  .stage + .stage { margin-top: clamp(80px, 10vh, 120px); }
+}
+
+@media (max-width: 46rem) {
+  .foot-home .foot-word { display: none; }
+  .foot-home .foot-grid { min-height: 0; }
+  .foot-home .foot-bottom { padding-top: 0; }
   .banner-link { font-size: 11px; letter-spacing: .1em; }
-  .hero-line { max-width: min(92vw, 12ch); }
+  .hero-line { max-width: 94vw; font-size: clamp(1.7rem, 8.2vw, 2.4rem); }
   .hero-credit { max-width: 12rem; font-size: 11px; }
 }
 
@@ -722,6 +1063,6 @@ h3 {
   html { scroll-behavior: auto; }
   #intro { transition: none; }
   .mark { animation: none; }
-  .vine svg, .stage-body { transition: none; }
-  .hero-cue span { animation: none; }
+  .stage-body { transition: none; }
+  .swipe-track { scroll-behavior: auto; }
 }
