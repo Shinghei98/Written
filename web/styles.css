@@ -1068,3 +1068,68 @@ h3 {
   .stage-body { transition: none; }
   .swipe-track { scroll-behavior: auto; }
 }
+
+/* ==========================================================================
+   The ontology page — "How we do it"
+   --------------------------------------------------------------------------
+   Five sections, top to bottom. No painting, so the banner stays in its
+   ink-on-parchment default and each section starts below it.
+   ========================================================================== */
+
+/* Section one: the photograph left, the line right, both centred on a
+   screen-tall opening. The photograph is the owner's own crop (near square,
+   2026-09-04) and keeps its proportion from the img's width/height
+   attributes; it is capped by the viewport rather than by its column, so on
+   a short window it is cropped in height before it forces the section to
+   scroll. */
+.ont-open {
+  min-height: 100svh;
+  padding: calc(var(--banner-h) + clamp(28px, 5vh, 56px)) 0 clamp(48px, 8vh, 96px);
+  display: flex;
+  align-items: center;
+}
+
+.ont-open-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: clamp(2rem, 5vw, 5rem);
+  align-items: center;
+}
+
+.ont-open-photo {
+  margin: 0;
+  justify-self: start;
+  /* the same rounded corners as the homepage's photograph */
+  border-radius: 12px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 34rem;
+}
+
+.ont-open-photo img {
+  width: 100%;
+  height: auto;
+  max-height: calc(100svh - var(--banner-h) - clamp(76px, 13vh, 152px));
+  object-fit: cover;
+  object-position: 50% 50%;
+}
+
+.ont-open-line {
+  margin: 0;
+  font-size: clamp(2.3rem, 5.4vw, 4.6rem);
+  line-height: 1.08;
+  letter-spacing: -.012em;
+  /* the <br> in the markup is the only break: the line never wraps on its
+     own before the phone breakpoint */
+  white-space: nowrap;
+}
+
+/* On a phone the two do not fit side by side: the photograph sits above
+   the line, at the page's width and its natural proportion. */
+@media (max-width: 46rem) {
+  .ont-open { min-height: 0; }
+  .ont-open-inner { grid-template-columns: minmax(0, 1fr); row-gap: 1.6rem; }
+  .ont-open-photo { max-width: none; }
+  .ont-open-photo img { max-height: none; }
+  .ont-open-line { white-space: normal; }
+}

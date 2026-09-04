@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How we do it — Written</title>
+<meta name="description" content="How Written's ontology understands people beyond a handful of random facts.">
+<meta name="theme-color" content="#F3EFE9">
+<link rel="canonical" href="https://written-stl.com/en-us/ontology/">
+<link rel="icon" href="/assets/w-logo.png" type="image/png">
+<link rel="preload" href="/assets/fonts/Quicksand-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- The ontology page: five sections, top to bottom. This file holds     -->
+<!-- section one; the other four are added beneath it as they are made.   -->
+<!-- No painting sits under the banner here, so the banner keeps its       -->
+<!-- ink-on-parchment default and app.js is not loaded.                    -->
+<!-- ------------------------------------------------------------------ -->
+<header id="banner">
+  <nav class="banner-inner" aria-label="Primary">
+    <a class="banner-link" href="/en-us/">Home</a>
+    <a class="banner-logo" href="/en-us/" aria-label="Written — home">
+      <span class="banner-mark" role="img" aria-label="Written"></span>
+    </a>
+    <span></span>
+  </nav>
+</header>
+
+<main id="top">
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Section one: the photograph on the left, the line on the right.  -->
+  <!-- The line breaks where the owner put it - "be Written" is its own -->
+  <!-- line - so the break is a <br>, not something the measure decides. -->
+  <!-- ---------------------------------------------------------------- -->
+  <section class="ont-open" id="open">
+    <div class="wrap ont-open-inner">
+      <figure class="ont-open-photo">
+        <img src="/assets/painter-720.webp"
+             srcset="/assets/painter-720.webp 720w, /assets/painter-1440.webp 1440w"
+             sizes="(max-width: 46rem) 92vw, 34rem"
+             width="1440" height="1403"
+             alt="A painter at an easel outdoors, brush touching a half-finished landscape"
+             fetchpriority="high" decoding="async">
+      </figure>
+      <h1 class="ont-open-line">Don't write,<br>be Written.</h1>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <span class="foot-mark" role="img" aria-label="Written"></span>
+    <p class="foot-legal">© 2026 Written Inc.</p>
+  </div>
+</footer>
+
+</body>
+</html>
