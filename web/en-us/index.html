@@ -57,7 +57,9 @@
   <nav class="banner-inner" aria-label="Primary">
     <a class="banner-link" href="/en-us/ontology/">How we do it</a>
     <a class="banner-logo" href="#top" aria-label="Written — home">
-      <span class="banner-mark" role="img" aria-label="Written"></span>
+      <span class="banner-word" role="img" aria-label="Written">
+        <span class="banner-mark" aria-hidden="true"></span><span class="banner-ritten" aria-hidden="true">ritten</span>
+      </span>
     </a>
     <a class="banner-link" href="#hiring">Work with us</a>
   </nav>
@@ -80,7 +82,7 @@
            fetchpriority="high" decoding="async">
     </picture>
     <div class="hero-wash" aria-hidden="true"></div>
-    <h1 class="hero-line">Let your love story<br>be written</h1>
+    <h1 class="hero-line">Let your love story<br>be Written</h1>
     <p class="hero-credit">Édouard Manet, <i>Monet Painting on His Studio Boat</i>, 1874</p>
   </section>
 
@@ -103,8 +105,13 @@
         <img class="lady-portrait" src="/assets/lady-portrait.webp"
              alt="A portrait of a woman composed of hundreds of words - artists, authors, sports, cities and the things people love"
              decoding="async">
-        <img class="decor decor-garland" src="/assets/ivy-garland.webp"
-             alt="" aria-hidden="true" decoding="async">
+        <!-- The crop box crops the garland's crown exactly as the section's
+             overflow used to, before the section stopped clipping vertically
+             (so that chapter three's sprig can hang below it). -->
+        <div class="garland-crop">
+          <img class="decor decor-garland" src="/assets/ivy-garland.webp"
+               alt="" aria-hidden="true" decoding="async">
+        </div>
         <div class="stage-body">
           <h2>Why don't dating apps work?</h2>
           <p>
@@ -145,18 +152,9 @@
       </li>
 
       <li class="stage stage-3">
-        <div class="pub-grid" role="img"
-             aria-label="Journals our research appears in: Family Transitions, Family Process, Family Relations, and Children (MDPI)">
-          <img src="/assets/pub-ft.webp" alt="" decoding="async">
-          <img src="/assets/pub-ft.webp" alt="" decoding="async">
-          <img src="/assets/pub-fp.webp" alt="" decoding="async">
-          <img src="/assets/pub-fp.webp" alt="" decoding="async">
-          <img src="/assets/pub-fr.webp" alt="" decoding="async">
-          <img src="/assets/pub-fr.webp" alt="" decoding="async">
-          <img src="/assets/pub-m1.webp" alt="" decoding="async">
-          <img src="/assets/pub-m2.webp" alt="" decoding="async">
-        </div>
-        <img class="decor decor-wreath" src="/assets/ivy-wreath.webp"
+        <!-- an ivy strand to the left of the prose, turned 322 degrees
+             clockwise in CSS so the raster stays upright -->
+        <img class="decor decor-strand" src="/assets/ivy-strand.webp"
              alt="" aria-hidden="true" decoding="async">
         <div class="stage-body">
           <h2>We are love scientists</h2>
@@ -167,6 +165,10 @@
             dating-app veterans ourselves. We know that science matters, but
             what matters even more, <strong>is the spark</strong>.
           </p>
+          <!-- an ivy sprig off the paragraph's bottom-right corner, turned
+               27 degrees clockwise in CSS so the raster stays upright -->
+          <img class="decor decor-sprig" src="/assets/ivy-sprig.webp"
+               alt="" aria-hidden="true" decoding="async">
         </div>
       </li>
 
@@ -461,7 +463,7 @@
 
 </main>
 
-<footer class="foot foot-home">
+<footer class="foot foot-home" data-banner="dark">
   <div class="wrap foot-grid">
     <div class="foot-top">
       <span class="foot-word" role="img" aria-label="Written">
@@ -493,5 +495,6 @@
 </footer>
 
 <script src="/app.js"></script>
+<script src="/banner.js" defer></script>
 </body>
 </html>

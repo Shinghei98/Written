@@ -16,3 +16,7 @@ README.md
 # Excluded by Workers already; listed so a future reader does not have to
 # know that to be sure.
 .assetsignore
+
+# wrangler keeps its scratch files here when run from inside web/; a
+# sourcemap for its no-op worker was published from here on 2026-09-06.
+.wrangler

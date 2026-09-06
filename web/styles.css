@@ -303,8 +303,42 @@ h3 {
   box-shadow: none;
 }
 
+/* The banner carries the whole wordmark (owner, 2026-09-05): the W mark
+   with "ritten" completing it, as the footer already does, scaled to the
+   banner's 41px mark - the footer sets 30px of Quicksand Bold against a
+   52px mark, so the same proportion here is 24px, and the same -6px
+   overlap becomes -5px. */
+.banner-word {
+  display: inline-flex;
+  align-items: flex-end;
+}
+
+.banner-ritten {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--ink);
+  margin-left: -5px;
+  padding-bottom: 1px;
+  transition: color .45s ease;
+}
+
 #banner.over-art .banner-link { color: #fff; }
 #banner.over-art .banner-mark { background-color: #fff; }
+#banner.over-art .banner-ritten { color: #fff; }
+
+/* Over a dark band (banner.js), the banner is the band's coal with white
+   type, as hinge.co's header goes black over its dark sections. The same
+   translucency and blur as the parchment state, so the two are one
+   banner in two colours rather than two banners. */
+#banner.over-dark {
+  background-color: rgba(14, 12, 9, .92);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08);
+}
+#banner.over-dark .banner-link { color: #fff; }
+#banner.over-dark .banner-mark { background-color: #fff; }
+#banner.over-dark .banner-ritten { color: #fff; }
 
 /* ==========================================================================
    The painting
@@ -348,6 +382,7 @@ h3 {
   text-align: right;
   color: #fff;
   font-size: clamp(2.1rem, 6.4vw, 4.6rem);
+  font-weight: 700;     /* Quicksand Bold (owner, 2026-09-04) */
   line-height: 1.08;
   letter-spacing: -.01em;
   text-shadow: 0 2px 30px rgba(0, 0, 0, .38);
@@ -379,7 +414,16 @@ h3 {
 .story {
   position: relative;
   padding: 0 0 clamp(80px, 12vh, 160px);
-  overflow: hidden;
+  /* Clipped sideways only: the full-bleed garland and the chapter-two photo
+     overflow horizontally and must be cut at the screen edge, but the ivy
+     sprig off paragraph 3 hangs below the section and must not be - and
+     it must not be given room either, since the owner's rule is that moving
+     the sprig moves nothing else. `clip` rather than `hidden` so this is
+     not a scroll container and the vertical axis can stay visible. The
+     garland's crown, which this clip used to crop, is cropped by its own
+     clip-path instead. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .chapters {
@@ -412,9 +456,22 @@ h3 {
   width: 53vw;
   margin-left: auto;
   margin-right: 0;
-  /* pulled up past the section's clipped top edge: the ivy's crown is
-     deliberately cropped so its leaves meet the painting with no gap */
+  /* pulled up past the crop box's top edge: the ivy's crown is deliberately
+     cropped so its leaves meet the painting with no gap */
   margin-top: calc(clamp(34px, 5.25vh, 68px) - 100px);
+}
+
+/* The section used to crop the crown with overflow: hidden; it now clips
+   sideways only (see .story) so chapter three's sprig can hang below it.
+   This box does what the section did: flow-root keeps the garland's
+   negative margin from collapsing through it, and the vertical clip cuts
+   the crown at the box's top, which is where the section's top is. Sideways
+   it stays visible so the phone's full-bleed garland is not cut. Verified
+   pixel-identical to the old clipping at 1280 and 390. */
+.garland-crop {
+  display: flow-root;
+  overflow-x: visible;
+  overflow-y: clip;
 }
 
 .stage-1 .stage-body {
@@ -426,8 +483,12 @@ h3 {
 .lady-portrait {
   position: absolute;
   left: calc(7vw + 150px);
-  top: calc(7vw + 270px);
-  width: 18.67vw;
+  /* was calc(7vw + 270px) measured from a chapter top that the garland's
+     negative margin pulled up by (100px - clamp(34px, 5.25vh, 68px)); the
+     garland's crop box now contains that margin, so the same overhang is
+     subtracted here and the portrait sits exactly where it did */
+  top: calc(7vw + 170px + clamp(34px, 5.25vh, 68px));
+  width: 22.4vw;         /* 18.67vw, a fifth larger (owner, 2026-09-03) */
 }
 
 .stage-2 { max-width: 34rem; }
@@ -504,69 +565,57 @@ h3 {
   }
 }
 
-/* The third chapter lives inside the licensed ivy wreath: the prose is
-   centred in the wreath's clear interior and its type scales with the
-   wreath, so the enclosure holds at every width. */
+/* The third chapter. It lived inside a licensed ivy wreath until the owner
+   had the wreath removed (2026-09-03); the prose now sits in flow at the x it
+   had inside the wreath - the same x as paragraph 1's - with an ivy strand
+   centred beside it on the left, where the publication wall was until the
+   owner had that removed too. */
 .stage-3 {
   position: relative;
-  margin-bottom: 100px;
   width: 815px;
   max-width: 100%;
-  /* the text inside the wreath starts 24% into it; this places that text
-     edge on the same x as paragraph 1's (57.5vw) */
   margin-left: calc(7.5vw + 50% - 196px);
   container-type: inline-size;
 }
 
-.decor-wreath {
-  display: block;
-  width: 100%;
-  position: relative;
-  left: 15px;
-  top: 90px;
-}
-
-/* The publication wall: a 2x4 matrix of journal plates to the left of the
-   wreath, flush cells, rows ordered as the owner's plate lays them. */
-.pub-grid {
+/* The ivy strand (owner's direction, 2026-09-03): to the left of the prose,
+   centred on the prose block's height, turned 322 degrees clockwise about
+   its own centre. Out of flow, so it moves nothing else. The prose starts
+   24% into the stage; the strand's right edge sits 30px left of that. */
+.decor-strand {
   position: absolute;
-  right: calc(100% + 3vw - 14px);
-  top: 50%;
-  transform: translateY(calc(-42% + 85px));
-  width: 27.98vw;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.pub-grid img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 100 / 141;
-  object-fit: cover;
+  right: calc(76% + 310px);    /* 310px left of the prose (owner) */
+  top: calc(50% - 50px);       /* centred on the prose block, then 50px up (owner) */
+  width: 499px;                /* 260px doubled, a fifth off, a fifth on (owner) */
+  /* flipped vertically first, then turned 322 degrees clockwise (owner's
+     order: unturn, flip, turn again) - functions apply right to left */
+  transform: translateY(-50%) rotate(322deg) scaleY(-1);
+  pointer-events: none;
 }
 
 .stage-3 .stage-body {
-  position: absolute;
-  left: 24%;
-  top: 50%;
-  /* two slight steps above where the live page has shown it */
-  transform: translateY(-45px);
+  position: relative;
+  margin-left: 24%;
   width: 466px;
   max-width: none;
 }
 
 .stage-3 .stage-body p { margin-bottom: 0; }
 
+/* The ivy sprig (owner's direction, 2026-09-03): hung from the paragraph's
+   bottom-right corner, turned 27 degrees clockwise about its top. It is out
+   of flow and the section does not clip vertically, so it takes no room:
+   moving or resizing it moves nothing else on the page. */
 
-/* only below the desktop breakpoint does the wreath's prose scale with the
-   wreath - on desktop it is the same size as every other paragraph */
-@media (max-width: 60rem) {
-  .stage-3 .stage-body p { font-size: clamp(9px, 2.15cqw, 15px); line-height: 1.5; }
+.decor-sprig {
+  position: absolute;
+  right: -195px;
+  top: calc(100% - 143px);
+  width: 169px;
+  transform-origin: 50% 0;
+  transform: rotate(27deg);
+  pointer-events: none;
 }
-
-/* the wreath's own top gap makes the third gap read deeper; pulled back so
-   the spacing between the three text blocks is even */
-.stage + .stage-3 { margin-top: -20px; }
 
 .stage-body {
   position: relative;
@@ -643,6 +692,11 @@ h3 {
   background: var(--coal);
   color: var(--parchment);
   padding: clamp(64px, 10vh, 120px) 0 clamp(40px, 6vh, 64px);
+  /* above the story's sprig, which hangs out of that section and over this
+     one: where they overlap, the black covers the ivy (owner's direction).
+     Below the banner (60) and the intro (90). */
+  position: relative;
+  z-index: 1;
 }
 
 .numbers-head {
@@ -1003,36 +1057,59 @@ h3 {
   color: rgba(239, 234, 224, .62);
 }
 
+/* Owner's direction, 2026-09-03: on the homepage the wordmark and the
+   imprint both sit 50px left of the footer's content edge. Transforms, so
+   the columns and the imprint's row partner stay where they are. Not on
+   phones: the gutter there is 20px and the imprint would leave the screen
+   (the wordmark is hidden there anyway). */
+@media (min-width: 46.01rem) {
+  .foot-home .foot-word { transform: translate(-50px, -15px); }
+  .foot-home .foot-copy { transform: translateX(-50px); }
+}
+
 /* ==========================================================================
    Narrow screens
    ========================================================================== */
 
 @media (max-width: 60rem) {
-  .stage-1 { width: auto; margin-left: 0; }
+  /* a column, so the word-cloud portrait can be ordered beneath the
+     paragraph (owner's direction, 2026-09-03) without moving in the markup */
+  .stage-1 { width: auto; margin-left: 0; display: flex; flex-direction: column; }
   .lady-portrait {
     position: static;
     display: block;
-    width: min(78vw, 380px);
-    margin: 22px auto 0;
+    width: min(93.6vw, 456px);   /* min(78vw, 380px), a fifth larger */
+    margin: 28px auto 0;
+    order: 3;
   }
 
   .decor-garland {
     width: 100vw;
+    max-width: none;      /* the global img cap held it to the stage's width,
+                             leaving a gutter between the vine and the screen
+                             edge; full-bleed means the vine's right edge is
+                             the screen's */
     margin-left: calc(50% - 50vw);
     margin-right: 0;
-    margin-bottom: -6px;
   }
+  /* the -6px that used to sit on the garland: on the crop box instead, so
+     the garland's last 6px stay inside the box and are not cut */
+  .garland-crop { margin-bottom: -6px; }
 
   .stage-1 .stage-body { margin: 0; max-width: 34rem; }
 
   .stage-3 { margin-left: auto; margin-right: auto; }
-  .pub-grid {
+  /* no room to the left on a phone: the strand sits above the prose, where
+     the publication wall used to, still turned the same way */
+  .decor-strand {
     position: static;
-    transform: none;
-    width: 100%;
-    margin-bottom: 20px;
+    display: block;
+    width: 55%;
+    margin: 0 auto 20px;
+    transform: rotate(322deg) scaleY(-1);
   }
-  .stage-3 .stage-body { width: 53.5%; }
+  .stage-3 .stage-body { margin-left: 0; width: auto; max-width: 34rem; }
+  .decor-sprig { width: 130px; right: -145px; top: calc(100% - 133px); }
   .stage + .stage { margin-top: clamp(80px, 10vh, 120px); }
 }
 
@@ -1076,47 +1153,59 @@ h3 {
    ink-on-parchment default and each section starts below it.
    ========================================================================== */
 
-/* Section one: the photograph left, the line right, both centred on a
-   screen-tall opening. The photograph is the owner's own crop (near square,
-   2026-09-04) and keeps its proportion from the img's width/height
-   attributes; it is capped by the viewport rather than by its column, so on
-   a short window it is cropped in height before it forces the section to
-   scroll. */
+/* Section one: the photograph left, the line right. Owner's direction
+   2026-09-04, revised 2026-09-05: the photograph sits flush under the
+   banner with no gap, its left edge on the page's left edge, 1.423 times
+   the column it used to fill (a tenth larger, a fifth, a tenth, then two
+   percent off); the
+   line keeps the x it had, the midpoint of the old 68rem wrap plus half the
+   old gap, which is what the first grid column measures. The photograph is
+   the owner's own near-square crop and keeps its proportion from the img's
+   width/height attributes; it is still capped by the viewport, so a short
+   window crops it in height before the section scrolls. */
 .ont-open {
+  --open-gap: clamp(2rem, 5vw, 5rem);
+  /* the column the photograph filled before it was pinned to the edge */
+  --open-col: calc((min(100vw - var(--gutter) * 2, 68rem) - var(--open-gap)) / 2);
   min-height: 100svh;
-  padding: calc(var(--banner-h) + clamp(28px, 5vh, 56px)) 0 clamp(48px, 8vh, 96px);
+  padding: var(--banner-h) 0 clamp(48px, 8vh, 96px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .ont-open-inner {
+  width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  column-gap: clamp(2rem, 5vw, 5rem);
+  /* the first column is the line's x; the max() only widens it where the
+     enlarged photograph would otherwise run under the line */
+  grid-template-columns: max(calc(50vw + var(--open-gap) / 2), calc(var(--open-col) * 1.423 + var(--open-gap))) minmax(0, 1fr);
+  padding-right: var(--gutter);
   align-items: center;
 }
 
 .ont-open-photo {
   margin: 0;
   justify-self: start;
-  /* the same rounded corners as the homepage's photograph */
-  border-radius: 12px;
+  width: calc(var(--open-col) * 1.423);
+  /* rounded on the two corners that meet the page; the two on the edge
+     are square, as a card flush with the edge is */
+  border-radius: 0 12px 12px 0;
   overflow: hidden;
-  width: 100%;
-  max-width: 34rem;
 }
 
 .ont-open-photo img {
   width: 100%;
   height: auto;
-  max-height: calc(100svh - var(--banner-h) - clamp(76px, 13vh, 152px));
+  max-height: calc(100svh - var(--banner-h) - clamp(48px, 8vh, 96px));
   object-fit: cover;
   object-position: 50% 50%;
 }
 
 .ont-open-line {
-  margin: 0;
+  /* 50px right of the column's edge (owner, 2026-09-05) */
+  margin: 0 0 0 50px;
   font-size: clamp(2.3rem, 5.4vw, 4.6rem);
+  font-weight: 700;     /* Quicksand Bold, as the homepage's line (owner, 2026-09-04) */
   line-height: 1.08;
   letter-spacing: -.012em;
   /* the <br> in the markup is the only break: the line never wraps on its
@@ -1125,11 +1214,368 @@ h3 {
 }
 
 /* On a phone the two do not fit side by side: the photograph sits above
-   the line, at the page's width and its natural proportion. */
+   the line, edge to edge at its natural proportion, and the line takes the
+   page's gutter. */
 @media (max-width: 46rem) {
   .ont-open { min-height: 0; }
-  .ont-open-inner { grid-template-columns: minmax(0, 1fr); row-gap: 1.6rem; }
-  .ont-open-photo { max-width: none; }
+  .ont-open-inner { grid-template-columns: minmax(0, 1fr); row-gap: 1.6rem; padding-right: 0; }
+  .ont-open-photo { width: 100%; border-radius: 0; }
   .ont-open-photo img { max-height: none; }
-  .ont-open-line { white-space: normal; }
+  /* One line on a phone (owner, 2026-09-04), where the desktop's two would
+     stack five words over an edge-to-edge photograph. The text measures
+     10.96em in Quicksand Bold, so the size is the gutter-to-gutter width
+     over 11.2, a two-percent margin - 31px on a 390px phone - and never
+     more than the desktop's size. */
+  .ont-open-line br { display: none; }
+  .ont-open-line {
+    margin-left: 0;
+    white-space: nowrap;
+    font-size: min(clamp(2.3rem, 5.4vw, 4.6rem), calc((100vw - var(--gutter) * 2) / 11.2));
+    padding-inline: var(--gutter);
+  }
+}
+
+/* Section two: the thesis, in the format of hinge.co/mission's "Our
+   Values" block, measured from its stylesheet on 2026-09-04. Theirs: a
+   band with 9rem of vertical padding (4rem on a phone); an 84rem container
+   with a 2rem margin (1.25rem on a phone); the block in the container's
+   left half; label 1.125rem/1.42 medium in the accent, 2rem above the
+   body; heading 3rem/1.14 regular (2.375rem/1.22 on a phone), 28px above
+   each paragraph; paragraphs 1.25rem/1.44 (1rem/1.5 on a phone). Ours
+   keeps every measure and swaps the faces and the colours: their serif is
+   our display face, their sans our body stack, their aubergine label our
+   gold. Their band is near-black; the owner had ours stay on the parchment
+   (2026-09-04), so the label is the gold that reads on parchment and the
+   paragraphs sit in the muted ink, as Hinge's stone does on their light
+   pages. The breakpoint is theirs, 768px. */
+.thesis {
+  --thesis-margin: 1.25rem;
+  padding: 4rem 0;
+  position: relative;
+}
+
+/* The two sprigs, placed from the owner's mock (a 1440px window,
+   2026-09-06). Both are absolute so they take no space; the block's text
+   draws above them. The first is flipped then turned a quarter right, so
+   its stem runs along the top and its leaves hang; it sits high enough
+   that the banner cuts its top. The second is turned 222 degrees and
+   pinned to the right edge. On a phone neither is drawn. */
+.thesis-ivy {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  height: auto;
+}
+
+.thesis-ivy-hang {
+  /* a tenth larger than the mock's 317px, then a tenth again, grown about
+     its own centre, which then rose 10px (owner, 2026-09-06) */
+  width: 384px;
+  left: 129px;
+  top: -229px;
+  transform: rotate(90deg) scaleX(-1);
+}
+
+.thesis-ivy-reach {
+  /* the leaves fill only the middle of this bitmap, so the box is
+     nearly twice the size the leaves read as */
+  width: 290px;
+  right: 55px;
+  top: 253px;
+  transform: rotate(222deg);
+}
+
+.thesis-inner { position: relative; z-index: 1; }
+
+@media (min-width: 768px) {
+  .thesis-ivy { display: block; }
+}
+
+.thesis-inner {
+  width: 100%;
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: var(--thesis-margin);
+  /* rows: label / first half / second half / paragraphs. The second half
+     takes the right column, as Hinge's "by inspiring intimate, in-person
+     connections" does, and the paragraphs return to the left beneath it. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.thesis-label {
+  font-family: var(--display);
+  font-size: 1.125rem;
+  font-weight: 700;     /* Bold (owner, 2026-09-05); Hinge's is 500 */
+  line-height: 1.42;
+  letter-spacing: 0;
+  color: var(--brand-deep);
+  margin: 0 0 2rem;
+}
+
+.thesis-lead,
+.thesis-turn {
+  font-size: 2.375rem;
+  line-height: 1.22;
+  letter-spacing: 0;
+  margin: 0 0 28px;
+}
+
+/* The trail after "more swipes": two periods in the heading's type, then
+   thesis-dots.js continues them along a curve into the corner of the
+   second half. The svg lies over the block and catches nothing. */
+.thesis-inner { position: relative; }
+.thesis-trail {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  fill: var(--ink);
+}
+
+.thesis-body p {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: .01em;
+  color: var(--muted);
+  margin: 0 0 28px;
+}
+
+.thesis-body p:last-child { margin-bottom: 0; }
+
+/* On a phone the second half stands against the right edge, one word to
+   a line (owner, 2026-09-05). */
+.thesis-turn { justify-self: end; text-align: right; }
+
+@media (min-width: 768px) {
+  /* 100px more above than Hinge's 9rem (owner, 2026-09-06: the sprig and
+     everything under it moved down together) */
+  .thesis { --thesis-margin: 2rem; padding: calc(9rem + 100px) 0 9rem; }
+  .thesis-turn { justify-self: stretch; text-align: left; }
+  .thesis-turn-br { display: none; }
+  .thesis-inner {
+    /* the whole block sits 200px right of Hinge's margin (owner, 2026-09-05) */
+    padding-inline: calc(var(--thesis-margin) + 200px) var(--thesis-margin);
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
+  }
+  /* the label's left edge lines up with the first half's (owner, 2026-09-05) */
+  .thesis-label { grid-column: 1; grid-row: 1; margin-left: 65px; }
+  /* the first half sits 65px right of its column and the second 87px
+     left of its own, 120px lower than Hinge's 2rem spacer - set by eye in
+     steps (owner, 2026-09-05) */
+  .thesis-lead  { grid-column: 1; grid-row: 2; margin-left: 65px; }
+  .thesis-turn  { grid-column: 2; grid-row: 3; margin-top: calc(2rem + 120px); margin-left: -87px; }
+  /* the paragraphs line up with the first half and sit 20px further
+     under the second (owner, 2026-09-06) */
+  .thesis-body  { grid-column: 1; grid-row: 4; margin-left: 65px; margin-top: 20px; }
+  .thesis-lead, .thesis-turn { font-size: 3rem; line-height: 1.14; }
+  .thesis-body p { font-size: 1.25rem; line-height: 1.44; letter-spacing: 0; }
+}
+
+/* Section three: the methods, on hinge.co/mission's dark band, measured
+   from its stylesheet on 2026-09-06. The intro is their "Our Values"
+   block: a band of rgb(26,26,26) with 9rem of vertical padding (4rem on
+   a phone), the same 84rem container, the block in the left half, label
+   1.125rem/1.42 medium in the light tint of their accent, heading
+   2.375rem/1.22 (3rem/1.14 from 768px), paragraphs 1rem/1.5 (1.25rem/1.44)
+   in white. 8rem below, the cards are their "values in action" slider: a
+   row that scrolls sideways with snap points, each card a quarter of the
+   row from 992px (a third from 768, a half from 576, 85% on a phone) with
+   the layout gutter to its right; the number 4rem light serif with .03em
+   tracking on one line, 2rem above a 1.625rem/1.22 bold title at least
+   3.875rem tall, then 1.5rem to a 1rem paragraph. Ours keeps the measures
+   and swaps the faces and colours as the thesis does: their serif is our
+   display face (Light for the numbers), their sans our body stack, their
+   band our coal, their light aubergine our bright gold. One departure:
+   their four cards overrun the row by four gutters and scroll; ours share
+   the gutters out so all four fit on a desktop. */
+.methods {
+  --methods-margin: 1.25rem;
+  --methods-gutter: 0.625rem;
+  background: var(--coal);
+  color: #fff;
+  padding: 4rem 0;
+}
+
+.methods-inner {
+  width: 100%;
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: var(--methods-margin);
+}
+
+.methods-label {
+  font-family: var(--display);
+  font-size: 1.125rem;
+  font-weight: 700;     /* Bold, as "Our Thesis" is */
+  line-height: 1.42;
+  letter-spacing: 0;
+  color: var(--gold-bright);
+  margin: 0 0 2rem;
+}
+
+.methods-lead {
+  font-family: var(--display);
+  font-size: 2.375rem;
+  font-weight: 400;
+  line-height: 1.22;
+  letter-spacing: 0;
+  margin: 0 0 28px;
+}
+
+.methods-body {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: .01em;
+  margin: 0;
+}
+
+.methods-cards {
+  list-style: none;
+  margin: 8rem 0 0;
+  padding: 0 0 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d1d1 #484848;
+}
+
+.methods-card {
+  flex: 0 0 85%;
+  margin-right: var(--methods-gutter);
+  padding-bottom: 1.5rem;
+  scroll-snap-align: start;
+}
+
+.methods-card:last-child { margin-right: 0; }
+
+.methods-num {
+  font-family: var(--display);
+  font-size: 5rem;      /* a quarter over Hinge's 4rem (owner, 2026-09-06) */
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: .03em;
+  color: var(--gold-bright);
+  margin: 0 0 2rem;
+}
+
+.methods-card h3 {
+  font-family: var(--display);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: .005em;
+  min-height: 3.875rem;
+  margin: 0 0 1.5rem;
+}
+
+.methods-card p {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: .01em;
+  margin: 0;
+}
+
+@media (min-width: 576px) {
+  .methods-card { flex-basis: calc(50% - var(--methods-gutter) / 2); }
+}
+
+@media (min-width: 768px) {
+  .methods { --methods-margin: 2rem; --methods-gutter: 2rem; padding: 9rem 0; }
+  .methods-intro { width: 50%; }
+  .methods-lead { font-size: 3rem; line-height: 1.14; }
+  .methods-body { font-size: 1.25rem; line-height: 1.44; letter-spacing: 0; }
+  .methods-card { flex-basis: calc(33.3334% - var(--methods-gutter) * 2 / 3); }
+}
+
+@media (min-width: 992px) {
+  .methods-card { flex-basis: calc(25% - var(--methods-gutter) * 3 / 4); }
+}
+
+/* Section four: the standouts, on hinge.co/mission's "Our Approach" band,
+   measured from its stylesheet on 2026-09-06. Theirs: the dark band with
+   4rem of vertical padding (8rem from 768px), the 84rem container; label
+   as the other bands', 2rem above a 2.75rem/1.1 heading (3.625rem from
+   768px); 4rem below (6rem from 768px) a three-column grid with the
+   layout gutter between columns and 3rem between rows; each item under a
+   1px rule in their stone, 26px of padding above and below, a
+   1.25rem/1.44 bold title, 1.5rem, a 1rem paragraph. Their grid is three
+   columns at every width; ours is one on a phone. Their band is dark; the
+   owner had ours stay on the parchment (2026-09-06), so the colours are
+   the thesis block's: deep gold label, ink titles, muted paragraphs, and
+   the rules in the site's own line colour. */
+.standouts {
+  --standouts-margin: 1.25rem;
+  --standouts-gutter: 0.625rem;
+  padding: 4rem 0;
+}
+
+.standouts-inner {
+  width: 100%;
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: var(--standouts-margin);
+}
+
+.standouts-label {
+  font-family: var(--display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.42;
+  letter-spacing: 0;
+  color: var(--brand-deep);
+  margin: 0 0 2rem;
+}
+
+.standouts-lead {
+  font-family: var(--display);
+  font-size: 2.75rem;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.standouts-grid {
+  list-style: none;
+  margin: 4rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--standouts-gutter);
+  row-gap: 3rem;
+}
+
+.standouts-grid li {
+  border-top: 1px solid var(--line);
+  padding: 26px 0;
+}
+
+.standouts-grid h3 {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.44;
+  letter-spacing: 0;
+  margin: 0 0 1.5rem;
+}
+
+.standouts-grid p {
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: .01em;
+  color: var(--muted);
+  margin: 0;
+}
+
+@media (min-width: 768px) {
+  .standouts { --standouts-margin: 2rem; --standouts-gutter: 2rem; padding: 8rem 0; }
+  .standouts-lead { font-size: 3.625rem; }
+  .standouts-grid { margin-top: 6rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

@@ -57,14 +57,10 @@
     }, reduce ? 0 : 1200);
   }
 
-  /* The frames run for 4.73s in total: the mark and the words are finished at
-     about 2.9s and the last frame is held for 1.8s. Lifting at 4.2s leaves a
-     beat to read the line and still clears the screen before the held frame
-     has fully run out, so the reader never waits on a still picture.
-
-     These numbers come from the file rather than from taste — see
-     `webpmux -info assets/intro.webp`. Re-cut the animation and they move. */
-  var INTRO_MS = 4200;
+  /* The animation was re-timed 2026-09-03: the write-on completes at 1.5s.
+     The lift comes 250ms after the last stroke - half the original hold -
+     while the file's held final frame covers the remainder unseen. */
+  var INTRO_MS = 1750;
 
   function play() {
     if (!intro) return;
@@ -192,5 +188,95 @@
 
     window.addEventListener('resize', growVine, { passive: true });
     growVine();
+  }
+
+  /* ---------------------------------------------------------------------
+     Headline widths
+     ---------------------------------------------------------------------
+     Each chapter heading is sized so its one line spans exactly the width
+     of the paragraph beneath it - header and text share one measure. The
+     headings are inline-block and nowrap, so their natural width is
+     measurable; the CSS clamp is the fallback when this never runs. */
+
+  function fitHeadings() {
+    var bodies = document.querySelectorAll('.stage-body');
+    Array.prototype.forEach.call(bodies, function (body) {
+      var h = body.querySelector('h2');
+      var p = body.querySelector('p');
+      if (!h || !p) return;
+      h.style.fontSize = '';
+      var target = p.getBoundingClientRect().width;
+      var w = h.getBoundingClientRect().width;
+      if (w > 0 && target > 0) {
+        var base = parseFloat(window.getComputedStyle(h).fontSize);
+        h.style.fontSize = (base * target / w).toFixed(2) + 'px';
+      }
+    });
+  }
+
+  fitHeadings();
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fitHeadings);
+  }
+  var fitTimer = null;
+  window.addEventListener('resize', function () {
+    if (fitTimer) window.clearTimeout(fitTimer);
+    fitTimer = window.setTimeout(fitHeadings, 120);
+  }, { passive: true });
+
+  /* ---------------------------------------------------------------------
+     The numbers pages
+     ---------------------------------------------------------------------
+     Scroll-snap does the swiping; this only keeps the dots honest and gives
+     the arrows something to do. Everything is derived from scroll position,
+     so a swipe, an arrow and a dot can never disagree about which page is
+     showing. */
+
+  var track = document.getElementById('swipeTrack');
+  var dots  = document.getElementById('swipeDots');
+  var prev  = document.getElementById('swipePrev');
+  var next  = document.getElementById('swipeNext');
+
+  if (track && dots) {
+    var dotEls = dots.querySelectorAll('.swipe-dot');
+
+    var pageIndex = function () {
+      return Math.round(track.scrollLeft / Math.max(track.clientWidth, 1));
+    };
+
+    var paintDots = function () {
+      var i = pageIndex();
+      Array.prototype.forEach.call(dotEls, function (d, k) {
+        d.classList.toggle('is-active', k === i);
+        d.setAttribute('aria-selected', k === i ? 'true' : 'false');
+      });
+    };
+
+    var goTo = function (i) {
+      var n = dotEls.length;
+      i = Math.max(0, Math.min(n - 1, i));
+      track.scrollTo({ left: i * track.clientWidth, behavior: reduce ? 'auto' : 'smooth' });
+    };
+
+    var swipeTicking = false;
+    track.addEventListener('scroll', function () {
+      if (swipeTicking) return;
+      swipeTicking = true;
+      window.requestAnimationFrame(function () { paintDots(); swipeTicking = false; });
+    }, { passive: true });
+
+    if (prev) prev.addEventListener('click', function () { goTo(pageIndex() - 1); });
+    if (next) next.addEventListener('click', function () { goTo(pageIndex() + 1); });
+
+    Array.prototype.forEach.call(dotEls, function (d, k) {
+      d.addEventListener('click', function () { goTo(k); });
+    });
+
+    track.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); goTo(pageIndex() - 1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goTo(pageIndex() + 1); }
+    });
+
+    paintDots();
   }
 })();

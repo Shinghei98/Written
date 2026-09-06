@@ -10,6 +10,10 @@
 <link rel="icon" href="/assets/w-logo.png" type="image/png">
 <link rel="preload" href="/assets/fonts/Quicksand-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/styles.css">
+<!-- draws the trail of dots from "more swipes" to the line beneath -->
+<script src="/thesis-dots.js" defer></script>
+<!-- turns the banner coal over the dark bands, as Hinge's header does -->
+<script src="/banner.js" defer></script>
 </head>
 <body>
 
@@ -17,13 +21,16 @@
 <!-- The ontology page: five sections, top to bottom. This file holds     -->
 <!-- section one; the other four are added beneath it as they are made.   -->
 <!-- No painting sits under the banner here, so the banner keeps its       -->
-<!-- ink-on-parchment default and app.js is not loaded.                    -->
+<!-- ink-on-parchment default and app.js is not loaded; banner.js turns   -->
+<!-- it coal over the dark bands, as it does on the homepage.              -->
 <!-- ------------------------------------------------------------------ -->
 <header id="banner">
   <nav class="banner-inner" aria-label="Primary">
     <a class="banner-link" href="/en-us/">Home</a>
     <a class="banner-logo" href="/en-us/" aria-label="Written — home">
-      <span class="banner-mark" role="img" aria-label="Written"></span>
+      <span class="banner-word" role="img" aria-label="Written">
+        <span class="banner-mark" aria-hidden="true"></span><span class="banner-ritten" aria-hidden="true">ritten</span>
+      </span>
     </a>
     <span></span>
   </nav>
@@ -37,22 +44,180 @@
   <!-- line - so the break is a <br>, not something the measure decides. -->
   <!-- ---------------------------------------------------------------- -->
   <section class="ont-open" id="open">
-    <div class="wrap ont-open-inner">
+    <div class="ont-open-inner">
       <figure class="ont-open-photo">
         <img src="/assets/painter-720.webp"
              srcset="/assets/painter-720.webp 720w, /assets/painter-1440.webp 1440w"
-             sizes="(max-width: 46rem) 92vw, 34rem"
+             sizes="(max-width: 46rem) 92vw, 46rem"
              width="1440" height="1403"
              alt="A painter at an easel outdoors, brush touching a half-finished landscape"
              fetchpriority="high" decoding="async">
       </figure>
-      <h1 class="ont-open-line">Don't write,<br>be Written.</h1>
+      <!-- the space before the <br> is load-bearing: a phone hides the break
+           and the space is what keeps the two halves apart -->
+      <h1 class="ont-open-line">Don’t write, <br>be Written.</h1>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Section two: the thesis. The format is hinge.co/mission's "Our   -->
+  <!-- Values" block, read off its stylesheet on 2026-09-04: in the left -->
+  <!-- half of an 84rem container, a coloured label, a 3rem heading and  -->
+  <!-- 1.25rem paragraphs. Their aubergine label is our gold; their      -->
+  <!-- serif is our display face; their dark band stays parchment here.  -->
+  <!-- ---------------------------------------------------------------- -->
+  <section class="thesis" id="thesis">
+    <!-- Two ivy sprigs from the owner's mock of 2026-09-06: one hangs in
+         from under the banner at the top left, the other reaches in from
+         the right edge beside the second half. Decoration, so no alt. -->
+    <img class="thesis-ivy thesis-ivy-hang" src="/assets/ivy-hang.webp" alt="" width="1100" height="2000" loading="lazy" decoding="async">
+    <img class="thesis-ivy thesis-ivy-reach" src="/assets/ivy-reach.webp" alt="" width="1500" height="2700" loading="lazy" decoding="async">
+    <div class="thesis-inner">
+      <p class="thesis-label">Our Thesis</p>
+      <!-- Two halves of one sentence, staggered as hinge.co/mission's
+           "Hinge Today" heading is: the first in the left half, the second
+           in the right half on the row beneath (owner, 2026-09-04). -->
+      <!-- the break is the owner's (2026-09-05), not the measure's -->
+      <h2 class="thesis-lead">You don’t need <br>more swipes<span class="thesis-dots" aria-hidden="true"></span></h2>
+      <!-- on a phone the three words take three lines against the right
+           edge (owner, 2026-09-05); the breaks are hidden on a desktop, where
+           the line wraps as the column decides -->
+      <h2 class="thesis-turn"><span class="thesis-turn-first">you need</span> <br class="thesis-turn-br">better <br class="thesis-turn-br">representation.</h2>
+      <div class="thesis-body">
+        <p>
+          When someone swipes left on your profile, they’re not saying no to
+          you; they’re saying no to <em>the version of you they saw</em>.
+        </p>
+        <p>
+          But you are more than that. We need a better way of representing
+          you—
+        </p>
+        <p>We believe the solution is ontology.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Section three: the methods, on hinge.co/mission's dark band. The  -->
+  <!-- intro is their "Our Values" block; the four numbered cards are    -->
+  <!-- their "values in action" slider, measured 2026-09-06. The numbers -->
+  <!-- are decoration for a screen reader, the list order says the same. -->
+  <!-- ---------------------------------------------------------------- -->
+  <section class="methods" id="methods" data-banner="dark">
+    <div class="methods-inner">
+      <div class="methods-intro">
+        <p class="methods-label">Our Methods</p>
+        <h2 class="methods-lead">Discover through ontology.</h2>
+        <p class="methods-body">
+          By mapping your interests and experiences, we show you exactly
+          where connections could begin.
+        </p>
+      </div>
+      <ol class="methods-cards">
+        <li class="methods-card">
+          <div class="methods-num" aria-hidden="true">01</div>
+          <h3>Learning about you</h3>
+          <p>
+            We learn about you through the apps you already use—your music,
+            videos, games, sports, and more. You can review, edit, or remove
+            any detail at any time.
+          </p>
+        </li>
+        <li class="methods-card">
+          <div class="methods-num" aria-hidden="true">02</div>
+          <h3>Mapping your interests</h3>
+          <p>
+            We identify recurring themes in what you watch, listen to, and
+            do, then create a map that best represents you.
+          </p>
+        </li>
+        <li class="methods-card">
+          <div class="methods-num" aria-hidden="true">03</div>
+          <h3>Discovering connections</h3>
+          <p>
+            We compare your map with those of your potential matches. The
+            overlaps reveal the common interests and experiences that could
+            spark something meaningful.
+          </p>
+        </li>
+        <li class="methods-card">
+          <div class="methods-num" aria-hidden="true">04</div>
+          <h3>Making the introduction</h3>
+          <p>
+            For each potential match, we create a personalized introduction
+            that highlights your common ground.
+          </p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Section four: the standouts, in the format of hinge.co/mission's  -->
+  <!-- "Our Approach" band, measured 2026-09-06: a label and a heading,  -->
+  <!-- then a grid of items each under a hairline, a bold title over a   -->
+  <!-- paragraph. Theirs is dark; ours stays on the parchment (owner).   -->
+  <!-- ---------------------------------------------------------------- -->
+  <section class="standouts" id="standouts">
+    <div class="standouts-inner">
+      <p class="standouts-label">Our standouts</p>
+      <h2 class="standouts-lead">Why Written?</h2>
+      <ul class="standouts-grid">
+        <li>
+          <h3>Fast Onboarding</h3>
+          <p>
+            No more typing. Connect your apps to Written and sit back. We
+            learn what you like to build your profile.
+          </p>
+        </li>
+        <li>
+          <h3>Full representation</h3>
+          <p>
+            Written learns about you beyond a handful of random facts. The
+            more apps you connect, the more vividly we can bring your
+            personality to life for your potential matches.
+          </p>
+        </li>
+        <li>
+          <h3>Relatable profiles</h3>
+          <p>
+            Connection begins with common interests and experiences.
+            Written’s ontology-based algorithm highlights the language you
+            share with each match, so you don’t miss out on someone worth
+            knowing.
+          </p>
+        </li>
+        <li>
+          <h3>Meaningful Icebreakers</h3>
+          <p>
+            Our research found that the first three exchanges can make or
+            break a connection. Start with what you’re both passionate
+            about and skip the small talk.
+          </p>
+        </li>
+        <li>
+          <h3>No Pay-to-Play</h3>
+          <p>
+            Everyone deserves a fair chance at connection. Nobody should
+            pay to be seen. Subscription offers extra conversation hints,
+            not visibility.
+          </p>
+        </li>
+        <li>
+          <h3>Anti-Fraud Detection</h3>
+          <p>
+            Written is obsessed with safety. Our system analyzes signals
+            across connected apps to detect inconsistencies, flag malicious
+            accounts, and make fake profiles harder to create.
+          </p>
+        </li>
+      </ul>
     </div>
   </section>
 
 </main>
 
-<footer class="foot">
+<footer class="foot" data-banner="dark">
   <div class="wrap foot-inner">
     <span class="foot-mark" role="img" aria-label="Written"></span>
     <p class="foot-legal">© 2026 Written Inc.</p>
