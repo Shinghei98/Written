@@ -91,18 +91,22 @@ than letting it ship unrooted.
 
 **There are two family vocabularies. Confusing them is the main error.**
 
-### Tier A — the ontology enum, 23 values
+### Tier A — the ontology enum, 27 values
 
 `terms.xlsx` → `ontology.family.enum`, mirrored exactly by the
 `presumed_terms.family` check at `0284:47-51`:
 
 ```
-activity | album | anime | book | channel | culture | event | event_type |
-franchise | game | game_category | group | hub | idea | music_recording |
-music_work | organization | person | place | platform | sport | tour | work
+activity | album | anime | art | book | channel | culture | documentary |
+event | event_type | field | franchise | game | game_category | group | hub |
+music_recording | music_work | organization | person | place | platform |
+sport | tour | tv_series | tv_show | work
 ```
 
-### Tier B — the wire enum, 17 values (`family_hypothesis`)
+(`idea` left and `art`/`field` arrived in 0332; `tv_series`, `tv_show` and
+`documentary` arrived in 0471 — §1.7, v5 → v6.)
+
+### Tier B — the wire enum, 21 values (`family_hypothesis`)
 
 What the model may say. It appears in **five** places and all five agree:
 `mention_extract_v4.schema.json:190-208`, `:381-399`, `:586-604`, `:803-821`
@@ -117,6 +121,9 @@ What the model may say. It appears in **five** places and all five agree:
 | `franchise` | `franchise` | `work`, `work_type=franchise` |
 | `work` | `work` | `work`, `work_type=creative_work` |
 | `anime` | `work` | `work`, `work_type=anime` |
+| `tv_series` | `work` | `work`, `work_type=tv_series` — a scripted series (v6) |
+| `tv_show` | `work` | `work`, `work_type=tv_show` — reality, variety, talk, game, music show (v6) |
+| `documentary` | `work` | `work`, `work_type=documentary` — film or series (v6) |
 | `book` | `work` | `work`, `work_type=book` |
 | `game` | `work` | `work`, `work_type=game` |
 | `music_work` | `work` | `work`, `work_type=music_work` |
@@ -142,7 +149,7 @@ difference.
 
 ### The six the model may never emit
 
-23 − 17 = `channel`, `event_type`, `game_category`, `hub`, `platform`,
+27 − 21 = `channel`, `event_type`, `game_category`, `hub`, `platform`,
 `music_recording`. A frozenset at `tools/compile_semantic_contract.py:80-83`,
 checked as an **exact difference rather than a subset** (`:438-451`) — so a
 family added to one tier and not the other fails the build instead of silently
@@ -554,6 +561,25 @@ source fields, offsets and lengths are byte-identical.
 | `missing_parent_proposals` | array `maxItems: 1`. *"An array rather than a nullable object… Never alongside `parent_candidate_id`."* |
 | `candidate_user_predicate` | 5 + `"none"`. *"A like grounds `interested_in`; nothing here may claim `practices` from a watch."* |
 | `alternatives` | `maxItems: 2`, *"so the model does not choose the globally most famous entity merely to avoid provisional state."* |
+
+### v5 → v6, exactly (2026-09-07)
+
+**v6 is v5 plus three values in the family enum, in all four copies, and
+nothing else.** The owner asked whether Qwen could recognise reality shows and
+documentaries; the enum had no word for television at all, so a show was
+filed as `work` or, whenever a person was said to belong to it, as
+`franchise` (0469's SBS Inkigayo). `tv_series` (scripted), `tv_show`
+(unscripted: reality, variety, talk, game, music show) and `documentary` join
+under `cardinal:work`, each stored as kind `work` with its own `work_type`,
+the shape anime has. Reality versus documentary is answered by the family;
+finer genre stays a `broader` edge into the 0346 television genres, since a
+classification is never an entity (§2.21). The definitions, three system
+rules, the grammar sheet's work-family lists (`part_of_franchise`,
+`soundtrack_of`, the theme predicates, `appeared_in_program`, `hosted_by`,
+`interested_in` and the candidate predicates) and the database's three
+family checks plus `cardinal_root_map` (0471) moved with it. **A new
+extraction run under v6 is what files anything under the new families;
+nothing standing was retyped.**
 
 ### What the trusted layer does with each field
 

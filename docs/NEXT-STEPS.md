@@ -21,6 +21,18 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
+## An extraction run under v6 is owed (2026-09-07)
+
+`mention_extract_v6` gave television its families — `tv_series`, `tv_show`,
+`documentary` — in the contract, the workbook, the validator, the RIS tools
+and the database (0471). **Nothing in the dictionary or the ontology is filed
+under them yet**: the last corpus (`ris_v21`) was extracted under v5, and no
+re-sort reads a family the model never said. What is owed is one RIS
+extraction run on the current gateway revision, then the usual dictionary
+entry and parent build, after which a 0469-shaped re-sort can move the shows
+0377 minted as franchises (SBS Inkigayo, M Countdown) onto their family.
+Delete this section when a v6 corpus has entered the dictionary.
+
 ## The queue consumer: built, awaiting install (2026-08-26)
 
 The producers were never broken — ingestion enqueues on finalize, and since

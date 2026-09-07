@@ -94,6 +94,37 @@ fit.**
 ### anime → `cardinal:work`
 **definition:** A specific Japanese animated series or film, named as a title.
 
+### tv_series → `cardinal:work` — **new family (v6, 2026-09-07)**
+
+**definition** — a specific scripted television series - a drama or comedy
+with episodes and a title of its own. Not anime, not a single film (work), not
+the franchise it belongs to.
+
+**why** — television had no family; a K-drama could only be `work`. The owner
+drew the line between a series and a show, so the scripted side is its own
+family and anime keeps its own.
+
+### tv_show → `cardinal:work` — **new family (v6, 2026-09-07)**
+
+**definition** — a specific unscripted television programme named as a
+subject in its own right - a reality show, variety show, talk show, game show
+or music show. Not a scripted series (tv_series), not the people who appear on
+it, and never an event or a franchise.
+
+**why** — SBS Inkigayo and M Countdown reached the ontology as franchises
+because a person "belonged to" them and no family fitted. A show is a released
+creation with a title, not the event of one taping. The owner's own words: "TV
+shows (not TV series, but like reality shows and documentaries)".
+
+### documentary → `cardinal:work` — **new family (v6, 2026-09-07)**
+
+**definition** — a specific documentary film or documentary series with a
+title of its own. Not the subject it documents, which takes its own family.
+
+**why** — factual by intent, and either a film or a series, so neither
+`tv_series` nor `work` says what it is. The subject (a person, a place, a
+field) is the other term the title yields, under its own family.
+
 ### book → `cardinal:work`
 **definition:** A specific published written work — novel, manga volume, or
 non-fiction title.

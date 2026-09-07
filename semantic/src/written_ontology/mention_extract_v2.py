@@ -38,7 +38,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v5"
+SCHEMA_VERSION = "mention_extract_v6"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
@@ -59,6 +59,10 @@ FAMILY_CARDINAL = {
     "person": "person", "group": "group", "organization": "organization",
     "franchise": "franchise", "work": "work", "anime": "work", "book": "work",
     "game": "work", "music_work": "work", "album": "work",
+    # v6 (owner, 2026-09-07): television gets its own families. A reality
+    # show or a documentary had been filed as `work` or, whenever a person
+    # was said to belong to it, as `franchise`; the enum had no better word.
+    "tv_series": "work", "tv_show": "work", "documentary": "work",
     "sport": "activity", "activity": "activity", "art": "concept",
     "field": "concept",
     "place": "none", "culture": "concept", "event": "event", "tour": "event",

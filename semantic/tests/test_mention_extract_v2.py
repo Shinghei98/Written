@@ -20,7 +20,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v5.schema.json")
+               / "contracts" / "mention_extract_v6.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -86,7 +86,7 @@ def inferred_mention(**overrides) -> dict:
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v5", "items": items}
+    return {"schema_version": "mention_extract_v6", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:

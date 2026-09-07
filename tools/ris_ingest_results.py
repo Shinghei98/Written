@@ -97,8 +97,8 @@ def main() -> int:
         # where it cost every mention in the corpus. Repaired before
         # validation exactly as offsets are: mechanical, counted, and the
         # rest of the body still has to earn its way through both layers.
-        if body.get("schema_version") == "mention_extract_v4":
-            body["schema_version"] = "mention_extract_v5"
+        if body.get("schema_version") in ("mention_extract_v4", "mention_extract_v5"):
+            body["schema_version"] = "mention_extract_v6"
             outcomes["schema_version_repaired"] = (
                 outcomes.get("schema_version_repaired", 0) + 1)
 

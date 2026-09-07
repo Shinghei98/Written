@@ -59,6 +59,7 @@ PREFERENCE = {"person": 0, "group": 0, "franchise": 1, "organization": 1,
               "event": 2, "tour": 2, "activity": 3, "sport": 3,
               "idea": 4, "culture": 4, "concept": 4,
               "work": 5, "anime": 5, "book": 5, "game": 5,
+              "tv_series": 5, "tv_show": 5, "documentary": 5,
               "music_work": 6, "album": 7}
 
 

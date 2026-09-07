@@ -118,7 +118,10 @@ def test_every_enum_is_sorted_equal_in_both_directions(compiler, config, schema)
     # existed to carry were ruled out of scope; `art` and `field` replace it
     # under `cardinal:concept` and are mapped onto the 93 published `movement:*`
     # and 294 published `subject:*` concepts rather than minting a parallel set.
-    assert len(expected["llm.family.enum"]) == 18
+    # 18 until 2026-09-07, when v6 gave television its families: `tv_series`,
+    # `tv_show` and `documentary`, all under `cardinal:work` (owner's question:
+    # "would Qwen recognise reality shows or documentaries?" — the enum said no).
+    assert len(expected["llm.family.enum"]) == 21
     assert len(expected["llm.mention_role.enum"]) == 15
     assert len(expected["llm.schema.abstain_reasons"]) == 5
 
@@ -163,7 +166,9 @@ def test_every_family_maps_exactly_once_and_virtual_ones_map_to_nothing(compiler
     # 23 until 2026-08-24: `idea` out, `art` and `field` in. The wire gains one
     # net (17 -> 18) and the ontology one net (23 -> 24), so the difference the
     # forbidden-families check asserts stays exactly six.
-    assert len(mappings) == 24
+    # 24 until 2026-09-07: three television families in on both sides, so the
+    # forbidden difference stays exactly six.
+    assert len(mappings) == 27
 
 
 def test_the_model_may_not_emit_the_five_structural_families(compiler, config, schema):
@@ -509,7 +514,9 @@ def test_the_family_check_constraint_may_not_drift_from_the_family_map(compiler)
     # 23 until 2026-08-24: `idea` out, `art` and `field` in. The check
     # constraint on `presumed_terms.family` moves with it in `0332`; this test
     # is the thing that would have caught the constraint being left behind.
-    assert len(families) == 24
+    # 24 until 2026-09-07: the three television families move the check
+    # constraint with them in `0471`.
+    assert len(families) == 27
     assert compiler.check_database(contract, live_with(provisional_family=families)) == []
 
     widened = families + ["telepathy"]

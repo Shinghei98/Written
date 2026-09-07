@@ -155,6 +155,7 @@ FAMILY_PREFIX = {
     "person": "creator", "group": "creator", "organization": "creator",
     "franchise": "work", "work": "work", "anime": "work", "book": "work",
     "game": "work", "music_work": "work", "album": "work",
+    "tv_series": "work", "tv_show": "work", "documentary": "work",
     "activity": "activity", "sport": "sport", "place": "place",
     "art": "movement", "field": "subject", "culture": "culture",
     "event": "event", "tour": "event",

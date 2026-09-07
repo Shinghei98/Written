@@ -35,7 +35,7 @@ def test_the_contract_is_found_and_identifies_itself(contract):
 
 
 def test_the_two_family_vocabularies_are_kept_apart(contract):
-    """18 the model may emit, 24 the ontology stores.
+    """21 the model may emit, 27 the ontology stores.
 
     Conflating them is how a model comes to propose a `hub` — navigation
     furniture rather than a thing anybody is interested in.
@@ -49,8 +49,10 @@ def test_the_two_family_vocabularies_are_kept_apart(contract):
     """
     # 17/23 until 2026-08-24: `idea` left and `art` and `field` arrived, one
     # net on each side, so the difference below is unchanged at six.
-    assert len(contract.families) == 18
-    assert len(contract.ontology_families) == 24
+    # 18/24 until 2026-09-07: v6 added tv_series, tv_show and documentary to
+    # both sides, so the difference below is still six.
+    assert len(contract.families) == 21
+    assert len(contract.ontology_families) == 27
     assert set(contract.families) < set(contract.ontology_families)
     assert set(contract.ontology_families) - set(contract.families) == {
         "channel", "event_type", "game_category", "hub", "platform",
