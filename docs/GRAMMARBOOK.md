@@ -1150,6 +1150,43 @@ correct behaviour.
 (§2.18) is the identity half: a container is *typed* here and *identified*
 there, and neither guesses.
 
+**The concept side, closed by 0469 (2026-09-06).** §2.21 retyped the
+dictionary; the concepts 0377 had already minted from the old grammar
+stayed as they were — 706 active works of origin `0377_franchise_mint`, 693
+active works with no `work_type`, 326 `creator part_of_franchise X` edges
+against 60 with a work as subject. 0469 re-sorts every such mint by what
+the dictionary actually saw under its name (every spelling: the promoted
+rows, the dictionary's punctuation-keeping normalization and the label
+table's stripping one): a *specific* family with direct support — event,
+tour, album, music_work, music_recording, anime, game, book, organization,
+activity, sport, person, group, place, culture — outranks the generic
+`franchise` tag whatever the counts; the generic `work` family competes on
+support; franchise stands on a direct franchise sighting or a
+`part_of_franchise` statement from a work-family subject
+(`semantic_private.franchise_identity_is_supported`, consulted beside
+`franchise_label_is_recording_family` by every mint pass); a name pointed
+at only by persons and calendar rows is unpromoted. Survivors carry an
+explicit `work_type`; events and tours retype to kind `event` and leave
+`list_assertions`' allowlist (creator, work, organization) until somebody
+decides they belong; persons and groups leave to their own route. **A
+person is never the subject of `part_of_franchise`** — the registry's own
+description, now a trigger (`concept_edges_guard_franchise_subject`,
+probed both ways in the migration); 0374's `('work', 'creator')` clause is
+the defect it closes. And an inferred `group` row with zero mention and
+zero entry support is retyped `unknown`, since the reader's
+member-of-group lateral had been composing "Science Fiction Tour -
+Distance" from one such row. **And an event is never inferred (owner,
+2026-09-06)**: the only events on Memories are ones the person attended,
+which the calendar lane already shows through its own pane (trips, live
+shows, restaurants) and the `travel:` terms, never through an event
+concept; a tour video watched on YouTube contributes to the artist alone.
+Every active `event` revision is `explicit_only` — a trigger keeps it so
+for later mints — so the scorer writes `candidate`, never `eligible`, and
+the matching surface (which takes eligible assertions of any kind) never
+crosses a show somebody merely watched. Dry-run against 0.41.32: 392
+franchises typed, 103 retyped, 199 unpromoted, 380 person-subject edges
+rejected.
+
 ## 2.22 A stated relation is grounded, corroborated, or a candidate (owner, 2026-08-26)
 
 **The measured case.** The model stated "aespa `part_of_franchise` Black

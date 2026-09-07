@@ -149,15 +149,28 @@ def test_no_later_migration_hand_rolls_a_copy_forward():
             line for line in text.splitlines() if not line.lstrip().startswith("--")
         )
         for table in VERSIONED_TABLES:
-            inserts = re.search(
+            for inserts in re.finditer(
                 rf"insert\s+into\s+ontology\.{table}\b(.*?);",
                 body,
                 re.IGNORECASE | re.DOTALL,
-            )
-            if inserts and re.search(
-                rf"from\s+ontology\.{table}\b", inserts.group(1), re.IGNORECASE
             ):
-                offenders.append(f"{path.name}: ontology.{table}")
+                # **The read has to be the statement's own FROM.** A copy
+                # selects *from* the table it inserts into; a backfill that
+                # selects from `concept_revisions` and asks `not exists
+                # (select 1 from ontology.concept_labels ...)` in its WHERE
+                # is a dedupe guard, not a copy — 0468 wrote exactly that,
+                # was flagged, and had already run against production, so
+                # the shape rule narrows rather than the file changing.
+                # Everything from the first WHERE onward is the guard's
+                # territory; a hand-rolled copy names its source before it.
+                source_clause = re.split(
+                    r"\bwhere\b", inserts.group(1), maxsplit=1, flags=re.IGNORECASE
+                )[0]
+                if re.search(
+                    rf"from\s+ontology\.{table}\b", source_clause, re.IGNORECASE
+                ):
+                    offenders.append(f"{path.name}: ontology.{table}")
+                    break
 
     assert not offenders, (
         "these migrations copy a versioned table into a new version by hand "
