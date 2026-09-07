@@ -13,6 +13,7 @@ import pathlib
 import pytest
 
 from written_ontology.mention_extract_v2 import (
+    screen_families,
     ExtractionInvalid,
     RequestItem,
     validate_response,
@@ -600,3 +601,70 @@ def test_family_and_cardinal_must_tell_one_story():
     # 'none' abstains from the question and is never a mismatch.
     abstaining = mention(family_hypothesis="anime", selected_cardinal="none")
     validate_response(response([extracted(mentions=[abstaining])]), REQUEST)
+
+
+# ---------------------------------------------------------------------------
+# The lane screen (2026-09-07): a television family a lane cannot produce is
+# dropped before validation, counted, and an emptied item becomes an
+# abstention. Prompted negation had made it worse; the rule is the lanes'.
+# ---------------------------------------------------------------------------
+
+def _tv_item(family: str, label: str, *extra_mentions: dict) -> dict:
+    return response([{
+        "item_index": 0, "status": "extracted", "abstain_reason": None,
+        "mentions": [
+            mention(surface=label, end=len(label), canonical_label_hypothesis=label,
+                    family_hypothesis=family, mention_role="primary_subject"),
+            *extra_mentions,
+        ],
+    }])
+
+
+def test_screen_drops_a_show_from_a_calendar_row_and_abstains():
+    body = _tv_item("tv_show", "Hanoi House")
+    request = [RequestItem(0, {"title": "Hanoi House"}, "event", "google_calendar")]
+    assert screen_families(body, request) == 1
+    item = body["items"][0]
+    assert item["mentions"] == []
+    assert item["status"] == "abstained"
+    assert item["abstain_reason"] == "no_durable_subject"
+
+
+def test_screen_drops_a_series_from_a_music_row_without_a_marker():
+    person = mention(surface="IU", end=2, canonical_label_hypothesis="IU",
+                     family_hypothesis="person", mention_role="performing_group",
+                     source_field="performer")
+    body = _tv_item("tv_series", "Last Fantasy", person)
+    request = [RequestItem(0, {"title": "Last Fantasy", "performer": "IU"},
+                           "recently_added", "apple_music")]
+    assert screen_families(body, request) == 1
+    assert [m["family_hypothesis"] for m in body["items"][0]["mentions"]] == ["person"]
+    assert body["items"][0]["status"] == "extracted"
+
+
+def test_screen_keeps_a_series_named_by_a_soundtrack_credit():
+    body = _tv_item("tv_series", "莲花楼")
+    request = [RequestItem(0, {"title": "就在江湖之上 - 电视剧《莲花楼》片头曲"},
+                           "saved_track", "spotify")]
+    assert screen_families(body, request) == 0
+    assert body["items"][0]["mentions"][0]["family_hypothesis"] == "tv_series"
+
+
+def test_screen_leaves_the_youtube_lane_to_the_definitions():
+    body = _tv_item("tv_show", "SBS Inkigayo")
+    request = [RequestItem(0, {"title": "[안방1열 직캠4K] @SBS Inkigayo"},
+                           "playlist_item", "youtube")]
+    assert screen_families(body, request) == 0
+
+
+def test_screen_leaves_an_ambiguous_action_alone_when_the_source_is_unknown():
+    body = _tv_item("tv_show", "PRODUCE 48")
+    request = [RequestItem(0, {"title": "PRODUCE 48 - 30 Girls 6 Concepts - EP"},
+                           "playlist_item")]
+    assert screen_families(body, request) == 0
+
+
+def test_screen_falls_back_to_a_lane_only_action_when_the_source_is_unknown():
+    body = _tv_item("documentary", "French Essentials")
+    request = [RequestItem(0, {"title": "French Essentials Lesson 2"}, "library_song")]
+    assert screen_families(body, request) == 1

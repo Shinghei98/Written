@@ -35,6 +35,8 @@ into a person's profile as evidence about them.
 
 from __future__ import annotations
 
+import re
+
 import unicodedata
 from dataclasses import dataclass
 
@@ -128,6 +130,12 @@ class RequestItem:
     # Optional with a None default so every existing constructor call — and
     # every request built before the field existed — stays valid.
     source_action: str | None = None
+    # The lane the item came from (apple_music, spotify, youtube, apple_calendar
+    # ...). Optional for the same reason as `source_action`; when it is absent
+    # the lane screen below falls back to the actions that belong to one lane
+    # only, and leaves the ambiguous ones (`playlist_item` is both Apple Music
+    # and YouTube) alone.
+    source_code: str | None = None
 
     def source_string(self, field: str, index: int | None) -> str:
         if field not in self.fields:
@@ -323,6 +331,83 @@ def _validate_item(item: dict, request_item: RequestItem,
         if key in spans:
             raise ExtractionInvalid("duplicate_span_and_role")
         spans.add(key)
+
+
+#: **A television family is screened by lane, not prompted away (2026-09-07).**
+#: v23 measured the model stretching `tv_show` onto calendar reservations
+#: (Hanoi House, Madame Vo NYC) and `tv_series` onto cast recordings and an IU
+#: album, and the sentence written to forbid restaurants was the one place the
+#: prompt said "restaurant" — the negation became the cue. A manufactured
+#: representation is validated, never prompted (§2.20), and this is the rule
+#: the lanes state: a bare calendar title is never a programme; a music-lane
+#: row names a programme only when its own text carries a series marker (an
+#: OST credit, 电视剧《…》, 드라마, a season); the YouTube lane, where the
+#: shows actually appear, is left to the definitions.
+TV_FAMILIES = frozenset({"tv_series", "tv_show", "documentary"})
+CALENDAR_SOURCES = frozenset({"apple_calendar", "google_calendar", "outlook_calendar"})
+MUSIC_SOURCES = frozenset({"apple_music", "music_library", "spotify"})
+#: Actions that belong to exactly one lane, for requests that carry no source.
+CALENDAR_ONLY_ACTIONS = frozenset({"event"})
+MUSIC_ONLY_ACTIONS = frozenset({
+    "library_song", "library_album", "library_artist", "library_playlist",
+    "recently_added", "recently_played", "heavy_rotation", "rating",
+    "apple_music_subscription", "followed_artist", "saved_album",
+    "saved_track", "top_artist", "top_track",
+})
+SERIES_MARKER = re.compile(
+    r"(?i)\b(ost|soundtrack|original television|tv series|television|drama|season)\b"
+    r"|电视剧|電視劇|影集|剧集|劇集|片头曲|片頭曲|片尾曲|插曲|主题曲|主題曲"
+    r"|드라마|시즌|ドラマ|主題歌|挿入歌|第.{1,3}[季期]")
+
+
+def _lane(item: RequestItem) -> str | None:
+    if item.source_code in CALENDAR_SOURCES:
+        return "calendar"
+    if item.source_code in MUSIC_SOURCES:
+        return "music"
+    if item.source_code:
+        return "other"
+    if item.source_action in CALENDAR_ONLY_ACTIONS:
+        return "calendar"
+    if item.source_action in MUSIC_ONLY_ACTIONS:
+        return "music"
+    return None
+
+
+def screen_families(response: dict, request: list[RequestItem]) -> int:
+    """Drop television mentions a lane cannot produce; return how many.
+
+    Runs beside `repair_offsets`, before validation, and like it mutates in
+    place and counts rather than swallows. An extracted item left with no
+    mentions becomes an abstention with `no_durable_subject`, which is the
+    answer the model should have given.
+    """
+    by_index = {item.item_index: item for item in request}
+    dropped = 0
+    for item in response.get("items", []):
+        request_item = by_index.get(item.get("item_index"))
+        if request_item is None:
+            continue
+        lane = _lane(request_item)
+        if lane not in ("calendar", "music"):
+            continue
+        text = " ".join(
+            " ".join(v) if isinstance(v, list) else str(v)
+            for v in request_item.fields.values())
+        marked = bool(SERIES_MARKER.search(text))
+        kept = []
+        for mention in item.get("mentions") or []:
+            family = mention.get("family_hypothesis")
+            if family in TV_FAMILIES and (lane == "calendar" or not marked):
+                dropped += 1
+                continue
+            kept.append(mention)
+        if len(kept) != len(item.get("mentions") or []):
+            item["mentions"] = kept
+            if not kept and item.get("status") == "extracted":
+                item["status"] = "abstained"
+                item["abstain_reason"] = "no_durable_subject"
+    return dropped
 
 
 def repair_offsets(response: dict, request: list[RequestItem]) -> int:

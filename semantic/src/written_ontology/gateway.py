@@ -69,6 +69,7 @@ from .mention_extract_v2 import (
     ExtractionInvalid,
     RequestItem,
     repair_offsets,
+    screen_families,
     validate_with_schema,
 )
 from .semantic_contract import load as load_contract
@@ -693,6 +694,7 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     # being swallowed: a model that needs many repairs is a fact about the
     # model.
     repaired = repair_offsets(body, list(items))
+    screened = screen_families(body, list(items))
 
     try:
         validate_with_schema(
@@ -736,6 +738,7 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
         # Counted, never swallowed: a model that needs many repairs is a fact
         # about the model, and this is where an operator would notice it.
         "offsets_repaired": repaired,
+        "tv_families_screened": screened,
         "output_tokens": response.get("output_tokens"),
         "outcome": "succeeded",
         # **The provenance the database column exists to hold.** Without these
