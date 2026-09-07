@@ -691,7 +691,10 @@ h3 {
 .numbers {
   background: var(--coal);
   color: var(--parchment);
-  padding: clamp(64px, 10vh, 120px) 0 clamp(40px, 6vh, 64px);
+  /* a fifth shorter than it was (owner, 2026-09-06): the plots at 22.5rem
+     rather than 30 and the band's own spacing trimmed to match - 900px to
+     720px on a 1440x900 window */
+  padding: clamp(48px, 7vh, 88px) 0 clamp(28px, 4vh, 44px);
   /* above the story's sprig, which hangs out of that section and over this
      one: where they overlap, the black covers the ivy (owner's direction).
      Below the banner (60) and the intro (90). */
@@ -701,7 +704,7 @@ h3 {
 
 .numbers-head {
   color: var(--gold-bright);
-  margin-bottom: clamp(28px, 5vh, 56px);
+  margin-bottom: clamp(20px, 3.5vh, 40px);
 }
 
 /* Two pages, swiped or stepped. Scroll-snap does the swiping; the arrows and
@@ -729,7 +732,7 @@ h3 {
   font-size: clamp(1.15rem, 2vw, 1.5rem);
   line-height: 1.4;
   max-width: 38rem;
-  margin: 0 0 clamp(24px, 4vh, 44px);
+  margin: 0 0 clamp(18px, 3vh, 32px);
   color: var(--parchment);
 }
 
@@ -740,7 +743,13 @@ h3 {
   align-items: start;
 }
 
-.chart { margin: 0; }
+/* each figure shrinks to its plot and sits in the middle of its half, so
+   the pair is symmetrical about the page's midline (owner, 2026-09-06) */
+.chart { margin: 0; width: min(100%, 22.5rem); justify-self: center; }
+/* the second page is one wide figure: two bars and a legend on one canvas */
+.chart-row-single { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+.chart.chart-wide { width: min(100%, 40rem); }
+.chart.chart-wide svg { max-width: 40rem; }   /* outranks .chart svg below; the bars sit at the canvas's centre, the legend beside */
 
 .chart figcaption {
   font-family: var(--display);
@@ -756,7 +765,7 @@ h3 {
 .chart svg {
   width: 100%;
   height: auto;
-  max-width: 30rem;
+  max-width: 22.5rem;
 }
 
 .chart svg text { font-family: var(--body); }
@@ -1213,6 +1222,22 @@ h3 {
   white-space: nowrap;
 }
 
+/* The line wipes in from the left as the page opens (owner, 2026-09-06),
+   on the thesis block's mask: two and a half times its width, opaque for
+   its first two fifths, slid from right-aligned to left-aligned over 1.8s
+   after a third of a second. `both` keeps it hidden until it starts. */
+.ont-open-line {
+  -webkit-mask-image: linear-gradient(to right, #000 40%, rgba(0,0,0,0) 60%);
+  mask-image: linear-gradient(to right, #000 40%, rgba(0,0,0,0) 60%);
+  -webkit-mask-size: 250% 100%; mask-size: 250% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: 100% 0; mask-position: 100% 0;
+  animation: thesis-wipe 1.8s ease-out .3s both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ont-open-line { animation: none; -webkit-mask-image: none; mask-image: none; }
+}
+
 /* On a phone the two do not fit side by side: the photograph sits above
    the line, edge to edge at its natural proportion, and the line takes the
    page's gutter. */
@@ -1320,6 +1345,34 @@ h3 {
   line-height: 1.22;
   letter-spacing: 0;
   margin: 0 0 28px;
+}
+
+/* The reveal (owner, 2026-09-06): thesis-dots.js puts `thesis-reveal` on
+   the block while the page loads, which hides the two halves and the
+   trail behind a mask, and `thesis-in` when the heading first comes into
+   view, which slides the masks off - the first half and the trail at
+   once (from the script, on one shared mask), the second half after the
+   whip. The mask is a gradient two and a half times the width of the
+   text, opaque for its first two fifths, so sliding it from right-aligned
+   to left-aligned wipes the text in from the left. */
+.thesis-reveal .thesis-lead,
+.thesis-reveal .thesis-turn {
+  -webkit-mask-image: linear-gradient(to right, #000 40%, rgba(0,0,0,0) 60%);
+  mask-image: linear-gradient(to right, #000 40%, rgba(0,0,0,0) 60%);
+  -webkit-mask-size: 250% 100%; mask-size: 250% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: 100% 0; mask-position: 100% 0;
+}
+/* the first half and the trail are wiped by the script, which shares one
+   mask between them so the sweep runs on over the dots; the second half
+   is wiped here, 1.8s each, the second after the whip */
+.thesis-in .thesis-lead,
+.thesis-in .thesis-trail { animation: thesis-wipe-px 1.8s ease-out forwards; }
+.thesis-in .thesis-turn { animation: thesis-wipe 1.8s ease-out 2s forwards; }
+@keyframes thesis-wipe { to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
+@keyframes thesis-wipe-px {
+  from { -webkit-mask-position: var(--wipe-from) 0; mask-position: var(--wipe-from) 0; }
+  to   { -webkit-mask-position: var(--wipe-to) 0;   mask-position: var(--wipe-to) 0; }
 }
 
 /* The trail after "more swipes": two periods in the heading's type, then
@@ -1465,6 +1518,30 @@ h3 {
   margin: 0 0 2rem;
 }
 
+/* The numbers written by a pen (owner, 2026-09-06, as Hinge's): the
+   svg stands 1em tall in the number's slot; the stroke is the Light cut's
+   own weight and a little over, clipped to the digit, and is drawn from
+   its start when the band gains `is-written`. Without the class the
+   numbers stay unwritten, which is the state before the cards scroll in;
+   reduced motion writes them at once. */
+.methods-num .num-pen { display: block; height: 1em; width: auto; overflow: visible; }
+.methods-num .pen {
+  fill: none;
+  stroke: var(--gold-bright);
+  stroke-width: 70;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.methods.is-written .methods-num .pen {
+  animation: pen-write var(--dur) linear var(--delay) forwards;
+}
+@keyframes pen-write { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .methods-num .pen { animation: none; stroke-dashoffset: 0; }
+}
+
 .methods-card h3 {
   font-family: var(--display);
   font-size: 1.625rem;
@@ -1578,4 +1655,314 @@ h3 {
   .standouts { --standouts-margin: 2rem; --standouts-gutter: 2rem; padding: 8rem 0; }
   .standouts-lead { font-size: 3.625rem; }
   .standouts-grid { margin-top: 6rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ==========================================================================
+   Section five: the book
+   --------------------------------------------------------------------------
+   In the manner of the Flipsnack player hinge.co/mission embeds under "How
+   We Do Things" (read 2026-09-06): a viewport-high dark band, the book
+   centred on it a spread at a time with the cover alone, arrows either
+   side, and a bar beneath with the arrows again, the page count, zoom out
+   and in, the grid of every page and full screen. Sharing is left out.
+   book.js builds the viewer over the pages in the markup; the pages are
+   5:7, the type is set from the page's width so a page reads the same at
+   every size, and the turning leaf is a 3D rotation about the spine. The
+   cover is black cloth: a fine vertical weave and a grain over near-black,
+   the W debossed into it.
+   ========================================================================== */
+.book {
+  /* the stage is the slate of hinge.co's player, sampled at #4e5565
+     (owner, 2026-09-06); the bar and the grid are darker cuts of it */
+  --slate: #4e5565;
+  --slate-deep: #383d4a;
+  --slate-ink: #2b2f39;
+  background: var(--slate);
+  color: #fff;
+}
+
+/* without the script the pages read as a list on the band */
+.book-pages {
+  list-style: none;
+  margin: 0 auto;
+  padding: calc(var(--banner-h) + 2rem) var(--gutter) 2rem;
+  max-width: 34rem;
+  display: grid;
+  gap: 1.5rem;
+}
+.book-pages[hidden] { display: none; }   /* the script hides the list; display:grid must not win */
+.book-pages > li {
+  background: var(--parchment);
+  color: var(--ink);
+  padding: 2rem;
+  --page-w: 30rem;
+  --page-fs: 1rem;
+}
+
+.book-viewer {
+  height: 100svh;
+  min-height: 640px;
+  padding-top: var(--banner-h);
+  display: flex;
+  flex-direction: column;
+}
+
+.book-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+.book-stage:focus-visible .book-spread { outline: 2px solid rgba(255,255,255,.35); outline-offset: 8px; }
+
+.book-scroll {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 24px;
+}
+.book-scroll.book-zoomed { overflow: auto; }
+
+.book-spread {
+  position: relative;
+  display: flex;
+  perspective: 2600px;
+  width: calc(var(--page-w) * 2);
+  height: var(--page-h);
+  /* the closed book sits at the centre of the stage and the open book on
+     its spine (hinge.co's player does the same); the half-page shift
+     rides along with the turning leaf */
+  transition: transform .85s cubic-bezier(.45,.05,.35,1);
+}
+.book-spread.book-closed { transform: translateX(-25%); }
+.book-spread.book-last-alone { transform: translateX(25%); }
+
+.book-leaf {
+  position: relative;
+  width: var(--page-w);
+  height: var(--page-h);
+  background: var(--parchment);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+.book-left  { border-radius: 4px 0 0 4px; }
+.book-right { border-radius: 0 4px 4px 0; }
+/* the spine: a little shade where the pages meet */
+.book-left::after, .book-right::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to right, rgba(0,0,0,0) 94%, rgba(0,0,0,.07));
+}
+.book-right::after { background: linear-gradient(to right, rgba(0,0,0,.07), rgba(0,0,0,0) 6%); }
+.book-blank { visibility: hidden; }
+.book-closed .book-left { visibility: hidden; }
+.book-under { z-index: 0; }
+
+/* the page itself */
+.book-page {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: calc(var(--page-w) * 0.075) calc(var(--page-w) * 0.08);
+  font-family: var(--body);
+  font-size: var(--page-fs);
+  line-height: 1.48;
+  color: var(--ink);
+  text-align: left;
+  border-radius: inherit;
+}
+.book-page p { margin: 0 0 0.9em; }
+.book-page b { font-weight: 600; }
+.pg-kicker {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 0.8em;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--brand-deep);
+  margin: 0 0 1.2em !important;
+}
+.pg-title {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 2.1em;
+  line-height: 1.1;
+  margin: 0 0 0.6em;
+}
+.pg-head {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.45em;
+  line-height: 1.15;
+  margin: 0 0 0.9em;
+}
+.pg-lede { font-size: 1.12em; line-height: 1.4; }
+.pg-foot { color: var(--muted); font-size: 0.9em; }
+.pg-toc { list-style: none; margin: 0; padding: 0; font-size: .95em; }
+.pg-toc li {
+  display: flex; align-items: baseline; gap: .5em;
+  padding: .2em 0; border-bottom: 1px solid var(--line);
+}
+.pg-toc li span { flex: 1 1 auto; }
+.pg-toc li b { font-family: var(--display); font-weight: 700; color: var(--brand-deep); }
+.pg-facts { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 1em; row-gap: .7em; }
+.pg-facts dt { font-family: var(--display); font-weight: 700; color: var(--brand-deep); white-space: nowrap; }
+.pg-facts dd { margin: 0; color: var(--muted); }
+
+/* the covers: black cloth, the W debossed */
+.book-page-cover, .book-pages > .book-cover, .book-pages > .book-back {
+  background-color: #1c1c1c;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.016) 0 1px, rgba(0,0,0,0) 1px 3px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 1px, rgba(0,0,0,0) 1px 4px),
+    radial-gradient(ellipse at 50% 40%, rgba(255,255,255,.05), rgba(0,0,0,0) 65%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 0;
+}
+.book-cover-mark {
+  display: block;
+  width: 34%;
+  aspect-ratio: 42 / 41;
+  background-color: #101010;
+  -webkit-mask-image: url("assets/w-logo.png");
+  mask-image: url("assets/w-logo.png");
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  filter: drop-shadow(0 1px 0 rgba(255,255,255,.10)) drop-shadow(0 -1px 1px rgba(0,0,0,.8));
+}
+.book-page-back .book-cover-mark { width: 18%; }
+.book-page-inside .book-cover-mark { visibility: hidden; }
+.book-back-line {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.05em;
+  color: rgba(255,255,255,.55);
+  margin: 1.6em 0 0 !important;
+}
+
+/* the leaf that turns */
+.book-turning {
+  position: absolute;
+  top: 0;
+  width: var(--page-w);
+  height: var(--page-h);
+  transform-style: preserve-3d;
+  transition: transform .85s cubic-bezier(.45,.05,.35,1);
+  z-index: 5;
+  pointer-events: none;
+}
+.book-turn-forward { left: var(--page-w); transform-origin: left center; transform: rotateY(0deg); }
+.book-turn-forward.book-turn-go { transform: rotateY(-180deg); }
+.book-turn-back { left: 0; transform-origin: right center; transform: rotateY(0deg); }
+.book-turn-back.book-turn-go { transform: rotateY(180deg); }
+.book-face {
+  position: absolute; inset: 0;
+  background: var(--parchment);
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  overflow: hidden;
+}
+.book-face-back { transform: rotateY(180deg); }
+
+/* the arrows either side of the stage */
+.book-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px; height: 52px;
+  border: 0; background: transparent; color: #fff;
+  cursor: pointer; opacity: .8; padding: 0;
+}
+.book-arrow svg { width: 32px; height: 32px; }
+.book-arrow:hover { opacity: 1; }
+.book-arrow:disabled { opacity: .18; cursor: default; }
+.book-prev { left: 8px; }
+.book-next { right: 8px; }
+
+/* the bar */
+.book-bar {
+  flex: 0 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  background: var(--slate-deep);
+  border-top: 1px solid rgba(255,255,255,.10);
+}
+.book-btn {
+  width: 40px; height: 40px;
+  border: 0; border-radius: 6px; background: transparent; color: #fff;
+  cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+}
+.book-btn svg { width: 22px; height: 22px; }
+.book-btn:hover { background: rgba(255,255,255,.08); }
+.book-btn:disabled { opacity: .25; cursor: default; background: transparent; }
+.book-count {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: .06em;
+  min-width: 5.5em;
+  text-align: center;
+  color: rgba(255,255,255,.85);
+}
+.book-bar-gap { flex: 1 1 auto; }
+
+/* the grid of every page */
+.book-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--slate-ink);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.book-grid[hidden] { display: none; }
+.book-grid-head {
+  height: 56px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.book-grid-title { font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.book-grid-body {
+  flex: 1 1 auto; overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  justify-content: center;
+  gap: 28px 22px;
+  padding: 28px 24px 48px;
+}
+.book-thumb { border: 0; background: transparent; color: #fff; padding: 0; cursor: pointer; text-align: center; }
+.book-thumb-frame {
+  position: relative;
+  width: 160px; height: 224px;
+  --page-w: 160px; --page-h: 224px; --page-fs: 5.12px;
+  background: var(--parchment);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  transition: transform .15s;
+}
+.book-thumb:hover .book-thumb-frame, .book-thumb:focus-visible .book-thumb-frame { transform: translateY(-3px); }
+.book-thumb-num { display: block; margin-top: 8px; font-family: var(--display); font-weight: 700; font-size: 12px; color: rgba(255,255,255,.6); }
+
+.book:fullscreen { background: var(--slate); }
+.book:fullscreen .book-viewer { padding-top: 0; height: 100vh; }
+
+@media (max-width: 767px) {
+  .book-viewer { min-height: 560px; }
+  .book-spread { width: var(--page-w); }
+  .book-spread.book-closed, .book-spread.book-last-alone { transform: none; }
+  .book-left { display: none; }
+  .book-arrow { display: none; }
+  .book-grid-body { grid-template-columns: repeat(auto-fill, 120px); gap: 20px 14px; padding: 20px 16px 40px; }
+  .book-thumb-frame { width: 120px; height: 168px; --page-w: 120px; --page-h: 168px; --page-fs: 3.84px; }
 }

@@ -14,6 +14,9 @@
 <script src="/thesis-dots.js" defer></script>
 <!-- turns the banner coal over the dark bands, as Hinge's header does -->
 <script src="/banner.js" defer></script>
+<!-- arranges the book's pages into a viewer; the pages read without it -->
+<script src="/book.js" defer></script>
+<script src="/methods-numbers.js" defer></script>
 </head>
 <body>
 
@@ -102,6 +105,9 @@
   <!-- intro is their "Our Values" block; the four numbered cards are    -->
   <!-- their "values in action" slider, measured 2026-09-06. The numbers -->
   <!-- are decoration for a screen reader, the list order says the same. -->
+  <!-- Each number is its Quicksand Light outline clipping a pen stroke, -->
+  <!-- written when the cards come into view, as Hinge's numbers are     -->
+  <!-- (methods-numbers.js adds `is-written`).                            -->
   <!-- ---------------------------------------------------------------- -->
   <section class="methods" id="methods" data-banner="dark">
     <div class="methods-inner">
@@ -115,7 +121,7 @@
       </div>
       <ol class="methods-cards">
         <li class="methods-card">
-          <div class="methods-num" aria-hidden="true">01</div>
+          <div class="methods-num" aria-hidden="true"><svg class="num-pen" viewBox="0 0 951 1000" aria-hidden="true" focusable="false"><defs><clipPath id="num1-0"><path d="M294 -10Q215 -10 163.0 38.5Q111 87 85.5 169.0Q60 251 60 350Q60 450 85.5 531.5Q111 613 163.0 661.5Q215 710 294 710Q374 710 425.5 661.5Q477 613 502.5 531.5Q528 450 528 350Q528 251 502.5 169.0Q477 87 425.5 38.5Q374 -10 294 -10ZM294 32Q358 32 400.5 73.0Q443 114 464.5 186.0Q486 258 486 350Q486 443 464.5 515.0Q443 587 400.5 627.5Q358 668 294 668Q230 668 187.5 627.5Q145 587 123.5 515.0Q102 443 102 350Q102 258 123.5 186.0Q145 114 187.5 73.0Q230 32 294 32Z"/></clipPath><clipPath id="num1-1"><path d="M222 0Q213 0 207.0 6.0Q201 12 201 20V654L211 648L58 547Q52 543 47 543Q38 543 31.5 550.5Q25 558 25 565Q25 576 36 582L211 697Q216 700 220.0 700.5Q224 701 228 700Q235 699 239.0 693.5Q243 688 243 680V20Q243 12 237.0 6.0Q231 0 222 0Z"/></clipPath></defs><g transform="translate(0 875) scale(1 -1)" clip-path="url(#num1-0)"><path class="pen" pathLength="1" style="--dur:0.49s;--delay:0.00s" d="M294 689 C176 689 81 537 81 350 C81 163 176 11 294 11 C412 11 507 163 507 350 C507 537 412 689 294 689"/></g><g transform="translate(588 875) scale(1 -1)" clip-path="url(#num1-1)"><path class="pen" pathLength="1" style="--dur:0.25s;--delay:0.57s" d="M36 570 L222 690 L222 10"/></g></svg></div>
           <h3>Learning about you</h3>
           <p>
             We learn about you through the apps you already use—your music,
@@ -124,7 +130,7 @@
           </p>
         </li>
         <li class="methods-card">
-          <div class="methods-num" aria-hidden="true">02</div>
+          <div class="methods-num" aria-hidden="true"><svg class="num-pen" viewBox="0 0 1137 1000" aria-hidden="true" focusable="false"><defs><clipPath id="num2-0"><path d="M294 -10Q215 -10 163.0 38.5Q111 87 85.5 169.0Q60 251 60 350Q60 450 85.5 531.5Q111 613 163.0 661.5Q215 710 294 710Q374 710 425.5 661.5Q477 613 502.5 531.5Q528 450 528 350Q528 251 502.5 169.0Q477 87 425.5 38.5Q374 -10 294 -10ZM294 32Q358 32 400.5 73.0Q443 114 464.5 186.0Q486 258 486 350Q486 443 464.5 515.0Q443 587 400.5 627.5Q358 668 294 668Q230 668 187.5 627.5Q145 587 123.5 515.0Q102 443 102 350Q102 258 123.5 186.0Q145 114 187.5 73.0Q230 32 294 32Z"/></clipPath><clipPath id="num2-1"><path d="M479 40Q487 40 493.0 34.0Q499 28 499 20Q499 11 493.0 5.5Q487 0 479 0H93Q84 0 76.0 4.5Q68 9 68 21Q68 27 73 34L308 296Q370 363 399.5 416.5Q429 470 429 513Q429 584 385.0 627.0Q341 670 267 670Q232 670 198.0 656.0Q164 642 138.5 619.0Q113 596 101 568Q97 559 92.5 555.5Q88 552 80 552Q72 552 66.0 556.5Q60 561 60 568Q60 572 61.0 575.5Q62 579 65 586Q81 619 113.5 647.0Q146 675 187.5 692.5Q229 710 270 710Q332 710 377.5 686.0Q423 662 448.0 619.0Q473 576 473 517Q473 466 441.0 406.0Q409 346 341 272L126 28L117 40Z"/></clipPath></defs><g transform="translate(0 875) scale(1 -1)" clip-path="url(#num2-0)"><path class="pen" pathLength="1" style="--dur:0.49s;--delay:0.55s" d="M294 689 C176 689 81 537 81 350 C81 163 176 11 294 11 C412 11 507 163 507 350 C507 537 412 689 294 689"/></g><g transform="translate(588 875) scale(1 -1)" clip-path="url(#num2-1)"><path class="pen" pathLength="1" style="--dur:0.43s;--delay:1.12s" d="M72 572 C110 655 195 690 270 690 C355 690 451 620 451 517 C451 458 400 360 330 285 L88 22 L488 20"/></g></svg></div>
           <h3>Mapping your interests</h3>
           <p>
             We identify recurring themes in what you watch, listen to, and
@@ -132,7 +138,7 @@
           </p>
         </li>
         <li class="methods-card">
-          <div class="methods-num" aria-hidden="true">03</div>
+          <div class="methods-num" aria-hidden="true"><svg class="num-pen" viewBox="0 0 1107 1000" aria-hidden="true" focusable="false"><defs><clipPath id="num3-0"><path d="M294 -10Q215 -10 163.0 38.5Q111 87 85.5 169.0Q60 251 60 350Q60 450 85.5 531.5Q111 613 163.0 661.5Q215 710 294 710Q374 710 425.5 661.5Q477 613 502.5 531.5Q528 450 528 350Q528 251 502.5 169.0Q477 87 425.5 38.5Q374 -10 294 -10ZM294 32Q358 32 400.5 73.0Q443 114 464.5 186.0Q486 258 486 350Q486 443 464.5 515.0Q443 587 400.5 627.5Q358 668 294 668Q230 668 187.5 627.5Q145 587 123.5 515.0Q102 443 102 350Q102 258 123.5 186.0Q145 114 187.5 73.0Q230 32 294 32Z"/></clipPath><clipPath id="num3-1"><path d="M81 90Q85 90 89.0 88.5Q93 87 99 80Q121 56 152.0 44.0Q183 32 222 32Q277 32 321.5 56.0Q366 80 392.5 123.0Q419 166 419 221Q419 285 390.0 324.5Q361 364 317.0 382.5Q273 401 227 401Q220 401 211.0 400.5Q202 400 194.5 399.0Q187 398 186 398Q177 398 171.5 404.0Q166 410 166 420Q166 424 168.0 428.0Q170 432 174 437L386 669L392 655H70Q62 655 56.0 661.0Q50 667 50 675Q50 684 56.0 689.5Q62 695 70 695H416Q429 695 433.0 686.5Q437 678 437 674Q437 670 435.5 666.5Q434 663 430 659L219 427L199 433Q199 436 215.5 439.0Q232 442 242 442Q295 442 345.5 418.0Q396 394 428.5 345.0Q461 296 461 221Q461 152 428.0 100.0Q395 48 340.5 19.0Q286 -10 222 -10Q179 -10 138.0 5.5Q97 21 66 54Q63 57 61.5 60.5Q60 64 60 68Q60 76 66.0 83.0Q72 90 81 90Z"/></clipPath></defs><g transform="translate(0 875) scale(1 -1)" clip-path="url(#num3-0)"><path class="pen" pathLength="1" style="--dur:0.49s;--delay:1.10s" d="M294 689 C176 689 81 537 81 350 C81 163 176 11 294 11 C412 11 507 163 507 350 C507 537 412 689 294 689"/></g><g transform="translate(588 875) scale(1 -1)" clip-path="url(#num3-1)"><path class="pen" pathLength="1" style="--dur:0.42s;--delay:1.67s" d="M62 675 L420 675 L212 440 C300 440 440 380 440 221 C440 140 330 10 222 10 C170 10 100 40 72 72"/></g></svg></div>
           <h3>Discovering connections</h3>
           <p>
             We compare your map with those of your potential matches. The
@@ -141,7 +147,7 @@
           </p>
         </li>
         <li class="methods-card">
-          <div class="methods-num" aria-hidden="true">04</div>
+          <div class="methods-num" aria-hidden="true"><svg class="num-pen" viewBox="0 0 1094 1000" aria-hidden="true" focusable="false"><defs><clipPath id="num4-0"><path d="M294 -10Q215 -10 163.0 38.5Q111 87 85.5 169.0Q60 251 60 350Q60 450 85.5 531.5Q111 613 163.0 661.5Q215 710 294 710Q374 710 425.5 661.5Q477 613 502.5 531.5Q528 450 528 350Q528 251 502.5 169.0Q477 87 425.5 38.5Q374 -10 294 -10ZM294 32Q358 32 400.5 73.0Q443 114 464.5 186.0Q486 258 486 350Q486 443 464.5 515.0Q443 587 400.5 627.5Q358 668 294 668Q230 668 187.5 627.5Q145 587 123.5 515.0Q102 443 102 350Q102 258 123.5 186.0Q145 114 187.5 73.0Q230 32 294 32Z"/></clipPath><clipPath id="num4-1"><path d="M360 0Q351 0 345.5 6.0Q340 12 340 20V645L351 637L65 252L62 263H456Q464 263 470.0 257.5Q476 252 476 244Q476 236 470.0 230.5Q464 225 456 225H35Q26 225 20.5 232.0Q15 239 15 246Q15 254 20 259L343 692Q348 698 353.5 699.0Q359 700 360 700Q369 700 374.5 694.0Q380 688 380 680V20Q380 12 374.0 6.0Q368 0 360 0Z"/></clipPath></defs><g transform="translate(0 875) scale(1 -1)" clip-path="url(#num4-0)"><path class="pen" pathLength="1" style="--dur:0.49s;--delay:1.65s" d="M294 689 C176 689 81 537 81 350 C81 163 176 11 294 11 C412 11 507 163 507 350 C507 537 412 689 294 689"/></g><g transform="translate(588 875) scale(1 -1)" clip-path="url(#num4-1)"><path class="pen" pathLength="1" style="--dur:0.28s;--delay:2.22s" d="M360 690 L28 242 L466 244"/><path class="pen" pathLength="1" style="--dur:0.19s;--delay:2.57s" d="M360 690 L360 10"/></g></svg></div>
           <h3>Making the introduction</h3>
           <p>
             For each potential match, we create a personalized introduction
@@ -213,6 +219,202 @@
         </li>
       </ul>
     </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <!-- Section five: the book, in the manner of hinge.co/mission's       -->
+  <!-- "How We Do Things" - theirs is a Flipsnack player in an iframe on -->
+  <!-- a black band; ours is book.js over the pages below, which are     -->
+  <!-- ordinary HTML so the text is readable and indexable without it.   -->
+  <!-- The book is written for partners and investors: what the app     -->
+  <!-- does and how the machine behind it works, mechanism first.        -->
+  <!-- ---------------------------------------------------------------- -->
+  <section class="book" id="book" data-banner="dark">
+    <ol class="book-pages">
+
+      <li class="book-cover">
+        <span class="book-cover-mark" role="img" aria-label="Written"></span>
+      </li>
+
+      <li>
+        <p class="pg-kicker">Written</p>
+        <h2 class="pg-title">How the machine works</h2>
+        <p class="pg-lede">A working description of the product and the system behind it, written for the people who build companies and fund them.</p>
+        <p>It is deliberately plain. Every section names a mechanism, says what it takes in, what it refuses, and what comes out. Where a number appears it was measured on the system as it stands, not projected.</p>
+        <p class="pg-foot">Second draft, September 2026.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">Contents</p>
+        <ol class="pg-toc">
+          <li><span>What the app does</span><b>4</b></li>
+          <li><span>Distillation: the connectors</span><b>5</b></li>
+          <li><span>The record and the sync</span><b>6</b></li>
+          <li><span>The vault</span><b>7</b></li>
+          <li><span>Capture against promotion</span><b>8</b></li>
+          <li><span>The resolver</span><b>9</b></li>
+          <li><span>The model lane on A100s</span><b>10</b></li>
+          <li><span>The ontology grammar</span><b>11</b></li>
+          <li><span>Predicates and propagation</span><b>12</b></li>
+          <li><span>Where the dictionary came from</span><b>13</b></li>
+          <li><span>How a term is minted</span><b>14</b></li>
+          <li><span>Scoring and the revision</span><b>15</b></li>
+          <li><span>Reciprocal editing</span><b>16</b></li>
+          <li><span>Introductions</span><b>17</b></li>
+          <li><span>Icebreakers</span><b>18</b></li>
+          <li><span>Privacy as structure</span><b>19</b></li>
+          <li><span>What has been measured</span><b>20</b></li>
+        </ol>
+      </li>
+
+      <li>
+        <p class="pg-kicker">1</p>
+        <h2 class="pg-head">What the app does</h2>
+        <p>Written is an iPhone dating app with one idea: a profile should be extracted, not typed. A person connects the apps they already use and the system builds a representation of them from what those apps hold.</p>
+        <p>Four tabs. <b>Explore</b> is the feed: a person appears repeatedly with different photographs and different lines, and the line is chosen for the reader. <b>Chat</b> holds invitations and conversations; every thread opens with an icebreaker built from what the two people share. <b>The garden</b> is where sources are connected, one tap each, and it grows a stage per source. <b>Memories</b> is the person's own page of terms, where each can be kept, edited or struck off.</p>
+        <p>Around those: a dynamic profile a match may read, bookmarks, and blocking that the blocked person is never told about.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">2</p>
+        <h2 class="pg-head">Distillation: the connectors</h2>
+        <p>Every Apple source is one system sheet and no password: MusicKit for the library, EventKit for the calendar, HealthKit for activity, the media library for podcasts. YouTube is OAuth with PKCE and no client secret in the binary.</p>
+        <p>Each connector reads everything the granted permission reaches and nothing it does not. Apple Music yields library songs, albums, artists, playlists and their contents, recently played, heavy rotation, recommendations and ratings. YouTube yields subscriptions, liked videos and playlists; watch history is not reachable and is not claimed. Calendar yields five years either side, walked outward from today, so a ticket bought for November exists. Health yields workouts, daily activity and a 24-row profile of which hours a person is active.</p>
+        <p>Independent requests run concurrently, every pagination is capped, and a per-item fetch that cannot be capped is treated as a defect.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">3</p>
+        <h2 class="pg-head">The record and the sync</h2>
+        <p>Every source normalises into one row shape: source, data type, item id, name, creator, detail, a key=value string for platform quirks, and the time collected. The schema does not widen for a new source; the quirk string does.</p>
+        <p>The device replaces its copy per source on each run. The server appends. A second distillation of a 1,208-row music library appended 100 rows and no duplicates, because the append compares each item against its latest stored version, excluding the timestamps.</p>
+        <p>Transport is PostgREST over Postgres with row-level security as the authorisation layer: every table's policy is the account's own id, and reads go through views that return the latest row per item across runs, a union rather than a sum. The server is the source of truth; the phone keeps a cache and rehydrates from the server on a new device.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">4</p>
+        <h2 class="pg-head">The vault</h2>
+        <p>Beside the legacy record, each connector run also writes a typed envelope to an encrypted vault. The write goes through one function that the ingestion identity may call and nothing else; that identity holds no table privileges at all, so leaked, it could put rows in and read none back.</p>
+        <p>Encryption is envelope encryption under AWS KMS: a data key generated per call, wrapped under a rotating key-encryption key, with a separately keyed HMAC for lineage. The ingestion role may generate keys and encrypt and cannot decrypt. The worker role may decrypt and cannot generate keys. Neither can schedule a key's deletion. The key and the rows travel in one statement so ciphertext never exists without the key that reads it.</p>
+        <p>Erasure in the vault redacts rather than deletes: state set to deleted, both payload columns nulled, the evidence chain intact. Crypto-erasure of a person deletes their wrapped-key row, never the master key.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">5</p>
+        <h2 class="pg-head">Capture against promotion</h2>
+        <p>Capture broadly; promote narrowly. A run captures whatever a source returned. A scope is a triple of source, data type and action, and a row with no action belongs to no scope and is never promoted. Every capture is stamped partial, never complete, because every read is capped and a complete snapshot would let an item's absence be read as its removal.</p>
+        <p>Evidence is written by ingestion while the run is open; a trigger refuses an observation whose run has closed. Finalisation enqueues the worker after the run closes. The queue is Postgres itself: leased jobs claimed with skip-locked selects, lease tokens, attempt limits, and a fail-closed default that marks an unknown job dead rather than done.</p>
+        <p>The worker is a Lambda in the same region as the database. It reads ten tables and writes two, enumerated and asserted from the catalogue by migration, so a table added later gets nothing until its own migration grants it.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">6</p>
+        <h2 class="pg-head">The resolver</h2>
+        <p>Before any model runs, a deterministic resolver maps each observation against the catalogue: concept labels, aliases, stable identifiers such as a YouTube channel id, and authored imports. A match at this stage costs nothing and is reproducible, which is why the model is only asked what the resolver missed.</p>
+        <p>An ambiguous name resolves from its entry's context in identity-strength order. First, a relation stated in the entry itself: a member of a group, a performer of a song. Second, a catalogue join against the terms already resolved in that entry. Third, the shape of the source: a music row's title is a song and never a television series. Fourth, the person's own library ranks survivors and never decides. What is still ambiguous holds as a user-scoped provisional identity: evidence attaches, the person may keep or strike it, and nothing global is minted from it.</p>
+        <p>Within an entry the person anchors; failing a person, the franchise; failing that, the work.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">7</p>
+        <h2 class="pg-head">The model lane on A100s</h2>
+        <p>Open-vocabulary discovery runs on Qwen, served by vLLM on AWS A100 80GB GPUs behind an asynchronous SageMaker endpoint. Its only job is to recognise a meaningful term absent from every existing route. Extracting something the catalogue already knows is a regression, never the success criterion.</p>
+        <p>One request carries up to eight items and an allowlist of fields: title, channel label, a description excerpt, tags, performer, composer, album. It carries forty candidate parents as id and label pairs and nothing about whose request it is. Decoding is grammar-constrained by a JSON schema with no optional properties, no pattern and no null inside an enum; the shapes outside that set slowed generation to minutes per prompt and were removed.</p>
+        <p>The model may never emit an identifier, an authority state, SQL, a URL or a tool call. Its offsets are code points, repaired against the source text before validation. Measured: 7.3 to 8.0 items a second per card, 90 percent accepted.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">8</p>
+        <h2 class="pg-head">The ontology grammar</h2>
+        <p>Closed grammar, open nouns. The model invents strings and selects everything else from fixed vocabularies.</p>
+        <p>Eight cardinal roots, immutable by check, by trigger and by a migration that proves a ninth is refused: person, group, organization, work, franchise, activity, concept, event. Seventeen wire families the model may name, twenty-three the store may hold, and a pinned map between them; a family and a root that disagree are refused as one surface telling two stories. Fifteen mention roles. Twelve relation predicates on the wire and a thirteenth, broader, in the store. Five user predicates. Five reasons to abstain.</p>
+        <p>The grammar lives in four artifacts pinned to each other: the authoring workbook, the wire schema, the Python validator, and the database's check constraints. A build refuses unless they agree, which is what keeps the vocabulary from forking.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">9</p>
+        <h2 class="pg-head">Predicates and propagation</h2>
+        <p>A relation is typed. The registry holds fifty-five predicates with subject and object families, the authority a relation must reach before it may be walked, and whether the model may propose it. The model may verify none of them.</p>
+        <p>Each predicate carries a propagation weight, λ. Evidence on a term conducts along promoted edges scaled by λ, so a person holding two films of one franchise trickles weight to the franchise from both at once; part-of-franchise conducts at 0.45. The registry is versioned and a change is a migration.</p>
+        <p>Source-action integrity is absolute: a like is not a watch, a library item is not a play, a subscription is not interest in every member of a channel, a booking is not attendance. A stated relation is grounded if its object appears in the source entry, corroborated if an external catalogue connects the two, and otherwise a candidate that conducts nothing. A model repeating itself twice is one witness, not two.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">10</p>
+        <h2 class="pg-head">Where the dictionary came from</h2>
+        <p>No vocabulary is typed in. Every term arrives from a rule, and named examples are acceptance tests for the rule rather than rows.</p>
+        <p>Whole domains are imported from Wikidata under CC0: a class is walked by instance-of and subclass-of, depth governed by a sitelink floor that states notability as a number the source itself gives. Identity fences keep a walk honest; countries as cultures need an ISO code or a literal instance statement, or a Roman province arrives as a culture. Official short names are read through statement nodes so "China" is not hidden behind a preferred-rank label.</p>
+        <p>Creators are minted from music libraries as they are met. Authored imports carry the decade-by-genre grid whole. YouTube channels enter as stable identities from their ids. Every term enters one dictionary with a family, an origin and, per hub, at most one placement, and any number of hubs: genre and a person's world, a work and a movement.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">11</p>
+        <h2 class="pg-head">How a term is minted</h2>
+        <p>The authority order is structural, never arithmetic: model-proposed provisional, displayable suggestion, the person's keep or edit, catalogue mint, confirmed mapping evidence, scorer, assertion.</p>
+        <p>A kept term enters the governed minting transaction. It is checked for collision against existing concepts and aliases, allocated one global identity, given redirects from the labels that reached it, and thereafter resolved deterministically. Future occurrences never make a second model call and never produce a duplicate concept.</p>
+        <p>When the system sees a work it asks first whether there is a franchise: registered, it links; clearly present and absent, it mints through the franchise lane. Most works have none and the answer is usually no; the ask is mandatory. Identity mints; weight measures. A term whose identity is still ambiguous is never minted globally and never merged across people.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">12</p>
+        <h2 class="pg-head">Scoring and the revision</h2>
+        <p>The scorer computes, per person, an assertion per concept from accepted mapping evidence. Weights depend on source and action, and independence is counted by group, so two calendars agreeing is one diary reached twice, not two witnesses. Four confidence domains are kept apart and never collapsed into one number.</p>
+        <p>A run's identity is the person, the revision, the ontology version, the resolver and the scorer. Deploying code re-scores nothing; a new distillation, a new ontology version or a new model id does. The revision means which version of the inputs the scores were computed against. It moves when the inputs move, when a suppression redistributes weight, and not when a state changes. It is monotonic and never walked back, so a page goes blank rather than stale.</p>
+        <p>Inferred assertions retire on disconnect and revive on reconnection. What a person typed is a declared assertion and survives.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">13</p>
+        <h2 class="pg-head">Reciprocal editing</h2>
+        <p>Every term on a person's page can be kept, edited, or struck off with a reason. The tap is immediate: a strike suppresses the proposal for that person now. It is also an append-only event, and the event teaches the system.</p>
+        <p>A review is priced in log-odds across six supervision domains: the person's affinity, the identity route, the classification root and parent, the predicate route, and the source-action route. A keep is +2.00 on affinity and +1.20 on identity. A strike for wrong entity is −2.00 on identity and only −0.50 on affinity. An edit counts the original proposal as a negative and is never a model success. Restore re-pends and erases nothing.</p>
+        <p>Labels aggregate per stratum, most specific first, backing off until support is met, one vote per person per revision. A Beta(4,4) posterior becomes a multiplier clamped to 0.5–1.5, active only past five distinct people and ten labelled cards, and released as an immutable versioned calibration.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">14</p>
+        <h2 class="pg-head">Introductions</h2>
+        <p>Who a person sees is decided by a server-owned function, not the client. It filters on eligibility and on the viewer's own preferences, is rate-limited, and returns each card with the terms permitted on the matching surface. Any client holding the same anonymous key would get the same answer, which is the point.</p>
+        <p>The matching surface may use a term and may never name it; naming a person's term to another person is a separate surface with its own grant. A term inferred from one source alone never crosses to another person on that source's strength alone.</p>
+        <p>The dynamic profile is the same representation read against the reader: a person with many interests is shown to a violinist with the violin first. The line on a card, the profile a match reads and the icebreaker in a thread are three surfaces over one representation, each with its own gate. School and bio sit behind a function that returns nothing to anyone without a live invitation or a conversation.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">15</p>
+        <h2 class="pg-head">Icebreakers</h2>
+        <p>An icebreaker has three parts: a bridge, a specific, and a verb. The bridge is a concept both people reach. The specific is the partner's own term under that bridge. The verb is chosen by the app in the reader's language. You both like anime; she is the one who loves One Piece.</p>
+        <p>The bridge is computed as a dyad alignment between two people's assertions: for each shared parent, the viewer's term under it and the partner's, with graph distance, relation distance, embedding distance, transported mass, specificity and information value recorded alongside the path that reached it. Specificity and information value rank a named artist above a container, and stop a bridge so general that agreeing on it says nothing.</p>
+        <p>A dyad is computed only for an authorised pair. The sentence differs per reader and the version shown to one is never shown to the other. It is generated once at match time and never recomputed behind a conversation.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">16</p>
+        <h2 class="pg-head">Privacy as structure</h2>
+        <p>Rules live in Postgres, not in which buttons exist. The semantic schema has row-level security on and no policies; access is decided by role grants and security-definer functions. Only three tables are readable about another person, and each has an argument.</p>
+        <p>Health takes the same path as every source, but biological sex is refused at the wire by a per-row rule and never leaves the phone. Calendar titles are evidence and never appear in any projection another person can reach. Filed evidence expires at thirty days for every source, by a daily sweep. Blocking is enforced in triggers and functions rather than policies, because the blocked person must not be able to ask whether they are blocked.</p>
+        <p>A deletion names both schemas or it is not finished. Account deletion is verified by running it, not by inspection, because a guard that refuses a cascade is invisible until the day someone leaves.</p>
+      </li>
+
+      <li>
+        <p class="pg-kicker">17</p>
+        <h2 class="pg-head">What has been measured</h2>
+        <dl class="pg-facts">
+          <dt>90%</dt><dd>of model extractions accepted after offset repair; 9% without it.</dd>
+          <dt>7.3–8.0</dt><dd>items a second per A100, prefix cached, one call per item.</dd>
+          <dt>14,501</dt><dd>mentions from 5,387 items in about three minutes per shard.</dd>
+          <dt>4.7% → 3.0%</dt><dd>misassignment on a 200-term authored holdout after cross-hub placement; anchor incongruence 8.2% → 2.2%.</dd>
+          <dt>100 of 1,208</dt><dd>rows appended on a real second distillation, zero duplicates.</dd>
+          <dt>629 of 649</dt><dd>mentions misfiled in the release that taught the family-root rule; zero after the map was pinned.</dd>
+          <dt>0.5–1.5</dt><dd>the bound on any calibration multiplier, so feedback alone cannot silence or amplify a stratum into a different product.</dd>
+        </dl>
+      </li>
+
+      <li class="book-back">
+        <span class="book-cover-mark" role="img" aria-label="Written"></span>
+        <p class="book-back-line">Don’t write, be Written.</p>
+      </li>
+
+    </ol>
   </section>
 
 </main>
