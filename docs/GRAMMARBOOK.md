@@ -1183,9 +1183,24 @@ concept; a tour video watched on YouTube contributes to the artist alone.
 Every active `event` revision is `explicit_only` — a trigger keeps it so
 for later mints — so the scorer writes `candidate`, never `eligible`, and
 the matching surface (which takes eligible assertions of any kind) never
-crosses a show somebody merely watched. Dry-run against 0.41.32: 392
+crosses a show somebody merely watched. Applied at 0.41.33: 392
 franchises typed, 103 retyped, 199 unpromoted, 380 person-subject edges
 rejected.
+
+**0470 closes the one regression the first recompute showed.** Every
+organization on every page had been carried by λ-propagation along the
+rejected person→franchise edges and nothing else — the taxonomy's own
+predicate, `signed_to_label`, had been restated in the dictionary by 0398
+and never promoted to an edge — so the sweep retired nine organization
+assertions against 0465. 0470 restates each rejected person→organization
+edge as `signed_to_label` at 0374's confidence (`platform_of`, zero
+weight, where the organization is the platform itself). The registry's
+floor for the label predicate is 0.65, so labels stated three or more
+times conduct again and the once- or twice-stated ones wait for support;
+the number is the registry's and 0470 does not move it. The works, games,
+films and genres the same recompute retired were reached only through a
+performer's forward weight, which no predicate carries — the intended
+loss.
 
 ## 2.22 A stated relation is grounded, corroborated, or a candidate (owner, 2026-08-26)
 
