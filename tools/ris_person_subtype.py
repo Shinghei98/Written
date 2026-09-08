@@ -2,10 +2,11 @@
 """Ask what kind of person each person is — one closed answer, or none.
 
 **The owner's rule (2026-08-25), enforced by shape rather than by prose:**
-every accepted person maps onto exactly one of twelve closed subtypes, the most
-representative where several fit, and a person fitting none is held unminted.
-"Exactly one" is not an instruction here — the schema is a single-select enum,
-so a second subtype is unemittable, the same move that made an invented
+every accepted person maps onto the owner's closed categories — nine since
+2026-09-08, a ranked list of up to three with a confidence each, since a
+person may hold more than one and the page shows the heaviest — and a person
+fitting none is held unminted. The list is a schema-enforced enum, so an
+invented category is unemittable, the same move that made an invented
 candidate id unemittable in the placement pass.
 
 **Why this exists:** the v19 proposal pass measured what happens when
@@ -33,50 +34,64 @@ sys.path.insert(0, str(HERE))
 
 NONE = "none"
 
-#: The owner's twelve, 2026-08-25. **Grammar, not nouns** — a closed role
-#: vocabulary like the 18 families, not a term list. Mirrors the check
-#: constraint in migration 0342; if the two ever disagree, the database's is
-#: the one that governs and the emitter's insert will say so loudly.
+#: **The owner's nine, 2026-09-08 — controlled categories of person.** A
+#: person may hold more than one; the page shows the one with the most
+#: weight. `character` is gone: a fictional character is not a person, the
+#: work it belongs to is the term. The answer is a ranked list of up to
+#: three, each with a confidence, so the weights are the model's own and
+#: the emitter writes support rows rather than one winner. Mirrors the
+#: check constraint in migration 0477; if the two disagree the database's
+#: governs and the emitter's insert says so loudly.
 SUBTYPES = [
-    "actor", "music_performer", "composer", "director",
-    "streamer", "content_creator", "athlete", "comedian",
-    "character", "author", "artist", "historical_figure",
+    "performer", "composer", "author", "host", "athlete",
+    "actor", "director", "streamer", "content_creator",
 ]
-
 ANSWER_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["subtype", "confidence"],
+    "required": ["categories"],
     "properties": {
-        "subtype": {"type": "string", "enum": [*SUBTYPES, NONE]},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "categories": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["category", "confidence"],
+                "properties": {
+                    "category": {"type": "string", "enum": SUBTYPES},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+            },
+        },
     },
 }
-
 SYSTEM = (
-    "You say what kind of person a named person is. Exactly one kind, from "
-    "this list:\n"
-    "- actor: performs in film, TV or on stage.\n"
-    "- music_performer: sings or plays music for audiences - singers, idols, "
-    "instrumentalists, conductors.\n"
+    "You say what kinds of person a named person is, from this closed list, "
+    "most representative first, with a confidence for each. Most people are "
+    "one kind; give a second or third only when the person is genuinely "
+    "known for it too.\n"
+    "- performer: sings, dances or plays music for audiences - singers, "
+    "idols, dancers, instrumentalists, conductors, comedians on stage.\n"
     "- composer: writes music, whoever performs it.\n"
-    "- director: directs film, TV or stage productions.\n"
-    "- streamer: broadcasts live on streaming platforms.\n"
-    "- content_creator: makes YouTube, Instagram or TikTok content.\n"
-    "- athlete: competes in sport.\n"
-    "- comedian: performs comedy.\n"
-    "- character: a person from a created work - fiction, animation, games. "
-    "Not a real human being.\n"
     "- author: writes books, audiobooks or blogs.\n"
-    "- artist: makes visual art - painting, sculpture, photography.\n"
-    "- historical_figure: known for their place in history rather than for "
-    "any of the above.\n"
+    "- host: presents a television or radio programme, a podcast or a "
+    "ceremony - hosts, anchors, MCs.\n"
+    "- athlete: competes in sport.\n"
+    "- actor: performs in film, TV or on stage.\n"
+    "- director: directs film, TV or stage productions.\n"
+    "- streamer: broadcasts live on streaming platforms - Twitch, YouTube "
+    "Live, AfreecaTV.\n"
+    "- content_creator: a YouTube, TikTok or Instagram channel personality "
+    "who is not a streamer.\n"
     "\n"
-    "If several fit, choose the one the person is most known for. A composer "
-    "who also performed is whichever they are most known as.\n"
+    "A fictional character - from a film, a series, an animation or a game - "
+    "is not a person: answer an empty list. A historical figure known for "
+    "nothing on this list, or a visual artist, is also an empty list.\n"
     "\n"
-    "If none fits, answer 'none'. A stretch is worse than none: 'none' keeps "
-    "the person waiting for a better answer, a wrong kind files them under it."
+    "An empty list is a correct answer. A stretch is worse than none: an "
+    "empty list keeps the person waiting for a better answer, a wrong kind "
+    "files them under it."
 )
 
 
@@ -154,12 +169,17 @@ def main() -> int:
             except (ValueError, json.JSONDecodeError):
                 unparseable += 1
                 continue
+            categories = [c for c in (answer.get("categories") or [])
+                          if c.get("category") in SUBTYPES]
             handle.write(json.dumps({
                 "key": term["key"],
                 "label": term["label"],
                 "grounded": bool(term.get("grounded")),
-                "subtype": answer.get("subtype"),
-                "confidence": answer.get("confidence"),
+                # ranked, most representative first; empty means none fits
+                "categories": categories,
+                # the head of the list, for readers of the old shape
+                "subtype": categories[0]["category"] if categories else None,
+                "confidence": categories[0]["confidence"] if categories else None,
             }, ensure_ascii=False) + "\n")
             written += 1
 
