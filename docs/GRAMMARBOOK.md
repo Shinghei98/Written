@@ -91,7 +91,7 @@ than letting it ship unrooted.
 
 **There are two family vocabularies. Confusing them is the main error.**
 
-### Tier A — the ontology enum, 27 values
+### Tier A — the ontology enum, 31 values
 
 `terms.xlsx` → `ontology.family.enum`, mirrored exactly by the
 `presumed_terms.family` check at `0284:47-51`:
@@ -99,14 +99,15 @@ than letting it ship unrooted.
 ```
 activity | album | anime | art | book | channel | culture | documentary |
 event | event_type | field | franchise | game | game_category | group | hub |
-music_recording | music_work | organization | person | place | platform |
-sport | tour | tv_series | tv_show | work
+movie | music_recording | music_work | organization | person | place |
+platform | podcast_show | reality_show | song | sport | tour | tv_series |
+tv_show | work
 ```
 
 (`idea` left and `art`/`field` arrived in 0332; `tv_series`, `tv_show` and
 `documentary` arrived in 0471 — §1.7, v5 → v6.)
 
-### Tier B — the wire enum, 21 values (`family_hypothesis`)
+### Tier B — the wire enum, 23 values (`family_hypothesis`)
 
 What the model may say. It appears in **five** places and all five agree:
 `mention_extract_v4.schema.json:190-208`, `:381-399`, `:586-604`, `:803-821`
@@ -118,16 +119,18 @@ What the model may say. It appears in **five** places and all five agree:
 | `person` | `person` | `creator`, `entity_form=person` |
 | `group` | `group` | `creator`, `entity_form=group` |
 | `organization` | `organization` | `organization` |
-| `franchise` | `franchise` | `work`, `work_type=franchise` |
-| `work` | `work` | `work`, `work_type=creative_work` |
-| `anime` | `work` | `work`, `work_type=anime` |
+| `song` | `work` | `work`, `work_type=song` (v7; was `music_work`) |
+| `movie` | `work` | `work`, `work_type=movie` (v7) |
 | `tv_series` | `work` | `work`, `work_type=tv_series` — a scripted series (v6) |
-| `tv_show` | `work` | `work`, `work_type=tv_show` — reality, variety, talk, game, music show (v6) |
+| `anime` | `work` | `work`, `work_type=anime` |
+| `album` | `work` | `work`, `work_type=album` |
+| `reality_show` | `work` | `work`, `work_type=reality_show` — reality, survival, variety, talk, game, music show (v7; was `tv_show`) |
 | `documentary` | `work` | `work`, `work_type=documentary` — film or series (v6) |
 | `book` | `work` | `work`, `work_type=book` |
+| `podcast_show` | `work` | `work`, `work_type=podcast_show` (v7) |
 | `game` | `work` | `work`, `work_type=game` |
-| `music_work` | `work` | `work`, `work_type=music_work` |
-| `album` | `work` | `work`, `work_type=album` |
+| `franchise` | **`work`** | `work`, `work_type=franchise` — an integrated media IP spanning many works; **a category of work since v7** (owner, 2026-09-07) |
+| `work` | `work` | `work`, `work_type=other` — **fits none of the eleven; kept as evidence, never shown** (v7) |
 | `sport` | `activity` | `sport` |
 | `activity` | `activity` | `activity` |
 | `idea` | `concept` | `topic`, `topic_axis=idea` |
@@ -149,8 +152,9 @@ difference.
 
 ### The six the model may never emit
 
-27 − 21 = `channel`, `event_type`, `game_category`, `hub`, `platform`,
-`music_recording`. A frozenset at `tools/compile_semantic_contract.py:80-83`,
+31 − 23 = `channel`, `event_type`, `game_category`, `hub`, `platform`,
+`music_recording`, `music_work`, `tv_show` — the last two left the wire in v7,
+said in the owner's words as `song` and `reality_show`. A frozenset at `tools/compile_semantic_contract.py:80-83`,
 checked as an **exact difference rather than a subset** (`:438-451`) — so a
 family added to one tier and not the other fails the build instead of silently
 becoming emittable.
@@ -580,6 +584,26 @@ rules, the grammar sheet's work-family lists (`part_of_franchise`,
 family checks plus `cardinal_root_map` (0471) moved with it. **A new
 extraction run under v6 is what files anything under the new families;
 nothing standing was retyped.**
+
+### v6 → v7, exactly (2026-09-07)
+
+**The categories of work are closed.** The owner: a work is one of song,
+movie, tv_series, anime, album, reality_show, documentary, book,
+podcast_show, game, franchise — "and nothing more" — and a franchise is a
+category of work, an integrated media intellectual property spanning many
+works and work types (the MCU, Harry Potter), rooted at `cardinal:work`
+like the rest. Plain `work` is what fits none of them: stored
+`work_type=other`, kept as evidence and as a conduit, never a row on
+Memories or a term matching names (0472, both readers). `music_work` and
+`tv_show` leave the wire and stay in the ontology, as `music_recording` did
+in 0221; `movie` and `podcast_show` arrive. The definitions, the rules, the
+grammar sheet, the validator's map and lane screen, the tools, the fixtures
+and the three database family checks moved with it (0472). **The re-sort
+of the works that stand is deliberately a later migration**: the dictionary
+filed Persona 5, Barbie and Bleach as "franchise" because that was all the
+old prompt could say, so the v7 corpus is extracted and emitted first and
+the re-sort reads the enriched dictionary — the dark window is the one the
+ontology's knowledge dictates.
 
 ### What the trusted layer does with each field
 

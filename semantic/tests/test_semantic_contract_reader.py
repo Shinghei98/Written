@@ -35,7 +35,7 @@ def test_the_contract_is_found_and_identifies_itself(contract):
 
 
 def test_the_two_family_vocabularies_are_kept_apart(contract):
-    """21 the model may emit, 27 the ontology stores.
+    """23 the model may emit, 31 the ontology stores.
 
     Conflating them is how a model comes to propose a `hub` — navigation
     furniture rather than a thing anybody is interested in.
@@ -51,12 +51,14 @@ def test_the_two_family_vocabularies_are_kept_apart(contract):
     # net on each side, so the difference below is unchanged at six.
     # 18/24 until 2026-09-07: v6 added tv_series, tv_show and documentary to
     # both sides, so the difference below is still six.
-    assert len(contract.families) == 21
-    assert len(contract.ontology_families) == 27
+    # v7: eleven closed categories of work; music_work and tv_show stay in
+    # the ontology and leave the wire, so the difference is eight.
+    assert len(contract.families) == 23
+    assert len(contract.ontology_families) == 31
     assert set(contract.families) < set(contract.ontology_families)
     assert set(contract.ontology_families) - set(contract.families) == {
         "channel", "event_type", "game_category", "hub", "platform",
-        "music_recording",
+        "music_recording", "music_work", "tv_show",
     }
 
 

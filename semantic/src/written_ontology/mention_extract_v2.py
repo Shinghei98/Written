@@ -40,7 +40,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v6"
+SCHEMA_VERSION = "mention_extract_v7"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
@@ -59,12 +59,15 @@ INFERRED_FIELD = "inferred"
 #: (operational metadata) and no selected cardinal may accompany it.
 FAMILY_CARDINAL = {
     "person": "person", "group": "group", "organization": "organization",
-    "franchise": "franchise", "work": "work", "anime": "work", "book": "work",
-    "game": "work", "music_work": "work", "album": "work",
-    # v6 (owner, 2026-09-07): television gets its own families. A reality
-    # show or a documentary had been filed as `work` or, whenever a person
-    # was said to belong to it, as `franchise`; the enum had no better word.
-    "tv_series": "work", "tv_show": "work", "documentary": "work",
+    # v7 (owner, 2026-09-07): the categories of work are closed — song, movie,
+    # tv_series, anime, album, reality_show, documentary, book, podcast_show,
+    # game, franchise — and a franchise is a category of work, an integrated
+    # media IP spanning many works, so it roots at work like the rest. Plain
+    # `work` is what fits none of them: evidence, never shown.
+    "song": "work", "movie": "work", "tv_series": "work", "anime": "work",
+    "album": "work", "reality_show": "work", "documentary": "work",
+    "book": "work", "podcast_show": "work", "game": "work",
+    "franchise": "work", "work": "work",
     "sport": "activity", "activity": "activity", "art": "concept",
     "field": "concept",
     "place": "none", "culture": "concept", "event": "event", "tour": "event",
@@ -343,7 +346,7 @@ def _validate_item(item: dict, request_item: RequestItem,
 #: row names a programme only when its own text carries a series marker (an
 #: OST credit, 电视剧《…》, 드라마, a season); the YouTube lane, where the
 #: shows actually appear, is left to the definitions.
-TV_FAMILIES = frozenset({"tv_series", "tv_show", "documentary"})
+TV_FAMILIES = frozenset({"tv_series", "reality_show", "documentary"})
 CALENDAR_SOURCES = frozenset({"apple_calendar", "google_calendar", "outlook_calendar"})
 MUSIC_SOURCES = frozenset({"apple_music", "music_library", "spotify"})
 #: Actions that belong to exactly one lane, for requests that carry no source.

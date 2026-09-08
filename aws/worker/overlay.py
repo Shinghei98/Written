@@ -1138,7 +1138,7 @@ _OBJECT_FAMILY = {
     "composed_by": "person",
     "created_by": "person",
     "soundtrack_of": "work",
-    "recording_of": "music_work",
+    "recording_of": "song",
     "played_for": "organization",
     "official_channel_of": "organization",
     "represented_team_in": "event",

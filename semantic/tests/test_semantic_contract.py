@@ -121,7 +121,10 @@ def test_every_enum_is_sorted_equal_in_both_directions(compiler, config, schema)
     # 18 until 2026-09-07, when v6 gave television its families: `tv_series`,
     # `tv_show` and `documentary`, all under `cardinal:work` (owner's question:
     # "would Qwen recognise reality shows or documentaries?" — the enum said no).
-    assert len(expected["llm.family.enum"]) == 21
+    # 21 until v7 (owner, 2026-09-07): the categories of work closed at eleven,
+    # song and reality_show replaced music_work and tv_show on the wire, and
+    # movie and podcast_show arrived: 23.
+    assert len(expected["llm.family.enum"]) == 23
     assert len(expected["llm.mention_role.enum"]) == 15
     assert len(expected["llm.schema.abstain_reasons"]) == 5
 
@@ -168,7 +171,10 @@ def test_every_family_maps_exactly_once_and_virtual_ones_map_to_nothing(compiler
     # forbidden-families check asserts stays exactly six.
     # 24 until 2026-09-07: three television families in on both sides, so the
     # forbidden difference stays exactly six.
-    assert len(mappings) == 27
+    # 27 until v7: song, movie, reality_show and podcast_show join the
+    # ontology; music_work and tv_show stay in it and leave the wire, so the
+    # forbidden difference is now eight.
+    assert len(mappings) == 31
 
 
 def test_the_model_may_not_emit_the_five_structural_families(compiler, config, schema):
@@ -516,7 +522,7 @@ def test_the_family_check_constraint_may_not_drift_from_the_family_map(compiler)
     # is the thing that would have caught the constraint being left behind.
     # 24 until 2026-09-07: the three television families move the check
     # constraint with them in `0471`.
-    assert len(families) == 27
+    assert len(families) == 31
     assert compiler.check_database(contract, live_with(provisional_family=families)) == []
 
     widened = families + ["telepathy"]

@@ -80,6 +80,9 @@ VIRTUAL_FAMILIES = frozenset({
 MODEL_FORBIDDEN_FAMILIES = frozenset({
     "channel", "event_type", "game_category", "hub", "platform",
     "music_recording",
+    # v7 (owner, 2026-09-07): `song` and `reality_show` say these in the
+    # owner's words; the rows already filed under them stay in the ontology.
+    "music_work", "tv_show",
 })
 
 

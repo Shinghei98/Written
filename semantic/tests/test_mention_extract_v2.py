@@ -21,7 +21,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v6.schema.json")
+               / "contracts" / "mention_extract_v7.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +87,7 @@ def inferred_mention(**overrides) -> dict:
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v6", "items": items}
+    return {"schema_version": "mention_extract_v7", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:
@@ -118,7 +118,10 @@ def test_music_recording_is_not_a_family(schema):
     for variant in ("mention_text", "mention_tag"):
         families = schema["$defs"][variant]["properties"]["family_hypothesis"]["enum"]
         assert "music_recording" not in families
-        assert "music_work" in families, "music_work is a composition and stays"
+        # v7: the composition is `song` in the owner's words; `music_work` stays
+        # in the ontology and leaves the wire, like the recording did.
+        assert "music_work" not in families
+        assert "song" in families, "song is the composition and stays"
 
     bad = response([extracted(mentions=[mention(family_hypothesis="music_recording")])])
     with pytest.raises(jsonschema.ValidationError):
@@ -621,7 +624,7 @@ def _tv_item(family: str, label: str, *extra_mentions: dict) -> dict:
 
 
 def test_screen_drops_a_show_from_a_calendar_row_and_abstains():
-    body = _tv_item("tv_show", "Hanoi House")
+    body = _tv_item("reality_show", "Hanoi House")
     request = [RequestItem(0, {"title": "Hanoi House"}, "event", "google_calendar")]
     assert screen_families(body, request) == 1
     item = body["items"][0]
@@ -651,14 +654,14 @@ def test_screen_keeps_a_series_named_by_a_soundtrack_credit():
 
 
 def test_screen_leaves_the_youtube_lane_to_the_definitions():
-    body = _tv_item("tv_show", "SBS Inkigayo")
+    body = _tv_item("reality_show", "SBS Inkigayo")
     request = [RequestItem(0, {"title": "[안방1열 직캠4K] @SBS Inkigayo"},
                            "playlist_item", "youtube")]
     assert screen_families(body, request) == 0
 
 
 def test_screen_leaves_an_ambiguous_action_alone_when_the_source_is_unknown():
-    body = _tv_item("tv_show", "PRODUCE 48")
+    body = _tv_item("reality_show", "PRODUCE 48")
     request = [RequestItem(0, {"title": "PRODUCE 48 - 30 Girls 6 Concepts - EP"},
                            "playlist_item")]
     assert screen_families(body, request) == 0
@@ -671,13 +674,13 @@ def test_screen_falls_back_to_a_lane_only_action_when_the_source_is_unknown():
 
 
 def test_screen_drops_a_show_from_a_subscription_which_is_a_channel():
-    body = _tv_item("tv_show", "Asmongold TV")
+    body = _tv_item("reality_show", "Asmongold TV")
     request = [RequestItem(0, {"title": "Asmongold TV"}, "subscription", "youtube")]
     assert screen_families(body, request) == 1
     assert body["items"][0]["status"] == "abstained"
 
 
 def test_screen_keeps_a_show_on_a_liked_video():
-    body = _tv_item("tv_show", "Music Bank")
+    body = _tv_item("reality_show", "Music Bank")
     request = [RequestItem(0, {"title": "[K-Fancam] 김채원 직캠 @Music Bank"}, "liked_video", "youtube")]
     assert screen_families(body, request) == 0

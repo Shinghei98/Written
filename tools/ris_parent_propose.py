@@ -48,13 +48,13 @@ sys.path.insert(0, str(HERE))
 
 NEEDS_NEW = "needs_new_parent"
 
-#: The wire's family enum, restated from `mention_extract_v6.schema.json`. A
+#: The wire's family enum, restated from `mention_extract_v7.schema.json`. A
 #: proposal in a family off the wire could never have been extracted, so the
 #: enum closes the door the schema already closes one stage earlier.
-FAMILIES = ["person", "group", "organization", "franchise", "work", "anime",
-            "tv_series", "tv_show", "documentary",
-            "book", "game", "music_work", "album", "sport", "activity", "art",
-            "field", "place", "culture", "event", "tour"]
+FAMILIES = ["person", "group", "organization", "song", "movie", "tv_series",
+            "anime", "album", "reality_show", "documentary", "book",
+            "podcast_show", "game", "franchise", "work", "sport", "activity",
+            "art", "field", "place", "culture", "event", "tour"]
 
 
 def answer_schema(hubs: list[str]) -> dict:

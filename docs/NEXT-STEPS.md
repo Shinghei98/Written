@@ -21,6 +21,20 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
+## The re-sort of the works that stand is owed (2026-09-07)
+
+0472 closed the categories of work and hid `other`, but re-sorted nothing:
+the dictionary filed Persona 5, Barbie, Bleach and 388 other franchise
+mints as "franchise" because that was all the old prompt could say. Order
+of operations: the v7 corpus (`qwen_extractor_v24`) is extracted and
+emitted into the dictionary first; then a migration in 0469's shape reads
+each work's name back — wikidata type first, the dictionary's most-supported
+category next, the spanning rule for franchise (two or more categorised
+works pointing in), else `other`. The draft of that re-sort ran in a
+rolled-back transaction on 2026-09-07 against the pre-v7 dictionary and
+would have darkened 477 of 837 works; the number to expect after v7 is the
+one to measure then. Delete this section when the re-sort has published.
+
 ## An extraction run under v6 is owed (2026-09-07)
 
 `mention_extract_v6` gave television its families — `tv_series`, `tv_show`,
