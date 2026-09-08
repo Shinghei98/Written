@@ -68,7 +68,9 @@ import jsonschema
 from .mention_extract_v2 import (
     ExtractionInvalid,
     RequestItem,
+    repair_cardinal,
     repair_offsets,
+    screen_duplicate_franchise,
     screen_families,
     validate_with_schema,
 )
@@ -695,6 +697,8 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
     # model.
     repaired = repair_offsets(body, list(items))
     screened = screen_families(body, list(items))
+    cardinals = repair_cardinal(body, list(items))
+    franchises = screen_duplicate_franchise(body, list(items))
 
     try:
         validate_with_schema(
@@ -739,6 +743,8 @@ def _accept(response: dict[str, Any], items: Sequence[RequestItem],
         # about the model, and this is where an operator would notice it.
         "offsets_repaired": repaired,
         "tv_families_screened": screened,
+        "cardinals_repaired": cardinals,
+        "duplicate_franchises_screened": franchises,
         "output_tokens": response.get("output_tokens"),
         "outcome": "succeeded",
         # **The provenance the database column exists to hold.** Without these

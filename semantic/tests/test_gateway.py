@@ -99,7 +99,7 @@ def valid_response(items=REQUEST, contract=None):
         "output_tokens": 120,
         "runtime": matching_runtime(contract),
         "body": {
-            "schema_version": "mention_extract_v7",
+            "schema_version": "mention_extract_v8",
             "items": [{
                 "item_index": item.item_index,
                 "status": "extracted",

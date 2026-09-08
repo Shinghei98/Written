@@ -40,7 +40,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "mention_extract_v7"
+SCHEMA_VERSION = "mention_extract_v8"
 
 #: The fields a request may offer, mirroring the schema's `source_field` enum.
 #: A response naming anything else is refused before its offsets are read.
@@ -385,6 +385,69 @@ def _lane(item: RequestItem) -> str | None:
     if item.source_action in MUSIC_ONLY_ACTIONS:
         return "music"
     return None
+
+
+#: **The root of a work category is the family's, and the model's echo of
+#: the maker's root is repaired, not refused (2026-09-08).** On the v24 run
+#: the model labelled "Defying Gravity" a song and selected the singer's
+#: root on 1,346 Spotify rows, and chose the root named franchise on every
+#: franchise mention; 1,890 rows fell to family_root_mismatch with the
+#: label right every time sampled. Under v7 each family has exactly one
+#: root, so for a category of work the root says nothing the family does
+#: not — it is the arithmetic beside the identified entity, repair_offsets'
+#: own condition. Repaired only for the work categories; a person family
+#: with a group root is still refused, since there the two claims differ.
+WORK_CATEGORIES = frozenset({
+    "song", "movie", "tv_series", "anime", "album", "reality_show", "documentary",
+    "book", "podcast_show", "game", "franchise", "work",
+})
+
+
+def repair_cardinal(response: dict, request: list[RequestItem]) -> int:
+    """Set a work category's root to work where the model named another; count."""
+    repaired = 0
+    for item in response.get("items", []):
+        for mention in item.get("mentions") or []:
+            if (mention.get("family_hypothesis") in WORK_CATEGORIES
+                    and mention.get("selected_cardinal") not in (None, NONE_SENTINEL, "work")):
+                mention["selected_cardinal"] = "work"
+                repaired += 1
+    return repaired
+
+
+#: **One referent takes one family, and franchise loses the tie (2026-09-08).**
+#: The prompt says it (`emit_one_family_per_entity_never_the_same_name_as_both_a_group_and_a_franchise`)
+#: and the v24 run broke it 114 times in 526: YOASOBI as group and
+#: franchise, Mozart as person and franchise, a track as song and
+#: franchise. The specific family is the claim the title supports; the
+#: franchise duplicate is the model's reflex. Dropped and counted.
+FRANCHISE_LOSES_TO = frozenset({
+    "person", "group", "organization", "song", "album", "movie", "tv_series",
+    "anime", "reality_show", "documentary", "book", "podcast_show", "game",
+})
+
+
+def screen_duplicate_franchise(response: dict, request: list[RequestItem]) -> int:
+    """Drop a franchise mention whose label another family already carries in the item."""
+    dropped = 0
+    for item in response.get("items", []):
+        mentions = item.get("mentions") or []
+        taken = {
+            (m.get("canonical_label_hypothesis") or "").strip().casefold()
+            for m in mentions if m.get("family_hypothesis") in FRANCHISE_LOSES_TO}
+        kept = []
+        for m in mentions:
+            label = (m.get("canonical_label_hypothesis") or "").strip().casefold()
+            if m.get("family_hypothesis") == "franchise" and label and label in taken:
+                dropped += 1
+                continue
+            kept.append(m)
+        if len(kept) != len(mentions):
+            item["mentions"] = kept
+            if not kept and item.get("status") == "extracted":
+                item["status"] = "abstained"
+                item["abstain_reason"] = "no_durable_subject"
+    return dropped
 
 
 def screen_families(response: dict, request: list[RequestItem]) -> int:

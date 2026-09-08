@@ -31,7 +31,16 @@ CONTRACT_PATH = (REPOSITORY / "semantic" / "contracts"
 
 def main() -> int:
     corrected_mode = "--corrected" in sys.argv
-    positional = [a for a in sys.argv[1:] if a != "--corrected"]
+    # **A corpus is judged against the schema it was extracted under.** The
+    # contract names the current wire; a results file from an earlier one
+    # (v24 was extracted under v7 the day v8 trimmed the franchise root)
+    # would fail the schema step on a field the repairs below would have
+    # settled. `--schema <file>` names the one the answers were decoded with.
+    schema_override = None
+    if "--schema" in sys.argv:
+        schema_override = sys.argv[sys.argv.index("--schema") + 1]
+    positional = [a for a in sys.argv[1:]
+                  if a not in ("--corrected", "--schema", schema_override)]
     items_arg, *inputs, out_arg = positional
     out_path = pathlib.Path(out_arg)
 
@@ -47,13 +56,15 @@ def main() -> int:
             sent[item["row_id"]] = item
 
     contract = json.loads(CONTRACT_PATH.read_text())
-    schema_name = contract["versions"]["output_schema"].rsplit("/", 1)[-1]
+    schema_name = (schema_override
+                   or contract["versions"]["output_schema"].rsplit("/", 1)[-1])
     schema = json.loads(
         (REPOSITORY / "semantic" / "contracts" / schema_name).read_text())
 
     import jsonschema
     from written_ontology.mention_extract_v2 import (
-        ExtractionInvalid, RequestItem, repair_offsets, screen_families,
+        SCHEMA_VERSION, ExtractionInvalid, RequestItem, repair_cardinal,
+        repair_offsets, screen_duplicate_franchise, screen_families,
         validate_response)
 
     validator = jsonschema.Draft202012Validator(schema)
@@ -98,9 +109,12 @@ def main() -> int:
         # where it cost every mention in the corpus. Repaired before
         # validation exactly as offsets are: mechanical, counted, and the
         # rest of the body still has to earn its way through both layers.
-        if body.get("schema_version") in ("mention_extract_v4", "mention_extract_v5",
-                                          "mention_extract_v6"):
-            body["schema_version"] = "mention_extract_v7"
+        # The target is the schema in use, not a literal: a corpus judged
+        # under `--schema` is repaired toward that schema's own version.
+        target_version = schema["properties"]["schema_version"]["const"]
+        if (body.get("schema_version") != target_version
+                and str(body.get("schema_version", "")).startswith("mention_extract_v")):
+            body["schema_version"] = target_version
             outcomes["schema_version_repaired"] = (
                 outcomes.get("schema_version_repaired", 0) + 1)
 
@@ -147,8 +161,18 @@ def main() -> int:
         # surface occurs uniquely in the cited field the span is not in doubt.
         # Skipping it here refused 70% of a run that the production lane would
         # have accepted — the offsets were the only thing wrong with them.
+        # The schema step judged the answer under the wire it was decoded
+        # with; the semantic layer's rules are the current ones, and it
+        # checks the version label against the current contract.
+        body["schema_version"] = SCHEMA_VERSION
         repaired_here = repair_offsets(body, request)
         screened_here = screen_families(body, request)
+        cardinals_here = repair_cardinal(body, request)
+        franchises_here = screen_duplicate_franchise(body, request)
+        if franchises_here:
+            outcomes["duplicate_franchise_screened"] += franchises_here
+        if cardinals_here:
+            outcomes["cardinal_repaired"] += cardinals_here
         if screened_here:
             outcomes["tv_family_off_lane"] += screened_here
         if repaired_here:

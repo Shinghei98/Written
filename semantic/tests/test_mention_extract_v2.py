@@ -13,6 +13,8 @@ import pathlib
 import pytest
 
 from written_ontology.mention_extract_v2 import (
+    repair_cardinal,
+    screen_duplicate_franchise,
     screen_families,
     ExtractionInvalid,
     RequestItem,
@@ -21,7 +23,7 @@ from written_ontology.mention_extract_v2 import (
 )
 
 SCHEMA_PATH = (pathlib.Path(__file__).resolve().parent.parent
-               / "contracts" / "mention_extract_v7.schema.json")
+               / "contracts" / "mention_extract_v8.schema.json")
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +89,7 @@ def inferred_mention(**overrides) -> dict:
 
 
 def response(items) -> dict:
-    return {"schema_version": "mention_extract_v7", "items": items}
+    return {"schema_version": "mention_extract_v8", "items": items}
 
 
 def extracted(index=0, mentions=None) -> dict:
@@ -684,3 +686,31 @@ def test_screen_keeps_a_show_on_a_liked_video():
     body = _tv_item("reality_show", "Music Bank")
     request = [RequestItem(0, {"title": "[K-Fancam] 김채원 직캠 @Music Bank"}, "liked_video", "youtube")]
     assert screen_families(body, request) == 0
+
+
+def test_repair_cardinal_sets_a_songs_root_to_work_and_counts():
+    body = _tv_item("song", "Defying Gravity")
+    body["items"][0]["mentions"][0]["selected_cardinal"] = "person"
+    assert repair_cardinal(body, [RequestItem(0, {"title": "Defying Gravity"})]) == 1
+    assert body["items"][0]["mentions"][0]["selected_cardinal"] == "work"
+
+
+def test_repair_cardinal_leaves_a_person_family_for_the_validator():
+    body = _tv_item("person", "Cynthia Erivo")
+    body["items"][0]["mentions"][0]["selected_cardinal"] = "group"
+    assert repair_cardinal(body, [RequestItem(0, {"title": "Cynthia Erivo"})]) == 0
+    assert body["items"][0]["mentions"][0]["selected_cardinal"] == "group"
+
+
+def test_a_franchise_duplicating_a_group_in_the_same_item_is_dropped():
+    group = mention(surface="YOASOBI", end=7, canonical_label_hypothesis="YOASOBI",
+                    family_hypothesis="group", mention_role="performing_group",
+                    source_field="performer")
+    body = _tv_item("franchise", "YOASOBI", group)
+    assert screen_duplicate_franchise(body, [RequestItem(0, {"title": "YOASOBI", "performer": "YOASOBI"})]) == 1
+    assert [m["family_hypothesis"] for m in body["items"][0]["mentions"]] == ["group"]
+
+
+def test_a_franchise_no_other_family_names_is_kept():
+    body = _tv_item("franchise", "Marvel Cinematic Universe")
+    assert screen_duplicate_franchise(body, [RequestItem(0, {"title": "Marvel Cinematic Universe"})]) == 0
