@@ -21,31 +21,17 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
-## The re-sort of the works that stand is owed (2026-09-07)
+## The v25 prompt has not run (2026-09-08)
 
-0472 closed the categories of work and hid `other`, but re-sorted nothing:
-the dictionary filed Persona 5, Barbie, Bleach and 388 other franchise
-mints as "franchise" because that was all the old prompt could say. Order
-of operations: the v7 corpus (`qwen_extractor_v24`) is extracted and
-emitted into the dictionary first; then a migration in 0469's shape reads
-each work's name back — wikidata type first, the dictionary's most-supported
-category next, the spanning rule for franchise (two or more categorised
-works pointing in), else `other`. The draft of that re-sort ran in a
-rolled-back transaction on 2026-09-07 against the pre-v7 dictionary and
-would have darkened 477 of 837 works; the number to expect after v7 is the
-one to measure then. Delete this section when the re-sort has published.
-
-## An extraction run under v6 is owed (2026-09-07)
-
-`mention_extract_v6` gave television its families — `tv_series`, `tv_show`,
-`documentary` — in the contract, the workbook, the validator, the RIS tools
-and the database (0471). **Nothing in the dictionary or the ontology is filed
-under them yet**: the last corpus (`ris_v21`) was extracted under v5, and no
-re-sort reads a family the model never said. What is owed is one RIS
-extraction run on the current gateway revision, then the usual dictionary
-entry and parent build, after which a 0469-shaped re-sort can move the shows
-0377 minted as franchises (SBS Inkigayo, M Countdown) onto their family.
-Delete this section when a v6 corpus has entered the dictionary.
+The v24 corpus (prompt qwen_extractor_v24, mention_extract_v7) is in the
+dictionary (0474/0475) and the re-sort has published (0476). The contract
+of record has moved on: v8 trims the franchise root from the wire and the
+song definition says its root is work, both answers to what v24 measured
+(2,721 roots repaired at ingest). Nothing has been extracted under v25 yet.
+What it buys is measurable only by running it: fewer roots to repair, and
+whether the model stops calling Persona 5, Bleach and Fate/Zero franchises
+— the reason fourteen of David's rows are dark. Delete this section when a
+v25 corpus has entered the dictionary.
 
 ## The queue consumer: built, awaiting install (2026-08-26)
 

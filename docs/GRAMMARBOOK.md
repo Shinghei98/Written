@@ -603,7 +603,17 @@ of the works that stand is deliberately a later migration**: the dictionary
 filed Persona 5, Barbie and Bleach as "franchise" because that was all the
 old prompt could say, so the v7 corpus is extracted and emitted first and
 the re-sort reads the enriched dictionary — the dark window is the one the
-ontology's knowledge dictates.
+ontology's knowledge dictates. **Done in that order, 2026-09-08:** v24
+extracted and emitted (0474/0475, 6,847 terms), then 0476 re-sorted 837
+works — 448 to other, 26 franchise mints rescued into movie, anime, series
+and song by the new corpus, One Piece the one franchise the spanning rule
+supports — with the owner's approval of the list. Three validation-layer
+steps stand beside the lane screen, all measured on v24: `repair_cardinal`
+(a work category's root is its family's; 2,721 repaired),
+`screen_duplicate_franchise` (one referent, one family; 114 dropped), and
+the ingest tool's `--schema`, so a corpus is judged under the wire it was
+decoded with. 0473 made the catalogue resolver consider only living
+revisions, the defect 0469's graves exposed on the first promotion.
 
 ### What the trusted layer does with each field
 
