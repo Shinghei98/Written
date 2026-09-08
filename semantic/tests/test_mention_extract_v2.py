@@ -668,3 +668,16 @@ def test_screen_falls_back_to_a_lane_only_action_when_the_source_is_unknown():
     body = _tv_item("documentary", "French Essentials")
     request = [RequestItem(0, {"title": "French Essentials Lesson 2"}, "library_song")]
     assert screen_families(body, request) == 1
+
+
+def test_screen_drops_a_show_from_a_subscription_which_is_a_channel():
+    body = _tv_item("tv_show", "Asmongold TV")
+    request = [RequestItem(0, {"title": "Asmongold TV"}, "subscription", "youtube")]
+    assert screen_families(body, request) == 1
+    assert body["items"][0]["status"] == "abstained"
+
+
+def test_screen_keeps_a_show_on_a_liked_video():
+    body = _tv_item("tv_show", "Music Bank")
+    request = [RequestItem(0, {"title": "[K-Fancam] 김채원 직캠 @Music Bank"}, "liked_video", "youtube")]
+    assert screen_families(body, request) == 0

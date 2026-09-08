@@ -360,7 +360,17 @@ SERIES_MARKER = re.compile(
     r"|드라마|시즌|ドラマ|主題歌|挿入歌|第.{1,3}[季期]")
 
 
+#: A YouTube subscription is a channel. The model may not say `channel`
+#: (it is one of the six forbidden families), so on a subscription row it
+#: reached for `tv_show` — "Professor Dave Explains", "Asmongold TV",
+#: "Sanbomics" — on every run measured (v22, v23). A channel's programme is
+#: found on its videos, never on the subscription itself.
+CHANNEL_ACTIONS = frozenset({"subscription"})
+
+
 def _lane(item: RequestItem) -> str | None:
+    if item.source_action in CHANNEL_ACTIONS:
+        return "channel"
     if item.source_code in CALENDAR_SOURCES:
         return "calendar"
     if item.source_code in MUSIC_SOURCES:
@@ -389,7 +399,7 @@ def screen_families(response: dict, request: list[RequestItem]) -> int:
         if request_item is None:
             continue
         lane = _lane(request_item)
-        if lane not in ("calendar", "music"):
+        if lane not in ("calendar", "music", "channel"):
             continue
         text = " ".join(
             " ".join(v) if isinstance(v, list) else str(v)
@@ -398,7 +408,7 @@ def screen_families(response: dict, request: list[RequestItem]) -> int:
         kept = []
         for mention in item.get("mentions") or []:
             family = mention.get("family_hypothesis")
-            if family in TV_FAMILIES and (lane == "calendar" or not marked):
+            if family in TV_FAMILIES and (lane in ("calendar", "channel") or not marked):
                 dropped += 1
                 continue
             kept.append(mention)
