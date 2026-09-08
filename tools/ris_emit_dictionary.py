@@ -215,10 +215,17 @@ def main() -> int:
     #: to a constant it was really asking whether *any* RIS corpus had ever
     #: landed one, so a v18 load that matched nothing would have passed
     #: silently on v15's rows.
-    version = json.loads(
+    # **A corpus is emitted under the prompt it was extracted with.** The
+    # contract names the prompt of record for the *next* run; when the two
+    # differ (v24 extracted, v25 already compiled for its follow-up, 2026-09-08)
+    # `WRITTEN_CORPUS_PROMPT` names the one that produced these verdicts, so
+    # `evidence ->> 'source'` says what actually ran.
+    import os
+    prompt = os.environ.get("WRITTEN_CORPUS_PROMPT") or json.loads(
         (REPOSITORY / "semantic" / "contracts"
          / "compiled_semantic_contract_v1.json").read_text()
-    )["versions"]["prompt"].rsplit("_", 1)[-1]
+    )["versions"]["prompt"]
+    version = prompt.rsplit("_", 1)[-1]
     corpus = f"ris_{version}"
 
     terms: dict = {}

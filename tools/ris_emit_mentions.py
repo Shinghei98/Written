@@ -72,7 +72,11 @@ def _contract_versions() -> tuple[str, str]:
     path = (pathlib.Path(__file__).resolve().parents[1]
             / "semantic" / "contracts" / "compiled_semantic_contract_v1.json")
     versions = json.loads(path.read_text(encoding="utf-8"))["versions"]
-    return versions["prompt"], versions["grammar"]
+    # The prompt that produced the verdicts, when the contract has already
+    # moved on to the next one (see ris_emit_dictionary.py).
+    import os
+    return (os.environ.get("WRITTEN_CORPUS_PROMPT") or versions["prompt"],
+            versions["grammar"])
 
 
 PROMPT_VERSION, GRAMMAR_VERSION = _contract_versions()
