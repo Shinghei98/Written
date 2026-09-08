@@ -615,6 +615,25 @@ the ingest tool's `--schema`, so a corpus is judged under the wire it was
 decoded with. 0473 made the catalogue resolver consider only living
 revisions, the defect 0469's graves exposed on the first promotion.
 
+### The categories of person (owner, 2026-09-08)
+
+0342's twelve subtypes are replaced by nine controlled categories:
+`performer` (singer, dancer, musician), `composer`, `author` (book or
+blog), `host` (TV or radio presenter, anchor, podcast host), `athlete`,
+`actor`, `director`, `streamer`, `content_creator` (a YouTube or TikTok
+channel personality who is not a streamer). **`character` is gone: a
+fictional character is not a person, and the work it belongs to is the
+term** — the person definition the model reads says so. A person may hold
+more than one category; `semantic_private.person_category_support` keeps
+every answer with its weight, `presumed_terms.person_subtype` is the
+heaviest by trigger, and `api.list_assertions` carries it on
+`display_payload.person_category`. The pass (`tools/ris_person_subtype.py`)
+answers a ranked list of up to three with confidences; an empty list is a
+correct answer and leaves the person held (0477, 0478: 4,051 asked, 1,485
+placed, 2,566 held — Loki and Lucifer among the held, which is the
+character rule working). The next bridge run reads screen-shaped as actor,
+director, host, streamer, content_creator.
+
 ### What the trusted layer does with each field
 
 `aws/worker/_write_model_mentions`, `overlay.py:979-1057`:
