@@ -634,6 +634,29 @@ reader's music rule keeps off the page. What stays other is what no corpus
 and no catalogue has categorised: Bleach, Fate/Zero and Solo Leveling
 among them.
 
+### A song is a term, in its performer's context (owner, 2026-09-09)
+
+Songs are terms — never rows on Memories (0437 keeps a song's line under
+its singer's) but terms that evidence feeds directly: a play, a save, a
+video of the song. Identity is **(performer concept, bare title)**,
+resolved after the performer, because titles repeat and a person does
+not. `semantic_private.mint_songs_in_performer_context()` (0481) is the
+standing route: the first credited performer resolves to exactly one
+creator by label or the row mints nothing; the title is stripped of
+`(From …)`, `(feat. …)`, `(Live Version)`, `- Single`; the pair matches a
+standing work with a `performed_by` edge to that performer, or one linked
+to one of the row's ISRCs, or mints one — kind `work`, `work_type=song`,
+key `work:<title>__<performer>` (a digest where the slug cannot spell the
+title), `performed_by` at provider provenance so plays conduct to the
+singer, `composed_by` where the catalogue's composer credit resolves, and a
+`same_as` link to every ISRC. The resolver's ISRC route then maps the row
+with no string matching, whatever the key's shape. First run: 1,421 minted,
+32 matched, 3,113 links. **Two gaps, both the performer's, recorded in
+NEXT-STEPS**: 2,075 rows resolve no performer (Spotify artists the
+catalogue mint never minted, name-order variants), and rows without an ISRC
+(the device library, 320 for David) still need the title route with
+performer context.
+
 ### The categories of person (owner, 2026-09-08)
 
 0342's twelve subtypes are replaced by nine controlled categories:

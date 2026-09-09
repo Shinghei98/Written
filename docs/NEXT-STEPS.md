@@ -21,6 +21,23 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
+## The song route's two gaps are the performer's (2026-09-09)
+
+0481 mints a song only where the first credited performer resolves to one
+creator concept. Measured: 1,696 music rows do and 2,075 do not — Spotify
+artists the catalogue mint never minted (Jay Chou 113, Taylor Swift 16,
+ONE OK ROCK 25 on other users' rows), name-order variants (`Sawano
+Hiroyuki` against `creator:hiroyuki_sawano`), pipe-joined credits. Every
+such row mints no song and feeds no performer. Two pieces owed: (1) mint
+performers from the Spotify lane the way the Apple catalogue mint does,
+and let the label match fold name order; (2) the title route with
+performer context in the resolver, for rows that carry no ISRC (the device
+library: 320 of David's rows) — strip the decoration, then among same-titled
+songs pick the one whose `performed_by` names a performer already resolved
+on the row. Also owed: run `mint_songs_in_performer_context()` from the
+debounced `mint_vocabulary` job after each distillation, so new songs mint
+without a migration. Delete this section when all three stand.
+
 ## Two kept titles stand as creators (2026-09-08)
 
 Loki and Lucifer are on David's page as kind `creator`: kept terms minted
