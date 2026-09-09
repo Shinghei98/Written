@@ -711,8 +711,9 @@ begin
                           and e.predicate_key = 'performed_by' and e.object_concept_id = s.performer_id))
   then
     raise exception 'mint_songs: a song stands without its performer: %',
-      (select jsonb_agg(jsonb_build_object('title', s.title, 'outcome', s.outcome, 'performer', s.performer_id,
-                'edges', (select jsonb_agg(pr.preferred_label) from ontology.concept_edges e join ontology.concept_revisions pr on pr.concept_id = e.object_concept_id and pr.ontology_version_id = new_version_id and pr.status='active' where e.ontology_version_id = new_version_id and e.status='active' and e.subject_concept_id = s.concept_id and e.predicate_key='performed_by')))
+      -- ids only: a P0001 travels to the operator's log, and a title may not.
+      (select jsonb_agg(jsonb_build_object('song', s.concept_id, 'outcome', s.outcome,
+                                           'performer', s.performer_id))
          from (select * from _songs s
                 where s.concept_id is null
                    or not exists (select 1 from ontology.concept_edges e
