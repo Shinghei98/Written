@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import sys
 import urllib.parse
+import urllib.request
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "semantic" / "src"))
 
@@ -64,7 +65,16 @@ WATCHABLE = {"film", "anime_film", "tv_series", "anime_tv", "musical"}
 
 def sparql(provider: WikidataProvider, query: str):
     url = f"{SPARQL_ENDPOINT}?{urllib.parse.urlencode({'query': query, 'format': 'json'})}"
-    return provider._get_json(url).get("results", {}).get("bindings", [])
+    # **A label may carry a control character, and the slice is not refused
+    # for it (2026-09-08).** One 11.7 MB slice held a raw control byte inside
+    # a label and the strict parser threw the whole slice away, so the run
+    # wrote nothing. The lenient parse keeps the row; the label itself is
+    # normalised before it is ever compared.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT,
+                                                   "Accept": "application/sparql-results+json"})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        payload = json.loads(response.read().decode("utf-8"), strict=False)
+    return payload.get("results", {}).get("bindings", [])
 
 
 def count(provider: WikidataProvider, qid: str, bound: int) -> int:

@@ -615,6 +615,25 @@ the ingest tool's `--schema`, so a corpus is judged under the wire it was
 decoded with. 0473 made the catalogue resolver consider only living
 revisions, the defect 0469's graves exposed on the first promotion.
 
+### The medium speaks first, again, and a franchise the grammar defines is one (2026-09-08)
+
+0476's spanning rule — a franchise keeps its category only when two
+categorised works point into it — hid Persona 5, Sword Art Online and
+Barbie, which the v7 model rightly calls franchises. The owner: "they are
+work → franchise". Two migrations replace the rule. **0479** re-runs
+0463's Wikidata bridge (`tools/emit_wikidata_medium_bridge.py`, eight
+instance-of slices, ambiguity refusing, anime over game): a work still
+untyped takes the catalogue's medium, so Midnights and Brat are albums,
+Persona 5 a game, Teri Baaton Mein Aisa Uljha Jiya a movie — 61 stamped.
+**A creator is never retyped by name**: the first draft tried and named
+FIFTY FIFTY, Irene and Oh My Girl as films. **0480** then returns to
+`franchise` every work still other whose franchise-family dictionary row a
+v7-era corpus saw — the threshold derived from the first `song`/`movie`
+row's arrival — 82 works, the classical containers among them, which the
+reader's music rule keeps off the page. What stays other is what no corpus
+and no catalogue has categorised: Bleach, Fate/Zero and Solo Leveling
+among them.
+
 ### The categories of person (owner, 2026-09-08)
 
 0342's twelve subtypes are replaced by nine controlled categories:

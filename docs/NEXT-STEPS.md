@@ -21,17 +21,27 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
-## The v25 prompt has not run (2026-09-08)
+## Two kept titles stand as creators (2026-09-08)
 
-The v24 corpus (prompt qwen_extractor_v24, mention_extract_v7) is in the
-dictionary (0474/0475) and the re-sort has published (0476). The contract
-of record has moved on: v8 trims the franchise root from the wire and the
-song definition says its root is work, both answers to what v24 measured
-(2,721 roots repaired at ingest). Nothing has been extracted under v25 yet.
-What it buys is measurable only by running it: fewer roots to repair, and
-whether the model stops calling Persona 5, Bleach and Fate/Zero franchises
-— the reason fourteen of David's rows are dark. Delete this section when a
-v25 corpus has entered the dictionary.
+Loki and Lucifer are on David's page as kind `creator`: kept terms minted
+off a "character" answer the grammar no longer admits. Nothing derived can
+retype them — the category pass answers empty (correct), the v25 model
+still calls a bare title a person, and the Wikidata bridge (0479) refuses
+them as ambiguous and in any case never retypes a creator by name, because
+the dry run named FIFTY FIFTY, Irene and Oh My Girl as films that way. The
+routes left: David edits the kept term's family (`api.edit_calibration_item`
+takes one) or strikes it; or a corpus emits the series and its own works
+point in. Delete this section when neither is a creator.
+
+## v25 ran and was not emitted (2026-09-08)
+
+Same 5,248 rows as v24, under mention_extract_v8 / qwen_extractor_v25:
+4,815 accepted, zero roots to repair (v24 needed 2,721), 263 duplicate
+franchises screened, but no category the page needed — Loki still a
+person, and 73 fewer rows accepted on surface offsets. Its results are in
+`out/ris/v25_results_*.jsonl`; the contract of record stays v25 because
+it is strictly better on roots. The next corpus that enters the dictionary
+should be extracted under v25 or later, never v24 again.
 
 ## The queue consumer: built, awaiting install (2026-08-26)
 
