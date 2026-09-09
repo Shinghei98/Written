@@ -1394,7 +1394,9 @@ select e.external_id as isrc, x.concept_id
    and cr.status = 'active'
    and e.provider = 'apple_music_catalog'
    and e.entity_kind = 'song'
-   and c.concept_key like 'recording:isrc_%'
+   -- 0481: a song minted in its performer's context is linked to its ISRCs
+   -- under `work:`; the route reads the link, never the key's shape.
+   and c.retired_at is null
 """
 
 def identity(value: object) -> str:
