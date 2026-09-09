@@ -369,7 +369,11 @@ extension MatchProfileService.Profile {
             Ontology.Domain.travel.sharedLine,
             nil,
             nil,
-        ]
+        ],
+        // The sample carries no terms: the captions above are what the page
+        // draws, and an empty list is the shape a pair with no shared
+        // vocabulary presents.
+        terms: []
     )
 }
 #endif
