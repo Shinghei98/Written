@@ -21,22 +21,31 @@ was missing for two days. Consequences, all observed in the database:
 Delete this section when the account is recharged and a worker invocation has
 been observed claiming a job.
 
-## The song route's two gaps are the performer's (2026-09-09)
+## The song route: what still resolves nobody (2026-09-09)
 
-0481 mints a song only where the first credited performer resolves to one
-creator concept. Measured: 1,696 music rows do and 2,075 do not — Spotify
-artists the catalogue mint never minted (Jay Chou 113, Taylor Swift 16,
-ONE OK ROCK 25 on other users' rows), name-order variants (`Sawano
-Hiroyuki` against `creator:hiroyuki_sawano`), pipe-joined credits. Every
-such row mints no song and feeds no performer. Two pieces owed: (1) mint
-performers from the Spotify lane the way the Apple catalogue mint does,
-and let the label match fold name order; (2) the title route with
-performer context in the resolver, for rows that carry no ISRC (the device
-library: 320 of David's rows) — strip the decoration, then among same-titled
-songs pick the one whose `performed_by` names a performer already resolved
-on the row. Also owed: run `mint_songs_in_performer_context()` from the
-debounced `mint_vocabulary` job after each distillation, so new songs mint
-without a migration. Delete this section when all three stand.
+0482 resolves a performer credit by one route (label, dictionary
+promotion, reversed name order, then the recording's ISRCs) and mints the
+streaming lane's unresolved credits as creators; the song mint runs under
+it. Still owed: (1) the title route with performer context in the
+resolver, for rows that carry no ISRC (the device library: 320 of David's
+rows) — strip the decoration, then among same-titled songs pick the one
+whose `performed_by` names a performer already resolved on the row;
+(2) run `mint_performers_from_provider_credits()` and then
+`mint_songs_in_performer_context()` from the debounced `mint_vocabulary`
+job after each distillation, so new performers and songs mint without a
+migration; (3) the Apple lane's unresolved credits — measured after 0482: 99 rows
+under 56 names, against 1,047 resolved (the device library resolves every
+row, the streaming lane all but 23) — mostly the catalogue's own curator
+credits ("Apple Music K-Pop", "Apple Music for Shing Hei", 29 rows) and
+"Various Artists" (12), which are placeholders to refuse, and a handful of
+Cantopop acts the catalogue fetch never returned (Terence Lam, Pakho Chau,
+AGA); the same mint could run over the Apple lane once the curator
+credits are on the placeholder list; (4) joint credits
+that stand as creators (`creator:lisa_feat_felix_of_stray_kids`, minted
+before the featured-credit strip) should fold into their lead, in 0468's
+shape; (5) one act under two spellings with no ISRC bridging them
+(a catalogue romanisation beside a native-script credit) stands twice
+until a fold names the bridge. Delete an entry when it stands.
 
 ## Two kept titles stand as creators (2026-09-08)
 

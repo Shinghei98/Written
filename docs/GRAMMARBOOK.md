@@ -651,11 +651,34 @@ title), `performed_by` at provider provenance so plays conduct to the
 singer, `composed_by` where the catalogue's composer credit resolves, and a
 `same_as` link to every ISRC. The resolver's ISRC route then maps the row
 with no string matching, whatever the key's shape. First run: 1,421 minted,
-32 matched, 3,113 links. **Two gaps, both the performer's, recorded in
-NEXT-STEPS**: 2,075 rows resolve no performer (Spotify artists the
-catalogue mint never minted, name-order variants), and rows without an ISRC
-(the device library, 320 for David) still need the title route with
-performer context.
+32 matched, 3,113 links.
+
+**The performer is resolved by one route, and the provider's credit mints
+one (0482).** `semantic_private.resolve_performer(text, version)` answers
+a credit — read as the first entry of the credited list, less a featured
+credit and anything after a pipe, so "Tyler, The Creator" is no longer
+"Tyler" and "LiSA feat. Felix" is LiSA — by three routes in order: exactly
+one active creator label under that spelling; else exactly one creator
+the dictionary's person or group term under that spelling is promoted to
+(a stylised spelling the labels held twice, a bilingual spelling of a
+catalogue act); else, for a two-word name, exactly one creator under the
+words in the other order. `mint_performers_from_provider_credits()` is
+the standing route for what no route answers: it tries the recording
+last — a credit whose ISRCs all name songs one standing creator performs
+is that creator under another spelling — and mints the rest as creators
+at provider provenance, keyed on the provider's artist identifier where
+an artist row states one, with a `same_as` link to the provider's entity.
+Refused: a credit that names a standing work (a game's music released
+under the game's name), a placeholder ("Various Artists"), a spelling two
+creators share. The spelling the credit arrived under becomes an alternate
+label wherever the label route did not answer, and the dictionary's person
+and group terms under it are promoted, which is what the category pass and
+the reader read. First run: 143 minted, 346 linked, 3 refused, 58
+dictionary terms promoted, four name-order pairs folded; the song mint
+then ran again under the resolver (315 more songs, 1,455 matched). A
+recording matched by ISRC under a first credit it did not carry before
+gains that performer as a second `performed_by` edge, at 0.8. What still
+resolves nobody is recorded in NEXT-STEPS.
 
 ### The categories of person (owner, 2026-09-08)
 
