@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Apply — Written</title>
+<meta name="description" content="Apply for a role at Written.">
+<meta name="theme-color" content="#F3EFE9">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/assets/w-logo.png" type="image/png">
+<link rel="preload" href="/assets/fonts/Quicksand-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header id="banner">
+  <nav class="banner-inner" aria-label="Primary">
+    <a class="banner-link" href="/en-us/careers/">All openings</a>
+    <a class="banner-logo" href="/en-us/" aria-label="Written — home">
+      <span class="banner-mark" role="img" aria-label="Written"></span>
+    </a>
+    <a class="banner-link" href="/en-us/privacy/">Privacy</a>
+  </nav>
+</header>
+
+<main class="careers apply">
+  <div class="wrap wrap-narrow">
+
+    <div class="careers-head">
+      <p class="eyebrow" id="applyDept">&nbsp;</p>
+      <h1 id="applyTitle">&nbsp;</h1>
+    </div>
+
+    <form id="applyForm" class="apply-form" novalidate>
+
+      <label class="field">
+        <span>LinkedIn URL</span>
+        <input type="url" name="linkedin_url" placeholder="https://linkedin.com/in/you">
+      </label>
+
+      <label class="field field-file">
+        <span>Resume / CV <em>*</em></span>
+        <input type="file" name="resume" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+      </label>
+
+      <label class="field">
+        <span>Full name <em>*</em></span>
+        <input type="text" name="full_name" autocomplete="name" required>
+      </label>
+
+      <div class="field">
+        <span>Pronoun</span>
+        <div class="pill-group" id="pronounGroup" role="group" aria-label="Pronoun">
+          <button type="button" class="pill" data-value="she/her" aria-pressed="false">She/her</button>
+          <button type="button" class="pill" data-value="he/him" aria-pressed="false">He/him</button>
+          <button type="button" class="pill" data-value="they/them" aria-pressed="false">They/them</button>
+          <button type="button" class="pill" data-value="other" aria-pressed="false">Other</button>
+        </div>
+        <input type="text" class="pill-other" id="pronounOther" placeholder="Your pronoun" hidden>
+      </div>
+
+      <label class="field">
+        <span>Email <em>*</em></span>
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
+
+      <label class="field">
+        <span>Phone <em>*</em></span>
+        <input type="tel" name="phone" autocomplete="tel" required>
+      </label>
+
+      <label class="field">
+        <span>Current location <em>*</em></span>
+        <input type="text" name="current_location" placeholder="City, Country" required>
+      </label>
+
+      <label class="field" id="githubField" hidden>
+        <span>GitHub URL</span>
+        <input type="url" name="github_url" placeholder="https://github.com/you">
+      </label>
+
+      <p class="apply-error" id="applyError" hidden></p>
+
+      <button class="btn-gold" type="submit" id="applySubmit">Submit application</button>
+      <p class="apply-consent">
+        By clicking submit, you give Written permission to contact you by
+        email and phone about this application.
+      </p>
+    </form>
+
+    <div class="apply-done" id="applyDone" hidden>
+      <h2>Application received.</h2>
+      <p>
+        Thanks for applying for <strong id="applyDoneTitle"></strong> — we'll
+        be in touch by email or phone if it's a match.
+      </p>
+      <a class="doc-back" href="/en-us/careers/">&larr; All openings</a>
+    </div>
+
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <span class="foot-mark" role="img" aria-label="Written"></span>
+    <p class="foot-line">Let your love story be written</p>
+    <p class="foot-legal">
+      <a href="/en-us/privacy/">Privacy</a> ·
+      <a href="/en-us/terms/">Terms</a> ·
+      <a href="/en-us/cookies/">Cookies</a> ·
+      <a href="/en-us/support/">Support</a> ·
+      <a href="mailto:hello@written-stl.com">hello@written-stl.com</a> ·
+      <span>© <span id="year">2026</span> Written</span>
+    </p>
+  </div>
+</footer>
+
+<script src="/app.js"></script>
+<script src="/careers.js" defer></script>
+</body>
+</html>

@@ -9,6 +9,18 @@
 # consent to, which is true today and true only for as long as nobody pastes a
 # tag manager in. The policy below makes it enforced by the browser instead: a
 # third-party script added later does not quietly start working, it fails.
+#
+# **A per-path `connect-src` was tried and measured wrong.** A second `/*`-
+# style block scoped to `/en-us/careers/apply/*` looked like a narrower
+# exception, but Workers static assets does not replace a header a more
+# general matching block already set — it sends both. Two
+# `Content-Security-Policy` headers are two policies in force at once, and the
+# spec intersects them: `connect-src 'none'` from the first still won, so
+# careers.js's fetches failed with no console line to explain why (a blocked
+# `connect-src` is reported through a different channel than `console.*`).
+# Checked with `curl -D -` against the live path before concluding this,
+# twice. One policy, site-wide, is the only version that is actually enforced
+# as written.
 
 /*
   # `default-src 'self'` covers everything not named below.
@@ -17,13 +29,19 @@
   # `style="margin:0"` attribute. Those could be moved into styles.css and the
   # keyword dropped; until they are, this is honest about why it is here.
   #
-  # `connect-src 'none'` because app.js makes no requests at all — checked, not
-  # assumed. It is the line that would have to change first if analytics were
-  # ever added, which is exactly the friction wanted.
+  # `connect-src` names exactly two things: `'self'`, and the project's own
+  # Supabase URL for `/en-us/careers/apply/`'s two fetches (an insert, a
+  # resume upload) — never a wildcard, never any other origin. The anon key
+  # careers.js carries is `sb_publishable_…`, the same public-by-intent value
+  # AppConfig.swift ships; it is not a secret and grants only what the
+  # `anon`-scoped RLS policies on `job_applications` and the resume bucket
+  # allow, which is insert and nothing else. Every other page still makes no
+  # request at all — this only widens who is *allowed* to be asked, not who
+  # is.
   #
   # `frame-ancestors 'none'` stops the site being framed inside somebody else's
   # page, which for a document a reviewer is asked to trust is worth refusing.
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://fwnezkbesjoazlpaflbq.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
 
   # No sniffing a served type into something else.
   X-Content-Type-Options: nosniff

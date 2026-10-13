@@ -63,6 +63,14 @@
 
 * { box-sizing: border-box; }
 
+/* An author rule setting `display` on a selector that also matches a hidden
+   element wins the cascade over the UA's `[hidden] { display: none }` —
+   same specificity, author beats user-agent regardless of source order.
+   `.field { display: block }` doing exactly that to a hidden form field is
+   what this guards against, project-wide, rather than chasing it selector
+   by selector. */
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 html.intro-active { overflow: hidden; }
 
@@ -117,9 +125,7 @@ h3 {
   margin: 0;
 }
 
-/* The button, in Hinge's proportions and our gold. One style, two states:
-   solid gold for a door that opens, outlined and inert for one that does not
-   open yet. */
+/* The button, in Hinge's proportions and our gold. */
 .btn-gold {
   display: inline-block;
   font-family: var(--display);
@@ -139,16 +145,6 @@ h3 {
 
 .btn-gold:hover { background: #B8922B; border-color: #B8922B; transform: translateY(-1px); }
 .btn-gold:active { transform: translateY(0); }
-
-/* The inert twin: same gold, same white text, but it presses nothing. */
-.btn-ghost,
-.btn-ghost:hover {
-  background: var(--brand);
-  border-color: var(--brand);
-  transform: none;
-  cursor: default;
-  opacity: .85;
-}
 
 /* ==========================================================================
    The opening
@@ -1966,3 +1962,170 @@ h3 {
   .book-grid-body { grid-template-columns: repeat(auto-fill, 120px); gap: 20px 14px; padding: 20px 16px 40px; }
   .book-thumb-frame { width: 120px; height: 168px; --page-w: 120px; --page-h: 168px; --page-fs: 3.84px; }
 }
+
+/* ==========================================================================
+   Careers — the listing and the application form
+   --------------------------------------------------------------------------
+   Same gold-on-parchment language as every document page, in Hinge's own
+   careers-page proportions (read 2026-10-13): an eyebrow, a serif-free
+   headline, a lede per team, and a bordered grid of roles whose arrow is the
+   only thing that moves.
+   ========================================================================== */
+
+.careers { padding: calc(var(--banner-h) + clamp(40px, 8vh, 90px)) 0 clamp(56px, 10vh, 120px); }
+
+.careers-head { margin-bottom: clamp(40px, 6vh, 64px); }
+
+.careers-head h1 {
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -.012em;
+  margin: 0;
+}
+
+.team { margin-bottom: clamp(56px, 8vh, 96px); }
+.team:last-of-type { margin-bottom: clamp(36px, 5vh, 64px); }
+
+.team-head { margin-bottom: 1.6rem; max-width: var(--measure); }
+
+.team-head h2 {
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  margin: 0 0 .5rem;
+}
+
+.team-lede { color: var(--muted); margin: 0; }
+
+.roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--line);
+}
+
+.role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.5rem 1.7rem;
+  text-decoration: none;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  transition: background-color .15s;
+}
+
+.role-row:nth-child(odd) { border-right: 1px solid var(--line); }
+.role-row:hover, .role-row:focus-visible { background: var(--paper); }
+
+.role-title { font-family: var(--display); font-size: 1.15rem; }
+
+.role-arrow {
+  font-size: 1.25rem;
+  color: var(--muted);
+  transition: transform .2s, color .2s;
+}
+
+.role-row:hover .role-arrow,
+.role-row:focus-visible .role-arrow {
+  transform: translate(3px, -3px);
+  color: var(--brand-deep);
+}
+
+@media (max-width: 720px) {
+  .roles { grid-template-columns: 1fr; }
+  .role-row:nth-child(odd) { border-right: 0; }
+}
+
+/* The application form */
+
+.wrap-narrow { max-width: 38rem; }
+
+.apply-form { max-width: 34rem; }
+
+.apply-form .field { display: block; margin-bottom: 1.3rem; }
+
+.apply-form .field > span:first-child {
+  display: block;
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: .04em;
+  margin-bottom: .4rem;
+  color: var(--ink);
+}
+
+.apply-form .field em {
+  font-style: normal;
+  color: var(--brand-deep);
+  margin-left: .2rem;
+}
+
+.apply-form input[type="text"],
+.apply-form input[type="email"],
+.apply-form input[type="tel"],
+.apply-form input[type="url"],
+.apply-form input[type="file"] {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-family: var(--body);
+  font-size: 1rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.apply-form input[type="file"] { padding: .55rem .9rem; }
+
+.apply-form input:focus { border-color: var(--brand); outline: none; }
+
+.pill-group { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+.pill {
+  font-family: var(--display);
+  font-size: .85rem;
+  padding: .5rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pill:hover { border-color: var(--brand); }
+
+.pill.is-active { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.pill-other {
+  display: block;
+  width: 100%;
+  margin-top: .6rem;
+  font: inherit;
+  font-size: 1rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.apply-error {
+  color: #B3261E;
+  font-size: .9rem;
+  margin: 0 0 1rem;
+}
+
+.apply-consent {
+  color: var(--muted);
+  font-size: .85rem;
+  margin: .9rem 0 0;
+  max-width: var(--measure);
+}
+
+.apply-done h2 {
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  margin: 0 0 .6rem;
+}
+
+.apply-done p { color: var(--muted); max-width: var(--measure); }

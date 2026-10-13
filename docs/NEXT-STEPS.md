@@ -4,6 +4,37 @@
 remembered.** Delete a section when it stops being true — this file is a plan,
 not a record, and the record is `semantic/JOURNAL.md` and `git log -p`.
 
+## The careers pages are built, not yet deployed (2026-10-13)
+
+`/en-us/careers/` and `/en-us/careers/apply/` exist in the tree, the home
+page's "Join us" button and the footer's "Openings" link both now point at
+`/en-us/careers/` instead of the disabled button and the `#hiring` anchor, and
+`job_applications` plus a `job-application-resumes` bucket are in migration
+`0484`. **None of that is live yet:**
+
+- **`supabase db push` has not been run.** Until `0484` is applied, the apply
+  page's two fetches (resume upload, then row insert) both 404, and the form
+  shows its generic "something went wrong" error on every submission.
+- **The site has not been redeployed.** `npx wrangler deploy` (or Workers &
+  Pages → Connect to Git, on a push to `main`) needs to run before
+  written-stl.com serves any of this — verify against a live page afterward,
+  per the standing trap above about trusting wrangler's success line alone.
+- **No anti-spam sits in front of the anon insert/upload policies.** Unlike
+  phone verification, which has Twilio's geo allowlist and an hourly rate
+  limit, a caller holding the public anon key can POST to
+  `job_applications` or upload to the resume bucket with nothing to slow them
+  down beyond the 10 MB file cap. Cloudflare Turnstile in front of the submit
+  button is the natural fix if this is abused; not built, because it was not
+  asked for.
+- **Nobody has wired up a way to read these back beyond the Supabase
+  dashboard.** Table Editor and the Storage browser, both against
+  `service_role`, are enough for the first applicants; a reviewer tool (in the
+  shape of `tools/seed_synthetic.py`) is only worth building once there is
+  something to triage.
+
+Delete this section once `0484` has been pushed, the site has been redeployed,
+and one real submission has been read back from the dashboard.
+
 ## AWS is not running (2026-08-24)
 
 **Access ended at free-tier expiry on 2026-08-22, mid-repair** (`346fc85`'s
