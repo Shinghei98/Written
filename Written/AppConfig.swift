@@ -245,7 +245,8 @@ enum AppConfig {
         // way. What does *not* follow automatically is deleting what was
         // captured — that is `SyncService.deleteSource(_:)` and the vault's own
         // erasure, and it has to be done deliberately.
-        "spotify",
+        // Removed for the App Store submission (2026-11-05).
+        // "spotify",
         // **The two sources the encrypted vault exists for.** Their payloads
         // are whole calendar events — titles, locations, organisers — which is
         // why they are encrypted at rest and why `consent_purpose` derives to

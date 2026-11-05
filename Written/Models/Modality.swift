@@ -130,7 +130,9 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // locally *and* called `deleteSource` on the server. With the source
         // live that wiped the rows the moment they were distilled. That task is
         // suspended; restoring the archive means restoring it too.
-        case .music: return ["apple_music", "spotify"]
+        // Archived again for the App Store submission (2026-11-05): development
+        // mode caps Spotify at five users, so a reviewer cannot connect it.
+        case .music: return ["apple_music" /* , "spotify" */]
         // ARCHIVED-YOUTUBE — `"youtube"` removed for the App Store build.
         //
         // **Lift it again to record Google's OAuth verification video**, which
@@ -144,7 +146,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // after Apple Calendar — a podcast is hours of attention given to one
         // show over weeks, which is a stronger claim about a person than a
         // follow costs.
-        case .media: return ["apple_podcasts", "youtube"]
+        case .media: return ["apple_podcasts" /* , "youtube" */]
         // Not in `written_api.xlsx` — the first source that isn't. A calendar
         // is where a bought ticket lands by itself: Eventbrite, Ticketmaster
         // and Dice all write the booking straight in, so an event someone paid
@@ -195,7 +197,7 @@ enum Modality: Int, CaseIterable, Identifiable, Hashable {
         // returns**, for anyone who has both. Deduped where it is shown, by
         // title and start, in `ListeningHighlights.personalEvents`; not deduped
         // in the vault, which is the known gap Google Calendar already has.
-        case .plans: return ["apple_calendar", "google_calendar", "outlook_calendar"]
+        case .plans: return ["apple_calendar" /* , "google_calendar" */, "outlook_calendar"]
         case .lifestyle: return ["health"]
         }
     }

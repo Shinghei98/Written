@@ -29,7 +29,7 @@
     <div class="doc-head">
       <p class="eyebrow">Written</p>
       <h1>Privacy Policy</h1>
-      <p class="doc-dates">Effective 5 August 2026 · Last updated 5 August 2026</p>
+      <p class="doc-dates">Effective 5 August 2026 · Last updated 5 November 2026</p>
     </div>
 
     <div class="doc-body">
@@ -137,6 +137,14 @@
         <li><strong>Apple Calendar</strong> — the same fields as Google
           Calendar, within the window the app reads. Birthday and public-holiday
           calendars are excluded.</li>
+        <li><strong>Outlook Calendar</strong> — the names of your calendars, and
+          for each event its title, start and end, whether it is all-day or
+          cancelled, its category labels, its free/busy and privacy settings,
+          and whether it repeats. Not the event's description, attendees,
+          organiser, location or attachments: Written asks Microsoft for the
+          listed fields only. Calendars of birthdays and public holidays are
+          left out. Read through Microsoft Graph with the
+          <code>Calendars.Read</code> permission, which is read-only.</li>
         <li><strong>Apple Health</strong> — workouts, exercise minutes, active
           energy, steps, walking and running distance, and your date of birth
           and biological sex.</li>
@@ -412,6 +420,12 @@
                 The grant happens on Google's own screen.</td>
             </tr>
             <tr>
+              <td>Microsoft</td>
+              <td>Only if you connect Outlook Calendar. The grant happens on
+                Microsoft's own screen, and Written reads your calendars through
+                Microsoft Graph.</td>
+            </tr>
+            <tr>
               <td>Twilio</td>
               <td>Only if you sign in by phone: your number, to send one
                 verification code. Arranged through Supabase.</td>
@@ -526,6 +540,13 @@
           7 days.</li>
         <li><strong>Withdraw Google's grant directly</strong> at
           <a href="https://myaccount.google.com/permissions" rel="noopener" target="_blank">myaccount.google.com/permissions</a>.</li>
+        <li><strong>Withdraw Microsoft's grant directly</strong> at
+          <a href="https://account.microsoft.com/privacy/app-access" rel="noopener" target="_blank">account.microsoft.com/privacy/app-access</a>
+          for a personal account, or
+          <a href="https://myapps.microsoft.com" rel="noopener" target="_blank">myapps.microsoft.com</a>
+          for a work or school account. Disconnecting in the app deletes
+          Written's copy of the sign-in, but Microsoft offers apps no way to
+          withdraw the grant on your behalf, so this is the step that does.</li>
       </ul>
       <p>
         Depending on where you live you may have further rights — to object to
